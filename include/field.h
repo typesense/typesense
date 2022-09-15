@@ -293,6 +293,16 @@ struct field {
 
             field_val[fields::locale] = field.locale;
 
+            field_val[fields::nested] = field.nested;
+            if(field.nested) {
+                field_val[fields::nested_array] = field.nested_array;
+            }
+
+            if(field.num_dim > 0) {
+                field_val[fields::num_dim] = field.num_dim;
+                field_val[fields::vec_dist] = field.vec_dist == ip ? "ip" : "cosine";
+            }
+
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {

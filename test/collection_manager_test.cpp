@@ -12,8 +12,8 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *collection1;
-    std::vector<field> search_fields;
     std::vector<sort_by> sort_fields;
+    nlohmann::json schema;
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
@@ -24,19 +24,27 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        search_fields = {
-            field("title", field_types::STRING, false, false, true, "en", false),
-            field("starring", field_types::STRING, false, false, true, "", false, true),
-            field("cast", field_types::STRING_ARRAY, true, true, true, "", false),
-            field(".*_year", field_types::INT32, true, true),
-            field("location", field_types::GEOPOINT, false, true, true),
-            field("not_stored", field_types::STRING, false, true, false),
-            field("points", field_types::INT32, false)
-        };
+        schema = R"({
+            "name": "collection1",
+            "enable_nested_fields": true,
+            "fields": [
+                {"name": "title", "type": "string", "locale": "en"},
+                {"name": "starring", "type": "string", "infix": true},
+                {"name": "cast", "type": "string[]", "facet": true, "optional": true},
+                {"name": ".*_year", "type": "int32", "facet": true, "optional": true},
+                {"name": "location", "type": "geopoint", "optional": true},
+                {"name": "not_stored", "type": "string", "optional": true, "index": false},
+                {"name": "points", "type": "int32"},
+                {"name": "person", "type": "object", "optional": true},
+                {"name": "vec", "type": "float[]", "num_dim": 128, "optional": true}
+            ],
+            "default_sorting_field": "points",
+            "symbols_to_index":["+"],
+            "token_separators":["-"]
+        })"_json;
 
         sort_fields = { sort_by("points", "DESC") };
-        collection1 = collectionManager.create_collection("collection1", 4, search_fields,
-                                                          "points", 12345, "", {"+"}, {"-"}).get();
+        collection1 = collectionManager.create_collection(schema).get();
     }
 
     virtual void SetUp() {
@@ -91,16 +99,135 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(3, num_keys);
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
-    ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\",\"enable_nested_fields\":false,\"fallback_field_type\":\"\","
-              "\"fields\":[{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":false,\"index\":true,\"infix\":true,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":true,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"sort\":false,\"type\":\"string[]\"},"
-              "{\"facet\":true,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"sort\":true,\"type\":\"int32\"},"
-              "{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"sort\":true,\"type\":\"geopoint\"},"
-              "{\"facet\":false,\"index\":false,\"infix\":false,\"locale\":\"\",\"name\":\"not_stored\",\"optional\":true,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"sort\":true,\"type\":\"int32\"}],\"id\":0,"
-              "\"name\":\"collection1\",\"num_memory_shards\":4,\"symbols_to_index\":[\"+\"],\"token_separators\":[\"-\"]}",
-              collection_meta_json);
+
+    LOG(INFO) << collection_meta_json;
+
+    nlohmann::json expected_meta_json = R"(
+        {
+          "created_at":1663234047,
+          "default_sorting_field":"points",
+          "enable_nested_fields":true,
+          "fallback_field_type":"",
+          "fields":[
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"en",
+              "name":"title",
+              "nested":false,
+              "optional":false,
+              "sort":false,
+              "type":"string"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":true,
+              "locale":"",
+              "name":"starring",
+              "nested":false,
+              "optional":false,
+              "sort":false,
+              "type":"string"
+            },
+            {
+              "facet":true,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"cast",
+              "nested":false,
+              "optional":true,
+              "sort":false,
+              "type":"string[]"
+            },
+            {
+              "facet":true,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":".*_year",
+              "nested":false,
+              "optional":true,
+              "sort":true,
+              "type":"int32"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"location",
+              "nested":false,
+              "optional":true,
+              "sort":true,
+              "type":"geopoint"
+            },
+            {
+              "facet":false,
+              "index":false,
+              "infix":false,
+              "locale":"",
+              "name":"not_stored",
+              "nested":false,
+              "optional":true,
+              "sort":false,
+              "type":"string"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"points",
+              "nested":false,
+              "optional":false,
+              "sort":true,
+              "type":"int32"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"person",
+              "nested":true,
+              "nested_array":2,
+              "optional":true,
+              "sort":false,
+              "type":"object"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"vec",
+              "nested":false,
+              "num_dim":128,
+              "optional":true,
+              "sort":false,
+              "type":"float[]",
+              "vec_dist":"cosine"
+            }
+          ],
+          "id":0,
+          "name":"collection1",
+          "num_memory_shards":4,
+          "symbols_to_index":[
+            "+"
+          ],
+          "token_separators":[
+            "-"
+          ]
+        }
+    )"_json;
+
+    auto actual_json = nlohmann::json::parse(collection_meta_json);
+    expected_meta_json["created_at"] = actual_json["created_at"];
+
+    ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
     ASSERT_EQ("1", next_collection_id);
 }
 
@@ -185,7 +312,15 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
     ASSERT_STREQ("collection1", collection_vec[0]->get_name().c_str());
 
     // try creating one more collection
-    collectionManager.create_collection("collection2", 4, search_fields, "points");
+    auto new_schema = R"({
+        "name": "collection2",
+        "fields": [
+            {"name": "title", "type": "string", "locale": "en"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    collectionManager.create_collection(new_schema);
     collection_vec = collectionManager.get_collections();
     ASSERT_EQ(2, collection_vec.size());
 
@@ -323,6 +458,11 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(false, restored_schema.at("title").facet);
     ASSERT_EQ(false, restored_schema.at("title").optional);
     ASSERT_EQ(false, restored_schema.at("not_stored").index);
+    ASSERT_TRUE(restored_schema.at("person").nested);
+    ASSERT_EQ(2, restored_schema.at("person").nested_array);
+    ASSERT_EQ(128, restored_schema.at("vec").num_dim);
+
+    ASSERT_TRUE(collection1->get_enable_nested_fields());
 
     ASSERT_EQ(2, collection1->get_overrides().size());
     ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());

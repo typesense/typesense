@@ -2576,6 +2576,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                 scores[0] = -float_to_int64_t(dist_label.first);
                 int64_t match_score_index = -1;
 
+                //LOG(INFO) << "SEQ_ID: " << seq_id << ", score: " << dist_label.first;
+
                 KV kv(0, searched_queries.size(), 0, seq_id, distinct_id, match_score_index, scores);
                 topster->add(&kv);
                 nearest_ids.push_back(seq_id);

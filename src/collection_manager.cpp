@@ -42,9 +42,31 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::infix] = -1;
         }
 
+        if(field_obj.count(fields::nested) == 0) {
+            field_obj[fields::nested] = false;
+        }
+
+        if(field_obj.count(fields::nested_array) == 0) {
+            field_obj[fields::nested_array] = 0;
+        }
+
+        if(field_obj.count(fields::num_dim) == 0) {
+            field_obj[fields::num_dim] = 0;
+        }
+
+        vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
+
+        if(field_obj.count(fields::vec_dist) != 0) {
+            auto vec_dist_type_op = magic_enum::enum_cast<vector_distance_type_t>(fields::vec_dist);
+            if(vec_dist_type_op.has_value()) {
+                vec_dist_type = vec_dist_type_op.value();
+            }
+        }
+
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
-                -1, field_obj[fields::infix]);
+                -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
+                field_obj[fields::num_dim], vec_dist_type);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
