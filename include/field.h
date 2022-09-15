@@ -50,7 +50,7 @@ namespace fields {
 }
 
 enum vector_distance_type_t {
-    squared_l2,
+    ip,
     cosine
 };
 

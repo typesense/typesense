@@ -585,7 +585,9 @@ public:
     static int get_bounded_typo_cost(const size_t max_cost, const size_t token_len,
                                      size_t min_len_1typo, size_t min_len_2typo);
 
-    static int64_t float_to_in64_t(float n);
+    static int64_t float_to_int64_t(float n);
+
+    static float int64_t_to_float(int64_t n);
 
     uint64_t get_distinct_id(const std::vector<std::string>& group_by_fields, const uint32_t seq_id) const;
 

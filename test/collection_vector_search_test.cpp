@@ -75,6 +75,10 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
+    ASSERT_FLOAT_EQ(3.409385681152344e-05, results["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.04329806566238403, results["hits"][1]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.15141665935516357, results["hits"][2]["vector_distance"].get<float>());
+
     // with filtering
     results = coll1->search("*", {}, "points:[0,1]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                                  spp::sparse_hash_set<std::string>(),

@@ -1601,6 +1601,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 wrapper_doc["geo_distance_meters"] = geo_distances;
             }
 
+            if(!vector_query.field_name.empty()) {
+                wrapper_doc["vector_distance"] = Index::int64_t_to_float(-field_order_kv->scores[0]);
+            }
+
             hits_array.push_back(wrapper_doc);
         }
 
