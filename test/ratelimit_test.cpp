@@ -9,27 +9,33 @@ class RateLimitManagerTest : public ::testing::Test
 {
 protected:
     RateLimitManager *manager = RateLimitManager::getInstance();
+    Store *store;
+
+
 
     RateLimitManagerTest() {
-        // You can do set-up work for each test here.
+
     }
 
     virtual ~RateLimitManagerTest() {
         // You can do clean-up work that doesn't throw exceptions here.
         manager->clear_all();
+
     }
 
     // If the constructor and destructor are not enough for setting up
     // and cleaning up each test, you can define the following methods:
 
     virtual void SetUp() {
-        // Code here will be called immediately after the constructor (right
-        // before each test).
+        std::string state_dir_path = "/tmp/typesense_test/rate_limit_manager_test_db";
+        system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+
+        store = new Store(state_dir_path);
+        manager->init(store);
     }
 
     virtual void TearDown() {
-        // Code here will be called immediately after each test (right
-        // before the destructor).
+        delete store;
     }
 
     // Objects declared here can be used by all tests in the test case for Foo.
@@ -337,5 +343,5 @@ TEST_F(RateLimitManagerTest, TestGetAllRulesJSON) {
     EXPECT_EQ(rules.at(0).is_object(), true);
     EXPECT_EQ(rules.at(0).at("id").is_number(), true);
     EXPECT_EQ(rules.at(0).at("entity_type").is_string(), true);
-    EXPECT_EQ(rules.at(0).at("entity_ids").is_array(), true);
+    EXPECT_EQ(rules.at(0).at("api_keys").is_array(), true);
 }
