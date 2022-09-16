@@ -2572,8 +2572,11 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                     groups_processed.emplace(distinct_id);
                 }
 
+                auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
+                                      dist_label.first;
+
                 int64_t scores[3] = {0};
-                scores[0] = -float_to_int64_t(dist_label.first);
+                scores[0] = -float_to_int64_t(vec_dist_score);
                 int64_t match_score_index = -1;
 
                 //LOG(INFO) << "SEQ_ID: " << seq_id << ", score: " << dist_label.first;
