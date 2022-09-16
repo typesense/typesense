@@ -170,12 +170,12 @@ class RateLimitManager
         // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
 
         // Prefix for rate limit rules
-        static constexpr const char* RULES_NEXT_ID = "$KRLN";
-        static constexpr const char* RULES_PREFIX = "$KRLL";
+        static constexpr const char* RULES_NEXT_ID = "$RLN";
+        static constexpr const char* RULES_PREFIX = "$RLRP";
 
         // Prefix for bans
-        static constexpr const char* BANS_NEXT_ID = "$KBN";
-        static constexpr const char* BANS_PREFIX = "$KBL";
+        static constexpr const char* BANS_NEXT_ID = "$RLBN";
+        static constexpr const char* BANS_PREFIX = "$RLBP";
 
 
 
@@ -214,6 +214,13 @@ class RateLimitManager
 
         // Helper function to insert rule in store
         void insert_rule(const rate_limit_rule_t &rule);
+
+        // Helper function to get rule key for DB store from ID
+        std::string get_rule_key(const uint32_t id);
+
+
+        // Helper function to get ban key for DB store from ID
+        std::string get_ban_key(const uint32_t id);
 
         // Helper function to 
 
