@@ -1454,14 +1454,6 @@ bool CollectionManager::parse_vector_query_str(std::string vector_query_str, vec
 
                     vector_query.k = std::stoul(param_kv[1]);
                 }
-
-                if(param_kv[0] == "exact") {
-                    if(!StringUtils::is_bool(param_kv[1])) {
-                        return false;
-                    }
-
-                    vector_query.exact = (param_kv[1] == "true") ;
-                }
             }
 
             return true;

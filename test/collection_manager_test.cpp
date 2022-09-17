@@ -920,7 +920,7 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
 
 TEST_F(CollectionManagerTest, ParseVectorQueryString) {
     vector_query_t vector_query;
-    bool parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], exact: false, k: 10)", vector_query);
+    bool parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
     ASSERT_TRUE(parsed);
     ASSERT_EQ("vec", vector_query.field_name);
     ASSERT_EQ(10, vector_query.k);
@@ -935,15 +935,15 @@ TEST_F(CollectionManagerTest, ParseVectorQueryString) {
     ASSERT_TRUE(parsed);
 
     vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:[0.34, 0.66, 0.12, 0.68], exact: false, k: 10)", vector_query);
+    parsed = CollectionManager::parse_vector_query_str("vec:[0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
     ASSERT_FALSE(parsed);
 
     vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], exact: false, k: 10", vector_query);
+    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10", vector_query);
     ASSERT_TRUE(parsed);
 
     vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:(0.34, 0.66, 0.12, 0.68, exact: false, k: 10)", vector_query);
+    parsed = CollectionManager::parse_vector_query_str("vec:(0.34, 0.66, 0.12, 0.68, k: 10)", vector_query);
     ASSERT_FALSE(parsed);
 
     vector_query._reset();

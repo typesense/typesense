@@ -2548,7 +2548,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
         if(!vector_query.field_name.empty()) {
-            auto k = per_page * page;
+            auto k = std::max<size_t>(vector_query.k, per_page * page);
+
             VectorFilterFunctor filterFunctor(filter_ids, filter_ids_length);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
 

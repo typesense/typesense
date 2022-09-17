@@ -571,14 +571,12 @@ struct sort_by {
 struct vector_query_t {
     std::string field_name;
     size_t k = 0;
-    bool exact = false;
     std::vector<float> values;
 
     void _reset() {
         // used for testing only
         field_name.clear();
         k = 0;
-        exact = false;
         values.clear();
     }
 };
