@@ -1337,3 +1337,73 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldSchemaAdditions) {
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
 }
+
+TEST_F(CollectionSchemaChangeTest, DropAndReAddNestedObject) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "person", "type": "object"},
+            {"name": "school.city", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Test";
+    doc["person"] = nlohmann::json::object();
+    doc["person"]["name"] = "Jack";
+    doc["school"] = nlohmann::json::object();
+    doc["school"]["city"] = "NYC";
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto fields = coll1->get_fields();
+    auto schema_map = coll1->get_schema();
+
+    ASSERT_EQ(4, fields.size());
+    ASSERT_EQ(4, schema_map.size());
+
+    // drop + re-add object field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "person", "drop": true},
+            {"name": "person", "type": "object"}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    fields = coll1->get_fields();
+    schema_map = coll1->get_schema();
+
+    auto res_op = coll1->search("jack", {"person.name"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    ASSERT_EQ(4, fields.size());
+    ASSERT_EQ(4, schema_map.size());
+
+    // drop + re-add school
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "school.city", "drop": true},
+            {"name": "school.city", "type": "string"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    fields = coll1->get_fields();
+    schema_map = coll1->get_schema();
+
+    ASSERT_EQ(4, fields.size());
+    ASSERT_EQ(4, schema_map.size());
+}

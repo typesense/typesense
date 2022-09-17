@@ -3514,6 +3514,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     // basic validation of fields
     std::vector<field> diff_fields;
     tsl::htrie_map<char, field> updated_search_schema = search_schema;
+    tsl::htrie_map<char, field> updated_nested_fields = nested_fields;
     size_t num_auto_detect_fields = 0;
 
     // since fields can be deleted and added in the same change set,
@@ -3573,6 +3574,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             if(found_field) {
                 del_fields.push_back(field_it.value());
                 updated_search_schema.erase(field_it.key());
+                updated_nested_fields.erase(field_it.key());
 
                 // handle nested fields
                 if(field_it.value().nested && enable_nested_fields) {
@@ -3675,7 +3677,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         }
 
         if(enable_nested_fields) {
-            field::flatten_stored_doc(document, nested_fields);
+            field::flatten_stored_doc(document, updated_nested_fields);
         }
 
         if(!fallback_field_type.empty() || !new_dynamic_fields.empty() || !new_nested_fields.empty()) {
