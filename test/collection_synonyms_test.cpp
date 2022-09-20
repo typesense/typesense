@@ -83,7 +83,8 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     nlohmann::json syn_plus_json = {
         {"id", "syn-plus"},
         {"root", "+"},
-        {"synonyms", {"plus", "#"} }
+        {"synonyms", {"plus", "#"} },
+        {"symbols_to_index", {"+", "#"}},
     };
 
     synonym_t synonym_plus;
@@ -169,6 +170,29 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     syn_op = synonym_t::parse(syn_json_root_bad_type, synonym);
     ASSERT_FALSE(syn_op.ok());
     ASSERT_STREQ("Key `root` should be a string.", syn_op.error().c_str());
+
+    // bad symbols to index
+    nlohmann::json syn_json_bad_symbols = {
+        {"id", "syn-1"},
+        {"root", "Ocean"},
+        {"synonyms", {"Sea"} },
+        {"symbols_to_index", {}}
+    };
+
+    syn_op = synonym_t::parse(syn_json_bad_symbols, synonym);
+    ASSERT_FALSE(syn_op.ok());
+    ASSERT_STREQ("Synonym `symbols_to_index` should be an array of strings.", syn_op.error().c_str());
+
+    syn_json_bad_symbols = {
+        {"id", "syn-1"},
+        {"root", "Ocean"},
+        {"synonyms", {"Sea"} },
+        {"symbols_to_index", {"%^"}}
+    };
+
+    syn_op = synonym_t::parse(syn_json_bad_symbols, synonym);
+    ASSERT_FALSE(syn_op.ok());
+    ASSERT_STREQ("Synonym `symbols_to_index` should be an array of single character symbols.", syn_op.error().c_str());
 }
 
 TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
@@ -510,8 +534,8 @@ TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
 
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ(2, res["found"].get<uint32_t>());
-    ASSERT_STREQ("<mark>Samuel</mark> L. <mark>Jackson</mark>", res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Samuel</mark> L. <mark>Jackson</mark>", res["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Samuel</mark> <mark>L</mark>. <mark>Jackson</mark>", res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Samuel</mark> <mark>L</mark>. <mark>Jackson</mark>", res["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     // for now we don't support synonyms on ANY prefix
 
@@ -889,7 +913,8 @@ TEST_F(CollectionSynonymsTest, HandleSpecialSymbols) {
     nlohmann::json syn_plus_json = {
         {"id", "syn-1"},
         {"root", "plus"},
-        {"synonyms", {"+"} }
+        {"synonyms", {"+"} },
+        {"symbols_to_index", {"+"}}
     };
 
     ASSERT_TRUE(coll1->add_synonym(syn_plus_json).ok());
@@ -936,4 +961,53 @@ TEST_F(CollectionSynonymsTest, SynonymForNonAsciiLanguage) {
     auto res = coll1->search("எல்லோருக்கும்", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSynonymsTest, SynonymForKorean) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "type": "string", "locale": "ko"},
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"도쿄구울", "100"},
+        {"도쿄 구울", "100"},
+        {"구울", "100"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = std::stoi(records[i][1]);
+
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    nlohmann::json synonym1 = R"({
+        "id": "syn-1",
+        "root": "",
+        "synonyms": ["도쿄구울", "도쿄 구울", "구울"],
+        "locale": "ko"
+    })"_json;
+
+    ASSERT_TRUE(coll1->add_synonym(synonym1).ok());
+
+    auto res = coll1->search("도쿄구울", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(3, res["hits"].size());
+
+    res = coll1->search("도쿄 구울", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(3, res["hits"].size());
+
+    res = coll1->search("구울", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(3, res["hits"].size());
 }
