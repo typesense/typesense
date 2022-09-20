@@ -322,6 +322,10 @@ struct field {
                                                     "` cannot be an optional field.");
                 }
 
+                if(field.is_geopoint()) {
+                    return Option<bool>(400, "Default sorting field cannot be of type geopoint.");
+                }
+
                 found_default_sorting_field = true;
             }
 

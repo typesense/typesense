@@ -707,7 +707,35 @@ TEST_F(CollectionSortingTest, GeoPointSorting) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Could not find a field named `l` in the schema for sorting.", res_op.error().c_str());
 
+    // should not allow creation of collection with geo field as default_sorting_field
+    nlohmann::json schema = R"({
+        "name": "coll_geo",
+        "fields": [
+          {"name": "title", "type": "string"},
+          {"name": "location", "type": "geopoint" }
+        ],
+        "default_sorting_field": "location"
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Default sorting field cannot be of type geopoint.", op.error());
+
+    schema = R"({
+        "name": "coll_geo",
+        "fields": [
+          {"name": "title", "type": "string"},
+          {"name": "location", "type": "geopoint[]" }
+        ],
+        "default_sorting_field": "location"
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Default sorting field cannot be of type geopoint.", op.error());
+
     collectionManager.drop_collection("coll1");
+    collectionManager.drop_collection("coll_geo");
 }
 
 TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
