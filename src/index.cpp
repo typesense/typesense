@@ -2501,7 +2501,6 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_query) {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
-        const std::string& field = the_fields[0].name;
         bool no_filters_provided = (filters.empty() && filter_ids_length == 0);
 
         if(no_filters_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
@@ -2599,7 +2598,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
             search_wildcard(filters, included_ids_map, sort_fields_std, topster,
                             curated_topster, groups_processed, searched_queries, group_limit, group_by_fields,
                             curated_ids, curated_ids_sorted,
-                            excluded_result_ids, excluded_result_ids_size, field_id, field,
+                            excluded_result_ids, excluded_result_ids_size,
                             all_result_ids, all_result_ids_len, filter_ids, filter_ids_length, concurrency,
                             sort_order, field_values, geopoint_indices);
         }
@@ -4158,7 +4157,7 @@ void Index::search_wildcard(const std::vector<filter>& filters,
                             std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                             const std::vector<std::string>& group_by_fields, const std::set<uint32_t>& curated_ids,
                             const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
-                            size_t exclude_token_ids_size, const uint8_t field_id, const string& field,
+                            size_t exclude_token_ids_size,
                             uint32_t*& all_result_ids, size_t& all_result_ids_len, const uint32_t* filter_ids,
                             uint32_t filter_ids_length, const size_t concurrency,
                             const int* sort_order,
@@ -4204,7 +4203,7 @@ void Index::search_wildcard(const std::vector<filter>& filters,
         topsters[thread_id] = new Topster(topster->MAX_SIZE, topster->distinct);
 
         thread_pool->enqueue([this, &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
-                             thread_id, &sort_fields, &searched_queries, &field_id,
+                             thread_id, &sort_fields, &searched_queries,
                              &group_limit, &group_by_fields, &topsters, &tgroups_processed,
                              &sort_order, field_values, &geopoint_indices, &plists,
                              check_for_circuit_break,
