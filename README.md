@@ -85,7 +85,7 @@
 
 ## Roadmap
 
-Here's Typesense's public roadmap: https://github.com/typesense/typesense/projects/2.
+Here's Typesense's public roadmap: [https://github.com/orgs/typesense/projects/1](https://github.com/orgs/typesense/projects/1).
 
 The first column also explains how we prioritize features, how you can influence prioritization and our release cadence. 
 
