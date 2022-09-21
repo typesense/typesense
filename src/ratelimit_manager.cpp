@@ -55,7 +55,7 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
         }
         else if(throttled_entities.count(entity) > 0) {
             // Check if ban duration is not over
-            if (throttled_entities.at(entity).throttling_to > std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())) {
+            if (throttled_entities.at(entity).throttling_to > get_current_time()) {
                 return true;
             }
             // Remove ban from DB store
@@ -80,25 +80,25 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
             }
             auto& request_counts = rate_limit_request_counts.lookup(entity);
             // Check if last reset time was more than 1 minute ago
-            if (request_counts.last_reset_time_minute <= std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - 60) {
+            if (request_counts.last_reset_time_minute <= get_current_time() - 60) {
                 request_counts.previous_requests_count_minute = request_counts.current_requests_count_minute;
                 request_counts.current_requests_count_minute = 0;
-                if(request_counts.last_reset_time_minute < std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - 120) {
+                if(request_counts.last_reset_time_minute <= get_current_time() - 120) {
                     request_counts.previous_requests_count_minute = 0;
                 }
-                request_counts.last_reset_time_minute = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+                request_counts.last_reset_time_minute = get_current_time();
             }
             // Check if last reset time was more than 1 hour ago
-            if (request_counts.last_reset_time_hour < std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - 3600) {
+            if (request_counts.last_reset_time_hour <= get_current_time() - 3600) {
                 request_counts.previous_requests_count_hour = request_counts.current_requests_count_hour;
                 request_counts.current_requests_count_hour = 0;
-                if(request_counts.last_reset_time_hour < std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - 7200) {
+                if(request_counts.last_reset_time_hour <= get_current_time() - 7200) {
                     request_counts.previous_requests_count_hour = 0;
                 }
-                request_counts.last_reset_time_hour = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+                request_counts.last_reset_time_hour = get_current_time();
             }
             // Check if request count is over the limit
-            auto current_rate_for_minute = (60 - (std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - request_counts.last_reset_time_minute)) / 60  * request_counts.previous_requests_count_minute;
+            auto current_rate_for_minute = (60 - (get_current_time() - request_counts.last_reset_time_minute)) / 60  * request_counts.previous_requests_count_minute;
             current_rate_for_minute += request_counts.current_requests_count_minute;
             if(rule.max_requests.minute_threshold >= 0 && current_rate_for_minute >= rule.max_requests.minute_threshold) {
                 bool auto_ban_is_enabled = (rule.auto_ban_threshold_num > 0 && rule.auto_ban_num_days > 0);
@@ -106,14 +106,11 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
                     request_counts.threshold_exceed_count_minute++;
                     if(request_counts.threshold_exceed_count_minute > rule.auto_ban_threshold_num) {
                         temp_ban_entity_wrapped(entity, rule.auto_ban_num_days);
-                        return true;
                     }
                 } 
-                else {
-                    return true;
-                }
+                return true;
             }
-            auto current_rate_for_hour = (3600 - (std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - request_counts.last_reset_time_hour)) / 3600  * request_counts.previous_requests_count_hour;
+            auto current_rate_for_hour = (3600 - (get_current_time() - request_counts.last_reset_time_hour)) / 3600  * request_counts.previous_requests_count_hour;
             current_rate_for_hour += request_counts.current_requests_count_hour;
             if(rule.max_requests.hour_threshold >= 0 && current_rate_for_hour >= rule.max_requests.hour_threshold) {
                 return true;
@@ -193,6 +190,8 @@ void RateLimitManager::clear_all() {
     throttled_entities.clear();
     rule_store.clear();
     last_rule_id = 0;
+    last_ban_id = 0;
+    base_timestamp = 0;
 }
 
 void RateLimitManager::temp_ban_entity_wrapped(const rate_limit_entity_t& entity, const int64_t number_of_days) {
@@ -200,7 +199,7 @@ void RateLimitManager::temp_ban_entity_wrapped(const rate_limit_entity_t& entity
     if (throttled_entities.count(entity) > 0) {
         return;
     }
-    auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    auto now = get_current_time();
     // Add entity to throttled_entities for the given number of days
     rate_limit_status_t status{last_ban_id, now, now + (number_of_days * 24 * 60 * 60), entity.entity_id, entity.entity_type};
     std::string ban_key = get_ban_key(last_ban_id);
@@ -482,3 +481,6 @@ std::string RateLimitManager::get_ban_key(const uint32_t id) {
     return std::string(BANS_PREFIX) + "_" + std::to_string(id);
 }
 
+time_t RateLimitManager::get_current_time() {
+    return  base_timestamp + std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());;
+}

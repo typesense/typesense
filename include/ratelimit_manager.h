@@ -110,6 +110,8 @@ namespace std {
     };
 }
 
+class RateLimitManagerTest;
+
 
 class RateLimitManager 
 {
@@ -222,10 +224,16 @@ class RateLimitManager
         // Helper function to get ban key for DB store from ID
         std::string get_ban_key(const uint32_t id);
 
-        // Helper function to 
+        // Base timestamp
+        time_t base_timestamp = 0;
+
+        // Helper function to get current timestamp
+        time_t get_current_time();
 
         // Singleton instance
         inline static RateLimitManager *instance;
+
+        friend class RateLimitManagerTest;
 
 };
 
