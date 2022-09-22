@@ -1,6 +1,6 @@
 # Download and build Jemalloc
 
-set(JEMALLOC_VERSION 5.2.1)
+set(JEMALLOC_VERSION 5.3.0)
 set(JEMALLOC_NAME jemalloc-${JEMALLOC_VERSION})
 set(JEMALLOC_TAR_PATH ${DEP_ROOT_DIR}/${JEMALLOC_NAME}.tar.bz2)
 
