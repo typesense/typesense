@@ -233,7 +233,5 @@ class RateLimitManager
         // Singleton instance
         inline static RateLimitManager *instance;
 
-        friend class RateLimitManagerTest;
-
 };
 
