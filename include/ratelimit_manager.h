@@ -110,9 +110,6 @@ namespace std {
     };
 }
 
-class RateLimitManagerTest;
-
-
 class RateLimitManager 
 {
     public:
@@ -156,6 +153,9 @@ class RateLimitManager
 
         // Clear all rules
         void clear_all();
+
+        // Internal function to set base time
+        void _set_base_timestamp(const time_t& base_time);
 
         // Set store
         Option<bool> init(Store* store);
@@ -232,8 +232,6 @@ class RateLimitManager
 
         // Singleton instance
         inline static RateLimitManager *instance;
-
-        friend class RateLimitManagerTest;
 
 };
 

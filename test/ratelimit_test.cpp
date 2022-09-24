@@ -13,7 +13,7 @@ protected:
     
 
     void changeBaseTimestamp(const uint64_t new_base_timestamp) {
-        manager->base_timestamp = new_base_timestamp;
+        manager->_set_base_timestamp(new_base_timestamp);
     }
 
 
@@ -391,4 +391,49 @@ TEST_F(RateLimitManagerTest, TestWildcard) {
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
     EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test1"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test1"}}));
+}
+
+TEST_F(RateLimitManagerTest, TestCorrectOrderofRules) {
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({".*"})},
+        {"max_requests_60s", 2},
+        {"max_requests_1h", -1}
+    });
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 5},
+        {"max_requests_1h", -1}
+    });
+    manager->add_rule({
+        {"action", "block"},
+        {"api_keys", nlohmann::json::array({"test1"})},
+    });
+    manager->add_rule({
+        {"action", "allow"},
+        {"api_keys", nlohmann::json::array({"test2"})},
+    });
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test3"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test3"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test3"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test2"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test2"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test2"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test2"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test2"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test2"}}));
 }

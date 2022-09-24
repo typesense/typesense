@@ -484,3 +484,7 @@ std::string RateLimitManager::get_ban_key(const uint32_t id) {
 time_t RateLimitManager::get_current_time() {
     return  base_timestamp + std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());;
 }
+
+void RateLimitManager::_set_base_timestamp(const time_t& timestamp) {
+    base_timestamp = timestamp;
+}
