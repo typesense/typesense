@@ -1132,7 +1132,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::string query = raw_query;
     bool filter_curated_hits = false;
     std::string curated_sort_by;
-    curate_results(query, simple_filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
+    curate_results(query, filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
                    included_ids, excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
 
     if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
