@@ -677,11 +677,8 @@ public:
 
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
-//    void do_filtering_with_lock(uint32_t*& filter_ids, uint32_t& filter_ids_length,
-//                                const std::vector<filter>& filters) const;
-
     void do_filtering_with_lock(uint32_t*& filter_ids, uint32_t& filter_ids_length,
-                                const filter_node_t* filter_tree_root) const;
+                                filter_node_t*& filter_tree_root) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 
