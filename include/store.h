@@ -14,6 +14,7 @@
 #include <rocksdb/merge_operator.h>
 #include <rocksdb/transaction_log.h>
 #include <butil/file_util.h>
+#include <mutex>
 #include <rocksdb/utilities/checkpoint.h>
 #include <rocksdb/utilities/table_properties_collectors.h>
 #include "string_utils.h"

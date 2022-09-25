@@ -1,5 +1,6 @@
 #include <chrono>
 #include <thread>
+#include <cstdlib> 
 #include <app_metrics.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
@@ -10,6 +11,7 @@
 #include "logger.h"
 #include "core_api_utils.h"
 #include "lru/lru.hpp"
+#include "ratelimit_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -1686,5 +1688,87 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     res_json["name"] = preset_name;
     res_json["value"] = preset;
     res->set_200(res_json.dump());
+    return true;
+}
+bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+
+    res->set_200(rateLimitManager->get_all_rules_json().dump());
+    return true;
+}
+
+bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    // Convert param id to uint64_t
+    uint64_t id = std::stoull(req->params["id"]);
+    const auto& rule_option = rateLimitManager->find_rule_by_id(id);
+
+    if(!rule_option.ok()) {
+        res->set(rule_option.code(), rule_option.error());
+        return false;
+    }
+
+    res->set_200(rule_option.get().dump());
+    return true;
+}
+
+bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    nlohmann::json req_json;
+    uint64_t id = std::stoull(req->params["id"]);
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        res->set_400("Invalid JSON");
+        return false;
+    }
+
+    const auto& edit_rule_result = rateLimitManager->edit_rule(id, req_json);
+
+    if(!edit_rule_result.ok()) {
+        res->set(edit_rule_result.code(), edit_rule_result.error());
+        return false;
+    }
+
+    res->set_200(edit_rule_result.get().dump());
+    return true;
+
+}
+
+bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    uint64_t id = std::stoull(req->params["id"]);
+    const auto& rule_option = rateLimitManager->find_rule_by_id(id);
+
+    if(!rule_option.ok()) {
+        res->set(rule_option.code(), rule_option.error());
+        return false;
+    }
+
+    rateLimitManager->delete_rule_by_id(id);
+    res->set_200("OK");
+    return true;
+}
+
+bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch (const std::exception & e) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto add_rule_result = rateLimitManager->add_rule(req_json);
+
+    if(!add_rule_result.ok()) {
+        res->set(add_rule_result.code(), add_rule_result.error());
+        return false;
+    }
+
+    res->set_200(add_rule_result.get().dump());
     return true;
 }
