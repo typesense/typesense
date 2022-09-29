@@ -1275,7 +1275,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     Topster& topster = *search_params->topster;
     Topster& curated_topster = *search_params->curated_topster;
-    const std::vector<std::vector<art_leaf*>>& searched_queries = search_params->searched_queries;
 
     topster.sort();
     curated_topster.sort();
