@@ -114,6 +114,44 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnSingleField) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnMultiField) {
+    Collection *coll1;
+    std::vector<field> fields = {field("location", field_types::STRING, false),
+                                 field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::string> names = {
+        "John Stewart", "John Smith", "John Scott", "John Stone", "John Romero", "John Oliver", "John Adams"
+    };
+
+    std::vector<std::string> locations = {
+        "Switzerland", "Seoul", "Sydney", "Surat", "Stockholm", "Salem", "Sevilla"
+    };
+
+    for(size_t i = 0; i < names.size(); i++) {
+        nlohmann::json doc;
+        doc["location"] = locations[i];
+        doc["name"] = names[i];
+        doc["points"] = i;
+        coll1->add(doc.dump());
+    }
+
+    auto results = coll1->search("john s", {"location", "name"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+
+    // tokens are ordered by max_score, but prefix continuation on the same field should be prioritized
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("6", results["hits"][4]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, ArrayElementMatchShouldBeMoreImportantThanTotalMatch) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("author", field_types::STRING, false),

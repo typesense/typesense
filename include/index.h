@@ -354,6 +354,13 @@ private:
                                        uint32_t& token_bits,
                                        uint64& qhash);
 
+    static bool is_valid_token_prefix(const std::vector<search_field_t>& the_fields, size_t field_id,
+                                      const unsigned char* token_c_str, size_t token_len,
+                                      const std::vector<uint32_t>& num_typos, const std::vector<bool>& prefixes,
+                                      size_t token_num_typos, bool token_prefix,
+                                      const spp::sparse_hash_map<std::string, art_tree*>& search_index,
+                                      const std::vector<uint32_t>& prev_token_doc_ids);
+
     void log_leaves(int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
     void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
@@ -797,16 +804,16 @@ public:
                              std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                              const std::vector<size_t>& geopoint_indices) const;
 
-    void find_across_fields(const std::vector<token_t>& query_tokens,
-                              const size_t num_query_tokens,
-                              const std::vector<uint32_t>& num_typos,
-                              const std::vector<bool>& prefixes,
-                              const std::vector<search_field_t>& the_fields,
-                              const size_t num_search_fields,
-                              const uint32_t* filter_ids, uint32_t filter_ids_length,
-                              const uint32_t* exclude_token_ids,
-                              size_t exclude_token_ids_size,
-                              std::vector<uint32_t>& id_buff) const;
+    void find_across_fields(const token_t& previous_token,
+                            const std::vector<uint32_t>& num_typos,
+                            const std::vector<bool>& prefixes,
+                            const std::vector<search_field_t>& the_fields,
+                            const size_t num_search_fields,
+                            const uint32_t* filter_ids, uint32_t filter_ids_length,
+                            const uint32_t* exclude_token_ids,
+                            size_t exclude_token_ids_size,
+                            std::vector<uint32_t>& prev_token_doc_ids,
+                            std::vector<size_t>& top_prefix_field_ids) const;
 
     void search_across_fields(const std::vector<token_t>& query_tokens,
                               const std::vector<uint32_t>& num_typos,
