@@ -19,6 +19,7 @@ void master_server_routes() {
     // NOTE: placing this first to score an immediate hit on O(N) route search
     server->get("/collections/:collection/documents/search", get_search);
     server->post("/multi_search", post_multi_search);
+    server->post("/multi_search_agg", post_multi_search_agg);
 
     // document management
     // NOTE:`/documents/:id` end-points must be placed last in the list

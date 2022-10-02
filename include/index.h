@@ -96,6 +96,7 @@ struct search_args {
     std::vector<uint32_t> excluded_ids;
     std::vector<sort_by>& sort_fields_std;
     facet_query_t facet_query;
+    facet_query_t raw_facet_query;
     std::vector<uint32_t> num_typos;
     size_t max_facet_values;
     size_t per_page;
@@ -110,6 +111,7 @@ struct search_args {
     bool prioritize_exact_match;
     bool prioritize_token_position;
     size_t all_result_ids_len;
+    size_t out_of;
     bool exhaustive_search;
     size_t concurrency;
     size_t search_cutoff_ms;
@@ -131,6 +133,10 @@ struct search_args {
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
+    std::string& query;
+    std::vector<std::string>& q_tokens;
+    int& match_score_index;
+
     vector_query_t& vector_query;
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
@@ -139,13 +145,14 @@ struct search_args {
                 std::vector<sort_by>& sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
                 size_t max_facet_values, size_t max_hits, size_t per_page, size_t page, token_ordering token_order,
                 const std::vector<bool>& prefixes, size_t drop_tokens_threshold, size_t typo_tokens_threshold,
-                const std::vector<std::string>& group_by_fields, size_t group_limit,
+                const std::vector<std::string> group_by_fields, size_t group_limit,
                 const string& default_sorting_field, bool prioritize_exact_match,
                 const bool prioritize_token_position, bool exhaustive_search,
                 size_t concurrency, size_t search_cutoff_ms,
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<enable_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query) :
+                const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
+                std::string& query, std::vector<std::string>& q_tokens, int& match_score_index) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -159,7 +166,8 @@ struct search_args {
             min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo), max_candidates(max_candidates),
             infixes(infixes), max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix),
             facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits),
-            split_join_tokens(split_join_tokens), vector_query(vector_query) {
+            split_join_tokens(split_join_tokens), vector_query(vector_query),
+            query(query), q_tokens(q_tokens),raw_facet_query(facet_query), match_score_index(match_score_index) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -169,6 +177,12 @@ struct search_args {
     ~search_args() {
         delete topster;
         delete curated_topster;
+        delete &facets;
+        delete &included_ids;
+        delete &query;
+        delete &q_tokens;
+        delete &sort_fields_std;
+        delete &match_score_index;
     };
 };
 
@@ -672,7 +686,7 @@ public:
 
     //static void transform_for_180th_meridian(GeoCoord& point, double offset);
 
-    art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
+    art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) const;
 
     void do_filtering_with_lock(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                                 const std::vector<filter>& filters) const;

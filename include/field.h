@@ -618,6 +618,7 @@ struct facet_count_t {
     // used to fetch the actual document and value for representation
     uint32_t doc_id = 0;
     uint32_t array_pos = 0;
+    uint32_t collection_id = 0;
 };
 
 struct facet_stats_t {

@@ -95,6 +95,18 @@ struct KV {
     }
 };
 
+
+struct CollectionKV {
+    size_t collection_id{};
+    KV* kv;
+    uint64_t group_key;
+};
+
+struct CollectionKVGroup {
+    std::vector<CollectionKV> collection_kvs;
+    uint64_t group_key;
+};
+
 /*
 * Remembers the max-K elements seen so far using a min-heap
 */

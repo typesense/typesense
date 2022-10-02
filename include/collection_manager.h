@@ -159,9 +159,53 @@ public:
 
     locked_resource_view_t<Collection> get_collection_with_id(uint32_t collection_id) const;
 
+    Option<Collection*> get_collection_with_id_unsafe(const uint32_t& collection_id);
+
     nlohmann::json get_collection_summaries() const;
 
     Option<nlohmann::json> drop_collection(const std::string& collection_name, const bool remove_from_store = true);
+
+    Option<nlohmann::json> search_multiple_collections(const std::vector<std::string>& collection_names,
+                                  const std::string & raw_query, const std::vector<std::string> & search_fields,
+                                  const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
+                                  const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
+                                  size_t per_page = 10, size_t page = 1,
+                                  token_ordering token_order = FREQUENCY, const std::vector<bool>& prefixes = {true},
+                                  size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
+                                  const spp::sparse_hash_set<std::string> & include_fields = spp::sparse_hash_set<std::string>(),
+                                  const spp::sparse_hash_set<std::string> & exclude_fields = spp::sparse_hash_set<std::string>(),
+                                  size_t max_facet_values=10,
+                                  const std::string & simple_facet_query = "",
+                                  const size_t snippet_threshold = 30,
+                                  const size_t highlight_affix_num_tokens = 4,
+                                  const std::string & highlight_full_fields = "",
+                                  size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
+                                  const std::string& pinned_hits_str="",
+                                  const std::string& hidden_hits="",
+                                  const std::vector<std::string>& group_by_fields={},
+                                  size_t group_limit = 3,
+                                  const std::string& highlight_start_tag="<mark>",
+                                  const std::string& highlight_end_tag="</mark>",
+                                  std::vector<uint32_t> query_by_weights={},
+                                  size_t limit_hits=UINT32_MAX,
+                                  bool prioritize_exact_match=true,
+                                  bool pre_segmented_query=false,
+                                  bool enable_overrides=true,
+                                  const std::string& highlight_fields="",
+                                  const bool exhaustive_search = false,
+                                  size_t search_stop_millis = 6000*1000,
+                                  size_t min_len_1typo = 4,
+                                  size_t min_len_2typo = 7,
+                                  enable_t split_join_tokens = fallback,
+                                  size_t max_candidates = 4,
+                                  const std::vector<enable_t>& infixes = {off},
+                                  const size_t max_extra_prefix = INT16_MAX,
+                                  const size_t max_extra_suffix = INT16_MAX,
+                                  const size_t facet_query_num_typos = 2,
+                                  const size_t filter_curated_hits_option = 2,
+                                  const bool prioritize_token_position = false,
+                                  const std::string& vector_query = "",
+                                  const size_t search_cutoff_ms = 3600000);
 
     uint32_t get_next_collection_id() const;
 
@@ -177,7 +221,8 @@ public:
 
     static Option<bool> do_search(std::map<std::string, std::string>& req_params,
                                   nlohmann::json& embedded_params,
-                                  std::string& results_json_str);
+                                  std::string& results_json_str,
+                                  const bool aggreagte_from_multiple_collectinos = false);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 

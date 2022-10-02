@@ -1230,7 +1230,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 if(!use_facet_query || fquery_hashes.find(fhash) != fquery_hashes.end()) {
                     facet_count_t& facet_count = a_facet.result_map[fhash];
 
-                    //LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id << ", hash: " <<  fhash;
 
                     facet_count.doc_id = doc_seq_id;
                     facet_count.array_pos = j;
@@ -5208,7 +5207,7 @@ void Index::tokenize_string_field(const nlohmann::json& document, const field& s
     }
 }
 
-art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {
+art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) const {
     std::shared_lock lock(mutex);
     const art_tree *t = search_index.at(field_name);
     return (art_leaf*) art_search(t, token, (int) token_len);
