@@ -152,9 +152,6 @@ bool RateLimitManager::delete_rule_by_id(const uint64_t id) {
     return false;
 }
 
-void RateLimitManager::edit_rule_by_id(const int64_t id,
-    const ratelimit_tracker_t & new_rule) {
-    std::unique_lock < std::shared_mutex > lock(rate_limit_mutex);
 
 const std::vector<rate_limit_rule_t> RateLimitManager::get_all_rules() {
     std::shared_lock<std::shared_mutex> lock(rate_limit_mutex);
