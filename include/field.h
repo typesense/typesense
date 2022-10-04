@@ -594,31 +594,33 @@ struct filter
                                            const tsl::htrie_map<char, field> &search_schema,
                                            const Store *store,
                                            const std::string &doc_id_prefix,
-                                           filter_node_t *&root);
+                                           filter_node_t*& root);
 };
 
-struct filter_node_t
-{
+struct filter_node_t {
     filter filter_exp;
     FILTER_OPERATOR filter_operator;
     bool isOperator;
-    filter_node_t *left;
-    filter_node_t *right;
+    filter_node_t* left;
+    filter_node_t* right;
 
-    filter_node_t(filter filter_exp) : filter_exp(std::move(filter_exp)), isOperator(false), left(nullptr), right(nullptr) {}
+    filter_node_t(filter filter_exp)
+            : filter_exp(std::move(filter_exp)),
+              isOperator(false),
+              left(nullptr),
+              right(nullptr) {}
 
-    filter_node_t(FILTER_OPERATOR filter_operator, filter_node_t *left, filter_node_t *right) : filter_operator(filter_operator), isOperator(true), left(left), right(right) {}
+    filter_node_t(FILTER_OPERATOR filter_operator,
+                  filter_node_t* left,
+                  filter_node_t* right)
+            : filter_operator(filter_operator),
+              isOperator(true),
+              left(left),
+              right(right) {}
 
-    ~filter_node_t()
-    {
-        if (left != nullptr)
-        {
-            delete left;
-        }
-        if (right != nullptr)
-        {
-            delete right;
-        }
+    ~filter_node_t() {
+        delete left;
+        delete right;
     }
 };
 
@@ -650,7 +652,7 @@ struct sort_by
 
     struct eval_t
     {
-        filter_node_t *filter_tree_root;
+        filter_node_t* filter_tree_root;
         uint32_t *ids = nullptr;
         uint32_t size = 0;
     };

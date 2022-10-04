@@ -415,81 +415,62 @@ size_t StringUtils::get_num_chars(const std::string &s)
     return j;
 }
 
-Option<bool> StringUtils::tokenize(std::string filter_query, std::queue<std::string> &tokens)
-{
+Option<bool> StringUtils::tokenize(std::string filter_query, std::queue<std::string>& tokens) {
     auto size = filter_query.size();
-    for (auto i = 0; i < size;)
-    {
+    for (auto i = 0; i < size;) {
         auto c = filter_query[i];
-        if (c == ' ')
-        {
+        if (c == ' ') {
             i++;
             continue;
         }
 
-        if (c == '(')
-        {
+        if (c == '(') {
             tokens.push("(");
             i++;
-        }
-        else if (c == ')')
-        {
+        } else if (c == ')') {
             tokens.push(")");
             i++;
-        }
-        else if (c == '&')
-        {
-            if (i + 1 >= size || filter_query[i + 1] != '&')
-            {
+        } else if (c == '&') {
+            if (i + 1 >= size || filter_query[i + 1] != '&') {
                 return Option<bool>(400, "Could not parse the filter filter_query.");
             }
             tokens.push("&&");
             i += 2;
-        }
-        else if (c == '|')
-        {
-            if (i + 1 >= size || filter_query[i + 1] != '|')
-            {
+        } else if (c == '|') {
+            if (i + 1 >= size || filter_query[i + 1] != '|') {
                 return Option<bool>(400, "Could not parse the filter filter_query.");
             }
             tokens.push("||");
             i += 2;
-        }
-        else
-        {
+        } else {
             std::stringstream ss;
             bool inBacktick = false;
             bool preceding_colon = false;
             bool is_geo_value = false;
 
-            do
-            {
-                if (c == ':')
-                {
+            do {
+                if (c == ':') {
                     preceding_colon = true;
                 }
-                if (c == ')' && is_geo_value)
-                {
+                if (c == ')' && is_geo_value) {
                     is_geo_value = false;
                 }
 
                 ss << c;
                 c = filter_query[++i];
 
-                if (c == '`')
-                {
+                if (c == '`') {
                     inBacktick = !inBacktick;
                 }
-                if (preceding_colon && c == '(')
-                {
+                if (preceding_colon && c == '(') {
                     is_geo_value = true;
                     preceding_colon = false;
-                }
-                else if (preceding_colon && c != ' ')
-                {
+                } else if (preceding_colon && c != ' ') {
                     preceding_colon = false;
                 }
-            } while (i < size && (inBacktick || is_geo_value || (c != '(' && c != ')' && !(c == '&' && filter_query[i + 1] == '&') && !(c == '|' && filter_query[i + 1] == '|'))));
+            } while (i < size && (inBacktick || is_geo_value ||
+                                  (c != '(' && c != ')' && !(c == '&' && filter_query[i + 1] == '&') &&
+                                   !(c == '|' && filter_query[i + 1] == '|'))));
             tokens.push(ss.str());
         }
     }

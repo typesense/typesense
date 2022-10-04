@@ -2210,6 +2210,7 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
     index->do_filtering_with_lock(filter_ids, filter_ids_len, filter_tree_root);
     index_ids.emplace_back(filter_ids_len, filter_ids);
 
+    delete filter_tree_root;
     return Option<bool>(true);
 }
 

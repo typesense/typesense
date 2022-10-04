@@ -375,5 +375,5 @@ struct StringUtils
 
     static size_t get_num_chars(const std::string &text);
 
-    static Option<bool> tokenize(std::string filter_query, std::queue<std::string> &tokens);
+    static Option<bool> tokenize(std::string filter_query, std::queue<std::string>& tokens);
 };

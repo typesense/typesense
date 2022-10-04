@@ -1743,7 +1743,7 @@ void Index::search_candidates(
 
 void Index::do_filtering(uint32_t*& filter_ids,
                          uint32_t& filter_ids_length,
-                         const filter_node_t* root) const {
+                         filter_node_t const* const root) const {
     // auto begin = std::chrono::high_resolution_clock::now();
     const filter a_filter = root->filter_exp;
 
@@ -2193,7 +2193,7 @@ void Index::recursive_filter(uint32_t*& filter_ids,
 
 void Index::do_filtering_with_lock(uint32_t*& filter_ids,
                                    uint32_t& filter_ids_length,
-                                   filter_node_t*& filter_tree_root) const {
+                                   filter_node_t const* const& filter_tree_root) const {
     std::shared_lock lock(mutex);
     recursive_filter(filter_ids, filter_ids_length, filter_tree_root, false);
 }
@@ -2457,10 +2457,8 @@ void Index::process_filter_overrides(
                 absorbed_tokens, filter_by_clause);
 
             if (resolved_override) {
-                if (filter_tree_root != nullptr) {
-                    delete filter_tree_root;
-                    filter_tree_root = nullptr;
-                }
+                delete filter_tree_root;
+                filter_tree_root = nullptr;
 
                 Option<bool> filter_parse_op =
                     filter::parse_filter_query(filter_by_clause, search_schema,
@@ -2689,7 +2687,7 @@ void Index::search_infix(const std::string& query,
 void Index::search(
     std::vector<query_tokens_t>& field_query_tokens,
     const std::vector<search_field_t>& the_fields,
-    const filter_node_t*& filter_tree_root,
+    filter_node_t const* const& filter_tree_root,
     std::vector<facet>& facets,
     facet_query_t& facet_query,
     const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
@@ -4443,7 +4441,7 @@ void Index::do_phrase_search(const size_t num_search_fields,
 
 void Index::do_synonym_search(
     const std::vector<search_field_t>& the_fields,
-    const filter_node_t*& filter_tree_root,
+    filter_node_t const* const& filter_tree_root,
     const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
     const std::vector<sort_by>& sort_fields_std,
     Topster* curated_topster,
@@ -4833,7 +4831,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets,
 }
 
 void Index::curate_filtered_ids(
-    const filter_node_t*& filter_tree_root,
+    filter_node_t const* const& filter_tree_root,
     const std::set<uint32_t>& curated_ids,
     const uint32_t* exclude_token_ids,
     size_t exclude_token_ids_size,
@@ -4869,7 +4867,7 @@ void Index::curate_filtered_ids(
 }
 
 void Index::search_wildcard(
-    const filter_node_t*& filter_tree_root,
+    filter_node_t const* const& filter_tree_root,
     const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
     const std::vector<sort_by>& sort_fields,
     Topster* topster,

@@ -88,60 +88,45 @@ Option<bool> filter::parse_geopoint_filter_value(std::string &raw_value,
     return Option<bool>(true);
 }
 
-bool isOperator(const std::string &expression)
-{
+bool isOperator(const std::string& expression) {
     return expression == "&&" || expression == "||";
 }
 
 // https://en.wikipedia.org/wiki/Shunting_yard_algorithm
-Option<bool> toPostfix(std::queue<std::string> &tokens, std::queue<std::string> &postfix)
-{
+Option<bool> toPostfix(std::queue<std::string>& tokens, std::queue<std::string>& postfix) {
     std::stack<std::string> operatorStack;
 
-    while (!tokens.empty())
-    {
+    while (!tokens.empty()) {
         auto expression = tokens.front();
         tokens.pop();
 
-        if (isOperator(expression))
-        {
+        if (isOperator(expression)) {
             // We only have two operators &&, || having the same precedence and both being left associative.
-            while (!operatorStack.empty() && operatorStack.top() != "(")
-            {
+            while (!operatorStack.empty() && operatorStack.top() != "(") {
                 postfix.push(operatorStack.top());
                 operatorStack.pop();
             }
 
             operatorStack.push(expression);
-        }
-        else if (expression == "(")
-        {
+        } else if (expression == "(") {
             operatorStack.push(expression);
-        }
-        else if (expression == ")")
-        {
-            while (!operatorStack.empty() && operatorStack.top() != "(")
-            {
+        } else if (expression == ")") {
+            while (!operatorStack.empty() && operatorStack.top() != "(") {
                 postfix.push(operatorStack.top());
                 operatorStack.pop();
             }
 
-            if (operatorStack.empty() || operatorStack.top() != "(")
-            {
+            if (operatorStack.empty() || operatorStack.top() != "(") {
                 return Option<bool>(400, "Could not parse the filter query: unbalanced parentheses.");
             }
             operatorStack.pop();
-        }
-        else
-        {
+        } else {
             postfix.push(expression);
         }
     }
 
-    while (!operatorStack.empty())
-    {
-        if (operatorStack.top() == "(")
-        {
+    while (!operatorStack.empty()) {
+        if (operatorStack.top() == "(") {
             return Option<bool>(400, "Could not parse the filter query: unbalanced parentheses.");
         }
         postfix.push(operatorStack.top());
@@ -152,347 +137,268 @@ Option<bool> toPostfix(std::queue<std::string> &tokens, std::queue<std::string> 
 }
 
 Option<bool> toFilter(const std::string expression,
-                      filter &filter_exp,
-                      const tsl::htrie_map<char, field> &search_schema,
-                      const Store *store,
-                      const std::string &doc_id_prefix)
-{
+                      filter& filter_exp,
+                      const tsl::htrie_map<char, field>& search_schema,
+                      const Store* store,
+                      const std::string& doc_id_prefix) {
     // split into [field_name, value]
     size_t found_index = expression.find(':');
-    if (found_index == std::string::npos)
-    {
+    if (found_index == std::string::npos) {
         return Option<bool>(400, "Could not parse the filter query.");
     }
-    std::string &&field_name = expression.substr(0, found_index);
+    std::string&& field_name = expression.substr(0, found_index);
     StringUtils::trim(field_name);
-    if (field_name == "id")
-    {
-        std::string &&raw_value = expression.substr(found_index + 1, std::string::npos);
+    if (field_name == "id") {
+        std::string&& raw_value = expression.substr(found_index + 1, std::string::npos);
         StringUtils::trim(raw_value);
         std::string empty_filter_err = "Error with filter field `id`: Filter value cannot be empty.";
-        if (raw_value.empty())
-        {
+        if (raw_value.empty()) {
             return Option<bool>(400, empty_filter_err);
         }
         filter_exp = {field_name, {}, {}};
         NUM_COMPARATOR id_comparator = EQUALS;
         size_t filter_value_index = 0;
-        if (raw_value[0] == '=')
-        {
+        if (raw_value[0] == '=') {
             id_comparator = EQUALS;
-            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ')
-                ;
-        }
-        else if (raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=')
-        {
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+        } else if (raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
             return Option<bool>(400, "Not equals filtering is not supported on the `id` field.");
         }
-        if (filter_value_index != 0)
-        {
+        if (filter_value_index != 0) {
             raw_value = raw_value.substr(filter_value_index);
         }
-        if (raw_value.empty())
-        {
+        if (raw_value.empty()) {
             return Option<bool>(400, empty_filter_err);
         }
-        if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']')
-        {
+        if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             std::vector<std::string> doc_ids;
             StringUtils::split_to_values(raw_value.substr(1, raw_value.size() - 2), doc_ids);
-            for (std::string &doc_id : doc_ids)
-            {
+            for (std::string& doc_id: doc_ids) {
                 // we have to convert the doc_id to seq id
                 std::string seq_id_str;
                 StoreStatus seq_id_status = store->get(doc_id_prefix + doc_id, seq_id_str);
-                if (seq_id_status != StoreStatus::FOUND)
-                {
+                if (seq_id_status != StoreStatus::FOUND) {
                     continue;
                 }
                 filter_exp.values.push_back(seq_id_str);
                 filter_exp.comparators.push_back(id_comparator);
             }
-        }
-        else
-        {
+        } else {
             std::vector<std::string> doc_ids;
             StringUtils::split_to_values(raw_value, doc_ids); // to handle backticks
             std::string seq_id_str;
             StoreStatus seq_id_status = store->get(doc_id_prefix + doc_ids[0], seq_id_str);
-            if (seq_id_status == StoreStatus::FOUND)
-            {
+            if (seq_id_status == StoreStatus::FOUND) {
                 filter_exp.values.push_back(seq_id_str);
                 filter_exp.comparators.push_back(id_comparator);
             }
         }
         return Option<bool>(true);
     }
-    if (search_schema.count(field_name) == 0)
-    {
+    if (search_schema.count(field_name) == 0) {
         return Option<bool>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
     }
     field _field = search_schema.at(field_name);
-    std::string &&raw_value = expression.substr(found_index + 1, std::string::npos);
+    std::string&& raw_value = expression.substr(found_index + 1, std::string::npos);
     StringUtils::trim(raw_value);
     // skip past optional `:=` operator, which has no meaning for non-string fields
-    if (!_field.is_string() && raw_value[0] == '=')
-    {
+    if (!_field.is_string() && raw_value[0] == '=') {
         size_t filter_value_index = 0;
-        while (raw_value[++filter_value_index] == ' ')
-            ;
+        while (raw_value[++filter_value_index] == ' ');
         raw_value = raw_value.substr(filter_value_index);
     }
-    if (_field.is_integer() || _field.is_float())
-    {
+    if (_field.is_integer() || _field.is_float()) {
         // could be a single value or a list
-        if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']')
-        {
+        if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             std::vector<std::string> filter_values;
             StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
             filter_exp = {field_name, {}, {}};
-            for (std::string &filter_value : filter_values)
-            {
+            for (std::string& filter_value: filter_values) {
                 Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(filter_value);
-                if (!op_comparator.ok())
-                {
+                if (!op_comparator.ok()) {
                     return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
                 }
-                if (op_comparator.get() == RANGE_INCLUSIVE)
-                {
+                if (op_comparator.get() == RANGE_INCLUSIVE) {
                     // split the value around range operator to extract bounds
                     std::vector<std::string> range_values;
                     StringUtils::split(filter_value, range_values, filter::RANGE_OPERATOR());
-                    for (const std::string &range_value : range_values)
-                    {
+                    for (const std::string& range_value: range_values) {
                         auto validate_op = filter::validate_numerical_filter_value(_field, range_value);
-                        if (!validate_op.ok())
-                        {
+                        if (!validate_op.ok()) {
                             return validate_op;
                         }
                         filter_exp.values.push_back(range_value);
                         filter_exp.comparators.push_back(op_comparator.get());
                     }
-                }
-                else
-                {
+                } else {
                     auto validate_op = filter::validate_numerical_filter_value(_field, filter_value);
-                    if (!validate_op.ok())
-                    {
+                    if (!validate_op.ok()) {
                         return validate_op;
                     }
                     filter_exp.values.push_back(filter_value);
                     filter_exp.comparators.push_back(op_comparator.get());
                 }
             }
-        }
-        else
-        {
+        } else {
             Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
-            if (!op_comparator.ok())
-            {
+            if (!op_comparator.ok()) {
                 return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
             }
-            if (op_comparator.get() == RANGE_INCLUSIVE)
-            {
+            if (op_comparator.get() == RANGE_INCLUSIVE) {
                 // split the value around range operator to extract bounds
                 std::vector<std::string> range_values;
                 StringUtils::split(raw_value, range_values, filter::RANGE_OPERATOR());
                 filter_exp.field_name = field_name;
-                for (const std::string &range_value : range_values)
-                {
+                for (const std::string& range_value: range_values) {
                     auto validate_op = filter::validate_numerical_filter_value(_field, range_value);
-                    if (!validate_op.ok())
-                    {
+                    if (!validate_op.ok()) {
                         return validate_op;
                     }
                     filter_exp.values.push_back(range_value);
                     filter_exp.comparators.push_back(op_comparator.get());
                 }
-            }
-            else
-            {
+            } else {
                 auto validate_op = filter::validate_numerical_filter_value(_field, raw_value);
-                if (!validate_op.ok())
-                {
+                if (!validate_op.ok()) {
                     return validate_op;
                 }
                 filter_exp = {field_name, {raw_value}, {op_comparator.get()}};
             }
         }
-    }
-    else if (_field.is_bool())
-    {
+    } else if (_field.is_bool()) {
         NUM_COMPARATOR bool_comparator = EQUALS;
         size_t filter_value_index = 0;
-        if (raw_value[0] == '=')
-        {
+        if (raw_value[0] == '=') {
             bool_comparator = EQUALS;
-            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ')
-                ;
-        }
-        else if (raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=')
-        {
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+        } else if (raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
             bool_comparator = NOT_EQUALS;
             filter_value_index++;
-            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ')
-                ;
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         }
-        if (filter_value_index != 0)
-        {
+        if (filter_value_index != 0) {
             raw_value = raw_value.substr(filter_value_index);
         }
-        if (filter_value_index == raw_value.size())
-        {
+        if (filter_value_index == raw_value.size()) {
             return Option<bool>(400, "Error with filter field `" + _field.name +
-                                         "`: Filter value cannot be empty.");
+                                     "`: Filter value cannot be empty.");
         }
-        if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']')
-        {
+        if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             std::vector<std::string> filter_values;
             StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
             filter_exp = {field_name, {}, {}};
-            for (std::string &filter_value : filter_values)
-            {
-                if (filter_value != "true" && filter_value != "false")
-                {
+            for (std::string& filter_value: filter_values) {
+                if (filter_value != "true" && filter_value != "false") {
                     return Option<bool>(400, "Values of filter field `" + _field.name +
-                                                 "`: must be `true` or `false`.");
+                                             "`: must be `true` or `false`.");
                 }
                 filter_value = (filter_value == "true") ? "1" : "0";
                 filter_exp.values.push_back(filter_value);
                 filter_exp.comparators.push_back(bool_comparator);
             }
-        }
-        else
-        {
-            if (raw_value != "true" && raw_value != "false")
-            {
+        } else {
+            if (raw_value != "true" && raw_value != "false") {
                 return Option<bool>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");
             }
             std::string bool_value = (raw_value == "true") ? "1" : "0";
             filter_exp = {field_name, {bool_value}, {bool_comparator}};
         }
-    }
-    else if (_field.is_geopoint())
-    {
+    } else if (_field.is_geopoint()) {
         filter_exp = {field_name, {}, {}};
-        const std::string &format_err_msg = "Value of filter field `" + _field.name +
+        const std::string& format_err_msg = "Value of filter field `" + _field.name +
                                             "`: must be in the `(-44.50, 170.29, 0.75 km)` or "
                                             "(56.33, -65.97, 23.82, -127.82) format.";
         NUM_COMPARATOR num_comparator;
         // could be a single value or a list
-        if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']')
-        {
+        if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             std::vector<std::string> filter_values;
             StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, "),");
-            for (std::string &filter_value : filter_values)
-            {
+            for (std::string& filter_value: filter_values) {
                 filter_value += ")";
                 std::string processed_filter_val;
-                auto parse_op = filter::parse_geopoint_filter_value(filter_value, format_err_msg, processed_filter_val, num_comparator);
-                if (!parse_op.ok())
-                {
+                auto parse_op = filter::parse_geopoint_filter_value(filter_value, format_err_msg, processed_filter_val,
+                                                                    num_comparator);
+                if (!parse_op.ok()) {
                     return parse_op;
                 }
                 filter_exp.values.push_back(processed_filter_val);
                 filter_exp.comparators.push_back(num_comparator);
             }
-        }
-        else
-        {
+        } else {
             // single value, e.g. (10.45, 34.56, 2 km)
             std::string processed_filter_val;
-            auto parse_op = filter::parse_geopoint_filter_value(raw_value, format_err_msg, processed_filter_val, num_comparator);
-            if (!parse_op.ok())
-            {
+            auto parse_op = filter::parse_geopoint_filter_value(raw_value, format_err_msg, processed_filter_val,
+                                                                num_comparator);
+            if (!parse_op.ok()) {
                 return parse_op;
             }
             filter_exp.values.push_back(processed_filter_val);
             filter_exp.comparators.push_back(num_comparator);
         }
-    }
-    else if (_field.is_string())
-    {
+    } else if (_field.is_string()) {
         size_t filter_value_index = 0;
         NUM_COMPARATOR str_comparator = CONTAINS;
-        if (raw_value[0] == '=')
-        {
+        if (raw_value[0] == '=') {
             // string filter should be evaluated in strict "equals" mode
             str_comparator = EQUALS;
-            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ')
-                ;
-        }
-        else if (raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=')
-        {
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+        } else if (raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
             str_comparator = NOT_EQUALS;
             filter_value_index++;
-            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ')
-                ;
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         }
-        if (filter_value_index == raw_value.size())
-        {
+        if (filter_value_index == raw_value.size()) {
             return Option<bool>(400, "Error with filter field `" + _field.name +
-                                         "`: Filter value cannot be empty.");
+                                     "`: Filter value cannot be empty.");
         }
-        if (raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']')
-        {
+        if (raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
             std::vector<std::string> filter_values;
-            StringUtils::split_to_values(raw_value.substr(filter_value_index + 1, raw_value.size() - filter_value_index - 2), filter_values);
+            StringUtils::split_to_values(
+                    raw_value.substr(filter_value_index + 1, raw_value.size() - filter_value_index - 2), filter_values);
             filter_exp = {field_name, filter_values, {str_comparator}};
-        }
-        else
-        {
+        } else {
             filter_exp = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
         }
-    }
-    else
-    {
+    } else {
         return Option<bool>(400, "Error with filter field `" + _field.name +
-                                     "`: Unidentified field data type, see docs for supported data types.");
+                                 "`: Unidentified field data type, see docs for supported data types.");
     }
 
     return Option<bool>(true);
 }
 
 // https://stackoverflow.com/a/423914/11218270
-Option<bool> toParseTree(std::queue<std::string> &postfix, filter_node_t *&root,
-                         const tsl::htrie_map<char, field> &search_schema,
-                         const Store *store,
-                         const std::string &doc_id_prefix)
-{
-    std::stack<filter_node_t *> nodeStack;
+Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
+                         const tsl::htrie_map<char, field>& search_schema,
+                         const Store* store,
+                         const std::string& doc_id_prefix) {
+    std::stack<filter_node_t*> nodeStack;
 
-    while (!postfix.empty())
-    {
+    while (!postfix.empty()) {
         const std::string expression = postfix.front();
         postfix.pop();
 
-        filter_node_t *filter_node;
-        if (isOperator(expression))
-        {
+        filter_node_t* filter_node;
+        if (isOperator(expression)) {
             auto message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
 
-            if (nodeStack.empty())
-            {
+            if (nodeStack.empty()) {
                 return Option<bool>(400, message);
             }
             auto operandB = nodeStack.top();
             nodeStack.pop();
 
-            if (nodeStack.empty())
-            {
+            if (nodeStack.empty()) {
                 return Option<bool>(400, message);
             }
             auto operandA = nodeStack.top();
             nodeStack.pop();
 
             filter_node = new filter_node_t(expression == "&&" ? AND : OR, operandA, operandB);
-        }
-        else
-        {
+        } else {
             filter filter_exp;
             Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
-            if (!toFilter_op.ok())
-            {
+            if (!toFilter_op.ok()) {
                 return toFilter_op;
             }
 
@@ -502,8 +408,7 @@ Option<bool> toParseTree(std::queue<std::string> &postfix, filter_node_t *&root,
         nodeStack.push(filter_node);
     }
 
-    if (nodeStack.empty())
-    {
+    if (nodeStack.empty()) {
         return Option<bool>(400, "Filter query cannot be empty.");
     }
 
@@ -511,36 +416,31 @@ Option<bool> toParseTree(std::queue<std::string> &postfix, filter_node_t *&root,
     return Option<bool>(true);
 }
 
-Option<bool> filter::parse_filter_query(const std::string &filter_query,
-                                        const tsl::htrie_map<char, field> &search_schema,
-                                        const Store *store,
-                                        const std::string &doc_id_prefix,
-                                        filter_node_t *&root)
-{
+Option<bool> filter::parse_filter_query(const std::string& filter_query,
+                                        const tsl::htrie_map<char, field>& search_schema,
+                                        const Store* store,
+                                        const std::string& doc_id_prefix,
+                                        filter_node_t*& root) {
     auto _filter_query = filter_query;
     StringUtils::trim(_filter_query);
-    if (_filter_query.empty())
-    {
+    if (_filter_query.empty()) {
         return Option<bool>(true);
     }
 
     std::queue<std::string> tokens;
     Option<bool> tokenize_op = StringUtils::tokenize(filter_query, tokens);
-    if (!tokenize_op.ok())
-    {
+    if (!tokenize_op.ok()) {
         return tokenize_op;
     }
 
     std::queue<std::string> postfix;
     Option<bool> toPostfix_op = toPostfix(tokens, postfix);
-    if (!toPostfix_op.ok())
-    {
+    if (!toPostfix_op.ok()) {
         return toPostfix_op;
     }
 
     Option<bool> toParseTree_op = toParseTree(postfix, root, search_schema, store, doc_id_prefix);
-    if (!toParseTree_op.ok())
-    {
+    if (!toParseTree_op.ok()) {
         return toParseTree_op;
     }
 

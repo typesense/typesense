@@ -460,12 +460,14 @@ private:
                                         const size_t num_search_fields,
                                         std::vector<size_t>& popular_field_ids);
 
-//    void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const std::vector<filter>& filters,
-//                      const bool enable_short_circuit) const;
+    void do_filtering(uint32_t*& filter_ids,
+                      uint32_t& filter_ids_length,
+                      filter_node_t const* const root) const;
 
-    void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const filter_node_t* root) const;
-
-    void recursive_filter(uint32_t*& filter_ids, uint32_t& filter_ids_length, const filter_node_t* root, const bool enable_short_circuit) const;
+    void recursive_filter(uint32_t*& filter_ids,
+                          uint32_t& filter_ids_length,
+                          filter_node_t const* const root,
+                          const bool enable_short_circuit) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -620,7 +622,7 @@ public:
     void run_search(search_args* search_params);
 
     void search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
-                const filter_node_t*& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
+                filter_node_t const* const& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                 const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
@@ -677,8 +679,10 @@ public:
 
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
-    void do_filtering_with_lock(uint32_t*& filter_ids, uint32_t& filter_ids_length,
-                                filter_node_t*& filter_tree_root) const;
+    void do_filtering_with_lock(
+            uint32_t*& filter_ids,
+            uint32_t& filter_ids_length,
+            filter_node_t const* const& filter_tree_root) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 
@@ -691,7 +695,7 @@ public:
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
 
-    void search_wildcard(const filter_node_t*& filter_tree_root,
+    void search_wildcard(filter_node_t const* const& filter_tree_root,
                          const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
                          const std::vector<sort_by>& sort_fields, Topster* topster, Topster* curated_topster,
                          spp::sparse_hash_set<uint64_t>& groups_processed,
@@ -708,7 +712,7 @@ public:
     void search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
                       size_t max_extra_prefix, size_t max_extra_suffix) const;
 
-    void curate_filtered_ids(const filter_node_t*& filter_tree_root, const std::set<uint32_t>& curated_ids,
+    void curate_filtered_ids(filter_node_t const* const& filter_tree_root, const std::set<uint32_t>& curated_ids,
                              const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
                              uint32_t& filter_ids_length, const std::vector<uint32_t>& curated_ids_sorted) const;
 
@@ -749,7 +753,7 @@ public:
                          spp::sparse_hash_set<uint64_t>& groups_processed) const;
 
     void do_synonym_search(const std::vector<search_field_t>& the_fields,
-                           const filter_node_t*& filter_tree_root,
+                           filter_node_t const* const& filter_tree_root,
                            const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
                            const std::vector<sort_by>& sort_fields_std, Topster* curated_topster,
                            const token_ordering& token_order,
