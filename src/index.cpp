@@ -2289,14 +2289,20 @@ bool Index::static_filter_query_eval(const override_t* override,
          override->rule.query == query) ||
         (override->rule.match == override_t::MATCH_CONTAINS &&
          StringUtils::contains_word(query, override->rule.query))) {
-        if (filter_tree_root != nullptr) {
-            delete filter_tree_root;
-            filter_tree_root = nullptr;
+        filter_node_t* new_filter_tree_root;
+        Option<bool> filter_op =
+                filter::parse_filter_query(override->filter_by, search_schema,
+                                           store, "", new_filter_tree_root);
+        if (filter_op.ok()) {
+            if (filter_tree_root == nullptr) {
+                filter_tree_root = new_filter_tree_root;
+            } else {
+                filter_node_t* root = new filter_node_t(AND, filter_tree_root,
+                                                        new_filter_tree_root);
+                filter_tree_root = root;
+            }
+            return true;
         }
-
-        Option<bool> filter_op = filter::parse_filter_query(
-            override->filter_by, search_schema, store, "", filter_tree_root);
-        return filter_op.ok();
     }
 
     return false;
