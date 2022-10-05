@@ -52,10 +52,11 @@ struct token_posting_t {
 };
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
-             SynonymIndex* synonym_index, ThreadPool* thread_pool,
+             SynonymIndex* synonym_index, StopWordIndex* stop_word_index, ThreadPool* thread_pool,
              const tsl::htrie_map<char, field> & search_schema,
              const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
-        name(name), collection_id(collection_id), store(store), synonym_index(synonym_index), thread_pool(thread_pool),
+        name(name), collection_id(collection_id), store(store), synonym_index(synonym_index), stop_word_index(stop_word_index),
+        thread_pool(thread_pool),
         search_schema(search_schema),
         seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 

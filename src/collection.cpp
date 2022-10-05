@@ -3185,6 +3185,44 @@ SynonymIndex* Collection::get_synonym_index() {
     return synonym_index;
 }
 
+Option<bool> Collection::add_stop_word(const nlohmann::json& stpwrd_json) {
+    std::shared_lock lock(mutex);
+    stop_word_t stop_word;
+    Option<bool> stpwrd_op = stop_word_t::parse(stpwrd_json, stop_word);
+
+    if(!stpwrd_op.ok()) {
+        return stpwrd_op;
+    }
+
+    return stop_word_index->add_stop_word(name, stop_word);
+}
+
+bool Collection::get_stop_word(const std::string& id, stop_word_t& stop_word) {
+    std::shared_lock lock(mutex);
+    return stop_word_index->get_stop_word(id, stop_word);
+}
+
+Option<bool> Collection::remove_stop_word(const std::string &id) {
+    std::shared_lock lock(mutex);
+    return stop_word_index->remove_stop_word(name, id);
+}
+
+void Collection::stop_word_reduction(const std::vector<std::string>& tokens,
+                                   std::vector<std::vector<std::string>>& results) const {
+    std::shared_lock lock(mutex);
+    return stop_word_index->stop_word_reduction(tokens, results);
+}
+
+spp::sparse_hash_map<std::string, stop_word_t> Collection::get_stop_words() {
+    std::shared_lock lock(mutex);
+    return stop_word_index->get_stop_words();
+}
+
+
+StopWordIndex* Collection::get_stop_word_index() {
+    return stop_word_index;
+}
+
 Option<bool> Collection::persist_collection_meta() {
     std::string coll_meta_json;
     StoreStatus status = store->get(Collection::get_meta_key(name), coll_meta_json);
@@ -3969,10 +4007,13 @@ Index* Collection::init_index() {
 
     synonym_index = new SynonymIndex(store);
 
+    stop_word_index = new StopWordIndex(store);
+
     return new Index(name+std::to_string(0),
                      collection_id,
                      store,
                      synonym_index,
+                     stop_word_index,
                      CollectionManager::get_instance().get_thread_pool(),
                      search_schema,
                      symbols_to_index, token_separators);

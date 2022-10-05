@@ -42,6 +42,11 @@ void master_server_routes() {
     server->put("/collections/:collection/synonyms/:id", put_synonym);
     server->del("/collections/:collection/synonyms/:id", del_synonym);
 
+    server->get("/collections/:collection/stop_words", get_stop_words);
+    server->get("/collections/:collection/stop_words/:id", get_stop_word);
+    server->put("/collections/:collection/stop_words/:id", put_stop_word);
+    server->del("/collections/:collection/stop_words/:id", del_stop_word);
+
     // collection management
     server->post("/collections", post_create_collection);
     server->patch("/collections/:collection", patch_update_collection);

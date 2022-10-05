@@ -20,6 +20,7 @@
 #include <tsl/htrie_map.h>
 #include "tokenizer.h"
 #include "synonym_index.h"
+#include "stop_word_index.h"
 
 struct doc_seq_id_t {
     uint32_t seq_id;
@@ -121,6 +122,8 @@ private:
     Index* index;
 
     SynonymIndex* synonym_index;
+    
+    StopWordIndex* stop_word_index;
 
     // methods
 
@@ -464,6 +467,21 @@ public:
                            std::vector<std::vector<std::string>>& results) const;
 
     SynonymIndex* get_synonym_index();
+
+    // Stop word operations
+
+    spp::sparse_hash_map<std::string, stop_word_t> get_stop_words();
+
+    bool get_stop_word(const std::string& id, stop_word_t& stop_word);
+
+    Option<bool> add_stop_word(const nlohmann::json& stpwrd_json);
+
+    Option<bool> remove_stop_word(const std::string & id);
+
+    void stop_word_reduction(const std::vector<std::string>& tokens,
+                           std::vector<std::vector<std::string>>& results) const;
+
+    StopWordIndex* get_stop_word_index();
 
     // highlight ops
 

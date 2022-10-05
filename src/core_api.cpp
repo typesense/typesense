@@ -1578,6 +1578,112 @@ bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     return true;
 }
 
+bool get_stop_words(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+
+    if(collection == nullptr) {
+        res->set_404();
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["stop_words"] = nlohmann::json::array();
+
+    const auto& stop_words = collection->get_stop_words();
+    for(const auto & kv: stop_words) {
+        nlohmann::json stop_word = kv.second.to_view_json();
+        res_json["stop_words"].push_back(stop_word);
+    }
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool get_stop_word(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+
+    if(collection == nullptr) {
+        res->set_404();
+        return false;
+    }
+
+    std::string stop_word_id = req->params["id"];
+
+    stop_word_t stop_word;
+    bool found = collection->get_stop_word(stop_word_id, stop_word);
+
+    if(found) {
+        nlohmann::json stop_word_json = stop_word.to_view_json();
+        res->set_200(stop_word_json.dump());
+        return true;
+    }
+
+    res->set_404();
+    return false;
+}
+
+bool put_stop_word(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+
+    std::string stop_word_id = req->params["id"];
+
+    if(collection == nullptr) {
+        res->set_404();
+        return false;
+    }
+
+    nlohmann::json stpwrd_json;
+
+    try {
+        stpwrd_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!stpwrd_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    stpwrd_json["id"] = stop_word_id;
+    Option<bool> upsert_op = collection->add_stop_word(stpwrd_json);
+
+    if(!upsert_op.ok()) {
+        res->set(upsert_op.code(), upsert_op.error());
+        return false;
+    }
+
+    res->set_200(stpwrd_json.dump());
+    return true;
+}
+
+bool del_stop_word(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+
+    if(collection == nullptr) {
+        res->set_404();
+        return false;
+    }
+
+    Option<bool> rem_op = collection->remove_stop_word(req->params["id"]);
+    if(!rem_op.ok()) {
+        res->set(rem_op.code(), rem_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["id"] = req->params["id"];
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
 bool is_doc_import_route(uint64_t route_hash) {
     route_path* rpath;
     bool found = server->get_route(route_hash, &rpath);

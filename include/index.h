@@ -26,6 +26,7 @@
 #include <tsl/htrie_map.h>
 #include "id_list.h"
 #include "synonym_index.h"
+#include "stop_word_index.h"
 #include "override.h"
 #include "hnswlib/hnswlib.h"
 
@@ -292,6 +293,8 @@ private:
 
     const SynonymIndex* synonym_index;
 
+    const StopWordIndex* stop_word_index;
+
     ThreadPool* thread_pool;
 
     size_t num_documents;
@@ -547,6 +550,7 @@ public:
           const uint32_t collection_id,
           const Store* store,
           SynonymIndex* synonym_index,
+          StopWordIndex* stop_word_index,
           ThreadPool* thread_pool,
           const tsl::htrie_map<char, field>& search_schema,
           const std::vector<char>& symbols_to_index,
