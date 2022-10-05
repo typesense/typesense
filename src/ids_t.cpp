@@ -412,7 +412,7 @@ void ids_t::block_intersector_t::split_lists(size_t concurrency,
                     }
                 }
 
-                partial_its.emplace_back(p_start_block, p_end_block);
+                partial_its.emplace_back(p_start_block, p_end_block, nullptr, false);
             }
 
             start_block = curr_block->next;

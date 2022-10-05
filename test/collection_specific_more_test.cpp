@@ -114,6 +114,44 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnSingleField) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnMultiField) {
+    Collection *coll1;
+    std::vector<field> fields = {field("location", field_types::STRING, false),
+                                 field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::string> names = {
+        "John Stewart", "John Smith", "John Scott", "John Stone", "John Romero", "John Oliver", "John Adams"
+    };
+
+    std::vector<std::string> locations = {
+        "Switzerland", "Seoul", "Sydney", "Surat", "Stockholm", "Salem", "Sevilla"
+    };
+
+    for(size_t i = 0; i < names.size(); i++) {
+        nlohmann::json doc;
+        doc["location"] = locations[i];
+        doc["name"] = names[i];
+        doc["points"] = i;
+        coll1->add(doc.dump());
+    }
+
+    auto results = coll1->search("john s", {"location", "name"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+
+    // tokens are ordered by max_score, but prefix continuation on the same field should be prioritized
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("6", results["hits"][4]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, ArrayElementMatchShouldBeMoreImportantThanTotalMatch) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("author", field_types::STRING, false),
@@ -722,4 +760,662 @@ TEST_F(CollectionSpecificMoreTest, OrderWithThreeSortFields) {
     ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, LongString) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::string name;
+    for(size_t i = 0; i < 100; i++) {
+        name += "foo" + std::to_string(i) + " ";
+    }
+
+    nlohmann::json doc1;
+    doc1["name"] = name;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search(name, {"name"},
+                                 "", {}, sort_fields, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, RelevanceConsiderAllFields) {
+    std::vector<field> fields = {field("f1", field_types::STRING, false),
+                                 field("f2", field_types::STRING, false),
+                                 field("f3", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["f1"] = "alpha";
+    doc1["f2"] = "alpha";
+    doc1["f3"] = "alpha";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["f1"] = "alpha";
+    doc1["f2"] = "alpha";
+    doc1["f3"] = "beta";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["f1"] = "alpha";
+    doc1["f2"] = "beta";
+    doc1["f3"] = "gamma";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("alpha", {"f1", "f2", "f3"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {3, 2, 1}).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+
+    // verify match score component values
+    ASSERT_EQ("578730123365711899", results["hits"][0]["text_match_info"]["score"].get<std::string>());
+    ASSERT_EQ(3, results["hits"][0]["text_match_info"]["fields_matched"].get<size_t>());
+    ASSERT_EQ(2, results["hits"][1]["text_match_info"]["fields_matched"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][2]["text_match_info"]["fields_matched"].get<size_t>());
+
+    ASSERT_EQ(1, results["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][2]["text_match_info"]["tokens_matched"].get<size_t>());
+
+    ASSERT_EQ("1108091339008", results["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091339008", results["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091339008", results["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
+
+    ASSERT_EQ(3, results["hits"][0]["text_match_info"]["best_field_weight"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][1]["text_match_info"]["best_field_weight"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][2]["text_match_info"]["best_field_weight"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, CrossFieldWeightIsNotAugmentated) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("type", field_types::STRING, false)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["title"] = "Nike Shoerack";
+    doc1["type"] = "shoe_rack";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["title"] = "Nike Air Force 1";
+    doc1["type"] = "shoe";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("nike shoe", {"type", "title"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {5, 1}).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, HighlightWithAccentedChars) {
+    std::vector<field> fields = {field(".*", field_types::AUTO, false)};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO, {}, {}, true).get();
+
+    auto nested_doc = R"({
+      "title": "Rāpeti Early Learning Centre",
+      "companies": [
+        {"title": "Rāpeti Early Learning Centre"}
+      ]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(nested_doc.dump()).ok());
+
+    auto results = coll1->search("rap", {"title", "companies"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("<mark>Rāp</mark>eti Early Learning Centre", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    auto highlight_doc = R"({
+      "companies":[
+        {
+          "title":"<mark>Rāp</mark>eti Early Learning Centre"
+        }
+      ],
+      "title":"<mark>Rāp</mark>eti Early Learning Centre"
+    })"_json;
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
+    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"].size());
+
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["title"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"].size());
+    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"][0]);
+
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies.title"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies.title"]["matched_tokens"].size());
+    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["companies.title"]["matched_tokens"][0]);
+}
+
+TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("brand", field_types::STRING, false),
+                                 field("type", field_types::STRING, false)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::string> raw_search_fields = {"title", "brand", "type"};
+    std::vector<uint32_t> query_by_weights = {110, 25, 55};
+    std::vector<search_field_t> weighted_search_fields;
+    std::vector<std::string> reordered_search_fields;
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ(3, reordered_search_fields.size());
+    ASSERT_EQ(3, weighted_search_fields.size());
+
+    ASSERT_EQ("title", weighted_search_fields[0].name);
+    ASSERT_EQ("type", weighted_search_fields[1].name);
+    ASSERT_EQ("brand", weighted_search_fields[2].name);
+
+    ASSERT_EQ(15, weighted_search_fields[0].weight);
+    ASSERT_EQ(14, weighted_search_fields[1].weight);
+    ASSERT_EQ(13, weighted_search_fields[2].weight);
+
+    // same weights
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights = {15, 15, 15};
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("title", weighted_search_fields[0].name);
+    ASSERT_EQ("brand", weighted_search_fields[1].name);
+    ASSERT_EQ("type", weighted_search_fields[2].name);
+
+    ASSERT_EQ(15, weighted_search_fields[0].weight);
+    ASSERT_EQ(15, weighted_search_fields[1].weight);
+    ASSERT_EQ(15, weighted_search_fields[2].weight);
+
+    // same weights large
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights = {800, 800, 800};
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("title", weighted_search_fields[0].name);
+    ASSERT_EQ("brand", weighted_search_fields[1].name);
+    ASSERT_EQ("type", weighted_search_fields[2].name);
+
+    ASSERT_EQ(15, weighted_search_fields[0].weight);
+    ASSERT_EQ(15, weighted_search_fields[1].weight);
+    ASSERT_EQ(15, weighted_search_fields[2].weight);
+
+    // weights desc ordered but exceed max weight
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights = {603, 602, 601};
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("title", weighted_search_fields[0].name);
+    ASSERT_EQ("brand", weighted_search_fields[1].name);
+    ASSERT_EQ("type", weighted_search_fields[2].name);
+
+    ASSERT_EQ(15, weighted_search_fields[0].weight);
+    ASSERT_EQ(14, weighted_search_fields[1].weight);
+    ASSERT_EQ(13, weighted_search_fields[2].weight);
+
+    // number of fields > 15 (must cap least important fields to weight 0)
+    raw_search_fields.clear();
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights.clear();
+
+    for(size_t i = 0; i < 17; i++) {
+        raw_search_fields.push_back("field" + std::to_string(17 - i));
+        query_by_weights.push_back(17 - i);
+    }
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("field3", weighted_search_fields[14].name);
+    ASSERT_EQ("field2", weighted_search_fields[15].name);
+    ASSERT_EQ("field1", weighted_search_fields[16].name);
+
+    ASSERT_EQ(1, weighted_search_fields[14].weight);
+    ASSERT_EQ(0, weighted_search_fields[15].weight);
+    ASSERT_EQ(0, weighted_search_fields[16].weight);
+
+    // when weights are not given
+    raw_search_fields.clear();
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights.clear();
+
+    for(size_t i = 0; i < 17; i++) {
+        raw_search_fields.push_back("field" + std::to_string(17 - i));
+    }
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("field3", weighted_search_fields[14].name);
+    ASSERT_EQ("field2", weighted_search_fields[15].name);
+    ASSERT_EQ("field1", weighted_search_fields[16].name);
+
+    ASSERT_EQ(1, weighted_search_fields[14].weight);
+    ASSERT_EQ(0, weighted_search_fields[15].weight);
+    ASSERT_EQ(0, weighted_search_fields[16].weight);
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchingForMinusCharacter) {
+    // when the minus character is part of symbols_to_index it should not be used as exclusion operator
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "points", 0, "", {"-"}, {}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["name"] = "y = -x + 3 + 2 * x";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["name"] = "foo bar";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("-x + 3", {"name"},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true},
+                                 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("-", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {true},
+                            0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, UpsertUpdateEmplaceShouldAllRemoveIndex) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title1", "type": "string", "optional": true},
+          {"name": "title2", "type": "string", "optional": true},
+          {"name": "title3", "type": "string", "optional": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "title1": "Foo",
+        "title2": "Bar",
+        "title3": "Baz",
+        "data": "abcdefghijk"
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    // via upsert
+
+    auto doc_update = R"({
+        "id": "0",
+        "title2": "Bar",
+        "title3": "Baz"
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPSERT).ok());
+
+    auto results = coll1->search("foo", {"title1"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("bar", {"title2"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());
+
+    // via update, existing index should not be removed because update can send partial doc
+
+    doc_update = R"({
+        "id": "0",
+        "title3": "Baz"
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPDATE).ok());
+
+    results = coll1->search("bar", {"title2"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // via emplace, existing index should not be removed because emplace could send partial doc
+
+    doc_update = R"({
+        "id": "0"
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), EMPLACE).ok());
+
+    results = coll1->search("baz", {"title3"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionSpecificMoreTest, UnorderedWeightingOfFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "brand", "type": "string"},
+            {"name": "sku", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "42f05db9-373a-4372-9bd0-ff4b5aaba28d";
+    doc["brand"] = "brand";
+    doc["sku"] = "rgx761";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // with num_typos
+
+    auto res_op = coll1->search("rg0761", {"title","brand","sku"}, "", {}, {}, {2,2,0}, 10, 1,
+                                FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {10, 7, 10});
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(0, res_op.get()["hits"].size());
+
+    // with prefix
+    res_op = coll1->search("rgx", {"title","brand","sku"}, "", {}, {}, {2,2,0}, 10, 1,
+                           FREQUENCY, {true, true, false},
+                           0, spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {10, 7, 10});
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(0, res_op.get()["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, IncludeFieldsOnlyId) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Sample Title";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("*", {}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true}, 0, {"id"});
+
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+
+    ASSERT_EQ(1, res["hits"][0]["document"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, QueryWithOnlySpecialChars) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Sample Title";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("--", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true});
+
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, HandleStringFieldWithObjectValueEarlier) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // index a "bad" document with title as an object field
+
+    nlohmann::json doc;
+    doc["id"] = "12345";
+    doc["title"] = R"({"id": 12345})"_json;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // now add another document where `title` is a string
+    doc["id"] = "12346";
+    doc["title"] = "Title 2";
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // try to update the former document
+    doc["id"] = "12345";
+    doc["title"] = "Title 1";
+    add_op = coll1->add(doc.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionSpecificMoreTest, CopyDocHelper) {
+    std::vector<highlight_field_t> hightlight_items = {
+        highlight_field_t("foo.bar", false, false),
+        highlight_field_t("baz", false, false),
+        highlight_field_t("not-found", false, false),
+    };
+
+    nlohmann::json src = R"({
+        "baz": {"name": "John"},
+        "foo.bar": 12345
+    })"_json;
+
+    nlohmann::json dst;
+    Collection::copy_highlight_doc(hightlight_items, src, dst);
+
+    ASSERT_EQ(2, dst.size());
+    ASSERT_EQ(1, dst.count("baz"));
+    ASSERT_EQ(1, dst.count("foo.bar"));
+}
+
+TEST_F(CollectionSpecificMoreTest, HighlightObjectShouldBeEmptyWhenNoHighlightFieldFound) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "brand", "type": "string"},
+            {"name": "sku", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "42f05db9-373a-4372-9bd0-ff4b5aaba28d";
+    doc["brand"] = "brand";
+    doc["sku"] = "rgx761";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("brand", {"title", "brand", "sku"}, "", {}, {}, {2, 2, 0}, 10, 1,
+                                FREQUENCY, {true},
+                                10, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address",
+                                20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
+                                "title");
+
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    ASSERT_TRUE(res["hits"][0]["highlight"]["snippet"].empty());
+}
+
+TEST_F(CollectionSpecificMoreTest, WildcardSearchWithNoSortingField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // search on empty collection
+    auto res_op = coll1->search("*", {}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true});
+
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+    ASSERT_EQ(0, res["hits"].size());
+    ASSERT_EQ(0, res["found"].get<size_t>());
+
+    nlohmann::json doc;
+    doc["title"] = "Sample Title 1";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "Sample Title 2";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    res_op = coll1->search("*", {}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true});
+
+    ASSERT_TRUE(res_op.ok());
+    res = res_op.get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(2, res["found"].get<size_t>());
+
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, AutoSchemaWithObjectValueAsFirstDoc) {
+    // when a value is `object` initially and then is integer, updating that object should not cause errors
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["num"] = nlohmann::json::object();
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "Sample Title 2";
+    doc["num"] = 42;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // now try updating first doc
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["num"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+
+    auto res = coll1->search("*", {}, "num:100", {}, {}, {2}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, res["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, VerifyDeletionOfFacetStringIndex) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string", "facet": true},
+            {"name": "i32", "type": "int32", "facet": true},
+            {"name": "float", "type": "float", "facet": true},
+            {"name": "i64", "type": "int64", "facet": true},
+            {"name": "i32arr", "type": "int32[]", "facet": true},
+            {"name": "floatarr", "type": "float[]", "facet": true},
+            {"name": "i64arr", "type": "int64[]", "facet": true}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["i32"] = 100;
+    doc["float"] = 2.40;
+    doc["i64"] = 10000;
+    doc["i32arr"] = {100};
+    doc["floatarr"] = {2.50};
+    doc["i64arr"] = {10000};
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto search_index = coll1->_get_index()->_get_search_index();
+    ASSERT_EQ(7, search_index.size());
+    for(const auto& kv: search_index) {
+        ASSERT_EQ(1, kv.second->size);
+    }
+
+    coll1->remove("0");
+    ASSERT_EQ(7, search_index.size());
+
+    for(const auto& kv: search_index) {
+        ASSERT_EQ(0, kv.second->size);
+    }
 }

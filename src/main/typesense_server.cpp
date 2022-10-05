@@ -76,6 +76,13 @@ void master_server_routes() {
     server->post("/operations/vote", post_vote, false, false);
     server->post("/operations/cache/clear", post_clear_cache, false, false);
 
+
+    server->get("/limits", get_rate_limits);
+    server->get("/limits/:id", get_rate_limit);
+    server->post("/limits", post_rate_limit);
+    server->put("/limits/:id", put_rate_limit);
+    server->del("/limits/:id", del_rate_limit);
+
     server->post("/config", post_config, false, false);
 }
 

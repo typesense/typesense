@@ -7,11 +7,14 @@
 #include "string_utils.h"
 #include "logger.h"
 #include <sparsepp.h>
+#include <tsl/htrie_map.h>
 #include "json.hpp"
 
 namespace field_types {
     // first field value indexed will determine the type
     static const std::string AUTO = "auto";
+    static const std::string OBJECT = "object";
+    static const std::string OBJECT_ARRAY = "object[]";
 
     static const std::string STRING = "string";
     static const std::string INT32 = "int32";
@@ -40,7 +43,16 @@ namespace fields {
     static const std::string sort = "sort";
     static const std::string infix = "infix";
     static const std::string locale = "locale";
+    static const std::string nested = "nested";
+    static const std::string nested_array = "nested_array";
+    static const std::string num_dim = "num_dim";
+    static const std::string vec_dist = "vec_dist";
 }
+
+enum vector_distance_type_t {
+    ip,
+    cosine
+};
 
 struct field {
     std::string name;
@@ -52,11 +64,25 @@ struct field {
     bool sort;
     bool infix;
 
+    bool nested;        // field inside an object
+
+    // field inside an array of objects that is forced to be an array
+    // integer to handle tri-state: true (1), false (0), not known yet (2)
+    // third state is used to diff between array of object and array within object during write
+    int nested_array;
+
+    size_t num_dim;
+    vector_distance_type_t vec_dist;
+
+    static constexpr int VAL_UNKNOWN = 2;
+
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
-          bool index = true, std::string locale = "", int sort = -1, int infix = -1) :
-            name(name), type(type), facet(facet), optional(optional), index(index), locale(locale) {
+          bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine) :
+            name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist) {
 
         if(sort != -1) {
             this->sort = bool(sort);
@@ -65,6 +91,14 @@ struct field {
         }
 
         this->infix = (infix != -1) ? bool(infix) : false;
+    }
+
+    bool operator<(const field& f) const {
+        return name < f.name;
+    }
+
+    bool operator==(const field& f) const {
+        return name == f.name;
     }
 
     bool is_auto() const {
@@ -112,6 +146,10 @@ struct field {
         return (type == field_types::GEOPOINT || type == field_types::GEOPOINT_ARRAY);
     }
 
+    bool is_object() const {
+        return (type == field_types::OBJECT || type == field_types::OBJECT_ARRAY);
+    }
+
     bool is_string() const {
         return (type == field_types::STRING || type == field_types::STRING_ARRAY);
     }
@@ -128,19 +166,20 @@ struct field {
         return (type == field_types::STRING_ARRAY || type == field_types::INT32_ARRAY ||
                 type == field_types::FLOAT_ARRAY ||
                 type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY ||
-                type == field_types::GEOPOINT_ARRAY);
+                type == field_types::GEOPOINT_ARRAY || type == field_types::OBJECT_ARRAY);
     }
 
     bool is_singular() const {
         return !is_array();
     }
 
-    bool is_dynamic() const {
-         return is_dynamic(name, type);
+    static bool is_dynamic(const std::string& name, const std::string& type) {
+        return type == "string*" || (name != ".*" && type == field_types::AUTO) ||
+                (name != ".*" && name.find(".*") != std::string::npos);
     }
 
-    static bool is_dynamic(const std::string& name, const std::string& type) {
-        return type == "string*" || (name != ".*" && type == field_types::AUTO) || (name != ".*" && name.find(".*") != std::string::npos);
+    bool is_dynamic() const {
+        return is_dynamic(name, type);
     }
 
     bool has_numerical_index() const {
@@ -169,7 +208,8 @@ struct field {
     }
 
     bool has_valid_type() const {
-        bool is_basic_type = is_string() || is_integer() || is_float() || is_bool() || is_geopoint() || is_auto();
+        bool is_basic_type = is_string() || is_integer() || is_float() || is_bool() || is_geopoint() ||
+                             is_object() || is_auto();
         if(!is_basic_type) {
             return field_types::is_string_or_array(type);
         }
@@ -195,10 +235,6 @@ struct field {
             return true;
         }
 
-        if(obj.is_object()) {
-            return false;
-        }
-
         return get_single_type(obj, field_type);
     }
 
@@ -220,6 +256,11 @@ struct field {
 
         if(obj.is_boolean()) {
             field_type = field_types::BOOL;
+            return true;
+        }
+
+        if(obj.is_object()) {
+            field_type = field_types::OBJECT;
             return true;
         }
 
@@ -252,6 +293,16 @@ struct field {
 
             field_val[fields::locale] = field.locale;
 
+            field_val[fields::nested] = field.nested;
+            if(field.nested) {
+                field_val[fields::nested_array] = field.nested_array;
+            }
+
+            if(field.num_dim > 0) {
+                field_val[fields::num_dim] = field.num_dim;
+                field_val[fields::vec_dist] = field.vec_dist == ip ? "ip" : "cosine";
+            }
+
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {
@@ -271,10 +322,14 @@ struct field {
                                                     "` cannot be an optional field.");
                 }
 
+                if(field.is_geopoint()) {
+                    return Option<bool>(400, "Default sorting field cannot be of type geopoint.");
+                }
+
                 found_default_sorting_field = true;
             }
 
-            if(field.is_dynamic() && !field.optional) {
+            if(field.is_dynamic() && !field.nested && !field.optional) {
                 return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
             }
 
@@ -353,6 +408,18 @@ struct field {
 
         return Option<bool>(true);
     }
+
+    static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
+                            const std::string& flat_name, std::unordered_map<std::string, field>& flattened_fields);
+
+    static Option<bool> flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
+                                      std::vector<std::string>& path_parts, size_t path_index, bool has_array,
+                                      bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields);
+
+    static Option<bool> flatten_doc(nlohmann::json& document, const std::vector<field>& nested_fields,
+                                    std::vector<field>& flattened_fields);
+
+    static Option<bool> flatten_stored_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields);
 };
 
 struct filter {
@@ -429,7 +496,7 @@ struct filter {
                                                     NUM_COMPARATOR& num_comparator);
 
     static Option<bool> parse_filter_query(const std::string& simple_filter_query,
-                                           const std::unordered_map<std::string, field>& search_schema,
+                                           const tsl::htrie_map<char, field>& search_schema,
                                            const Store* store,
                                            const std::string& doc_id_prefix,
                                            std::vector<filter>& filters);
@@ -442,6 +509,7 @@ namespace sort_field_const {
     static const std::string desc = "DESC";
 
     static const std::string text_match = "_text_match";
+    static const std::string eval = "_eval";
     static const std::string seq_id = "_seq_id";
 
     static const std::string exclude_radius = "exclude_radius";
@@ -457,6 +525,12 @@ struct sort_by {
         normal,
     };
 
+    struct eval_t {
+        std::vector<filter> filters;
+        uint32_t* ids = nullptr;
+        uint32_t  size = 0;
+    };
+
     std::string name;
     std::string order;
 
@@ -469,6 +543,7 @@ struct sort_by {
     uint32_t geo_precision;
 
     missing_values_t missing_values;
+    eval_t eval;
 
     sort_by(const std::string & name, const std::string & order):
         name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
@@ -492,7 +567,21 @@ struct sort_by {
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
         missing_values = other.missing_values;
+        eval = other.eval;
         return *this;
+    }
+};
+
+struct vector_query_t {
+    std::string field_name;
+    size_t k = 0;
+    std::vector<float> values;
+
+    void _reset() {
+        // used for testing only
+        field_name.clear();
+        k = 0;
+        values.clear();
     }
 };
 

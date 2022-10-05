@@ -1318,7 +1318,7 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, bool last
 
         // used to match q=strawberries on key=strawberry, but limit to larger keys to prevent eager matches
         if(key_len > 5 && term_len > key_len && (term_len - key_len) <= max_cost &&
-           cost >= min_cost && cost <= max_cost) {
+           cost >= min_cost-1 && cost <= max_cost-1) {
             return 1;
         }
 

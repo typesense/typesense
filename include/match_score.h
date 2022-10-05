@@ -35,15 +35,15 @@ struct TokenOffset {
 };
 
 struct Match {
-    uint8_t words_present;
-    uint8_t distance;
-    uint8_t max_offset;
-    uint8_t exact_match;
-    uint8_t phrase_match;
+    uint8_t words_present = 0;
+    uint8_t distance = 0;
+    uint8_t max_offset = 0;
+    uint8_t exact_match = 0;
+    uint8_t phrase_match = 0;
 
     std::vector<TokenOffset> offsets;
 
-    Match() : words_present(0), distance(0), exact_match(0), max_offset(0) {
+    Match() : words_present(0), distance(0), max_offset(0), exact_match(0) {
 
     }
 
