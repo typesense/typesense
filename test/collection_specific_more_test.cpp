@@ -141,9 +141,24 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnMultiField) {
         coll1->add(doc.dump());
     }
 
-    auto results = coll1->search("john s", {"location", "name"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    auto results = coll1->search("john s", {"location", "name"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                                 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "",
+                                 30, 4, "title", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false,
+                                 true, "", false, 6000*1000, 4, 7, off, 4).get();
 
-    // tokens are ordered by max_score, but prefix continuation on the same field should be prioritized
+    // tokens are ordered by max_score and prefix continuation on the same field is prioritized
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // when more than 4 candidates are requested, "s" matches with other fields are returned
+    results = coll1->search("john s", {"location", "name"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "",
+                            30, 4, "title", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false,
+                            true, "", false, 6000*1000, 4, 7, off, 10).get();
+
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());

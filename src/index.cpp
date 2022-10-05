@@ -1265,38 +1265,6 @@ void Index::aggregate_topster(Topster* agg_topster, Topster* index_topster) {
     }
 }
 
-bool Index::is_valid_token_prefix(const std::vector<search_field_t>& the_fields, size_t field_id,
-                           const unsigned char* token_c_str, size_t token_len,
-                           const std::vector<uint32_t>& num_typos, const std::vector<bool>& prefixes,
-                           size_t token_num_typos, bool token_prefix,
-                           const spp::sparse_hash_map<std::string, art_tree*>& search_index,
-                           const std::vector<uint32_t>& prev_token_doc_ids) {
-
-    const std::string& field_name = the_fields[field_id].name;
-    const uint32_t field_num_typos = (field_id < num_typos.size()) ? num_typos[field_id] : num_typos[0];
-    const bool field_prefix = (field_id < prefixes.size()) ? prefixes[field_id] : prefixes[0];
-
-    if (token_num_typos > field_num_typos) {
-        // since the token can come from any field, we still have to respect per-field num_typos
-        return false;
-    }
-
-    if (token_prefix && !field_prefix) {
-        // even though this token is an outcome of prefix search, we can't use it for this field, since
-        // this field has prefix search disabled.
-        return false;
-    }
-
-    art_tree* tree = search_index.at(field_name);
-    art_leaf* leaf = static_cast<art_leaf*>(art_search(tree, token_c_str, token_len));
-
-    if (!leaf) {
-        return false;
-    }
-
-    return posting_t::contains_atleast_one(leaf->values, &prev_token_doc_ids[0], prev_token_doc_ids.size());
-}
-
 void Index::search_all_candidates(const size_t num_search_fields,
                                   const std::vector<search_field_t>& the_fields,
                                   const uint32_t* filter_ids, size_t filter_ids_length,
@@ -1330,89 +1298,6 @@ void Index::search_all_candidates(const size_t num_search_fields,
         LOG(INFO) << "max_candidates: " << max_candidates;
         LOG(INFO) << "token_candidates_vec.size(): " << token_candidates_vec.size();
     }*/
-
-    std::set<std::string> trimmed_candidates;
-
-    if(token_candidates_vec.size() >= 2 && token_candidates_vec.back().candidates.size() > max_candidates) {
-        std::vector<uint32_t> prev_token_doc_ids;  // documents that contain the previous token across fields
-        std::vector<size_t> top_prefix_field_ids;  // fields which contained the token the most across documents
-
-        find_across_fields(query_tokens[query_tokens.size()-2], num_typos, prefixes, the_fields, num_search_fields,
-                           filter_ids, filter_ids_length, exclude_token_ids, exclude_token_ids_size,
-                           prev_token_doc_ids, top_prefix_field_ids);
-
-        //LOG(INFO) << "prev_token_doc_ids found: " << prev_token_doc_ids.size();
-
-        std::unordered_set<size_t> processed_field_ids;
-
-        for(auto& token_str: token_candidates_vec.back().candidates) {
-            //LOG(INFO) << "Prefix token: " << token_str;
-            const bool prefix_search = query_tokens.back().is_prefix_searched;
-            const uint32_t token_num_typos = query_tokens.back().num_typos;
-            const bool token_prefix = (token_str.size() > token_candidates_vec.back().token.value.size());
-
-            auto token_c_str = (const unsigned char*) token_str.c_str();
-            const size_t token_len = token_str.size() + 1;
-
-            for(size_t i = 0; i < num_search_fields; i++) {
-                if(!is_valid_token_prefix(the_fields, i, token_c_str, token_len, num_typos, prefixes,
-                                          token_num_typos, token_prefix, search_index, prev_token_doc_ids)) {
-                    continue;
-                }
-
-                trimmed_candidates.insert(token_str);
-                processed_field_ids.insert(i);
-                if(trimmed_candidates.size() == max_candidates) {
-                    goto outer1;
-                }
-            }
-        }
-
-        outer1:
-
-        for(auto& token_str: token_candidates_vec.back().candidates) {
-            //LOG(INFO) << "Prefix token: " << token_str;
-            const bool prefix_search = query_tokens.back().is_prefix_searched;
-            const uint32_t token_num_typos = query_tokens.back().num_typos;
-            const bool token_prefix = (token_str.size() > token_candidates_vec.back().token.value.size());
-            auto token_c_str = (const unsigned char*) token_str.c_str();
-            const size_t token_len = token_str.size() + 1;
-
-            size_t top_fields_processed = 0;
-            for(auto field_id: top_prefix_field_ids) {
-                if(processed_field_ids.count(field_id) != 0) {
-                    continue;
-                }
-
-                if(!is_valid_token_prefix(the_fields, field_id, token_c_str, token_len, num_typos, prefixes,
-                                          token_num_typos, token_prefix, search_index, prev_token_doc_ids)) {
-                    continue;
-                }
-
-                top_fields_processed++;
-                trimmed_candidates.insert(token_str);
-
-                if(top_fields_processed == 3) {
-                    // limit to only 3 unprocessed top fields
-                    goto outer2;
-                }
-            }
-        }
-
-        outer2:
-
-        if(trimmed_candidates.empty()) {
-            return ;
-        }
-
-        /*LOG(INFO) << "Final trimmed_candidates.size: " << trimmed_candidates.size();
-        for(const auto& trimmed_candidate: trimmed_candidates) {
-            LOG(INFO) << "trimmed_candidate: " << trimmed_candidate;
-        }*/
-
-        token_candidates_vec.back().candidates.clear();
-        token_candidates_vec.back().candidates.assign(trimmed_candidates.begin(), trimmed_candidates.end());
-    }
 
     auto product = []( long long a, tok_candidates & b ) { return a*b.candidates.size(); };
     long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
@@ -2679,7 +2564,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
             }
         }
 
-        fuzzy_search_fields(the_fields, field_query_tokens[0].q_include_tokens, excluded_result_ids,
+        fuzzy_search_fields(the_fields, field_query_tokens[0].q_include_tokens, false, excluded_result_ids,
                             excluded_result_ids_size, filter_ids, filter_ids_length, curated_ids_sorted,
                             sort_fields_std, num_typos, searched_queries, qtoken_set, topster, groups_processed,
                             all_result_ids, all_result_ids_len, group_limit, group_by_fields, prioritize_exact_match,
@@ -2716,7 +2601,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                                                   space_resolved_queries[0][j].size(), 0);
                 }
 
-                fuzzy_search_fields(the_fields, resolved_tokens, excluded_result_ids,
+                fuzzy_search_fields(the_fields, resolved_tokens, false, excluded_result_ids,
                                     excluded_result_ids_size, filter_ids, filter_ids_length, curated_ids_sorted,
                                     sort_fields_std, num_typos, searched_queries, qtoken_set, topster, groups_processed,
                                     all_result_ids, all_result_ids_len, group_limit, group_by_fields, prioritize_exact_match,
@@ -2772,7 +2657,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                             drop_token_prefixes.push_back(p && prefix_search);
                         }
 
-                        fuzzy_search_fields(the_fields, truncated_tokens, excluded_result_ids,
+                        fuzzy_search_fields(the_fields, truncated_tokens, true, excluded_result_ids,
                                             excluded_result_ids_size, filter_ids, filter_ids_length, curated_ids_sorted,
                                             sort_fields_std, num_typos, searched_queries, qtoken_set, topster, groups_processed,
                                             all_result_ids, all_result_ids_len, group_limit, group_by_fields, prioritize_exact_match,
@@ -2997,6 +2882,7 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
 
 void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                                 const std::vector<token_t>& query_tokens,
+                                const bool dropped_tokens,
                                 const uint32_t* exclude_token_ids,
                                 size_t exclude_token_ids_size,
                                 const uint32_t* filter_ids, size_t filter_ids_length,
@@ -3087,7 +2973,34 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
             } else {
                 //auto begin = std::chrono::high_resolution_clock::now();
 
+                // Prefix query with a preceding token should be handled in such a way that we give preference to
+                // possible phrase continuation. Example: "steve j" for "steve jobs" name field query. To do this,
+                // we will first attempt to match the prefix with the most "popular" fields of the preceding token.
+                // Tokens matched from popular fields will also be searched across other query fields.
+                // Only when we find *no results* for such an expansion, we will attempt cross field matching.
+                bool last_token = query_tokens.size() > 1 && !dropped_tokens &&
+                                  (token_index == (query_tokens.size() - 1));
+
+                std::vector<size_t> query_field_ids(num_search_fields);
                 for(size_t field_id = 0; field_id < num_search_fields; field_id++) {
+                    query_field_ids[field_id] = the_fields[field_id].orig_index;
+                }
+
+                std::vector<size_t> popular_field_ids; // fields containing the token most across documents
+
+                if(last_token) {
+                    popular_fields_of_token(search_index,
+                                            token_candidates_vec.back().candidates[0],
+                                            the_fields, num_search_fields, popular_field_ids);
+
+                    if(popular_field_ids.empty()) {
+                         break;
+                    }
+                }
+
+                const std::vector<size_t>& field_ids = last_token ? popular_field_ids : query_field_ids;
+
+                for(size_t field_id: field_ids) {
                     // NOTE: when accessing other field ordered properties like prefixes or num_typos we have to index
                     // them by `the_field.orig_index` since the original fields could be reordered on their weights.
                     auto& the_field = the_fields[field_id];
@@ -3127,18 +3040,108 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         continue;
                     }
 
+                    std::vector<uint32_t> prev_token_doc_ids;   // documents that contain the previous token
+
+                    if(last_token) {
+                        auto& prev_token = token_candidates_vec.back().candidates[0];
+                        art_leaf* prev_leaf = static_cast<art_leaf*>(
+                                art_search(search_index.at(the_field.name),
+                                reinterpret_cast<const unsigned char*>(prev_token.c_str()),
+                                prev_token.size() + 1));
+
+                        if(!prev_leaf) {
+                            continue;
+                        }
+
+                        posting_t::merge({prev_leaf->values}, prev_token_doc_ids);
+                    }
+
                     for(size_t i = 0; i < field_leaves.size(); i++) {
                         auto leaf = field_leaves[i];
                         std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
                         if(unique_tokens.count(tok) == 0) {
+                            if(last_token) {
+                                if(!posting_t::contains_atleast_one(leaf->values, &prev_token_doc_ids[0],
+                                                                    prev_token_doc_ids.size())) {
+                                    continue;
+                                }
+                            }
+
                             unique_tokens.emplace(tok);
                             leaf_tokens.push_back(tok);
+                        }
+
+                        if(leaf_tokens.size() >= max_candidates) {
+                            token_cost_cache.emplace(token_cost_hash, leaf_tokens);
+                            goto token_done;
                         }
                     }
 
                     token_cost_cache.emplace(token_cost_hash, leaf_tokens);
                 }
+
+                if(last_token && leaf_tokens.size() < max_candidates) {
+                    // field-wise matching with previous token has failed, have to look at cross fields matching docs
+                    std::vector<uint32_t> prev_token_doc_ids;
+                    find_across_fields(token_candidates_vec.back().token,
+                                       token_candidates_vec.back().candidates[0],
+                                       num_typos, prefixes,
+                                       the_fields, num_search_fields, filter_ids, filter_ids_length, exclude_token_ids,
+                                       exclude_token_ids_size, prev_token_doc_ids, popular_field_ids);
+
+                    for(size_t field_id: query_field_ids) {
+                        auto& the_field = the_fields[field_id];
+                        const bool field_prefix = (the_field.orig_index < prefixes.size()) ? prefixes[the_field.orig_index] : prefixes[0];;
+                        const bool prefix_search = field_prefix && query_tokens[token_index].is_prefix_searched;
+                        const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
+                        int64_t field_num_typos = (the_field.orig_index < num_typos.size()) ? num_typos[the_field.orig_index] : num_typos[0];
+
+                        auto& locale = search_schema.at(the_field.name).locale;
+                        if(locale != "" && locale != "en" && locale != "th" && !Tokenizer::is_cyrillic(locale)) {
+                            // disable fuzzy trie traversal for non-english locales
+                            field_num_typos = 0;
+                        }
+
+                        if(costs[token_index] > field_num_typos) {
+                            continue;
+                        }
+
+                        std::vector<art_leaf*> field_leaves;
+                        int max_words = 100000;
+                        art_fuzzy_search(search_index.at(the_field.name), (const unsigned char *) token.c_str(), token_len,
+                                         costs[token_index], costs[token_index], max_words, token_order, prefix_search,
+                                         filter_ids, filter_ids_length, field_leaves, unique_tokens);
+
+                        if(field_leaves.empty()) {
+                            // look at the next field
+                            continue;
+                        }
+
+                        for(size_t i = 0; i < field_leaves.size(); i++) {
+                            auto leaf = field_leaves[i];
+                            std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
+                            if(unique_tokens.count(tok) == 0) {
+                                if(!posting_t::contains_atleast_one(leaf->values, &prev_token_doc_ids[0],
+                                                                    prev_token_doc_ids.size())) {
+                                    continue;
+                                }
+
+                                unique_tokens.emplace(tok);
+                                leaf_tokens.push_back(tok);
+                            }
+
+                            if(leaf_tokens.size() >= max_candidates) {
+                                token_cost_cache.emplace(token_cost_hash, leaf_tokens);
+                                goto token_done;
+                            }
+                        }
+
+                        token_cost_cache.emplace(token_cost_hash, leaf_tokens);
+                    }
+                }
             }
+
+            token_done:
 
             if(!leaf_tokens.empty()) {
                 //log_leaves(costs[token_index], token, leaves);
@@ -3169,7 +3172,6 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
 
         if(token_candidates_vec.size() == query_tokens.size()) {
             std::vector<uint32_t> id_buff;
-
             search_all_candidates(num_search_fields, the_fields, filter_ids, filter_ids_length,
                                   exclude_token_ids, exclude_token_ids_size,
                                   sort_fields, token_candidates_vec, searched_queries, qtoken_set, topster,
@@ -3203,7 +3205,40 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
     }
 }
 
+void Index::popular_fields_of_token(const spp::sparse_hash_map<std::string, art_tree*>& search_index,
+                                    const std::string& previous_token,
+                                    const std::vector<search_field_t>& the_fields,
+                                    const size_t num_search_fields,
+                                    std::vector<size_t>& popular_field_ids) {
+
+    const auto token_c_str = (const unsigned char*) previous_token.c_str();
+    const int token_len = (int) previous_token.size() + 1;
+
+    std::vector<std::pair<size_t, size_t>> field_id_doc_counts;
+
+    for(size_t i = 0; i < num_search_fields; i++) {
+        const std::string& field_name = the_fields[i].name;
+        auto leaf = static_cast<art_leaf*>(art_search(search_index.at(field_name), token_c_str, token_len));
+
+        if(!leaf) {
+            continue;
+        }
+
+        auto num_docs = posting_t::num_ids(leaf->values);
+        field_id_doc_counts.emplace_back(i, num_docs);
+    }
+
+    std::sort(field_id_doc_counts.begin(), field_id_doc_counts.end(), [](const auto& p1, const auto& p2) {
+        return p1.second > p2.second;
+    });
+
+    for(const auto& field_id_doc_count: field_id_doc_counts) {
+        popular_field_ids.push_back(field_id_doc_count.first);
+    }
+}
+
 void Index::find_across_fields(const token_t& previous_token,
+                               const std::string& previous_token_str,
                                const std::vector<uint32_t>& num_typos,
                                const std::vector<bool>& prefixes,
                                const std::vector<search_field_t>& the_fields,
@@ -3225,7 +3260,7 @@ void Index::find_across_fields(const token_t& previous_token,
     const uint32_t token_num_typos = previous_token.num_typos;
     const bool token_prefix = previous_token.is_prefix_searched;
 
-    auto& token_str = previous_token.value;
+    auto& token_str = previous_token_str;
     auto token_c_str = (const unsigned char*) token_str.c_str();
     const size_t token_len = token_str.size() + 1;
     std::vector<posting_list_t::iterator_t> its;
@@ -3869,7 +3904,7 @@ void Index::do_synonym_search(const std::vector<search_field_t>& the_fields,
 
     for(const auto& syn_tokens: q_pos_synonyms) {
         query_hashes.clear();
-        fuzzy_search_fields(the_fields, syn_tokens, exclude_token_ids,
+        fuzzy_search_fields(the_fields, syn_tokens, false, exclude_token_ids,
                             exclude_token_ids_size, filter_ids, filter_ids_length, curated_ids_sorted,
                             sort_fields_std, {0}, searched_queries, qtoken_set, actual_topster, groups_processed,
                             all_result_ids, all_result_ids_len, group_limit, group_by_fields, prioritize_exact_match,
