@@ -55,6 +55,7 @@ Collection::~Collection() {
     std::unique_lock lock(mutex);
     delete index;
     delete synonym_index;
+    delete stop_word_index;
 }
 
 uint32_t Collection::get_next_seq_id() {
