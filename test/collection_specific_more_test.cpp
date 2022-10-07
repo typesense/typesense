@@ -1434,3 +1434,27 @@ TEST_F(CollectionSpecificMoreTest, VerifyDeletionOfFacetStringIndex) {
         ASSERT_EQ(0, kv.second->size);
     }
 }
+
+TEST_F(CollectionSpecificMoreTest, MustExcludeOutOf) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Sample Title 1";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    spp::sparse_hash_set<std::string> include_fields;
+    auto res_op = coll1->search("*", {}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true}, 0, include_fields, {"out_of"});
+
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(0, res.count("out_of"));
+}

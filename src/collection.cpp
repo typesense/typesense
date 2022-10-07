@@ -993,6 +993,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     }
 
     for(auto& f_name: exclude_fields) {
+        if(f_name == "out_of") {
+            // `out_of` is strictly a meta-field, but we handle it since it's useful
+            continue;
+        }
+
         auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(404, field_op.error());
