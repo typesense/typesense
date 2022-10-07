@@ -1458,3 +1458,23 @@ TEST_F(CollectionSpecificMoreTest, MustExcludeOutOf) {
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(0, res.count("out_of"));
 }
+
+TEST_F(CollectionSpecificMoreTest, ValidateQueryById) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "doc-1";
+    doc["title"] = "Sample Title 1";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("doc-1", {"id"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Cannot use `id` as a query by field.", res_op.error());
+}

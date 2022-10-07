@@ -935,6 +935,12 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<std::string> processed_search_fields;
 
     for(const std::string& field_name: raw_search_fields) {
+        if(field_name == "id") {
+            // `id` field needs to be handled separately, we will not handle for now
+            std::string error = "Cannot use `id` as a query by field.";
+            return Option<nlohmann::json>(400, error);
+        }
+
         auto field_op = extract_field_name(field_name, search_schema, processed_search_fields, true, enable_nested_fields);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(field_op.code(), field_op.error());
@@ -965,10 +971,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         }
     }
 
-    for(const std::string & field_name: group_by_fields) {
-        if(search_schema.count(field_name) == 0) {
-            std::string error = "Could not find a field named `" + field_name + "` in the schema.";
-            return Option<nlohmann::json>(404, error);
+    for(const std::string& field_name: group_by_fields) {
+        if(field_name == "id") {
+            std::string error = "Cannot use `id` as a group by field.";
+            return Option<nlohmann::json>(400, error);
         }
 
         field search_field = search_schema.at(field_name);
