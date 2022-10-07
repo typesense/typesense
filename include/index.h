@@ -806,8 +806,6 @@ public:
 
     void find_across_fields(const token_t& previous_token,
                             const std::string& previous_token_str,
-                            const std::vector<uint32_t>& num_typos,
-                            const std::vector<bool>& prefixes,
                             const std::vector<search_field_t>& the_fields,
                             const size_t num_search_fields,
                             const uint32_t* filter_ids, uint32_t filter_ids_length,

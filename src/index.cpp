@@ -3040,7 +3040,8 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         continue;
                     }
 
-                    std::vector<uint32_t> prev_token_doc_ids;   // documents that contain the previous token
+                    uint32_t* prev_token_doc_ids = nullptr;   // documents that contain the previous token
+                    size_t prev_token_doc_ids_len = 0;
 
                     if(last_token) {
                         auto& prev_token = token_candidates_vec.back().candidates[0];
@@ -3053,7 +3054,18 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                             continue;
                         }
 
-                        posting_t::merge({prev_leaf->values}, prev_token_doc_ids);
+                        std::vector<uint32_t> prev_leaf_ids;
+                        posting_t::merge({prev_leaf->values}, prev_leaf_ids);
+
+                        if(filter_ids_length != 0) {
+                            prev_token_doc_ids_len = ArrayUtils::and_scalar(prev_leaf_ids.data(), prev_leaf_ids.size(),
+                                                                            filter_ids, filter_ids_length,
+                                                                            &prev_token_doc_ids);
+                        } else {
+                            prev_token_doc_ids_len = prev_leaf_ids.size();
+                            prev_token_doc_ids = new uint32_t[prev_token_doc_ids_len];
+                            std::copy(prev_leaf_ids.begin(), prev_leaf_ids.end(), prev_token_doc_ids);
+                        }
                     }
 
                     for(size_t i = 0; i < field_leaves.size(); i++) {
@@ -3061,8 +3073,8 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
                         if(unique_tokens.count(tok) == 0) {
                             if(last_token) {
-                                if(!posting_t::contains_atleast_one(leaf->values, &prev_token_doc_ids[0],
-                                                                    prev_token_doc_ids.size())) {
+                                if(!posting_t::contains_atleast_one(leaf->values, prev_token_doc_ids,
+                                                                    prev_token_doc_ids_len)) {
                                     continue;
                                 }
                             }
@@ -3073,11 +3085,15 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
 
                         if(leaf_tokens.size() >= max_candidates) {
                             token_cost_cache.emplace(token_cost_hash, leaf_tokens);
+                            delete [] prev_token_doc_ids;
+                            prev_token_doc_ids = nullptr;
                             goto token_done;
                         }
                     }
 
                     token_cost_cache.emplace(token_cost_hash, leaf_tokens);
+                    delete [] prev_token_doc_ids;
+                    prev_token_doc_ids = nullptr;
                 }
 
                 if(last_token && leaf_tokens.size() < max_candidates) {
@@ -3085,7 +3101,6 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                     std::vector<uint32_t> prev_token_doc_ids;
                     find_across_fields(token_candidates_vec.back().token,
                                        token_candidates_vec.back().candidates[0],
-                                       num_typos, prefixes,
                                        the_fields, num_search_fields, filter_ids, filter_ids_length, exclude_token_ids,
                                        exclude_token_ids_size, prev_token_doc_ids, popular_field_ids);
 
@@ -3239,8 +3254,6 @@ void Index::popular_fields_of_token(const spp::sparse_hash_map<std::string, art_
 
 void Index::find_across_fields(const token_t& previous_token,
                                const std::string& previous_token_str,
-                               const std::vector<uint32_t>& num_typos,
-                               const std::vector<bool>& prefixes,
                                const std::vector<search_field_t>& the_fields,
                                const size_t num_search_fields,
                                const uint32_t* filter_ids, uint32_t filter_ids_length,
@@ -3269,19 +3282,6 @@ void Index::find_across_fields(const token_t& previous_token,
 
     for(size_t i = 0; i < num_search_fields; i++) {
         const std::string& field_name = the_fields[i].name;
-        const uint32_t field_num_typos = (i < num_typos.size()) ? num_typos[i] : num_typos[0];
-        const bool field_prefix = (i < prefixes.size()) ? prefixes[i] : prefixes[0];
-
-        if(token_num_typos > field_num_typos) {
-            // since the token can come from any field, we still have to respect per-field num_typos
-            continue;
-        }
-
-        if(token_prefix && !field_prefix) {
-            // even though this token is an outcome of prefix search, we can't use it for this field, since
-            // this field has prefix search disabled.
-            continue;
-        }
 
         art_tree* tree = search_index.at(field_name);
         art_leaf* leaf = static_cast<art_leaf*>(art_search(tree, token_c_str, token_len));
