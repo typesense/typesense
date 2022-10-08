@@ -1227,7 +1227,25 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     compute_facet_stats(a_facet, fhash, facet_field.type);
                 }
 
-                if(!use_facet_query || fquery_hashes.find(fhash) != fquery_hashes.end()) {
+                if(a_facet.is_range_query){
+                    auto sort_index_it = sort_index.find(a_facet.field_name);
+                    
+                    if(sort_index_it != sort_index.end()){
+                        auto doc_id_val_map = sort_index_it->second;
+                        auto doc_seq_id_it = doc_id_val_map->find(doc_seq_id);
+                    
+                        if(doc_seq_id_it != doc_id_val_map->end()){
+                    
+                            int64_t doc_val = doc_seq_id_it->second;
+                            auto range_pair = a_facet.get_range(doc_val);
+                            int32_t range_id = range_pair.first;
+
+                            facet_count_t& facet_count = a_facet.result_map[range_id];
+                            facet_count.count += 1;
+                        }
+                    }
+                }
+                else if(!use_facet_query || fquery_hashes.find(fhash) != fquery_hashes.end()) {
                     facet_count_t& facet_count = a_facet.result_map[fhash];
 
                     //LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id << ", hash: " <<  fhash;
