@@ -1796,10 +1796,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     // free search params
     delete search_params;
 
-    if(filter_tree_root != nullptr) {
-        delete filter_tree_root;
-        filter_tree_root = nullptr;
-    }
+    delete filter_tree_root;
 
     result["search_cutoff"] = search_cutoff;
 
