@@ -2165,7 +2165,7 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
 
             if (resolved_override) {
                 filter_node_t* new_filter_tree_root;
-                Option<bool> filter_op = filter::parse_filter_query(override->filter_by, search_schema,
+                Option<bool> filter_op = filter::parse_filter_query(filter_by_clause, search_schema,
                                                                     store, "", new_filter_tree_root);
                 if (filter_op.ok()) {
                     // have to ensure that dropped hits take precedence over added hits
@@ -2409,6 +2409,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
     recursive_filter(filter_ids, filter_ids_length, filter_tree_root, true);
 
     if (filter_tree_root != nullptr && filter_ids_length == 0) {
+        delete [] filter_ids;
         return;
     }
 
