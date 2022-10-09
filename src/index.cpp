@@ -1237,11 +1237,14 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         if(doc_seq_id_it != doc_id_val_map->end()){
                     
                             int64_t doc_val = doc_seq_id_it->second;
-                            auto range_pair = a_facet.get_range(doc_val);
-                            int32_t range_id = range_pair.first;
+                            std::pair<int32_t, std::string> range_pair {};
+                            if(a_facet.get_range(doc_val, range_pair))
+                            {
+                                int32_t range_id = range_pair.first;
 
-                            facet_count_t& facet_count = a_facet.result_map[range_id];
-                            facet_count.count += 1;
+                                facet_count_t& facet_count = a_facet.result_map[range_id];
+                                facet_count.count += 1;
+                            }
                         }
                     }
                 }

@@ -644,7 +644,7 @@ struct facet {
 
     bool is_range_query;
 
-    std::pair<int32_t, std::string> get_range(int64_t key)
+    bool get_range(int64_t key, std::pair<int32_t, std::string>& range_pair)
     {
         if(facet_range_map.empty())
         {
@@ -652,12 +652,13 @@ struct facet {
         }
         auto it = facet_range_map.lower_bound(key);
 
-        if(it == facet_range_map.end())
+        if(it != facet_range_map.end())
         {
-            --it;  //get the last entry in map 
+            range_pair = it->second;
+            return true;
         }
 
-        return it->second;
+        return false;
     }
 
     explicit facet(const std::string& field_name): field_name(field_name) {
