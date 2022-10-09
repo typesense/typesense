@@ -2021,6 +2021,8 @@ bool Index::static_filter_query_eval(const override_t* override,
                 filter_tree_root = root;
             }
             return true;
+        } else {
+            delete new_filter_tree_root;
         }
     }
 
@@ -2162,20 +2164,27 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                                                       token_order, absorbed_tokens, filter_by_clause);
 
             if (resolved_override) {
-                delete filter_tree_root;
-                filter_tree_root = nullptr;
-
-                Option<bool> filter_parse_op = filter::parse_filter_query(filter_by_clause, search_schema, store, "",
-                                                                          filter_tree_root);
-                if (filter_parse_op.ok()) {
-                    // have to ensure that dropped hits take precedence over
-                    // added hits
+                filter_node_t* new_filter_tree_root;
+                Option<bool> filter_op = filter::parse_filter_query(override->filter_by, search_schema,
+                                                                    store, "", new_filter_tree_root);
+                if (filter_op.ok()) {
+                    // have to ensure that dropped hits take precedence over added hits
                     matched_dynamic_overrides.push_back(override);
 
                     if (override->remove_matched_tokens) {
                         std::vector<std::string>& tokens = query_tokens;
                         remove_matched_tokens(tokens, absorbed_tokens);
                     }
+
+                    if (filter_tree_root == nullptr) {
+                        filter_tree_root = new_filter_tree_root;
+                    } else {
+                        filter_node_t* root = new filter_node_t(AND, filter_tree_root,
+                                                                new_filter_tree_root);
+                        filter_tree_root = root;
+                    }
+                } else {
+                    delete new_filter_tree_root;
                 }
 
                 if (override->stop_processing) {
