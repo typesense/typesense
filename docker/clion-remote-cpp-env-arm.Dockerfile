@@ -3,11 +3,11 @@
 # CLion remote docker environment
 #
 # Build:
-#   docker build -t typesense/typesense-clion-remote-cpp-env-arm:07-OCT-2022-1 -f ./docker/clion-remote-cpp-env-arm.Dockerfile ./docker
-#   docker push typesense/typesense-clion-remote-cpp-env-arm:07-OCT-2022-1
+#   docker build -t typesense/typesense-clion-remote-cpp-env-arm:11-OCT-2022-1 -f ./docker/clion-remote-cpp-env-arm.Dockerfile ./docker
+#   docker push typesense/typesense-clion-remote-cpp-env-arm:11-OCT-2022-1
 #
 # Run:
-#   docker run -d --cap-add sys_ptrace -v`pwd`/typesense-server-data/:/var/lib/typesense -p 127.0.0.1:2222:22 -p 127.0.0.1:8108:8108 --name clion_remote_env typesense/typesense-clion-remote-cpp-env-arm:07-OCT-2022-1
+#   docker run -d --cap-add sys_ptrace -v`pwd`/typesense-server-data/:/var/lib/typesense -p 127.0.0.1:2222:22 -p 127.0.0.1:8108:8108 --name clion_remote_env typesense/typesense-clion-remote-cpp-env-arm:11-OCT-2022-1
 #   docker stop clion_remote_env ; docker rm clion_remote_env
 #
 # If you need to SSH into the container directly:
@@ -38,13 +38,14 @@ RUN apt-get update \
       rsync \
       tar \
       python \
+      python-dev \
       git \
   && apt-get clean
 
 ARG GDB_VERSION=12.1
 ADD http://ftp.gnu.org/gnu/gdb/gdb-${GDB_VERSION}.tar.gz /opt/gdb-${GDB_VERSION}.tar.gz
 RUN tar -C /opt -xf /opt/gdb-${GDB_VERSION}.tar.gz
-RUN cd /opt/gdb-${GDB_VERSION} && ./configure && make -j8 && make install
+RUN cd /opt/gdb-${GDB_VERSION} && ./configure --with-python && make -j8 && make install
 
 ADD https://sourceware.org/pub/valgrind/valgrind-3.17.0.tar.bz2 /opt/valgrind-3.17.0.tar.bz2
 RUN tar -C /opt -xf /opt/valgrind-3.17.0.tar.bz2
