@@ -7,8 +7,10 @@
 #include <vector>
 #include <random>
 #include <map>
+#include <queue>
 #include "wyhash_v5.h"
 #include <unicode/normalizer2.h>
+#include "option.h"
 
 struct StringUtils {
 
@@ -21,8 +23,8 @@ struct StringUtils {
 
     // Adapted from: http://stackoverflow.com/a/236180/131050
     static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,
-                      const bool keep_empty = false, const size_t start_index = 0,
-                      const size_t max_values = (std::numeric_limits<size_t>::max()-1)) {
+                        const bool keep_empty = false, const size_t start_index = 0,
+                        const size_t max_values = (std::numeric_limits<size_t>::max()-1)) {
         if (delim.empty()) {
             result.push_back(s);
             return s.size();
@@ -319,4 +321,6 @@ struct StringUtils {
     static char* get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen);
 
     static size_t get_num_chars(const std::string& text);
+
+    static Option<bool> tokenize(std::string filter_query, std::queue<std::string>& tokens);
 };

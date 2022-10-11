@@ -123,7 +123,7 @@ struct field {
 
     bool is_integer() const {
         return (type == field_types::INT32 || type == field_types::INT32_ARRAY ||
-               type == field_types::INT64 || type == field_types::INT64_ARRAY);
+                type == field_types::INT64 || type == field_types::INT64_ARRAY);
     }
 
     bool is_int32() const {
@@ -175,7 +175,7 @@ struct field {
 
     static bool is_dynamic(const std::string& name, const std::string& type) {
         return type == "string*" || (name != ".*" && type == field_types::AUTO) ||
-                (name != ".*" && name.find(".*") != std::string::npos);
+               (name != ".*" && name.find(".*") != std::string::npos);
     }
 
     bool is_dynamic() const {
@@ -307,19 +307,19 @@ struct field {
 
             if(!field.has_valid_type()) {
                 return Option<bool>(400, "Field `" + field.name +
-                                                "` has an invalid data type `" + field.type +
-                                                "`, see docs for supported data types.");
+                                         "` has an invalid data type `" + field.type +
+                                         "`, see docs for supported data types.");
             }
 
             if(field.name == default_sorting_field && !field.is_sortable()) {
                 return Option<bool>(400, "Default sorting field `" + default_sorting_field +
-                                                "` is not a sortable type.");
+                                         "` is not a sortable type.");
             }
 
             if(field.name == default_sorting_field) {
                 if(field.optional) {
                     return Option<bool>(400, "Default sorting field `" + default_sorting_field +
-                                                    "` cannot be an optional field.");
+                                             "` cannot be an optional field.");
                 }
 
                 if(field.is_geopoint()) {
@@ -353,7 +353,7 @@ struct field {
 
         if(!default_sorting_field.empty() && !found_default_sorting_field && !fields.empty()) {
             return Option<bool>(400, "Default sorting field is defined as `" + default_sorting_field +
-                                            "` but is not found in the schema.");
+                                     "` but is not found in the schema.");
         }
 
         // check for duplicate field names in schema
@@ -422,6 +422,8 @@ struct field {
     static Option<bool> flatten_stored_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields);
 };
 
+struct filter_node_t;
+
 struct filter {
     std::string field_name;
     std::vector<std::string> values;
@@ -454,7 +456,7 @@ struct filter {
             num_comparator = EQUALS;
         }
 
-        // the ordering is important - we have to compare 2-letter operators first
+            // the ordering is important - we have to compare 2-letter operators first
         else if(comp_and_value.compare(0, 2, "<=") == 0) {
             num_comparator = LESS_THAN_EQUALS;
         }
@@ -499,7 +501,34 @@ struct filter {
                                            const tsl::htrie_map<char, field>& search_schema,
                                            const Store* store,
                                            const std::string& doc_id_prefix,
-                                           std::vector<filter>& filters);
+                                           filter_node_t*& root);
+};
+
+struct filter_node_t {
+    filter filter_exp;
+    FILTER_OPERATOR filter_operator;
+    bool isOperator;
+    filter_node_t* left;
+    filter_node_t* right;
+
+    filter_node_t(filter filter_exp)
+            : filter_exp(std::move(filter_exp)),
+              isOperator(false),
+              left(nullptr),
+              right(nullptr) {}
+
+    filter_node_t(FILTER_OPERATOR filter_operator,
+                  filter_node_t* left,
+                  filter_node_t* right)
+            : filter_operator(filter_operator),
+              isOperator(true),
+              left(left),
+              right(right) {}
+
+    ~filter_node_t() {
+        delete left;
+        delete right;
+    }
 };
 
 namespace sort_field_const {
@@ -526,7 +555,7 @@ struct sort_by {
     };
 
     struct eval_t {
-        std::vector<filter> filters;
+        filter_node_t* filter_tree_root;
         uint32_t* ids = nullptr;
         uint32_t  size = 0;
     };
@@ -546,8 +575,8 @@ struct sort_by {
     eval_t eval;
 
     sort_by(const std::string & name, const std::string & order):
-        name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
-        missing_values(normal) {
+            name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
+            missing_values(normal) {
 
     }
 
