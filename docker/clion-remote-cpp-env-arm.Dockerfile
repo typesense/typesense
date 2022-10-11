@@ -7,7 +7,7 @@
 #   docker push typesense/typesense-clion-remote-cpp-env-arm:07-OCT-2022-1
 #
 # Run:
-#   docker run -d --cap-add sys_ptrace -v`pwd`/typesense-server-data/:/var/lib/typesense -p 127.0.0.1:2222:22 --name clion_remote_env typesense/typesense-clion-remote-cpp-env-arm:07-OCT-2022-1
+#   docker run -d --cap-add sys_ptrace -v`pwd`/typesense-server-data/:/var/lib/typesense -p 127.0.0.1:2222:22 -p 127.0.0.1:8108:8108 --name clion_remote_env typesense/typesense-clion-remote-cpp-env-arm:07-OCT-2022-1
 #   docker stop clion_remote_env ; docker rm clion_remote_env
 #
 # If you need to SSH into the container directly:
