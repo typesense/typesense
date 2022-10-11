@@ -957,9 +957,9 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     if(afield.vec_dist == cosine) {
                         std::vector<float> normalized_vals(afield.num_dim);
                         hnsw_index_t::normalize_vector(float_vals, normalized_vals);
-                        vector_index[afield.name]->vecdex->addPoint(normalized_vals.data(), (size_t)seq_id);
+                        vector_index[afield.name]->vecdex->insertPoint(normalized_vals.data(), (size_t)seq_id);
                     } else {
-                        vector_index[afield.name]->vecdex->addPoint(float_vals.data(), (size_t)seq_id);
+                        vector_index[afield.name]->vecdex->insertPoint(float_vals.data(), (size_t)seq_id);
                     }
                 }
             });
@@ -5291,6 +5291,10 @@ const spp::sparse_hash_map<std::string, num_tree_t*>& Index::_get_numerical_inde
 const spp::sparse_hash_map<std::string, array_mapped_infix_t>& Index::_get_infix_index() const {
     return infix_index;
 };
+
+const spp::sparse_hash_map<std::string, hnsw_index_t*>& Index::_get_vector_index() const {
+    return vector_index;
+}
 
 void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields) {
     std::unique_lock lock(mutex);

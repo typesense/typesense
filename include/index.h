@@ -257,7 +257,7 @@ struct hnsw_index_t {
 
     hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type):
         space(new hnswlib::InnerProductSpace(num_dim)),
-        vecdex(new hnswlib::HierarchicalNSW<float, VectorFilterFunctor>(space, init_size)),
+        vecdex(new hnswlib::HierarchicalNSW<float, VectorFilterFunctor>(space, init_size, 16, 200, 100, true)),
         num_dim(num_dim), distance_type(distance_type) {
 
     }
@@ -593,6 +593,8 @@ public:
     const spp::sparse_hash_map<std::string, num_tree_t*>& _get_numerical_index() const;
 
     const spp::sparse_hash_map<std::string, array_mapped_infix_t>& _get_infix_index() const;
+
+    const spp::sparse_hash_map<std::string, hnsw_index_t*>& _get_vector_index() const;
 
     static int get_bounded_typo_cost(const size_t max_cost, const size_t token_len,
                                      size_t min_len_1typo, size_t min_len_2typo);
