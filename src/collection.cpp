@@ -2139,6 +2139,19 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             }
         }
 
+        // Remove stop words, except for the last, since it might be a prefix
+        if(q_include_tokens.size() > 1) {
+            q_include_tokens.erase(
+                    std::remove_if(
+                            q_include_tokens.begin(),
+                            q_include_tokens.end() - 1,
+                            [&](const std::string token)-> bool
+                            { return stop_word_index->is_stop_word(token); }
+                    ),
+                    q_include_tokens.end() - 1
+            );
+        }
+
         if(q_include_tokens.empty()) {
             // this can happen if the only query token is an exclusion token
             q_include_tokens.emplace_back("*");
@@ -3208,10 +3221,9 @@ Option<bool> Collection::remove_stop_word(const std::string &id) {
     return stop_word_index->remove_stop_word(name, id);
 }
 
-void Collection::stop_word_reduction(const std::vector<std::string>& tokens,
-                                   std::vector<std::vector<std::string>>& results) const {
+bool Collection::is_stop_word(const std::string& token) const {
     std::shared_lock lock(mutex);
-    return stop_word_index->stop_word_reduction(tokens, results);
+    return stop_word_index->is_stop_word(token);
 }
 
 spp::sparse_hash_map<std::string, stop_word_t> Collection::get_stop_words() {

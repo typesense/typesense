@@ -478,8 +478,7 @@ public:
 
     Option<bool> remove_stop_word(const std::string & id);
 
-    void stop_word_reduction(const std::vector<std::string>& tokens,
-                           std::vector<std::vector<std::string>>& results) const;
+    bool is_stop_word(const std::string& token) const;
 
     StopWordIndex* get_stop_word_index();
 

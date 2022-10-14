@@ -49,12 +49,6 @@ private:
     spp::sparse_hash_map<std::string, stop_word_t> stop_word_definitions;
     spp::sparse_hash_map<uint64_t, std::vector<std::string>> stop_word_index;
 
-    void stop_word_reduction_internal(const std::vector<std::string>& tokens,
-                                    size_t start_window_size,
-                                    size_t start_index_pos,
-                                    std::set<uint64_t>& processed_stpwrd_hashes,
-                                    std::vector<std::vector<std::string>>& results) const;
-
 public:
 
     static constexpr const char* COLLECTION_stop_word_PREFIX = "$CY";
@@ -63,8 +57,7 @@ public:
 
     static std::string get_stop_word_key(const std::string & collection_name, const std::string & stop_word_id);
 
-    void stop_word_reduction(const std::vector<std::string>& tokens,
-                           std::vector<std::vector<std::string>>& results) const;
+    bool is_stop_word(const std::string& token) const;
 
     spp::sparse_hash_map<std::string, stop_word_t> get_stop_words();
 

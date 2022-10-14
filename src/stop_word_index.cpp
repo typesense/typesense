@@ -1,109 +1,20 @@
 #include "stop_word_index.h"
 
+bool StopWordIndex::is_stop_word(const std::string& token) const {
+    if(stop_word_definitions.empty()) {
+        return false;
+    }
 
-//void StopWordIndex::stop_word_reduction_internal(const std::vector<std::string>& tokens,
-//                                            size_t start_window_size, size_t start_index_pos,
-//                                            std::set<uint64_t>& processed_stpwrd_hashes,
-//                                            std::vector<std::vector<std::string>>& results) const {
-//
-//    bool recursed = false;
-//
-//    for(size_t window_len = start_window_size; window_len > 0; window_len--) {
-//        for(size_t start_index = start_index_pos; start_index+window_len-1 < tokens.size(); start_index++) {
-//            std::vector<uint64_t> stpwrd_hashes;
-//            uint64_t stpwrd_hash = 1;
-//
-//            for(size_t i = start_index; i < start_index+window_len; i++) {
-//                uint64_t token_hash = StringUtils::hash_wy(tokens[i].c_str(), tokens[i].size());
-//
-//                if(i == start_index) {
-//                    stpwrd_hash = token_hash;
-//                } else {
-//                    stpwrd_hash = StringUtils::hash_combine(stpwrd_hash, token_hash);
-//                }
-//
-//                stpwrd_hashes.push_back(token_hash);
-//            }
-//
-//            const auto& stpwrd_itr = stop_word_index.find(stpwrd_hash);
-//
-//            if(stpwrd_itr != stop_word_index.end() && processed_stpwrd_hashes.count(stpwrd_hash) == 0) {
-//                // tokens in this window match a stop_word: reconstruct tokens and rerun stop_word mapping against matches
-//                const auto& stpwrd_ids = stpwrd_itr->second;
-//
-//                for(const auto& stpwrd_id: stpwrd_ids) {
-//                    const auto &stpwrd_def = stop_word_definitions.at(stpwrd_id);
-//
-//                    for (const auto &stpwrd_def_tokens: stpwrd_def.stop_words) {
-//                        std::vector<std::string> new_tokens;
-//
-//                        for (size_t i = 0; i < start_index; i++) {
-//                            new_tokens.push_back(tokens[i]);
-//                        }
-//
-//                        std::vector<uint64_t> stpwrd_def_hashes;
-//                        uint64_t stpwrd_def_hash = 1;
-//
-//                        for (size_t i = 0; i < stpwrd_def_tokens.size(); i++) {
-//                            const auto &stpwrd_def_token = stpwrd_def_tokens[i];
-//                            new_tokens.push_back(stpwrd_def_token);
-//                            uint64_t token_hash = StringUtils::hash_wy(stpwrd_def_token.c_str(),
-//                                                                       stpwrd_def_token.size());
-//
-//                            if (i == 0) {
-//                                stpwrd_def_hash = token_hash;
-//                            } else {
-//                                stpwrd_def_hash = StringUtils::hash_combine(stpwrd_def_hash, token_hash);
-//                            }
-//
-//                            stpwrd_def_hashes.push_back(token_hash);
-//                        }
-//
-//                        if (stpwrd_def_hash == stpwrd_hash) {
-//                            // skip over token matching itself in the group
-//                            continue;
-//                        }
-//
-//                        for (size_t i = start_index + window_len; i < tokens.size(); i++) {
-//                            new_tokens.push_back(tokens[i]);
-//                        }
-//
-//                        processed_stpwrd_hashes.emplace(stpwrd_def_hash);
-//                        processed_stpwrd_hashes.emplace(stpwrd_hash);
-//
-//                        for (uint64_t h: stpwrd_def_hashes) {
-//                            processed_stpwrd_hashes.emplace(h);
-//                        }
-//
-//                        for (uint64_t h: stpwrd_hashes) {
-//                            processed_stpwrd_hashes.emplace(h);
-//                        }
-//
-//                        recursed = true;
-//                        stop_word_reduction_internal(new_tokens, window_len, start_index, processed_stpwrd_hashes, results);
-//                    }
-//                }
-//            }
-//        }
-//
-//        // reset it because for the next window we have to start from scratch
-//        start_index_pos = 0;
-//    }
-//
-//    if(!recursed && !processed_stpwrd_hashes.empty()) {
-//        results.emplace_back(tokens);
-//    }
-//}
+    std::vector<std::string> token_container;
+    token_container.emplace_back(token);
+    uint64_t token_hash = stop_word_t::get_hash(token_container);
 
-void StopWordIndex::stop_word_reduction(const std::vector<std::string>& tokens,
-                                   std::vector<std::vector<std::string>>& results) const {
-    return;
-//    if(stop_word_definitions.empty()) {
-//        return;
-//    }
-//
-//    std::set<uint64_t> processed_stpwrd_hashes;
-//    stop_word_reduction_internal(tokens, tokens.size(), 0, processed_stpwrd_hashes, results);
+    const auto& stpwrd_itr = stop_word_index.find(token_hash);
+    if(stpwrd_itr == stop_word_index.end()) {
+        return false;
+    }
+
+    return true;
 }
 
 Option<bool> StopWordIndex::add_stop_word(const std::string & collection_name, const stop_word_t& stop_word) {
