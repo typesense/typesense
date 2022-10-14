@@ -16,7 +16,14 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
     }
 
     UErrorCode errcode = U_ZERO_ERROR;
-    nfkd = icu::Normalizer2::getNFKDInstance(errcode);
+
+    if(locale == "ko") {
+        nfkd = icu::Normalizer2::getNFKDInstance(errcode);
+    }
+
+    if(locale == "th") {
+        nfkc = icu::Normalizer2::getNFKCInstance(errcode);
+    }
 
     cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
 
@@ -99,10 +106,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
     if(!locale.empty() && locale != "en") {
         while (end_pos != icu::BreakIterator::DONE) {
             //LOG(INFO) << "Position: " << start_pos;
-            bool found_token = false;
-
             std::string word;
-            //LOG(INFO) << "token: " << token;
 
             if(locale == "ko") {
                 UErrorCode errcode = U_ZERO_ERROR;
@@ -111,57 +115,95 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 nfkd->normalize(src, dst, errcode);
 
                 if(!U_FAILURE(errcode)) {
-                    token = dst.toUTF8String(word);
+                    dst.toUTF8String(word);
                 } else {
                     LOG(ERROR) << "Unicode error during parsing: " << errcode;
                 }
             } else if(normalize && is_cyrillic(locale)) {
                 auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
                 transliterator->transliterate(raw_text);
-                token = raw_text.toUTF8String(word);
+                raw_text.toUTF8String(word);
+            } else if(normalize && locale == "th") {
+                UErrorCode errcode = U_ZERO_ERROR;
+                icu::UnicodeString src = unicode_text.tempSubStringBetween(start_pos, end_pos);
+                icu::UnicodeString dst;
+                nfkc->normalize(src, dst, errcode);
+                if(!U_FAILURE(errcode)) {
+                    dst.toUTF8String(word);
+                } else {
+                    LOG(ERROR) << "Unicode error during parsing: " << errcode;
+                }
             } else {
-                token = unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(word);
+                unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(word);
             }
 
-            if(!token.empty()) {
-                if(token == " " ||  token == "," || token == "." || token == "!" || token == "?") {
-                    found_token = false;
-                } else if (!std::isalnum(token[0]) && is_ascii_char(token[0])) {
-                    // ignore ascii symbols
-                    found_token = false;
-                    token_counter++;
-                } else if(locale == "ko" && token == "·") {
-                    found_token = false;
-                    token_counter++;
-                } else if(locale == "zh" && (token == "，" || token == "─" || token == "。")) {
-                    found_token = false;
-                    token_counter++;
-                } else {
+            bool emit_token = false;
 
-                    if(std::isalnum(token[0]) && is_ascii_char(token[0])) {
-                        // normalize an ascii string
-                        std::transform(token.begin(), token.end(), token.begin(),
-                                       [](unsigned char c){ return std::tolower(c); });
-                    }
+            // `word` can be either a multi-byte unicode sequence or an ASCII character
+            // ASCII character can be either a special character or English alphabet
 
-                    found_token = true;
-                    token_index = token_counter++;
+            if(is_ascii_char(word[0])) {
+
+                if(std::isalnum(word[0])) {
+                    // normalize an ascii string and emit word as token
+                    std::transform(word.begin(), word.end(), word.begin(),
+                                   [](unsigned char c){ return std::tolower(c); });
+                    out += word;
+                    emit_token = true;
                 }
 
-                start_index = utf8_start_index;
-                end_index = utf8_start_index + token.size() - 1;
-                utf8_start_index = end_index + 1;
+                else {
+                    // special character:
+                    // a) present in `index_symbols` -> append word to out and continue iteration
+                    // b) present in `separator_symbols` -> skip word
+                    // c) not present in either -> skip word
+                    if(index_symbols[uint8_t(word[0])] == 1) {
+                        out += word;
+                        emit_token = true;
+                    }
+                }
+
+
+            } else {
+                if(locale == "zh" && (word == "，" || word == "─" || word == "。")) {
+                    emit_token = false;
+                } else if(locale == "ko" && word == "·") {
+                    emit_token = false;
+                } else {
+                    emit_token = true;
+                    out += word;
+                }
             }
+
+            if(emit_token) {
+                token = out;
+                token_index = token_counter++;
+                out.clear();
+            }
+
+            start_index = utf8_start_index;
+            end_index = utf8_start_index + word.size() - 1;
+            utf8_start_index = end_index + 1;
 
             start_pos = end_pos;
             end_pos = bi->next();
 
-            if(found_token) {
+            if(emit_token) {
                 return true;
             }
         }
 
-        return false;
+        token = out;
+        out.clear();
+        start_index = utf8_start_index;
+        end_index = text.size() - 1;
+
+        if(token.empty()) {
+            return false;
+        }
+
+        token_index = token_counter++;
+        return true;
     }
 
     while(i < text.size()) {
@@ -285,4 +327,10 @@ bool Tokenizer::next(std::string &token, size_t &token_index) {
 bool Tokenizer::is_cyrillic(const std::string& locale) {
     return locale == "el" ||
            locale == "ru" || locale == "sr" || locale == "uk" || locale == "be";
+}
+
+void Tokenizer::decr_token_counter() {
+    if(token_counter > 0) {
+        token_counter--;
+    }
 }

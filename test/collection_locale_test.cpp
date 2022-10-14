@@ -187,6 +187,81 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
     ASSERT_EQ("<mark>พกไฟ</mark>\nเสมอ", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 }
 
+TEST_F(CollectionLocaleTest, ThaiTextShouldBeNormalizedToNFKC) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "th"),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"น้ำมัน", "Dustin Kensrue"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("น้ํามัน",{"title"}, "", {}, {},
+                                 {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionLocaleTest, ThaiTextShouldRespectSeparators) {
+    nlohmann::json coll_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string", "locale": "th"}
+        ]
+    })"_json;
+
+    auto coll1 = collectionManager.create_collection(coll_json).get();
+
+    nlohmann::json doc;
+    doc["title"] = "alpha-beta-gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*",{}, "title:=alpha-beta-gamma", {}, {},
+                                 {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // now with `symbols_to_index`
+    coll_json = R"({
+        "name": "coll2",
+        "symbols_to_index": ["-"],
+        "fields": [
+            {"name": "title", "type": "string", "locale": "th"}
+        ]
+    })"_json;
+
+    auto coll2 = collectionManager.create_collection(coll_json).get();
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    results = coll2->search("*",{}, "title:=alpha-beta-gamma", {}, {},
+                            {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll2->search("*",{}, "title:=alphabetagamma", {}, {},
+                            {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
     Collection *coll1;
 
@@ -203,6 +278,7 @@ TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
         {"ความเหลื่อมล้ำ", "Compound Word"},  // ความ, เหลื่อม, ล้ำ
         {"การกระจายรายได้", "Doc A"},
         {"จารีย์", "Doc B"},
+        {"Meiji", "Doc C"},
     };
 
     for(size_t i=0; i<records.size(); i++) {
@@ -224,6 +300,24 @@ TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("meji",
+                            {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1}, 1000, true, true).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("ควม",
+                            {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1}, 1000, true, true).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
@@ -238,9 +332,13 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
 
+    std::string word_9bytes = "น้ำ";
+    std::string word_12bytes = "น้ํา";
+
     std::vector<std::vector<std::string>> records = {
         {"ติดกับดักรายได้ปานกลาง", "Expected Result"},
         {"ข้อมูลรายคนหรือรายบริษัทในการเชื่อมโยงส่วนได้ส่วนเสีย", "Another Result"},
+        {word_9bytes, "Another Result"},  // NKC normalization
     };
 
     for (size_t i = 0; i < records.size(); i++) {
@@ -267,6 +365,12 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
     ASSERT_EQ("ข้อมูล<mark>ราย</mark>คนหรือ<mark>ราย</mark>บริษัทในการเชื่อมโยงส่วน<mark>ได้</mark>ส่วนเสีย",
               results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
 
+    // check text index overflow regression with NFC normalization + highlighting
+
+    results = coll1->search(word_12bytes, {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("<mark>น้ำ</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 }
 
 TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {

@@ -118,6 +118,8 @@ public:
                                         const StoreStatus& next_coll_id_status,
                                         const std::atomic<bool>& quit);
 
+    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
+
     void add_to_collections(Collection* collection);
 
     std::vector<Collection*> get_collections() const;
@@ -150,7 +152,8 @@ public:
                                           const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)),
                                           const std::string& fallback_field_type = "",
                                           const std::vector<std::string>& symbols_to_index = {},
-                                          const std::vector<std::string>& token_separators = {});
+                                          const std::vector<std::string>& token_separators = {},
+                                          const bool enable_nested_fields = false);
 
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 
@@ -177,6 +180,8 @@ public:
                                   std::string& results_json_str);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
+
+    static bool parse_vector_query_str(std::string vector_query_str, vector_query_t& vector_query);
 
     // symlinks
     Option<std::string> resolve_symlink(const std::string & symlink_name) const;

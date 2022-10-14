@@ -7,6 +7,14 @@
 std::string HttpClient::api_key = "";
 std::string HttpClient::ca_cert_path = "";
 
+struct client_state_t: public req_state_t {
+    CURL* curl;
+
+    client_state_t(CURL* curl): curl(curl) {
+
+    }
+};
+
 long HttpClient::post_response(const std::string &url, const std::string &body, std::string &response,
                                std::map<std::string, std::string>& res_headers, long timeout_ms) {
     CURL *curl = init_curl(url, response);
@@ -204,7 +212,8 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 
     // set headers if not already set
     if(req_res->res->status_code == 0) {
-        CURL* curl = req_res->req->data;
+        client_state_t* client_state = dynamic_cast<client_state_t*>(req_res->req->data);
+        CURL* curl = client_state->curl;
         long http_code = 500;
         CURLcode res = curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
         if(res == CURLE_OK) {
@@ -267,7 +276,7 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
         return nullptr;
     }
 
-    req_res->req->data = curl;
+    req_res->req->data = new client_state_t(curl);  // destruction of data is managed by req destructor
 
     std::string api_key_header = std::string("x-typesense-api-key: ") + HttpClient::api_key;
     chunk = curl_slist_append(chunk, api_key_header.c_str());

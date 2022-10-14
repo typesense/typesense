@@ -129,7 +129,7 @@ Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, cons
 
     write_lock.unlock();
 
-    bool inserted = store->insert(get_synonym_key(collection_name, synonym.id), synonym.to_json().dump());
+    bool inserted = store->insert(get_synonym_key(collection_name, synonym.id), synonym.to_view_json().dump());
     if(!inserted) {
         return Option<bool>(500, "Error while storing the synonym on disk.");
     }
@@ -184,3 +184,87 @@ spp::sparse_hash_map<std::string, synonym_t> SynonymIndex::get_synonyms() {
 std::string SynonymIndex::get_synonym_key(const std::string & collection_name, const std::string & synonym_id) {
     return std::string(COLLECTION_SYNONYM_PREFIX) + "_" + collection_name + "_" + synonym_id;
 }
+
+Option<bool> synonym_t::parse(const nlohmann::json& synonym_json, synonym_t& syn) {
+    if(synonym_json.count("id") == 0) {
+        return Option<bool>(400, "Missing `id` field.");
+    }
+
+    if(synonym_json.count("synonyms") == 0) {
+        return Option<bool>(400, "Could not find an array of `synonyms`");
+    }
+
+    if(synonym_json.count("root") != 0 && !synonym_json["root"].is_string()) {
+        return Option<bool>(400, "Key `root` should be a string.");
+    }
+
+    if (!synonym_json["synonyms"].is_array() || synonym_json["synonyms"].empty()) {
+        return Option<bool>(400, "Could not find an array of `synonyms`");
+    }
+
+    if(synonym_json.count("locale") != 0) {
+        if(!synonym_json["locale"].is_string()) {
+            return Option<bool>(400, "Synonym `locale` should be a string.`");
+        }
+
+        syn.locale = synonym_json["locale"].get<std::string>();
+    }
+
+    if(synonym_json.count("symbols_to_index") != 0) {
+        if(!synonym_json["symbols_to_index"].is_array() || synonym_json["symbols_to_index"].empty() ||
+            !synonym_json["symbols_to_index"][0].is_string()) {
+            return Option<bool>(400, "Synonym `symbols_to_index` should be an array of strings.");
+        }
+
+        auto symbols = synonym_json["symbols_to_index"].get<std::vector<std::string>>();
+        for(auto symbol: symbols) {
+            if(symbol.size() != 1) {
+                return Option<bool>(400, "Synonym `symbols_to_index` should be an array of single character symbols.");
+            }
+
+            syn.symbols.push_back(symbol[0]);
+        }
+    }
+
+    if(synonym_json.count("root") != 0) {
+        std::vector<std::string> tokens;
+        Tokenizer(synonym_json["root"], true, false, syn.locale, syn.symbols).tokenize(tokens);
+        syn.root = tokens;
+    }
+
+    for(const auto& synonym: synonym_json["synonyms"]) {
+        if(!synonym.is_string() || synonym == "") {
+            return Option<bool>(400, "Could not find a valid string array of `synonyms`");
+        }
+
+        std::vector<std::string> tokens;
+        Tokenizer(synonym, true, false, syn.locale, syn.symbols).tokenize(tokens);
+        syn.synonyms.push_back(tokens);
+    }
+
+    syn.id = synonym_json["id"];
+    return Option<bool>(true);
+}
+
+nlohmann::json synonym_t::to_view_json() const {
+    nlohmann::json obj;
+    obj["id"] = id;
+    obj["root"] = StringUtils::join(root, " ");
+
+    obj["synonyms"] = nlohmann::json::array();
+
+    for(const auto& synonym: synonyms) {
+        obj["synonyms"].push_back(StringUtils::join(synonym, " "));
+    }
+
+    if(!locale.empty()) {
+        obj["locale"] = locale;
+    }
+
+    if(!symbols.empty()) {
+        obj["symbols"] = symbols;
+    }
+
+    return obj;
+}
+

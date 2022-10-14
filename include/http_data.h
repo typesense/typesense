@@ -200,6 +200,11 @@ struct ip_addr_str_t {
     char ip[IP_MAX_LEN];
 };
 
+struct req_state_t {
+public:
+    virtual ~req_state_t() = default;
+};
+
 struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* AGENT_HEADER = "user-agent";
@@ -220,7 +225,7 @@ struct http_req {
     size_t body_index;
     std::string metadata;
 
-    void* data;
+    req_state_t* data;
 
     // for deffered processing of async handlers
     h2o_custom_timer_t defer_timer;
@@ -291,6 +296,9 @@ struct http_req {
                           << client_ip << " " << full_url_path;
             }
         }
+
+        delete data;
+        data = nullptr;
     }
 
     void wait() {

@@ -79,6 +79,23 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     syn_op = synonym_t::parse(syn_json_without_root, synonym);
     ASSERT_TRUE(syn_op.ok());
 
+    // should preserve symbols
+    nlohmann::json syn_plus_json = {
+        {"id", "syn-plus"},
+        {"root", "+"},
+        {"synonyms", {"plus", "#"} },
+        {"symbols_to_index", {"+", "#"}},
+    };
+
+    synonym_t synonym_plus;
+    syn_op = synonym_t::parse(syn_plus_json, synonym_plus);
+    ASSERT_TRUE(syn_op.ok());
+
+    ASSERT_STREQ("syn-plus", synonym_plus.id.c_str());
+    ASSERT_STREQ("+", synonym_plus.root[0].c_str());
+    ASSERT_STREQ("plus", synonym_plus.synonyms[0][0].c_str());
+    ASSERT_STREQ("#", synonym_plus.synonyms[1][0].c_str());
+
     // when `id` is not given
     nlohmann::json syn_json_without_id = {
         {"root", "Ocean"},
@@ -153,12 +170,40 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     syn_op = synonym_t::parse(syn_json_root_bad_type, synonym);
     ASSERT_FALSE(syn_op.ok());
     ASSERT_STREQ("Key `root` should be a string.", syn_op.error().c_str());
+
+    // bad symbols to index
+    nlohmann::json syn_json_bad_symbols = {
+        {"id", "syn-1"},
+        {"root", "Ocean"},
+        {"synonyms", {"Sea"} },
+        {"symbols_to_index", {}}
+    };
+
+    syn_op = synonym_t::parse(syn_json_bad_symbols, synonym);
+    ASSERT_FALSE(syn_op.ok());
+    ASSERT_STREQ("Synonym `symbols_to_index` should be an array of strings.", syn_op.error().c_str());
+
+    syn_json_bad_symbols = {
+        {"id", "syn-1"},
+        {"root", "Ocean"},
+        {"synonyms", {"Sea"} },
+        {"symbols_to_index", {"%^"}}
+    };
+
+    syn_op = synonym_t::parse(syn_json_bad_symbols, synonym);
+    ASSERT_FALSE(syn_op.ok());
+    ASSERT_STREQ("Synonym `symbols_to_index` should be an array of single character symbols.", syn_op.error().c_str());
 }
 
 TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     std::vector<std::vector<std::string>> results;
 
-    synonym_t synonym1{"nyc-expansion", {"nyc"}, {{"new", "york"}} };
+    nlohmann::json synonym1 = R"({
+        "id": "nyc-expansion",
+        "root": "nyc",
+        "synonyms": ["new york"]
+    })"_json;
+
     coll_mul_fields->add_synonym(synonym1);
 
     results.clear();
@@ -181,7 +226,11 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
     // compression and also ensure that it does not revert back to expansion rule
 
     results.clear();
-    synonym_t synonym2{"new-york-compression", {"new", "york"}, {{"nyc"}} };
+    nlohmann::json synonym2 = R"({
+        "id": "new-york-compression",
+        "root": "new york",
+        "synonyms": ["nyc"]
+    })"_json;
     coll_mul_fields->add_synonym(synonym2);
 
     coll_mul_fields->synonym_reduction({"red", "new", "york", "tshirt"}, results);
@@ -196,7 +245,11 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
 
     // replace two synonyms with the same length
     results.clear();
-    synonym_t synonym3{"t-shirt-compression", {"t", "shirt"}, {{"tshirt"}} };
+    nlohmann::json synonym3 = R"({
+        "id": "t-shirt-compression",
+        "root": "t shirt",
+        "synonyms": ["tshirt"]
+    })"_json;
     coll_mul_fields->add_synonym(synonym3);
 
     coll_mul_fields->synonym_reduction({"new", "york", "t", "shirt"}, results);
@@ -211,7 +264,11 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
 
     // replace two synonyms with different lengths
     results.clear();
-    synonym_t synonym4{"red-crimson", {"red"}, {{"crimson"}} };
+    nlohmann::json synonym4 = R"({
+        "id": "red-crimson",
+        "root": "red",
+        "synonyms": ["crimson"]
+    })"_json;
     coll_mul_fields->add_synonym(synonym4);
 
     coll_mul_fields->synonym_reduction({"red", "new", "york", "cap"}, results);
@@ -226,8 +283,12 @@ TEST_F(CollectionSynonymsTest, SynonymReductionOneWay) {
 }
 
 TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
-    synonym_t synonym1{"ipod-synonyms", {}, {{"ipod"}, {"i", "pod"}, {"pod"}} };
-    coll_mul_fields->add_synonym(synonym1);
+    nlohmann::json synonym1 = R"({
+        "id": "ipod-synonyms",
+        "synonyms": ["ipod", "i pod", "pod"]
+    })"_json;
+
+    auto op = coll_mul_fields->add_synonym(synonym1);
 
     std::vector<std::vector<std::string>> results;
     coll_mul_fields->synonym_reduction({"ipod"}, results);
@@ -255,8 +316,10 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
     ASSERT_STREQ("pod", results[1][0].c_str());
 
     // multi-token synonym + multi-token synonym definitions
-    synonym_t synonym2{"usa-synonyms", {}, {{"usa"}, {"united", "states"}, {"us"},
-                                            {"united", "states", "of", "america"}, {"states"}}};
+    nlohmann::json synonym2 = R"({
+        "id": "usa-synonyms",
+        "synonyms": ["usa", "united states", "us", "united states of america", "states"]
+    })"_json;
     coll_mul_fields->add_synonym(synonym2);
 
     results.clear();
@@ -280,8 +343,16 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
 }
 
 TEST_F(CollectionSynonymsTest, SynonymBelongingToMultipleSets) {
-    synonym_t synonym1{"iphone-synonyms", {}, {{"i", "phone"}, {"smart", "phone"}}};
-    synonym_t synonym2{"samsung-synonyms", {}, {{"smart", "phone"}, {"galaxy", "phone"}, {"samsung", "phone"}}};
+    nlohmann::json synonym1 = R"({
+        "id": "iphone-synonyms",
+        "synonyms": ["i phone", "smart phone"]
+    })"_json;
+
+    nlohmann::json synonym2 = R"({
+        "id": "samsung-synonyms",
+        "synonyms": ["smart phone", "galaxy phone", "samsung phone"]
+    })"_json;
+
     coll_mul_fields->add_synonym(synonym1);
     coll_mul_fields->add_synonym(synonym2);
 
@@ -321,8 +392,7 @@ TEST_F(CollectionSynonymsTest, OneWaySynonym) {
     ASSERT_EQ(0, res["found"].get<uint32_t>());
 
     // add synonym and redo search
-
-    coll_mul_fields->add_synonym(synonym);
+    ASSERT_TRUE(coll_mul_fields->add_synonym(synonym.to_view_json()).ok());
 
     res = coll_mul_fields->search("ocean", {"title"}, "", {}, {}, {0}, 10).get();
     ASSERT_EQ(1, res["hits"].size());
@@ -345,7 +415,7 @@ TEST_F(CollectionSynonymsTest, SynonymQueryVariantWithDropTokens) {
     synonym_t synonym;
     auto syn_op = synonym_t::parse(syn_json, synonym);
     ASSERT_TRUE(syn_op.ok());
-    coll1->add_synonym(synonym);
+    coll1->add_synonym(synonym.to_view_json());
 
     nlohmann::json doc1;
     doc1["id"] = "0";
@@ -398,7 +468,7 @@ TEST_F(CollectionSynonymsTest, SynonymsTextMatchSameAsRootQuery) {
     synonym_t synonym;
     auto syn_op = synonym_t::parse(syn_json, synonym);
     ASSERT_TRUE(syn_op.ok());
-    coll1->add_synonym(synonym);
+    coll1->add_synonym(synonym.to_view_json());
 
     nlohmann::json doc1;
     doc1["id"] = "0";
@@ -442,7 +512,7 @@ TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
     ASSERT_EQ(0, res["hits"].size());
     ASSERT_EQ(0, res["found"].get<uint32_t>());
 
-    coll_mul_fields->add_synonym(synonym);
+    coll_mul_fields->add_synonym(synonym.to_view_json());
 
     res = coll_mul_fields->search("homǝland", {"title"}, "", {}, {}, {0}, 10).get();
 
@@ -455,14 +525,10 @@ TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
         {"synonyms", {"Samuel L. Jackson", "Sam Jackson", "Leroy"}}
     };
 
-    synonym_t synonym2;
-    syn_op = synonym_t::parse(syn_json2, synonym2);
-    ASSERT_TRUE(syn_op.ok());
-
     res = coll_mul_fields->search("samuel leroy jackson", {"starring"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
     ASSERT_EQ(0, res["hits"].size());
 
-    coll_mul_fields->add_synonym(synonym2);
+    coll_mul_fields->add_synonym(syn_json2);
 
     res = coll_mul_fields->search("samuel leroy jackson", {"starring"}, "", {}, {}, {0}, 10).get();
 
@@ -517,7 +583,7 @@ TEST_F(CollectionSynonymsTest, ExactMatchRankedSameAsSynonymMatch) {
     auto syn_op = synonym_t::parse(syn_json, synonym);
     ASSERT_TRUE(syn_op.ok());
 
-    coll1->add_synonym(synonym);
+    coll1->add_synonym(synonym.to_view_json());
 
     auto res = coll1->search("laughing", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
 
@@ -569,7 +635,7 @@ TEST_F(CollectionSynonymsTest, ExactMatchVsSynonymMatchCrossFields) {
     auto syn_op = synonym_t::parse(syn_json, synonym);
     ASSERT_TRUE(syn_op.ok());
 
-    coll1->add_synonym(synonym);
+    coll1->add_synonym(synonym.to_view_json());
 
     auto res = coll1->search("cmo", {"title", "description"}, "", {}, {},
                              {0}, 10, 1, FREQUENCY, {false}, 0).get();
@@ -622,7 +688,7 @@ TEST_F(CollectionSynonymsTest, SynonymFieldOrdering) {
     auto syn_op = synonym_t::parse(syn_json, synonym);
     ASSERT_TRUE(syn_op.ok());
 
-    coll1->add_synonym(synonym);
+    coll1->add_synonym(synonym.to_view_json());
 
     auto res = coll1->search("laughing", {"title", "description"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
 
@@ -638,8 +704,8 @@ TEST_F(CollectionSynonymsTest, SynonymFieldOrdering) {
 TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
     synonym_t synonym1{"ipod-synonyms", {}, {{"ipod"}, {"i", "pod"}, {"pod"}}};
     synonym_t synonym2{"samsung-synonyms", {}, {{"s3"}, {"s3", "phone"}, {"samsung"}}};
-    coll_mul_fields->add_synonym(synonym1);
-    coll_mul_fields->add_synonym(synonym2);
+    coll_mul_fields->add_synonym(synonym1.to_view_json());
+    coll_mul_fields->add_synonym(synonym2.to_view_json());
 
     ASSERT_EQ(2, coll_mul_fields->get_synonyms().size());
     coll_mul_fields->remove_synonym("ipod-synonyms");
@@ -650,7 +716,7 @@ TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
     // try to upsert synonym with same ID
 
     synonym2.root = {"s3", "smartphone"};
-    auto upsert_op = coll_mul_fields->add_synonym(synonym2);
+    auto upsert_op = coll_mul_fields->add_synonym(synonym2.to_view_json());
     ASSERT_TRUE(upsert_op.ok());
 
     ASSERT_EQ(1, coll_mul_fields->get_synonyms().size());
@@ -707,7 +773,7 @@ TEST_F(CollectionSynonymsTest, SynonymSingleTokenExactMatch) {
     }
 
     synonym_t synonym1{"syn-1", {"lulu", "lemon"}, {{"lululemon"}}};
-    coll1->add_synonym(synonym1);
+    coll1->add_synonym(synonym1.to_view_json());
 
     auto res = coll1->search("lulu lemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
@@ -747,7 +813,7 @@ TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
     }
 
     synonym_t synonym1{"syn-1", {"lululemon"}, {{"lulu", "lemon"}}};
-    coll1->add_synonym(synonym1);
+    coll1->add_synonym(synonym1.to_view_json());
 
     auto res = coll1->search("lululemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(2, res["hits"].size());
@@ -763,7 +829,7 @@ TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
     // now with compression synonym
     synonym1.root = {"lulu", "lemon"};
     synonym1.synonyms = {{"lululemon"}};
-    coll1->add_synonym(synonym1);
+    coll1->add_synonym(synonym1.to_view_json());
 
     res = coll1->search("lulu lemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(2, res["hits"].size());
@@ -805,7 +871,7 @@ TEST_F(CollectionSynonymsTest, SynonymQueriesMustHavePrefixEnabled) {
     }
 
     synonym_t synonym1{"syn-1", {"ns"}, {{"nonstick"}}};
-    coll1->add_synonym(synonym1);
+    coll1->add_synonym(synonym1.to_view_json());
 
     auto res = coll1->search("ns cook", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(1, res["hits"].size());
@@ -815,4 +881,133 @@ TEST_F(CollectionSynonymsTest, SynonymQueriesMustHavePrefixEnabled) {
     ASSERT_EQ(0, res["hits"].size());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, HandleSpecialSymbols) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points",
+                                                    0, "", {"+"}, {"."}).get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"+", "100"},
+        {"example.com", "100"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = std::stoi(records[i][1]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    nlohmann::json syn_plus_json = {
+        {"id", "syn-1"},
+        {"root", "plus"},
+        {"synonyms", {"+"} },
+        {"symbols_to_index", {"+"}}
+    };
+
+    ASSERT_TRUE(coll1->add_synonym(syn_plus_json).ok());
+
+    auto res = coll1->search("plus", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSynonymsTest, SynonymForNonAsciiLanguage) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points",
+                                                    0, "", {"+"}, {"."}).get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"அனைவருக்கும் வணக்கம்", "100"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = std::stoi(records[i][1]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    nlohmann::json syn_plus_json = {
+            {"id", "syn-1"},
+            {"root", "எல்லோருக்கும்"},
+            {"synonyms", {"அனைவருக்கும்"} }
+    };
+
+    ASSERT_TRUE(coll1->add_synonym(syn_plus_json).ok());
+
+    auto res = coll1->search("எல்லோருக்கும்", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSynonymsTest, SynonymForKorean) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "type": "string", "locale": "ko"},
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"도쿄구울", "100"},
+        {"도쿄 구울", "100"},
+        {"구울", "100"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = std::stoi(records[i][1]);
+
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    nlohmann::json synonym1 = R"({
+        "id": "syn-1",
+        "root": "",
+        "synonyms": ["도쿄구울", "도쿄 구울", "구울"],
+        "locale": "ko"
+    })"_json;
+
+    ASSERT_TRUE(coll1->add_synonym(synonym1).ok());
+
+    auto res = coll1->search("도쿄구울", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(3, res["hits"].size());
+
+    res = coll1->search("도쿄 구울", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(3, res["hits"].size());
+
+    res = coll1->search("구울", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(3, res["hits"].size());
 }
