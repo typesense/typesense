@@ -793,23 +793,21 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     bool field_found = false;
 
     for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
+        bool exact_key_match = (kv.key().size() == field_name.size());
+        bool exact_primitive_match = exact_key_match && !kv.value().is_object();
+
         if(extract_only_string_fields && !kv.value().is_string()) {
-            if(kv.value().nested && !enable_nested_fields) {
-                continue;
+            if(exact_primitive_match) {
+                // upstream needs to be returned an error
+                return Option<bool>(400, "Field `" + field_name + "` should be a string or a string array.");
             }
 
-            if(kv.key().size() == field_name.size() && !kv.value().is_object()) {
-                // exact key, must be rejected because of type mismatch
-                std::string error = "Field `" + field_name + "` should be a string or a string array.";;
-                return Option<bool>(400, error);
-            }
             continue;
         }
 
-        bool exact_non_obj_match = (kv.key().size() == field_name.size() && !kv.value().is_object());
-
         // field_name prefix must be followed by a "." to indicate an object search
-        if(exact_non_obj_match || (kv.key().size() > field_name.size() && kv.key()[field_name.size()] == '.')) {
+        if (exact_primitive_match || (enable_nested_fields && kv.key().size() > field_name.size() &&
+                                      kv.key()[field_name.size()] == '.')) {
             processed_search_fields.push_back(kv.key());
             field_found = true;
         }
@@ -844,7 +842,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   size_t group_limit,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
-                                  std::vector<uint32_t> query_by_weights,
+                                  std::vector<uint32_t> raw_query_by_weights,
                                   size_t limit_hits,
                                   bool prioritize_exact_match,
                                   bool pre_segmented_query,
@@ -875,7 +873,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
     }
 
-    if(!raw_search_fields.empty() && !query_by_weights.empty() && raw_search_fields.size() != query_by_weights.size()) {
+    if(!raw_search_fields.empty() && !raw_query_by_weights.empty() &&
+        raw_search_fields.size() != raw_query_by_weights.size()) {
         return Option<nlohmann::json>(400, "Number of weights in `query_by_weights` does not match "
                                            "number of `query_by` fields.");
     }
@@ -887,7 +886,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     if(!raw_search_fields.empty() && raw_search_fields.size() != num_typos.size()) {
         if(num_typos.size() != 1) {
-            return Option<nlohmann::json>(400, "Number of weights in `num_typos` does not match "
+            return Option<nlohmann::json>(400, "Number of values in `num_typos` does not match "
                                                "number of `query_by` fields.");
         }
     }
@@ -933,18 +932,33 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     // validate search fields
     std::vector<std::string> processed_search_fields;
+    std::vector<uint32_t> query_by_weights;
 
-    for(const std::string& field_name: raw_search_fields) {
+    for(size_t i = 0; i < raw_search_fields.size(); i++) {
+        const std::string& field_name = raw_search_fields[i];
         if(field_name == "id") {
             // `id` field needs to be handled separately, we will not handle for now
             std::string error = "Cannot use `id` as a query by field.";
             return Option<nlohmann::json>(400, error);
         }
 
-        auto field_op = extract_field_name(field_name, search_schema, processed_search_fields, true, enable_nested_fields);
+        std::vector<std::string> expanded_search_fields;
+        auto field_op = extract_field_name(field_name, search_schema, expanded_search_fields, true, enable_nested_fields);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(field_op.code(), field_op.error());
         }
+
+        for(const auto& expanded_search_field: expanded_search_fields) {
+            processed_search_fields.push_back(expanded_search_field);
+            if(!raw_query_by_weights.empty()) {
+                query_by_weights.push_back(raw_query_by_weights[i]);
+            }
+        }
+    }
+
+    if(!query_by_weights.empty() && processed_search_fields.size() != query_by_weights.size()) {
+        std::string error = "Error, query_by_weights.size != query_by.size.";
+        return Option<nlohmann::json>(400, error);
     }
 
     for(const std::string & field_name: processed_search_fields) {

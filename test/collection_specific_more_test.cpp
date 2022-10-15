@@ -1478,3 +1478,33 @@ TEST_F(CollectionSpecificMoreTest, ValidateQueryById) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Cannot use `id` as a query by field.", res_op.error());
 }
+
+TEST_F(CollectionSpecificMoreTest, NonNestedFieldNameWithDot) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "category", "type": "string"},
+            {"name": "category.lvl0", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["category"] = "Shoes";
+    doc["category.lvl0"] = "Shoes";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["category"] = "Mens";
+    doc["category.lvl0"] = "Shoes";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("shoes", {"category"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "category", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {1}).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
