@@ -1508,3 +1508,38 @@ TEST_F(CollectionSpecificMoreTest, NonNestedFieldNameWithDot) {
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
 }
+
+TEST_F(CollectionSpecificMoreTest, IncludeExcludeUnIndexedField) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["src"] = "Internet";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("sample", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0,
+                             {"src"}).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(1, res["hits"][0]["document"].size());
+    ASSERT_EQ("Internet", res["hits"][0]["document"]["src"].get<std::string>());
+
+    // check for exclude field of indexed field
+
+    spp::sparse_hash_set<std::string> include_fields;
+    res = coll1->search("sample", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0,
+                        include_fields, {"src"}).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(2, res["hits"][0]["document"].size());
+    ASSERT_EQ("Sample Title 1", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}

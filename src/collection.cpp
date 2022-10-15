@@ -1008,7 +1008,12 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     for(auto& f_name: include_fields) {
         auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false, enable_nested_fields);
         if(!field_op.ok()) {
-            return Option<nlohmann::json>(404, field_op.error());
+            if(field_op.code() == 404) {
+                // field need not be part of schema to be included (could be a stored value in the doc)
+                include_fields_vec.push_back(f_name);
+                continue;
+            }
+            return Option<nlohmann::json>(field_op.code(), field_op.error());
         }
     }
 
@@ -1020,7 +1025,12 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
         auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields);
         if(!field_op.ok()) {
-            return Option<nlohmann::json>(404, field_op.error());
+            if(field_op.code() == 404) {
+                // field need not be part of schema to be excluded (could be a stored value in the doc)
+                exclude_fields_vec.push_back(f_name);
+                continue;
+            }
+            return Option<nlohmann::json>(field_op.code(), field_op.error());
         }
     }
 
@@ -1596,7 +1606,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 wrapper_doc["highlights"].push_back(h_json);
             }
 
-            wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
+            //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
 
             if(group_limit && group_key.empty()) {
                 for(const auto& field_name: group_by_fields) {
