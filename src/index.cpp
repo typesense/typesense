@@ -2805,7 +2805,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
         std::vector<std::vector<facet>> facet_batches(num_threads);
         for(size_t i = 0; i < num_threads; i++) {
             for(const auto& this_facet: facets) {
-                facet_batches[i].emplace_back(facet(this_facet.field_name));
+                facet_batches[i].emplace_back(facet(this_facet.field_name, this_facet.facet_range_map, this_facet.is_range_query));
             }
         }
 

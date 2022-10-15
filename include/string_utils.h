@@ -19,6 +19,43 @@ struct StringUtils {
 
     ~StringUtils();
 
+    static size_t split_range_facet(const std::string& s, std::vector<std::string> & result, const std::string& delim,
+                      const bool keep_empty = false, const size_t start_index = 0,
+                      const size_t max_values = (std::numeric_limits<size_t>::max()-1)) {
+        if (delim.empty()) {
+            result.push_back(s);
+            return s.size();
+        }
+
+        std::string::const_iterator substart = s.begin()+start_index, subend;
+        size_t end_index = start_index;
+
+        while (true) {
+            subend = std::search(substart, s.end(), delim.begin(), delim.end());
+
+            ++subend;  //advance iterator to include delimeter
+            std::string temp(substart, subend);
+
+            end_index += temp.size() + delim.size();
+            temp = trim(temp);
+
+            if (keep_empty || !temp.empty()) {
+                result.push_back(temp);
+            }
+
+            if(result.size() == max_values) {
+                break;
+            }
+
+            if (subend == s.end()) {
+                break;
+            }
+            substart = subend + delim.size();
+        }
+
+        return std::min(end_index, s.size());
+    }
+
     // Adapted from: http://stackoverflow.com/a/236180/131050
     static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,
                       const bool keep_empty = false, const size_t start_index = 0,

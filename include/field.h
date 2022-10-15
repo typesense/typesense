@@ -661,8 +661,11 @@ struct facet {
         return false;
     }
 
-    explicit facet(const std::string& field_name): field_name(field_name) {
-
+    explicit facet(const std::string& field_name, 
+        std::map<int64_t, std::pair<int32_t, std::string>> facet_range = {}, bool is_range_q = false)
+        :field_name(field_name){
+            facet_range_map = facet_range;
+            is_range_query = is_range_q;
     }
 };
 

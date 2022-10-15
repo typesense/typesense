@@ -439,6 +439,8 @@ public:
 
     bool get_enable_nested_fields();
 
+    bool parse_range_facet(const std::string& facet_field, facet& facet) const;
+
     // Override operations
 
     Option<uint32_t> add_override(const override_t & override);
