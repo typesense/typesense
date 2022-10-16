@@ -309,3 +309,47 @@ TEST(StringUtilsTest, ContainsWord) {
     ASSERT_FALSE(StringUtils::contains_word("foobar baz", "bar baz"));
     ASSERT_FALSE(StringUtils::contains_word("baz foobar", "foo"));
 }
+
+void tokenizeTestHelper(const std::string& filter_query, const std::vector<std::string>& tokenList) {
+    std::queue<std::string> tokenizeOutput;
+    auto tokenize_op = StringUtils::tokenize(filter_query, tokenizeOutput);
+    ASSERT_TRUE(tokenize_op.ok());
+    for (auto const& token: tokenList) {
+        ASSERT_EQ(token, tokenizeOutput.front());
+        tokenizeOutput.pop();
+    }
+    ASSERT_TRUE(tokenizeOutput.empty());
+}
+
+TEST(StringUtilsTest, Tokenize) {
+    std::string filter_query;
+    std::vector<std::string> tokenList;
+
+    filter_query = "name: Steve Smith";
+    tokenList = {"name: Steve Smith"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "name: `Toccata & Fugue`";
+    tokenList = {"name: `Toccata & Fugue`"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "name: [Steve Smith, `Jack & Jill`]";
+    tokenList = {"name: [Steve Smith, `Jack & Jill`]"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "age:[10..100]";
+    tokenList = {"age:[10..100]"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "age:>20 && category:= [`Running Shoes, Men`, Sneaker]";
+    tokenList = {"age:>20", "&&", "category:= [`Running Shoes, Men`, Sneaker]"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "location:(48.906, 2.343, 5 mi)";
+    tokenList = {"location:(48.906, 2.343, 5 mi)"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "((age: <5 || age: >10) && category:= [shoes]) || is_curated: true";
+    tokenList = {"(", "(", "age: <5", "||", "age: >10", ")", "&&", "category:= [shoes]", ")", "||", "is_curated: true"};
+    tokenizeTestHelper(filter_query, tokenList);
+}
