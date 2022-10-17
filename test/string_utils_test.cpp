@@ -352,4 +352,8 @@ TEST(StringUtilsTest, Tokenize) {
     filter_query = "((age: <5 || age: >10) && category:= [shoes]) || is_curated: true";
     tokenList = {"(", "(", "age: <5", "||", "age: >10", ")", "&&", "category:= [shoes]", ")", "||", "is_curated: true"};
     tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "((age:<5||age:>10)&&location:(48.906,2.343,5mi))||tags:AT&T";
+    tokenList = {"(", "(", "age:<5", "||", "age:>10", ")", "&&", "location:(48.906,2.343,5mi)", ")", "||", "tags:AT&T"};
+    tokenizeTestHelper(filter_query, tokenList);
 }
