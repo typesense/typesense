@@ -312,7 +312,7 @@ TEST(StringUtilsTest, ContainsWord) {
 
 void tokenizeTestHelper(const std::string& filter_query, const std::vector<std::string>& tokenList) {
     std::queue<std::string> tokenizeOutput;
-    auto tokenize_op = StringUtils::tokenize(filter_query, tokenizeOutput);
+    auto tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokenizeOutput);
     ASSERT_TRUE(tokenize_op.ok());
     for (auto const& token: tokenList) {
         ASSERT_EQ(token, tokenizeOutput.front());
@@ -321,7 +321,7 @@ void tokenizeTestHelper(const std::string& filter_query, const std::vector<std::
     ASSERT_TRUE(tokenizeOutput.empty());
 }
 
-TEST(StringUtilsTest, Tokenize) {
+TEST(StringUtilsTest, TokenizeFilterQuery) {
     std::string filter_query;
     std::vector<std::string> tokenList;
 

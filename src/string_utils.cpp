@@ -345,7 +345,7 @@ size_t StringUtils::get_num_chars(const std::string& s) {
     return j;
 }
 
-Option<bool> StringUtils::tokenize(const std::string& filter_query, std::queue<std::string>& tokens) {
+Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
     auto size = filter_query.size();
     for (auto i = 0; i < size;) {
         auto c = filter_query[i];
