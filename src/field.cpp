@@ -414,7 +414,7 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
     }
 
     std::queue<std::string> tokens;
-    Option<bool> tokenize_op = StringUtils::tokenize(filter_query, tokens);
+    Option<bool> tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokens);
     if (!tokenize_op.ok()) {
         return tokenize_op;
     }
