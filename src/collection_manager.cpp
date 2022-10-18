@@ -477,6 +477,31 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     return Option<nlohmann::json>(collection_json);
 }
 
+Option<nlohmann::json> CollectionManager::truncate_collection(const std::string& collection_name, const bool with_lock) {
+    if(with_lock) {
+        std::unique_lock lock(mutex);
+    }
+
+    auto collection = get_collection_unsafe(collection_name);
+
+    if(collection == nullptr) {
+        return Option<nlohmann::json>(404, "No collection with name `" + collection_name + "` found.");
+    }
+
+    auto num_deleted = collection->get_num_documents();
+
+    const std::string& del_key_prefix = std::to_string(collection->get_collection_id()) + "_";
+    const std::string& del_end_prefix = std::to_string(collection->get_collection_id()) + "`";
+    store->delete_range(del_key_prefix, del_end_prefix);
+    store->flush();
+
+    collection->reinit_index();
+
+    nlohmann::json json_response;
+    json_response["num_deleted"] = num_deleted;
+    return Option<nlohmann::json>(json_response);
+}
+
 uint32_t CollectionManager::get_next_collection_id() const {
     return next_collection_id;
 }

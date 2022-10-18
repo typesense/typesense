@@ -4016,6 +4016,19 @@ Index* Collection::init_index() {
                      symbols_to_index, token_separators);
 }
 
+Index* Collection::reinit_index() {
+    delete index;
+    num_documents = 0;
+    return index = new Index(name+std::to_string(0),
+                             collection_id,
+                             store,
+                             synonym_index,
+                             CollectionManager::get_instance().get_thread_pool(),
+                             search_schema,
+                             symbols_to_index, token_separators);
+}
+
+
 DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) const {
     std::shared_lock lock(mutex);
 

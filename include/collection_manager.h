@@ -163,6 +163,8 @@ public:
 
     Option<nlohmann::json> drop_collection(const std::string& collection_name, const bool remove_from_store = true);
 
+    Option<nlohmann::json> truncate_collection(const std::string& collection_name, const bool with_lock = true);
+
     uint32_t get_next_collection_id() const;
 
     static std::string get_symlink_key(const std::string & symlink_name);

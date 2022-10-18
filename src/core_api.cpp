@@ -997,17 +997,36 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
 
     const char *BATCH_SIZE = "batch_size";
     const char *FILTER_BY = "filter_by";
+    const char *TRUNCATE = "truncate";
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "1000000000"; // 1 Billion
     }
 
-    if(req->params.count(FILTER_BY) == 0) {
+    if(req->params.count(FILTER_BY) == 0 && req->params.count(TRUNCATE) == 0) {
         req->last_chunk_aggregate = true;
         res->final = true;
-        res->set_400("Parameter `" + std::string(FILTER_BY) + "` must be provided.");
+        res->set_400("At least one of these parameters must be provided `" + std::string(FILTER_BY) + "`, `" + std::string(TRUNCATE) + "`.");
         stream_response(req, res);
         return false;
+    }
+
+    if(req->params.count(TRUNCATE) != 0) {
+        Option<nlohmann::json> truncate_op = collectionManager.truncate_collection(req->params["collection"], false);
+
+        if(!truncate_op.ok()) {
+            res->set(truncate_op.code(), truncate_op.error());
+            req->last_chunk_aggregate = true;
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+
+        res->set_200(truncate_op.get().dump());
+        req->last_chunk_aggregate = true;
+        res->final = true;
+        stream_response(req, res);
+        return true;
     }
 
     if(!StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {

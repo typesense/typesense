@@ -365,6 +365,8 @@ public:
 
     // PUBLIC OPERATIONS
 
+    Index* reinit_index();
+
     nlohmann::json get_summary_json() const;
 
     size_t batch_index_in_memory(std::vector<index_record>& index_records);
