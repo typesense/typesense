@@ -3874,7 +3874,7 @@ void Index::do_phrase_search(const size_t num_search_fields, const std::vector<s
         }
 
         // across fields, we have to OR phrase match ids
-        if(filter_ids_length == 0) {
+        if(phrase_match_ids_size == 0) {
             phrase_match_ids = field_phrase_match_ids;
             phrase_match_ids_size = field_phrase_match_ids_size;
         } else {
