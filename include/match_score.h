@@ -39,7 +39,6 @@ struct Match {
     uint8_t distance = 0;
     uint8_t max_offset = 0;
     uint8_t exact_match = 0;
-    uint8_t phrase_match = 0;
 
     std::vector<TokenOffset> offsets;
 
@@ -49,7 +48,7 @@ struct Match {
 
     Match(uint8_t words_present, uint8_t distance, uint8_t max_offset, uint8_t exact_match = 0) :
             words_present(words_present), distance(distance), max_offset(max_offset),
-            exact_match(exact_match), phrase_match(0) {
+            exact_match(exact_match) {
 
     }
 
@@ -164,7 +163,6 @@ struct Match {
             std::vector<TokenOffset> this_window(tokens_size);
 
             uint8_t prev_token_id = window[0].token_id;
-            phrase_match = 1;
 
             for (size_t i = 0; i < window.size(); i++) {
                 if(populate_window) {
@@ -181,12 +179,6 @@ struct Match {
                         this_window[window[i].token_id].offset = window[i].offset;
                     }
                 }
-
-                if(window[i].token_id > prev_token_id) {
-                    phrase_match = 0;
-                }
-
-                prev_token_id = window[i].token_id;
             }
 
             if ( (this_num_match > best_num_match) ||
@@ -230,10 +222,6 @@ struct Match {
         distance = uint8_t(best_displacement);
         if(populate_window) {
             offsets = best_window;
-        }
-
-        if(best_num_match != tokens_size || distance != tokens_size-1) {
-            phrase_match = 0;
         }
 
         exact_match = 0;

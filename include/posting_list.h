@@ -188,6 +188,11 @@ public:
                                    const uint32_t* ids, const uint32_t num_ids,
                                    uint32_t*& phrase_ids, size_t& num_phrase_ids);
 
+    static bool has_phrase_match(const std::vector<token_positions_t>& token_positions);
+
+    static bool found_token_sequence(const std::vector<token_positions_t>& token_positions, const size_t token_index,
+                              const uint16_t target_pos);
+
     static void get_matching_array_indices(uint32_t id, std::vector<iterator_t>& its,
                                            std::vector<size_t>& indices);
 

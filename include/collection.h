@@ -215,7 +215,7 @@ private:
     void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
-                                  std::vector<filter>& filters,
+                                  filter_node_t*& filter_tree_root,
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids) const;
 
@@ -382,7 +382,7 @@ public:
                             const bool& return_doc=false, const bool& return_id=false);
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
-                                  const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
+                                  const std::string & filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   size_t per_page = 10, size_t page = 1,
                                   token_ordering token_order = FREQUENCY, const std::vector<bool>& prefixes = {true},
@@ -401,7 +401,7 @@ public:
                                   size_t group_limit = 3,
                                   const std::string& highlight_start_tag="<mark>",
                                   const std::string& highlight_end_tag="</mark>",
-                                  std::vector<uint32_t> query_by_weights={},
+                                  std::vector<uint32_t> raw_query_by_weights={},
                                   size_t limit_hits=UINT32_MAX,
                                   bool prioritize_exact_match=true,
                                   bool pre_segmented_query=false,

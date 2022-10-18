@@ -587,7 +587,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                                            sort_field_std.name.size() - paran_start -
                                                                            2);
                 Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filters);
+                                                                          store, "", sort_field_std.eval.filter_tree_root);
                 if(!parse_filter_op.ok()) {
                     return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
                 }
@@ -794,23 +794,21 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     bool field_found = false;
 
     for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
+        bool exact_key_match = (kv.key().size() == field_name.size());
+        bool exact_primitive_match = exact_key_match && !kv.value().is_object();
+
         if(extract_only_string_fields && !kv.value().is_string()) {
-            if(kv.value().nested && !enable_nested_fields) {
-                continue;
+            if(exact_primitive_match) {
+                // upstream needs to be returned an error
+                return Option<bool>(400, "Field `" + field_name + "` should be a string or a string array.");
             }
 
-            if(kv.key().size() == field_name.size() && !kv.value().is_object()) {
-                // exact key, must be rejected because of type mismatch
-                std::string error = "Field `" + field_name + "` should be a string or a string array.";;
-                return Option<bool>(400, error);
-            }
             continue;
         }
 
-        bool exact_non_obj_match = (kv.key().size() == field_name.size() && !kv.value().is_object());
-
         // field_name prefix must be followed by a "." to indicate an object search
-        if(exact_non_obj_match || (kv.key().size() > field_name.size() && kv.key()[field_name.size()] == '.')) {
+        if (exact_primitive_match || (enable_nested_fields && kv.key().size() > field_name.size() &&
+                                      kv.key()[field_name.size()] == '.')) {
             processed_search_fields.push_back(kv.key());
             field_found = true;
         }
@@ -826,7 +824,7 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
 
 Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const std::vector<std::string>& raw_search_fields,
-                                  const std::string & simple_filter_query, const std::vector<std::string>& facet_fields,
+                                  const std::string & filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   const size_t per_page, const size_t page,
                                   token_ordering token_order, const std::vector<bool>& prefixes,
@@ -845,7 +843,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   size_t group_limit,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
-                                  std::vector<uint32_t> query_by_weights,
+                                  std::vector<uint32_t> raw_query_by_weights,
                                   size_t limit_hits,
                                   bool prioritize_exact_match,
                                   bool pre_segmented_query,
@@ -876,7 +874,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
     }
 
-    if(!raw_search_fields.empty() && !query_by_weights.empty() && raw_search_fields.size() != query_by_weights.size()) {
+    if(!raw_search_fields.empty() && !raw_query_by_weights.empty() &&
+        raw_search_fields.size() != raw_query_by_weights.size()) {
         return Option<nlohmann::json>(400, "Number of weights in `query_by_weights` does not match "
                                            "number of `query_by` fields.");
     }
@@ -888,7 +887,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     if(!raw_search_fields.empty() && raw_search_fields.size() != num_typos.size()) {
         if(num_typos.size() != 1) {
-            return Option<nlohmann::json>(400, "Number of weights in `num_typos` does not match "
+            return Option<nlohmann::json>(400, "Number of values in `num_typos` does not match "
                                                "number of `query_by` fields.");
         }
     }
@@ -934,12 +933,33 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     // validate search fields
     std::vector<std::string> processed_search_fields;
+    std::vector<uint32_t> query_by_weights;
 
-    for(const std::string& field_name: raw_search_fields) {
-        auto field_op = extract_field_name(field_name, search_schema, processed_search_fields, true, enable_nested_fields);
+    for(size_t i = 0; i < raw_search_fields.size(); i++) {
+        const std::string& field_name = raw_search_fields[i];
+        if(field_name == "id") {
+            // `id` field needs to be handled separately, we will not handle for now
+            std::string error = "Cannot use `id` as a query by field.";
+            return Option<nlohmann::json>(400, error);
+        }
+
+        std::vector<std::string> expanded_search_fields;
+        auto field_op = extract_field_name(field_name, search_schema, expanded_search_fields, true, enable_nested_fields);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(field_op.code(), field_op.error());
         }
+
+        for(const auto& expanded_search_field: expanded_search_fields) {
+            processed_search_fields.push_back(expanded_search_field);
+            if(!raw_query_by_weights.empty()) {
+                query_by_weights.push_back(raw_query_by_weights[i]);
+            }
+        }
+    }
+
+    if(!query_by_weights.empty() && processed_search_fields.size() != query_by_weights.size()) {
+        std::string error = "Error, query_by_weights.size != query_by.size.";
+        return Option<nlohmann::json>(400, error);
     }
 
     for(const std::string & field_name: processed_search_fields) {
@@ -966,10 +986,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         }
     }
 
-    for(const std::string & field_name: group_by_fields) {
-        if(search_schema.count(field_name) == 0) {
-            std::string error = "Could not find a field named `" + field_name + "` in the schema.";
-            return Option<nlohmann::json>(404, error);
+    for(const std::string& field_name: group_by_fields) {
+        if(field_name == "id") {
+            std::string error = "Cannot use `id` as a group by field.";
+            return Option<nlohmann::json>(400, error);
         }
 
         field search_field = search_schema.at(field_name);
@@ -989,14 +1009,29 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     for(auto& f_name: include_fields) {
         auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false, enable_nested_fields);
         if(!field_op.ok()) {
-            return Option<nlohmann::json>(404, field_op.error());
+            if(field_op.code() == 404) {
+                // field need not be part of schema to be included (could be a stored value in the doc)
+                include_fields_vec.push_back(f_name);
+                continue;
+            }
+            return Option<nlohmann::json>(field_op.code(), field_op.error());
         }
     }
 
     for(auto& f_name: exclude_fields) {
+        if(f_name == "out_of") {
+            // `out_of` is strictly a meta-field, but we handle it since it's useful
+            continue;
+        }
+
         auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields);
         if(!field_op.ok()) {
-            return Option<nlohmann::json>(404, field_op.error());
+            if(field_op.code() == 404) {
+                // field need not be part of schema to be excluded (could be a stored value in the doc)
+                exclude_fields_vec.push_back(f_name);
+                continue;
+            }
+            return Option<nlohmann::json>(field_op.code(), field_op.error());
         }
     }
 
@@ -1019,9 +1054,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<facet> facets;
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    std::vector<filter> filters;
-    Option<bool> parse_filter_op = filter::parse_filter_query(simple_filter_query, search_schema,
-                                                              store, doc_id_prefix, filters);
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> parse_filter_op = filter::parse_filter_query(filter_query, search_schema,
+                                                              store, doc_id_prefix, filter_tree_root);
     if(!parse_filter_op.ok()) {
         return Option<nlohmann::json>(parse_filter_op.code(), parse_filter_op.error());
     }
@@ -1133,7 +1168,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::string query = raw_query;
     bool filter_curated_hits = false;
     std::string curated_sort_by;
-    curate_results(query, simple_filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
+    curate_results(query, filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
                    included_ids, excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
 
     if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
@@ -1232,7 +1267,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         // process filter overrides first, before synonyms (order is important)
 
         // included_ids, excluded_ids
-        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filters,
+        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
                                  included_ids, excluded_ids);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
@@ -1258,7 +1293,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     size_t index_id = 0;
     search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
-                                                 filters, facets, included_ids, excluded_ids,
+                                                 filter_tree_root, facets, included_ids, excluded_ids,
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                  per_page, page, token_order, prefixes,
                                                  drop_tokens_threshold, typo_tokens_threshold,
@@ -1786,9 +1821,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     // free search params
     delete search_params;
 
+    delete filter_tree_root;
+
     result["search_cutoff"] = search_cutoff;
 
-    result["request_params"] = nlohmann::json::object();;
+    result["request_params"] = nlohmann::json::object();
     result["request_params"]["collection_name"] = name;
     result["request_params"]["per_page"] = per_page;
     result["request_params"]["q"] = query;
@@ -2012,13 +2049,13 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
 void Collection::process_filter_overrides(std::vector<const override_t*>& filter_overrides,
                                           std::vector<std::string>& q_include_tokens,
                                           token_ordering token_order,
-                                          std::vector<filter>& filters,
+                                          filter_node_t*& filter_tree_root,
                                           std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                           std::vector<uint32_t>& excluded_ids) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
     index->process_filter_overrides(filter_overrides, q_include_tokens, token_order,
-                                    filters, matched_dynamic_overrides);
+                                    filter_tree_root, matched_dynamic_overrides);
 
     // we will check the dynamic overrides to see if they also have include/exclude
     std::set<uint32_t> excluded_set;
@@ -2195,9 +2232,9 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
     std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    std::vector<filter> filters;
+    filter_node_t* filter_tree_root = nullptr;
     Option<bool> filter_op = filter::parse_filter_query(simple_filter_query, search_schema,
-                                                        store, doc_id_prefix, filters);
+                                                        store, doc_id_prefix, filter_tree_root);
 
     if(!filter_op.ok()) {
         return filter_op;
@@ -2205,9 +2242,10 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
 
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_len = 0;
-    index->do_filtering_with_lock(filter_ids, filter_ids_len, filters);
+    index->do_filtering_with_lock(filter_ids, filter_ids_len, filter_tree_root);
     index_ids.emplace_back(filter_ids_len, filter_ids);
 
+    delete filter_tree_root;
     return Option<bool>(true);
 }
 

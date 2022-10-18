@@ -1218,6 +1218,35 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
     num_exact_ids = exact_id_index;
 }
 
+bool posting_list_t::found_token_sequence(const std::vector<token_positions_t>& token_positions,
+                                          const size_t token_index, const uint16_t target_pos) {
+
+    if(token_index == token_positions.size()) {
+        return true;
+    }
+
+    // iterate through the positions and see if `target_pos` is found in token positions
+    const auto& tok_positions = token_positions[token_index].positions;
+    auto pos_it = std::find(tok_positions.begin(), tok_positions.end(), target_pos);
+    if(pos_it == tok_positions.end()) {
+        return false;
+    }
+
+    return found_token_sequence(token_positions, token_index+1, target_pos+1);
+}
+
+bool posting_list_t::has_phrase_match(const std::vector<token_positions_t>& token_positions) {
+    const auto& positions = token_positions[0].positions;
+
+    for(auto pos: positions) {
+        if(found_token_sequence(token_positions, 1, pos + 1)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void posting_list_t::get_phrase_matches(std::vector<iterator_t>& its, bool field_is_array, const uint32_t* ids,
                                         const uint32_t num_ids, uint32_t*& phrase_ids, size_t& num_phrase_ids) {
 
@@ -1241,8 +1270,8 @@ void posting_list_t::get_phrase_matches(std::vector<iterator_t>& its, bool field
             get_offsets(its, array_token_positions);
 
             for(auto& kv: array_token_positions) {
-                bool is_phrase_match = Match(id, kv.second, false, false).phrase_match;
-                if(is_phrase_match) {
+                const auto& token_positions = kv.second;
+                if(has_phrase_match(token_positions)) {
                     phrase_ids[phrase_id_index] = ids[i];
                     phrase_id_index++;
                     break;

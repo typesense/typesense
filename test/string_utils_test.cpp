@@ -101,6 +101,19 @@ TEST(StringUtilsTest, ShouldComputeSHA256) {
                   StringUtils::hash_sha256("791a27668b3e01fc6ab3482b6e6a36255154df3ecd7dcec").c_str());
 }
 
+TEST(StringUtilsTest, ShouldCheckFloat) {
+    ASSERT_TRUE(StringUtils::is_float("0.23"));
+    ASSERT_TRUE(StringUtils::is_float("9.872019290924072e-07"));
+
+    ASSERT_FALSE(StringUtils::is_float("4.2f"));
+    ASSERT_FALSE(StringUtils::is_float("-5.3f"));
+    ASSERT_FALSE(StringUtils::is_float("+6.2f"));
+    ASSERT_FALSE(StringUtils::is_float("0.x87"));
+    ASSERT_FALSE(StringUtils::is_float("1.0.0"));
+    ASSERT_FALSE(StringUtils::is_float("2f"));
+    ASSERT_FALSE(StringUtils::is_float("2.0f1"));
+}
+
 TEST(StringUtilsTest, ShouldParseQueryString) {
     std::map<std::string, std::string> qmap;
     
