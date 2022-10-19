@@ -604,6 +604,7 @@ struct sort_by {
 struct vector_query_t {
     std::string field_name;
     size_t k = 0;
+    size_t flat_search_cutoff = 1000;
     std::vector<float> values;
 
     void _reset() {

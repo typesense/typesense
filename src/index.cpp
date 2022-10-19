@@ -2458,8 +2458,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_query) {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
-        bool no_filters_provided =
-            (filter_tree_root != nullptr && filter_ids_length == 0);
+        bool no_filters_provided = (filter_tree_root == nullptr && filter_ids_length == 0);
 
         if(no_filters_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
            sort_fields_std.size() == 1 && sort_fields_std[0].name == sort_field_const::seq_id &&
@@ -2513,13 +2512,32 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
             std::vector<std::pair<float, size_t>> dist_labels;
 
+            if(!no_filters_provided && filter_ids_length < vector_query.flat_search_cutoff) {
+                for(size_t i = 0; i < filter_ids_length; i++) {
+                    auto seq_id = filter_ids[i];
+                    const std::vector<float>& values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
+                    float dist;
 
-            if(field_vector_index->distance_type == cosine) {
-                std::vector<float> normalized_q(vector_query.values.size());
-                hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, filterFunctor);
+                    if(field_vector_index->distance_type == cosine) {
+                        std::vector<float> normalized_q(vector_query.values.size());
+                        hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                        dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
+                                                                           &field_vector_index->num_dim);
+                    } else {
+                        dist = field_vector_index->space->get_dist_func()(vector_query.values.data(), values.data(),
+                                                                           &field_vector_index->num_dim);
+                    }
+
+                    dist_labels.emplace_back(dist, seq_id);
+                }
             } else {
-                dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, filterFunctor);
+                if(field_vector_index->distance_type == cosine) {
+                    std::vector<float> normalized_q(vector_query.values.size());
+                    hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, filterFunctor);
+                } else {
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, filterFunctor);
+                }
             }
 
             std::vector<uint32_t> nearest_ids;
@@ -2547,11 +2565,9 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
             }
 
             if(!nearest_ids.empty()) {
-                uint32_t* new_all_result_ids = nullptr;
-                all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, nearest_ids.data(),
-                                                           nearest_ids.size(), &new_all_result_ids);
-                delete [] all_result_ids;
-                all_result_ids = new_all_result_ids;
+                all_result_ids = new uint32[nearest_ids.size()];
+                std::copy(nearest_ids.begin(), nearest_ids.end(), all_result_ids);
+                all_result_ids_len = nearest_ids.size();
             }
         } else {
             search_wildcard(filter_tree_root, included_ids_map, sort_fields_std, topster,
@@ -4244,14 +4260,6 @@ void Index::curate_filtered_ids(filter_node_t const* const& filter_tree_root, co
                                 const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
                                 uint32_t*& filter_ids, uint32_t& filter_ids_length,
                                 const std::vector<uint32_t>& curated_ids_sorted) const {
-
-    // if filtered results are not available, use the seq_ids index to generate
-    // the list of all document ids
-    if (filter_tree_root == nullptr && filter_ids_length == 0) {
-        filter_ids_length = seq_ids->num_ids();
-        filter_ids = seq_ids->uncompress();
-    }
-
     if(!curated_ids.empty()) {
         uint32_t *excluded_result_ids = nullptr;
         filter_ids_length = ArrayUtils::exclude_scalar(filter_ids, filter_ids_length, &curated_ids_sorted[0],
