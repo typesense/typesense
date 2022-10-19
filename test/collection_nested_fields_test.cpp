@@ -1299,7 +1299,34 @@ TEST_F(CollectionNestedFieldsTest, ExplicitDotSeparatedFieldsShouldHavePrecenden
     results = coll2->search("*", {}, "company.ids: 1", {}, sort_fields, {0}, 10, 1,
                             token_ordering::FREQUENCY, {true}).get();
     ASSERT_EQ(0, results["found"].get<size_t>());
+}
 
+TEST_F(CollectionNestedFieldsTest, NestedFieldWithExplicitWeight) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "company": {"num_employees": 2000, "founded": 1976},
+        "studies": [{"name": "College 1", "location": "USA"}]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto results = coll1->search("college", {"studies"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "category", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {

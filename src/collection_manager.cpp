@@ -1505,6 +1505,14 @@ bool CollectionManager::parse_vector_query_str(std::string vector_query_str, vec
 
                     vector_query.k = std::stoul(param_kv[1]);
                 }
+
+                if(param_kv[0] == "flat_search_cutoff") {
+                    if(!StringUtils::is_uint32_t(param_kv[1])) {
+                        return false;
+                    }
+
+                    vector_query.flat_search_cutoff = std::stoi(param_kv[1]);
+                }
             }
 
             return true;
