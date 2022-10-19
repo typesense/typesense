@@ -183,6 +183,7 @@ struct search_args {
         delete &q_tokens;
         delete &sort_fields_std;
         delete &match_score_index;
+        delete filter_tree_root;
     };
 };
 

@@ -464,6 +464,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
+
     auto orig_req_params = req->params;
     const char* LIMIT_MULTI_SEARCHES = "limit_multi_searches";
     size_t limit_multi_searches = 50;
@@ -484,7 +485,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     nlohmann::json response;
-    response["results"] = nlohmann::json::array();
+
 
     nlohmann::json& searches = req_json["searches"];
 
@@ -496,43 +497,86 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
-    LOG(INFO) << "REQ: " << req_json.dump(-1);
+    if(req_json["merge_hits"].is_null() || req_json["merge_hits"].get<bool>() == false) {
 
-    for(size_t i = 0; i < searches.size(); i++) {
-        auto& search_params = searches[i];
+        response["results"] = nlohmann::json::array();
 
-        if(!search_params.is_object()) {
-            res->set_400("The value of `searches` must be an array of objects.");
+        for(size_t i = 0; i < searches.size(); i++) {
+            auto& search_params = searches[i];
+
+            if(!search_params.is_object()) {
+                res->set_400("The value of `searches` must be an array of objects.");
+                return false;
+            }
+
+            req->params = orig_req_params;
+
+            for(auto& search_item: search_params.items()) {
+                if(search_item.key() == "cache_ttl") {
+                    // cache ttl can be applied only from an embedded key: cannot be a multi search param
+                    continue;
+                }
+
+                // overwrite = false since req params will contain embedded params and so has higher priority
+                bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
+                if(!populated) {
+                    res->set_400("One or more search parameters are malformed.");
+                    return false;
+                }
+            }
+
+            std::string results_json_str;
+            Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i], results_json_str);
+
+            if(search_op.ok()) {
+                response["results"].push_back(nlohmann::json::parse(results_json_str));
+            } else {
+                nlohmann::json err_res;
+                err_res["error"] = search_op.error();
+                err_res["code"] = search_op.code();
+                response["results"].push_back(err_res);
+            }
+        }
+    } else {
+        std::vector<std::map<std::string, std::string>> merged_params_vec;
+
+        for(size_t i = 0; i < searches.size(); i++) {
+            auto& search_params = searches[i];
+
+            if(!search_params.is_object()) {
+                res->set_400("The value of `searches` must be an array of objects.");
+                return false;
+            }
+
+            req->params = orig_req_params;
+
+            for(auto& search_item: search_params.items()) {
+                if(search_item.key() == "cache_ttl") {
+                    // cache ttl can be applied only from an embedded key: cannot be a multi search param
+                    continue;
+                }
+
+                // overwrite = false since req params will contain embedded params and so has higher priority
+                bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
+                if(!populated) {
+                    res->set_400("One or more search parameters are malformed.");
+                    return false;
+                }
+            }
+
+            merged_params_vec.push_back(req->params);
+        }
+
+        auto response_op = CollectionManager::get_instance().search_multiple_collections(merged_params_vec, req->embedded_params_vec);
+
+        if(response_op.ok()) {
+            response = response_op.get();
+        } else {
+            res->set(response_op.code(), response_op.error());
             return false;
         }
 
-        req->params = orig_req_params;
 
-        for(auto& search_item: search_params.items()) {
-            if(search_item.key() == "cache_ttl") {
-                // cache ttl can be applied only from an embedded key: cannot be a multi search param
-                continue;
-            }
-
-            // overwrite = false since req params will contain embedded params and so has higher priority
-            bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
-            if(!populated) {
-                res->set_400("One or more search parameters are malformed.");
-                return false;
-            }
-        }
-
-        std::string results_json_str;
-        Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i], results_json_str);
-
-        if(search_op.ok()) {
-            response["results"].push_back(nlohmann::json::parse(results_json_str));
-        } else {
-            nlohmann::json err_res;
-            err_res["error"] = search_op.error();
-            err_res["code"] = search_op.code();
-            response["results"].push_back(err_res);
-        }
     }
 
     res->set_200(response.dump());
