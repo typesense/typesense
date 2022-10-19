@@ -27,8 +27,6 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
 bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_multi_search_agg(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
 bool get_export_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
