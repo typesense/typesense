@@ -866,12 +866,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     std::shared_lock lock(mutex);
 
-        std::vector<bool>* prefixes_ = new std::vector<bool>(prefixes);
-    std::vector<enable_t>* infixes_ = new std::vector<enable_t>(infixes);
-
-
-
-
     
     raw_search_args* raw_args = new raw_search_args{
         raw_query,
@@ -883,7 +877,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         per_page,
         page,
         token_order,
-        prefixes_,
+        prefixes,
         drop_tokens_threshold,
         include_fields,
         exclude_fields,
@@ -911,7 +905,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         min_len_2typo,
         split_join_tokens,
         max_candidates,
-        infixes_,
+        infixes,
         max_extra_prefix,
         max_extra_suffix,
         facet_query_num_typos,
@@ -924,64 +918,47 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     return search(*raw_args);
 }
 
-
-
 Option<nlohmann::json> Collection::search(raw_search_args& args) {
 
     std::shared_lock lock(mutex);
 
-
-
-
     auto search_params_op = get_search_args(args.query, args.search_fields, args.simple_filter_query, args.facet_fields, args.sort_fields,
-                                            args.num_typos, args.per_page, args.page, args.token_order, *args.prefixes, args.drop_tokens_threshold,
+                                            args.num_typos, args.per_page, args.page, args.token_order, args.prefixes, args.drop_tokens_threshold,
                                             args.include_fields, args.exclude_fields, args.max_facet_values, args.simple_facet_query, args.snippet_threshold,
                                             args.highlight_affix_num_tokens, args.highlight_full_fields, args.typo_tokens_threshold, args.pinned_hits_str,
                                             args.hidden_hits, args.group_by_fields, args.group_limit, args.highlight_start_tag, args.highlight_end_tag,
                                             args.query_by_weights, args.limit_hits, args.prioritize_exact_match, args.pre_segmented_query, args.enable_overrides,
                                             args.highlight_fields, args.exhaustive_search, args.search_stop_millis, args.min_len_1typo, args.min_len_2typo,
-                                            args.split_join_tokens, args.max_candidates, *args.infixes, args.max_extra_prefix, args.max_extra_suffix,
+                                            args.split_join_tokens, args.max_candidates, args.infixes, args.max_extra_prefix, args.max_extra_suffix,
                                             args.facet_query_num_typos, args.filter_curated_hits_option, args.prioritize_token_position, args.vector_query_str);
 
-    
     if(!search_params_op.ok()) {
         return Option<nlohmann::json>(search_params_op.code(), search_params_op.error());
     }
 
     auto search_params = search_params_op.get();
-
     auto search_op = run_search(search_params);
 
     if(!search_op.ok()) {
         return Option<nlohmann::json>(search_op.code(), search_op.error());
     }
-
     auto search_results = search_op.get();
-
-
     for(auto& search_result: search_results) {
         std::stable_sort(search_result.collection_kvs.begin(), search_result.collection_kvs.end(), [](const CollectionKV& a, const CollectionKV& b) {
             return std::tie(a.kv->scores[0], a.kv->scores[1], a.kv->scores[2], a.kv->key) > std::tie(b.kv->scores[0], b.kv->scores[1], b.kv->scores[2], b.kv->key);
         });
     }
 
-
     auto result_op = get_result(args, search_params, search_results);
-
     auto result = result_op.get();
 
     result["request_params"]["collection_name"] = name;
     result["request_params"]["q"] = search_params->query;
 
-
     // free search params
     delete search_params;
     delete &args;
-
-
-
     return Option<nlohmann::json>(result);
-
 } 
 
 void Collection::copy_highlight_doc(std::vector<highlight_field_t>& hightlight_items, const nlohmann::json& src, nlohmann::json& dst) {
@@ -1172,8 +1149,6 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
     std::string qtoken;
     for(auto it = qtoken_set.begin(); it != qtoken_set.end(); ++it) {
         it.key(qtoken);
-
-
         for(auto& highlight_item: highlight_items) {
             const auto& field_name = highlight_item.name;
             art_leaf* leaf = index->get_token_leaf(field_name, (const unsigned char*) qtoken.c_str(), qtoken.size()+1);
@@ -1186,7 +1161,6 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
             }
         }
     }
-
 
     // We will also add tokens from the query if they are not already added.
     // This helps handle highlighting of tokens which were dropped from the query to return results.
@@ -1352,7 +1326,6 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
                 gtopster.add(kv_head);
             }
         }
-
 
         gtopster.sort();
 
@@ -3311,7 +3284,6 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
         group_limit = 0;
     }
 
-
     vector_query_t* vector_query = new vector_query_t();
     if(!vector_query_str.empty()) {
         if(raw_query != "*") {
@@ -3364,7 +3336,6 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
         return Option<search_args*>(400, error);
     }
 
-
     for(const std::string & field_name: processed_search_fields) {
         field search_field = search_schema.at(field_name);
 
@@ -3404,9 +3375,6 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
         }
     }
 
-
-
-
     // process weights for search fields
     std::vector<std::string> reordered_search_fields;
     std::vector<search_field_t> weighted_search_fields;
@@ -3432,7 +3400,6 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
         }
         facets->emplace_back(field_name);
     }
-
     // parse facet query
     facet_query_t facet_query = {"", ""};
 
@@ -3473,8 +3440,6 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
             }
         }
     }
-
-
     // check for valid pagination
     if(page < 1) {
         std::string message = "Page must be an integer of value greater than 0.";
@@ -3521,7 +3486,6 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
 
     std::vector<std::string> hidden_hits;
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
-
     std::vector<const override_t*> filter_overrides;
     std::string* query = new std::string(raw_query);
     bool filter_curated_hits = false;
@@ -3533,10 +3497,7 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
         // When query param has explicit value set, override level configuration takes lower precedence.
         filter_curated_hits = bool(filter_curated_hits_option);
     }
-
-
     // validate sort fields and standardize
-
     sort_fields_guard_t sort_fields_guard;
     std::vector<sort_by>* sort_fields_std = new std::vector<sort_by>();
     *sort_fields_std = sort_fields_guard.sort_fields_std;
@@ -3561,8 +3522,6 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
             return Option<search_args*>(sort_validation_op.code(), sort_validation_op.error());
         }
     }
-
-
 
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
     std::vector<query_tokens_t> field_query_tokens;
@@ -3628,31 +3587,25 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
             break;
         }
     }
-    
-
-        search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
-                                                 filter_tree_root, *facets, *included_ids, excluded_ids,
-                                                 *sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                                 per_page, page, token_order, prefixes,
-                                                 drop_tokens_threshold, typo_tokens_threshold,
-                                                 group_by_fields, group_limit, default_sorting_field,
-                                                 prioritize_exact_match, prioritize_token_position,
-                                                 exhaustive_search, 4,
-                                                 search_stop_millis,
-                                                 min_len_1typo, min_len_2typo, max_candidates, infixes,
-                                                 max_extra_prefix, max_extra_suffix, facet_query_num_typos,
-                                                 filter_curated_hits, split_join_tokens, *vector_query,
-                                                 *query, *q_tokens,*match_score_index);
-
-
+    search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
+                                                filter_tree_root, *facets, *included_ids, excluded_ids,
+                                                *sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
+                                                per_page, page, token_order, prefixes,
+                                                drop_tokens_threshold, typo_tokens_threshold,
+                                                group_by_fields, group_limit, default_sorting_field,
+                                                prioritize_exact_match, prioritize_token_position,
+                                                exhaustive_search, 4,
+                                                search_stop_millis,
+                                                min_len_1typo, min_len_2typo, max_candidates, infixes,
+                                                max_extra_prefix, max_extra_suffix, facet_query_num_typos,
+                                                filter_curated_hits, split_join_tokens, *vector_query,
+                                                *query, *q_tokens,*match_score_index);
     return Option<search_args*>(search_params);
 }
 
 Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, search_args* search_params, 
                                             std::vector<CollectionKVGroup>& collection_kvs, std::unordered_map<uint32_t, Collection*> collection_map,
-                                            const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map) {
-
-
+                                            const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map, size_t total_max_hits) {
 
     if(common_args.group_by_fields.empty()) {
         common_args.group_limit = 0;
@@ -3697,11 +3650,9 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
     }
 
     const long start_result_index = (common_args.page - 1) * common_args.per_page;
-
-    size_t max_hits = DEFAULT_TOPSTER_SIZE + start_result_index;
     
     // `end_result_index` could be -1 when max_hits is 0
-    const long end_result_index = std::min((common_args.page * common_args.per_page), std::min(max_hits, collection_kvs.size())) - 1;
+    const long end_result_index = std::min((common_args.page * common_args.per_page), std::min(total_max_hits + start_result_index, collection_kvs.size())) - 1;
 
     // handle which fields have to be highlighted
 
@@ -3709,16 +3660,12 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
     bool has_atleast_one_fully_highlighted_field = false;
 
     std::vector<std::string> highlight_field_names;
-
-
     std::vector<std::string> highlight_full_field_names;
-
 
     std::vector<std::string> include_fields_vec;
     std::vector<std::string> exclude_fields_vec;
     tsl::htrie_set<char> include_fields_full;
     tsl::htrie_set<char> exclude_fields_full;
-
 
     StringUtils::split(common_args.highlight_fields, highlight_field_names, ",");
     StringUtils::split(common_args.highlight_full_fields, highlight_full_field_names, ",");
@@ -3770,7 +3717,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
         }
         index = coll->index;
         process_highlight_fields(search_params->search_fields, include_fields_full, exclude_fields_full,
-                                 highlight_field_names, highlight_full_field_names, *common_args.infixes, search_params->q_tokens,
+                                 highlight_field_names, highlight_full_field_names, common_args.infixes, search_params->q_tokens,
                                  search_params->qtoken_set, highlight_items, index, coll->_get_schema(), coll->enable_nested_fields);
 
         for(auto& highlight_item: highlight_items) {
@@ -3796,14 +3743,12 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
         nlohmann::json& hits_array = common_args.group_limit ? group_hits["hits"] : result["hits"];
         nlohmann::json group_key = nlohmann::json::array();
         for(CollectionKV& field_order_kv: kv_group.collection_kvs) {
-
             auto collection = this;
             auto& args = (args_map.size() > 0) ? *args_map.at(field_order_kv.kv).first : common_args;
             search_args* args_temp = search_params;
             search_args* search_params = (args_map.size() > 0) ? args_map.at(field_order_kv.kv).second : args_temp;
 
             if(field_order_kv.collection_id != last_collection_id) {
-
                 highlight_field_names.clear();
                 highlight_full_field_names.clear();
                 include_fields_vec.clear();
@@ -3811,7 +3756,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                 highlight_items.clear();
                 collection = collection_map.at(field_order_kv.collection_id);
                 last_collection_id = field_order_kv.collection_id;
-
                 const auto& search_schema = collection->_get_schema();
 
                 StringUtils::split(args.highlight_fields, highlight_field_names, ",");
@@ -3823,18 +3767,15 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                         return Option<nlohmann::json>(404, field_op.error());
                     }
                 }
-
                 for(auto& f_name: args.exclude_fields) {
                     auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields);
                     if(!field_op.ok()) {
                         return Option<nlohmann::json>(404, field_op.error());
                     }
                 }
-
                 for(auto& f_name: include_fields_vec) {
                     include_fields_full.insert(f_name);
                 }
-
                 for(auto& f_name: exclude_fields_vec) {
                      if(f_name == "out_of") {
                         // `out_of` is strictly a meta-field, but we handle it since it's useful
@@ -3842,18 +3783,14 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                     }
                     exclude_fields_full.insert(f_name);
                 }
-
-
                 if(collection_map.find(collection_kvs[start_result_index].collection_kvs.front().collection_id) == collection_map.end()) {
                     return Option<nlohmann::json>(404, "Collection not found");
                 }
-
                 highlight_items.clear();
-
                 if(args.query != "*") {
                         auto index = collection->index;
                         process_highlight_fields(search_params->search_fields, include_fields_full, exclude_fields_full,
-                                                highlight_field_names, highlight_full_field_names, *args.infixes, search_params->q_tokens,
+                                                highlight_field_names, highlight_full_field_names, args.infixes, search_params->q_tokens,
                                                 search_params->qtoken_set, highlight_items, index, collection->_get_schema(), collection->enable_nested_fields);
 
                         for(auto& highlight_item: highlight_items) {
@@ -3864,7 +3801,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                     }
             }
 
-
             const auto& search_schema = collection->_get_schema();
             const auto& symbols_to_index = collection->get_symbols_to_index();
             uint8_t index_symbols[256] = {};
@@ -3874,8 +3810,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
             const std::string& seq_id_key = std::to_string(field_order_kv.collection_id) + "_" + std::string(SEQ_ID_PREFIX) + "_" + StringUtils::serialize_uint32_t(field_order_kv.kv->key);
             nlohmann::json document;
             const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
-
-
 
             if(!document_op.ok()) {
                 LOG(ERROR) << "Document fetch error. " << document_op.error();
@@ -3915,9 +3849,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                 if(search_schema.count(field_name) == 0) {
                     continue;
                 }
-
                 field search_field = search_schema.at(field_name);
-
                 if(search_params->query != "*" && (search_field.type == field_types::STRING ||
                                     search_field.type == field_types::STRING_ARRAY)) {
 
@@ -4017,8 +3949,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
             wrapper_doc["highlight"] = highlight_res;
             wrapper_doc["collection_name"] = (field_order_kv.collection_id == this->collection_id) ? get_name() : collection_map.at(field_order_kv.collection_id)->get_name();
 
-
-            
             if(field_order_kv.kv->match_score_index == CURATED_RECORD_IDENTIFIER) {
                 wrapper_doc["curated"] = true;
             } else if(field_order_kv.kv->match_score_index >= 0) {
@@ -4053,13 +3983,9 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
             group_hits["group_key"] = group_key;
             result["grouped_hits"].push_back(group_hits);
         }
-
-
     }
 
     result["facet_counts"] = nlohmann::json::array();
-
-
     // populate facets
     for(facet & a_facet: search_params->facets) {
         nlohmann::json facet_result = nlohmann::json::object();
@@ -4070,9 +3996,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
         for (const auto & kv : a_facet.result_map) {
             facet_hash_counts.emplace_back(kv);
         }
-
-
-
         // keep only top K facets
         auto max_facets = std::min(common_args.max_facet_values, facet_hash_counts.size());
         std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + max_facets,
@@ -4086,7 +4009,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
             auto & facet_count = kv.second;
 
             const auto& search_schema = collection_map.size() > 0 ? collection_map.at(facet_count.collection_id)->_get_schema() : _get_schema();
-
             auto the_field = search_schema.at(a_facet.field_name);
 
             // fetch actual facet value from representative doc id
@@ -4098,7 +4020,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                 LOG(ERROR) << "Facet fetch error. " << document_op.error();
                 continue;
             }
-
 
             std::string value;
             bool facet_found = facet_value_to_string(a_facet, facet_count, document, value, search_schema);
@@ -4118,15 +4039,12 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                         ftokens[ti] = "false";
                     }
                 }
-
                 const std::string& resolved_token = ftokens[ti];
                 ftoken_pos[resolved_token] = ti;
             }
 
             const std::string& last_full_q_token = ftokens.empty() ? "" : ftokens.back();
-
             // 2 passes: first identify tokens that need to be highlighted and then construct highlighted text
-
             bool is_cyrillic = Tokenizer::is_cyrillic(the_field.locale);
             bool normalise = is_cyrillic ? false : true;
 
@@ -4156,7 +4074,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                     }
                 }
             }
-
             auto offset_it = token_offsets.begin();
             size_t i = 0;
             std::stringstream highlightedss;
@@ -4171,17 +4088,14 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                         size_t token_len = (i == prefix_token_start_index && token_offsets.size() == facet_query_num_tokens) ?
                                            facet_query_last_token.size() :
                                            (offset_it->second - i + 1);
-
                         if(i == prefix_token_start_index && token_offsets.size() == facet_query_num_tokens) {
                             token_len = std::min((offset_it->second - i + 1), facet_query_last_token.size());
                         } else {
                             token_len = (offset_it->second - i + 1);
                         }
-
                         for(size_t j = 0; j < token_len; j++) {
                             highlightedss << value[i + j];
                         }
-
                         highlightedss << common_args.highlight_end_tag;
                         offset_it++;
                         i += token_len;
@@ -4198,11 +4112,9 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
         }
 
         std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
-
         for(const auto & facet_count: facet_values) {
             nlohmann::json facet_value_count = nlohmann::json::object();
             const std::string & value = facet_count.value;
-
             facet_value_count["value"] = value;
             facet_value_count["highlighted"] = facet_count.highlighted;
             facet_value_count["count"] = facet_count.count;
@@ -4221,15 +4133,11 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
         facet_result["stats"]["total_values"] = facet_hash_counts.size();
         result["facet_counts"].push_back(facet_result);
     }
-
-
     if(common_args.exclude_fields.count("out_of") == 0) {
         result["out_of"] = args_map.size() > 0 ? search_params->out_of : num_documents.load();
     }
 
-
     result["search_cutoff"] = search_cutoff;
-
     result["request_params"] = nlohmann::json::object();;
     result["request_params"]["per_page"] = common_args.per_page;
 
@@ -4240,9 +4148,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
     return Option<nlohmann::json>(result);
 }
 
-
 Option<std::vector<CollectionKVGroup>> Collection::run_search(search_args* search_params) {
-
     index->run_search(search_params);
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
@@ -4250,7 +4156,6 @@ Option<std::vector<CollectionKVGroup>> Collection::run_search(search_args* searc
 
     search_params->topster->sort();
     search_params->curated_topster->sort();
-
     populate_result_kvs(search_params->topster, raw_result_kvs);
     populate_result_kvs(search_params->curated_topster, override_result_kvs);
 
@@ -4319,7 +4224,6 @@ Option<std::vector<CollectionKVGroup>> Collection::run_search(search_args* searc
     }
 
     std::vector<CollectionKVGroup> result;
-
     for(size_t i = 0; i < result_group_kvs.size(); i++) {
         CollectionKVGroup group;
         for(size_t j = 0; j < result_group_kvs[i].size(); j++) {
@@ -4339,7 +4243,6 @@ Option<std::vector<CollectionKVGroup>> Collection::run_search(search_args* searc
 
             group.group_key = StringUtils::hash_wy(group_key.dump().c_str(), group_key.dump().length());
         }
-
         result.push_back(group);
     }
 
@@ -4348,7 +4251,6 @@ Option<std::vector<CollectionKVGroup>> Collection::run_search(search_args* searc
             facet_kv.second.collection_id = get_collection_id();
         }
     }
-
     return Option<std::vector<CollectionKVGroup>>(result);
 }
 

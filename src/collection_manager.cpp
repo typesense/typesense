@@ -1155,20 +1155,16 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
     auto begin = std::chrono::high_resolution_clock::now();
     nlohmann::json result;
     size_t total_doc_count = 0;
+    size_t total_max_hits = 0;
     std::vector<search_args*> search_args_vec;
     std::vector<CollectionKVGroup> collection_kvs_vec;
     std::vector<raw_search_args*> raw_search_args_vec;
     std::unordered_map<uint64_t, int> group_key_map;
     // To retrieve collections in get_result
     std::unordered_map<uint32_t, Collection*> collection_id_map;
-
     std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>> search_args_map;
 
-
-
-
     for(int i = 0;i < req_params.size();i++) {
-
         if(req_params[i].count("collection") == 0) {
             return Option<nlohmann::json>(400, "Missing collection name");
         }
@@ -1181,29 +1177,28 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
         total_doc_count += collection->get_num_documents();
 
         auto args_op = get_raw_search_args(req_params[i], embedded_params_vec[i]);
-
         if(!args_op.ok()) {
             return Option<nlohmann::json>(args_op.code(), args_op.error());
         }
 
-
         auto args = args_op.get();
-
         raw_search_args_vec.push_back(args);
 
         auto search_args_op = collection->get_search_args(args->query, args->search_fields, args->simple_filter_query, args->facet_fields, args->sort_fields,
-                                                args->num_typos, args->per_page, args->page, args->token_order, *args->prefixes, args->drop_tokens_threshold,
+                                                args->num_typos, args->per_page, args->page, args->token_order, args->prefixes, args->drop_tokens_threshold,
                                                 args->include_fields, args->exclude_fields, args->max_facet_values, args->simple_facet_query, args->snippet_threshold,
                                                 args->highlight_affix_num_tokens, args->highlight_full_fields, args->typo_tokens_threshold, args->pinned_hits_str,
                                                 args->hidden_hits, args->group_by_fields, args->group_limit, args->highlight_start_tag, args->highlight_end_tag,
                                                 args->query_by_weights, args->limit_hits, args->prioritize_exact_match, args->pre_segmented_query, args->enable_overrides,
                                                 args->highlight_fields, args->exhaustive_search, args->search_stop_millis, args->min_len_1typo, args->min_len_2typo,
-                                                args->split_join_tokens, args->max_candidates, *args->infixes, args->max_extra_prefix, args->max_extra_suffix,
+                                                args->split_join_tokens, args->max_candidates, args->infixes, args->max_extra_prefix, args->max_extra_suffix,
                                                 args->facet_query_num_typos, args->filter_curated_hits_option, args->prioritize_token_position, args->vector_query_str);
         if(!search_args_op.ok()) {
             return Option<nlohmann::json>(search_args_op.code(), search_args_op.error());
         }
         auto search_params = search_args_op.get();
+        total_max_hits += search_params->max_hits;
+
 
         if(i == 0) {
             auto sort_fields = search_params->sort_fields_std;
@@ -1275,7 +1270,6 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
             }
 
             //search_args_vec[0]->search_fields.insert(search_args_vec[0]->search_fields.end(), search_args_vec[i]->search_fields.begin(), search_args_vec[i]->search_fields.end());
-
             auto& facets = search_args_vec[i]->facets;
             for(auto fi = 0; fi < facets.size(); fi++) {
                 auto& the_facet = facets[fi];
@@ -1316,8 +1310,6 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
                     acc_facet_it->stats.fvmin = std::min(acc_facet_it->stats.fvmin, the_facet.stats.fvmin);
                     acc_facet_it->stats.fvmax = std::max(acc_facet_it->stats.fvmax, the_facet.stats.fvmax);
                     acc_facet_it->stats.fvcount += the_facet.stats.fvcount;
-                    
-
                 }
                 else {
                     acc_facets.push_back(the_facet);
@@ -1342,17 +1334,14 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
         });
     }
 
-    auto result_op = get_collection(req_params[0]["collection"])->get_result(*raw_search_args_vec[0], search_args_vec[0], collection_kvs_vec,collection_id_map, search_args_map);
+    auto result_op = get_collection(req_params[0]["collection"])->get_result(*raw_search_args_vec[0], search_args_vec[0], collection_kvs_vec,collection_id_map, search_args_map, total_max_hits);
     result = result_op.get();
     result["out_of"] = total_doc_count;
-
-
-        uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::high_resolution_clock::now() - begin).count();
+    uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - begin).count();
 
     AppMetrics::get_instance().increment_count(AppMetrics::SEARCH_LABEL, 1);
     AppMetrics::get_instance().increment_duration(AppMetrics::SEARCH_LABEL, timeMillis);
-
 
     if(raw_search_args_vec[0]->exclude_fields.count("search_time_ms") == 0) {
         result["search_time_ms"] = timeMillis;
@@ -1373,7 +1362,6 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
     for(auto& raw_search_args: raw_search_args_vec) {
         delete raw_search_args;
     }
-
 
     return Option<nlohmann::json>(result);
 }
@@ -1479,7 +1467,7 @@ Option<raw_search_args*> CollectionManager::get_raw_search_args(std::map<std::st
     std::vector<uint32_t> num_typos = {2};
     size_t min_len_1typo = 4;
     size_t min_len_2typo = 7;
-    std::vector<bool>* prefixes = new std::vector<bool>({true});
+    std::vector<bool> prefixes = {true};
     size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD;
     size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD;
 
@@ -1522,7 +1510,7 @@ Option<raw_search_args*> CollectionManager::get_raw_search_args(std::map<std::st
     size_t search_cutoff_ms = 3600000;
     enable_t split_join_tokens = fallback;
     size_t max_candidates = 0;
-    std::vector<enable_t>* infixes = new std::vector<enable_t>();
+    std::vector<enable_t> infixes;
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
 
@@ -1585,13 +1573,13 @@ Option<raw_search_args*> CollectionManager::get_raw_search_args(std::map<std::st
 
         if(key == PREFIX) {
             if(val == "true" || val == "false") {
-                *prefixes = {(val == "true")};
+                prefixes = {(val == "true")};
             } else {
-                prefixes->clear();
+                prefixes.clear();
                 std::vector<std::string> prefix_str;
                 StringUtils::split(val, prefix_str, ",");
                 for(auto& prefix_s : prefix_str) {
-                    prefixes->push_back(prefix_s == "true");
+                    prefixes.push_back(prefix_s == "true");
                 }
             }
         }
@@ -1668,15 +1656,14 @@ Option<raw_search_args*> CollectionManager::get_raw_search_args(std::map<std::st
     if(req_params.count(INFIX) != 0) {
         std::vector<std::string> infix_strs;
         StringUtils::split(req_params[INFIX], infix_strs, ",");
-
         for(auto& infix_str: infix_strs) {
             auto infix_op = magic_enum::enum_cast<enable_t>(infix_str);
             if(infix_op.has_value()) {
-                infixes->push_back(infix_op.value());
+                infixes.push_back(infix_op.value());
             }
         }
     } else {
-        infixes->push_back(off);
+        infixes.push_back(off);
     }
 
     if(req_params.count(RANK_TOKENS_BY) != 0) {
@@ -1691,7 +1678,6 @@ Option<raw_search_args*> CollectionManager::get_raw_search_args(std::map<std::st
     if(!max_candidates) {
         max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::MAX_CANDIDATES_DEFAULT;
     }
-
 
     auto args = new raw_search_args{ 
                         raw_query, search_fields, simple_filter_query, facet_fields,

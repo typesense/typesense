@@ -118,6 +118,7 @@ struct search_args {
     size_t min_len_1typo;
     size_t min_len_2typo;
     size_t max_candidates;
+    size_t max_hits;
     std::vector<enable_t> infixes;
     const size_t max_extra_prefix;
     const size_t max_extra_suffix;
@@ -136,6 +137,7 @@ struct search_args {
     std::string& query;
     std::vector<std::string>& q_tokens;
     int& match_score_index;
+
 
     vector_query_t& vector_query;
 
@@ -167,7 +169,7 @@ struct search_args {
             infixes(infixes), max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix),
             facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits),
             split_join_tokens(split_join_tokens), vector_query(vector_query),
-            query(query), q_tokens(q_tokens),raw_facet_query(facet_query), match_score_index(match_score_index) {
+            query(query), q_tokens(q_tokens),raw_facet_query(facet_query), match_score_index(match_score_index), max_hits(max_hits) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);

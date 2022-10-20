@@ -49,7 +49,7 @@ struct raw_search_args {
     size_t per_page = 10;
     size_t page = 1;
     token_ordering token_order = FREQUENCY;
-    const std::vector<bool>* prefixes =  new std::vector<bool>({true});
+    const std::vector<bool> prefixes =  {true};
     size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD;
     const spp::sparse_hash_set<std::string>include_fields;
     const spp::sparse_hash_set<std::string> exclude_fields;
@@ -77,19 +77,13 @@ struct raw_search_args {
     size_t min_len_2typo = 7;
     enable_t split_join_tokens = fallback;
     size_t max_candidates = 4;
-    const std::vector<enable_t>* infixes = new std::vector<enable_t>({off});
+    const std::vector<enable_t> infixes = {off};
     const size_t max_extra_prefix = INT16_MAX;
     const size_t max_extra_suffix = INT16_MAX;
     const size_t facet_query_num_typos = 2;
     const size_t filter_curated_hits_option = 2;
     const bool prioritize_token_position = false;
     const std::string vector_query_str;
-
-
-    ~raw_search_args() {
-        delete prefixes;
-        delete infixes;
-    }
 
 };
 
@@ -100,7 +94,7 @@ private:
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
-    const size_t DEFAULT_TOPSTER_SIZE = 250;
+    static const size_t DEFAULT_TOPSTER_SIZE = 250;
 
     struct highlight_t {
         size_t field_index;
@@ -519,7 +513,7 @@ public:
                                   
     Option<nlohmann::json> get_result(raw_search_args& common_args, search_args* search_params, std::vector<CollectionKVGroup>& collection_kvs, 
     std::unordered_map<uint32_t, Collection*> collection_map = {},
-    const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map = {});
+    const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map = {}, size_t total_max_hits = DEFAULT_TOPSTER_SIZE);
 
     Option<std::vector<CollectionKVGroup>> run_search(search_args* search_params);
 
