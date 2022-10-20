@@ -150,6 +150,8 @@ public:
     );
 
     uint32_t* uncompress();
+
+    void uncompress(std::vector<uint32_t>& data);
 };
 
 template<class T>

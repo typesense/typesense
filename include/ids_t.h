@@ -102,6 +102,8 @@ public:
     static void intersect(const std::vector<void*>& id_lists, std::vector<uint32_t>& result_ids);
 
     static uint32_t* uncompress(void*& obj);
+
+    static void uncompress(void*& obj, std::vector<uint32_t>& ids);
 };
 
 template<class T>
