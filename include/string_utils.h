@@ -19,23 +19,37 @@ struct StringUtils {
 
     ~StringUtils();
 
-    static size_t split_range_facet(const std::string& s, std::vector<std::string> & result, const std::string& delim,
+    static size_t split_facet(const std::string& s, std::vector<std::string> & result,
                       const bool keep_empty = false, const size_t start_index = 0,
                       const size_t max_values = (std::numeric_limits<size_t>::max()-1)) {
-        if (delim.empty()) {
-            result.push_back(s);
-            return s.size();
-        }
+       
 
         std::string::const_iterator substart = s.begin()+start_index, subend;
         size_t end_index = start_index;
-
+        std::string delim(""), temp("");
+	    std::string current_str=s;
         while (true) {
-            subend = std::search(substart, s.end(), delim.begin(), delim.end());
+            auto range_pos = current_str.find("(");
+            auto normal_pos = current_str.find(",");
 
-            ++subend;  //advance iterator to include delimeter
-            std::string temp(substart, subend);
-
+            if(range_pos == std::string::npos && normal_pos == std::string::npos)
+            {
+                result.push_back(trim(current_str));
+		        break;
+            }
+            else if(range_pos < normal_pos)
+            {
+                delim="),";
+                subend = std::search(substart, s.end(), delim.begin(), delim.end());
+		        temp = std::string(substart, subend + 1);
+            }
+            else
+            {
+                delim=",";
+                subend = std::search(substart, s.end(), delim.begin(), delim.end());
+		        temp = std::string(substart, subend);
+            }
+            
             end_index += temp.size() + delim.size();
             temp = trim(temp);
 
@@ -51,6 +65,7 @@ struct StringUtils {
                 break;
             }
             substart = subend + delim.size();
+	        current_str = std::string(substart, s.end());
         }
 
         return std::min(end_index, s.size());

@@ -439,7 +439,7 @@ public:
 
     bool get_enable_nested_fields();
 
-    bool parse_range_facet(const std::string& facet_field, facet& facet) const;
+    bool parse_facet(const std::string& facet_field, facet& facet) const;
 
     // Override operations
 
