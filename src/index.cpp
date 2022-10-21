@@ -2515,9 +2515,16 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
             if(!no_filters_provided && filter_ids_length < vector_query.flat_search_cutoff) {
                 for(size_t i = 0; i < filter_ids_length; i++) {
                     auto seq_id = filter_ids[i];
-                    const std::vector<float>& values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
-                    float dist;
+                    std::vector<float> values;
 
+                    try {
+                        values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
+                    } catch(...) {
+                        // likely not found
+                        continue;
+                    }
+
+                    float dist;
                     if(field_vector_index->distance_type == cosine) {
                         std::vector<float> normalized_q(vector_query.values.size());
                         hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
@@ -2565,6 +2572,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
             }
 
             if(!nearest_ids.empty()) {
+                std::sort(nearest_ids.begin(), nearest_ids.end());  // seq_ids should be in ascending order
                 all_result_ids = new uint32[nearest_ids.size()];
                 std::copy(nearest_ids.begin(), nearest_ids.end(), all_result_ids);
                 all_result_ids_len = nearest_ids.size();
