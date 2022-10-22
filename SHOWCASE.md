@@ -10,6 +10,7 @@ This is a selection of sites and apps using Typesense.
 
 | Name        | Description |
 | ----------- | ----------- |
+| [DiscMaster](http://discmaster.textfiles.com/search) | Search 94 million vintage computer files from archive.org |
 | [Read This Twice](https://www.readthistwice.com/) | Book discovery platform uses typesense to power the book/people search |
 | [Oddle Eats](https://eats.oddle.me) | Food Delivery Service in Singapore | 
 | [Dave & Adams Card World](https://www.dacardworld.com) | E-commerce platform for collectibles like sports cards, gaming cards, comics, or autographed memorabilia |
