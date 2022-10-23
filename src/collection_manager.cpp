@@ -1155,7 +1155,6 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
     auto begin = std::chrono::high_resolution_clock::now();
     nlohmann::json result;
     size_t total_doc_count = 0;
-    size_t total_max_hits = 0;
     std::vector<search_args*> search_args_vec;
     std::vector<CollectionKVGroup> collection_kvs_vec;
     std::vector<raw_search_args*> raw_search_args_vec;
@@ -1196,9 +1195,8 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
         if(!search_args_op.ok()) {
             return Option<nlohmann::json>(search_args_op.code(), search_args_op.error());
         }
-        auto search_params = search_args_op.get();
-        total_max_hits += search_params->max_hits;
 
+        auto search_params = search_args_op.get();
 
         if(i == 0) {
             auto sort_fields = search_params->sort_fields_std;
@@ -1213,11 +1211,15 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
             }
         }
 
-        auto search_results_op = collection->run_search(search_params);
-        auto search_results = search_results_op.get();
+        std::vector<CollectionKVGroup> search_results;
+
+        auto search_results_op = collection->run_search(search_params, search_results);
+
+        if(!search_results_op.ok()) {
+            return Option<nlohmann::json>(search_results_op.code(), search_results_op.error());
+        }
+
         for(int i = 0;i < search_results.size();i++) {
-
-
             if(args->group_by_fields.empty()) {
                 collection_kvs_vec.push_back(search_results[i]);
                 for(auto& collection_kv : collection_kvs_vec.back().collection_kvs) {
@@ -1334,7 +1336,7 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
         });
     }
 
-    auto result_op = get_collection(req_params[0]["collection"])->get_result(*raw_search_args_vec[0], search_args_vec[0], collection_kvs_vec,collection_id_map, search_args_map, total_max_hits);
+    auto result_op = get_collection(req_params[0]["collection"])->get_result(*raw_search_args_vec[0], search_args_vec[0], collection_kvs_vec,collection_id_map, search_args_map);
     result = result_op.get();
     result["out_of"] = total_doc_count;
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

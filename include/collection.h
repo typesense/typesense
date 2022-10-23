@@ -94,7 +94,7 @@ private:
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
-    static const size_t DEFAULT_TOPSTER_SIZE = 250;
+    static constexpr size_t DEFAULT_TOPSTER_SIZE = 250;
 
     struct highlight_t {
         size_t field_index;
@@ -513,9 +513,9 @@ public:
                                   
     Option<nlohmann::json> get_result(raw_search_args& common_args, search_args* search_params, std::vector<CollectionKVGroup>& collection_kvs, 
     std::unordered_map<uint32_t, Collection*> collection_map = {},
-    const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map = {}, size_t total_max_hits = DEFAULT_TOPSTER_SIZE);
+    const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map = {});
 
-    Option<std::vector<CollectionKVGroup>> run_search(search_args* search_params);
+    Option<bool> run_search(search_args* search_params,std::vector<CollectionKVGroup>& collection_kvs);
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);

@@ -937,12 +937,15 @@ Option<nlohmann::json> Collection::search(raw_search_args& args) {
     }
 
     auto search_params = search_params_op.get();
-    auto search_op = run_search(search_params);
+
+    std::vector<CollectionKVGroup> search_results;
+
+    auto search_op = run_search(search_params, search_results);
 
     if(!search_op.ok()) {
         return Option<nlohmann::json>(search_op.code(), search_op.error());
     }
-    auto search_results = search_op.get();
+    
     for(auto& search_result: search_results) {
         std::stable_sort(search_result.collection_kvs.begin(), search_result.collection_kvs.end(), [](const CollectionKV& a, const CollectionKV& b) {
             return std::tie(a.kv->scores[0], a.kv->scores[1], a.kv->scores[2], a.kv->key) > std::tie(b.kv->scores[0], b.kv->scores[1], b.kv->scores[2], b.kv->key);
@@ -3460,11 +3463,7 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
     size_t max_hits = DEFAULT_TOPSTER_SIZE;
 
     // ensure that `max_hits` never exceeds number of documents in collection
-    if(search_fields.size() <= 1 || raw_query == "*") {
-        max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
-    } else {
-        max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
-    }
+    max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
 
     if(token_order == NOT_SET) {
         if(default_sorting_field.empty()) {
@@ -3604,8 +3603,9 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
 }
 
 Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, search_args* search_params, 
-                                            std::vector<CollectionKVGroup>& collection_kvs, std::unordered_map<uint32_t, Collection*> collection_map,
-                                            const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map, size_t total_max_hits) {
+                                            std::vector<CollectionKVGroup>& collection_kvs,
+                                            std::unordered_map<uint32_t, Collection*> collection_map,
+                                            const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map) {
 
     if(common_args.group_by_fields.empty()) {
         common_args.group_limit = 0;
@@ -3651,8 +3651,8 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
 
     const long start_result_index = (common_args.page - 1) * common_args.per_page;
     
-    // `end_result_index` could be -1 when max_hits is 0
-    const long end_result_index = std::min((common_args.page * common_args.per_page), std::min(total_max_hits + start_result_index, collection_kvs.size())) - 1;
+    // `end_result_index` could be -1
+    const long end_result_index = std::min((common_args.page * common_args.per_page), collection_kvs.size()) - 1;
 
     // handle which fields have to be highlighted
 
@@ -3732,6 +3732,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
 
     std::string hits_key = common_args.group_limit ? "grouped_hits" : "hits";
     result[hits_key] = nlohmann::json::array();
+    auto collection = this;
 
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
@@ -3743,7 +3744,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
         nlohmann::json& hits_array = common_args.group_limit ? group_hits["hits"] : result["hits"];
         nlohmann::json group_key = nlohmann::json::array();
         for(CollectionKV& field_order_kv: kv_group.collection_kvs) {
-            auto collection = this;
             auto& args = (args_map.size() > 0) ? *args_map.at(field_order_kv.kv).first : common_args;
             search_args* args_temp = search_params;
             search_args* search_params = (args_map.size() > 0) ? args_map.at(field_order_kv.kv).second : args_temp;
@@ -4148,7 +4148,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
     return Option<nlohmann::json>(result);
 }
 
-Option<std::vector<CollectionKVGroup>> Collection::run_search(search_args* search_params) {
+Option<bool> Collection::run_search(search_args* search_params, std::vector<CollectionKVGroup>& result) {
     index->run_search(search_params);
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
@@ -4223,7 +4223,6 @@ Option<std::vector<CollectionKVGroup>> Collection::run_search(search_args* searc
         override_kv_index++;
     }
 
-    std::vector<CollectionKVGroup> result;
     for(size_t i = 0; i < result_group_kvs.size(); i++) {
         CollectionKVGroup group;
         for(size_t j = 0; j < result_group_kvs[i].size(); j++) {
@@ -4234,7 +4233,7 @@ Option<std::vector<CollectionKVGroup>> Collection::run_search(search_args* searc
             nlohmann::json group_key = nlohmann::json::array();
             auto doc_op = get_document_from_store(result_group_kvs[i][0]->key, doc);
             if(!doc_op.ok()) {
-                return Option<std::vector<CollectionKVGroup>>(doc_op.code(), doc_op.error());
+                return Option<bool>(doc_op.code(), doc_op.error());
             }
 
             for(size_t j = 0; j < search_params->group_by_fields.size(); j++) {
@@ -4251,7 +4250,7 @@ Option<std::vector<CollectionKVGroup>> Collection::run_search(search_args* searc
             facet_kv.second.collection_id = get_collection_id();
         }
     }
-    return Option<std::vector<CollectionKVGroup>>(result);
+    return Option<bool>(true);
 }
 
 const tsl::htrie_map<char, field>& Collection::_get_schema() const {
