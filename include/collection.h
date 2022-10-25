@@ -39,6 +39,18 @@ struct highlight_field_t {
 };
 
 
+struct collection_highlight_vars_t {
+    std::vector<highlight_field_t> highlight_items;
+    bool has_atleast_one_fully_highlighted_field = false;
+    bool has_highlights = false;
+    std::vector<std::string> highlight_field_names;
+    std::vector<std::string> highlight_full_field_names;
+    tsl::htrie_set<char> include_fields_full;
+    tsl::htrie_set<char> exclude_fields_full;
+    uint8_t index_symbols[256];
+};
+
+
 struct raw_search_args {
     std::string query;
     std::vector<std::string> search_fields;
