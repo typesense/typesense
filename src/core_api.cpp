@@ -496,7 +496,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
-    LOG(INFO) << "REQ: " << req_json.dump(-1);
+    //LOG(INFO) << "REQ: " << req_json.dump(-1);
 
     for(size_t i = 0; i < searches.size(); i++) {
         auto& search_params = searches[i];
