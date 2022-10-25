@@ -3692,6 +3692,11 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
             search_args* args_temp = search_params;
             search_args* search_params = (args_map.size() > 0) ? args_map.at(field_order_kv.kv).second : args_temp;
             uint8_t* index_symbols = nullptr;
+            if(collection_map.size() > 0 && collection_map.find(collection_kvs[field_order_kv.collection_id].collection_kvs.front().collection_id) == collection_map.end()) {
+                return Option<nlohmann::json>(404, "Collection not found");
+            }
+            collection = collection_map.size() > 0 ? collection_map.at(field_order_kv.collection_id) : this;
+            const auto& search_schema = collection->_get_schema();
 
             if(collection_highlight_vars_map.find(field_order_kv.collection_id) == collection_highlight_vars_map.end()) {
                 highlight_field_names.clear();
@@ -3699,11 +3704,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                 include_fields_vec.clear();
                 exclude_fields_vec.clear();
                 highlight_items.clear();
-
-                if(collection_map.size() > 0 && collection_map.find(collection_kvs[field_order_kv.collection_id].collection_kvs.front().collection_id) == collection_map.end()) {
-                    return Option<nlohmann::json>(404, "Collection not found");
-                }
-                collection = collection_map.size() > 0 ? collection_map.at(field_order_kv.collection_id) : this;
                 const auto& search_schema = collection->_get_schema();
 
                 StringUtils::split(args.highlight_fields, highlight_field_names, ",");
@@ -3773,10 +3773,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                 exclude_fields_full = entry.exclude_fields_full;
                 index_symbols = entry.index_symbols;
                 if(args.query != "*" && !entry.has_highlights) {
-                    if(collection_map.size() > 0 && collection_map.find(collection_kvs[field_order_kv.collection_id].collection_kvs.front().collection_id) == collection_map.end()) {
-                        return Option<nlohmann::json>(404, "Collection not found");
-                    }
-                    collection = collection_map.size() > 0 ? collection_map.at(field_order_kv.collection_id) : this;
                     auto index = collection->index;
                     process_highlight_fields(search_params->search_fields, include_fields_full, exclude_fields_full,
                                             highlight_field_names, highlight_full_field_names, args.infixes, search_params->q_tokens,
@@ -3794,7 +3790,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                 }
             }
 
-            const auto& search_schema = collection->_get_schema();
             const std::string& seq_id_key = std::to_string(field_order_kv.collection_id) + "_" + std::string(SEQ_ID_PREFIX) + "_" + StringUtils::serialize_uint32_t(field_order_kv.kv->key);
             nlohmann::json document;
             const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
