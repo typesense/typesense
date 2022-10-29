@@ -634,7 +634,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(collection == nullptr) {
         return Option<bool>(404, "Not found.");
     }
-    Option<nlohmann::json> result_op = collection->search(*raw_args);
+    Option<nlohmann::json> result_op = collection->search(raw_args);
 
     if(!result_op.ok()) {
         return Option<bool>(result_op.code(), result_op.error());

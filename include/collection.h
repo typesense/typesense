@@ -481,7 +481,7 @@ public:
                                   const bool prioritize_token_position = false,
                                   const std::string& vector_query_str = "");
 
-    Option<nlohmann::json> search(raw_search_args& args);
+    Option<nlohmann::json> search(raw_search_args* args);
 
     Option<search_args*> get_search_args(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
