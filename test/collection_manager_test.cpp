@@ -547,7 +547,7 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_EQ("year: 1922&&points: 200", req_params["filter_by"]);
+    ASSERT_EQ("(year: 1922) && (points: 200)", req_params["filter_by"]);
 
     collectionManager.drop_collection("coll1");
 }
