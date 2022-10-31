@@ -1491,6 +1491,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
             if(!highlight_items.empty()) {
                 highlight_res["meta"] = nlohmann::json::object();
+                copy_highlight_doc(highlight_items, document, highlight_res["meta"]);
+                remove_flat_fields(highlight_res["meta"]);
+                highlight_res["meta"].erase("id");
 
                 highlight_res["snippet"] = nlohmann::json::object();
                 copy_highlight_doc(highlight_items, document, highlight_res["snippet"]);
@@ -1568,9 +1571,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
             // remove fields from highlight doc that were not highlighted
             if(!hfield_names.empty()) {
+                prune_doc(highlight_res["meta"], hfield_names, tsl::htrie_set<char>(), "");
                 prune_doc(highlight_res["snippet"], hfield_names, tsl::htrie_set<char>(), "");
                 prune_doc(highlight_res["full"], h_full_field_names, tsl::htrie_set<char>(), "");
             } else {
+                highlight_res["meta"] = nlohmann::json::object();
                 highlight_res["snippet"] = nlohmann::json::object();
                 highlight_res["full"] = nlohmann::json::object();
             }
@@ -2415,7 +2420,8 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             }
 
             highlight_nested_field(highlight_doc, highlight_doc, highlight_full_doc, highlight_full_doc,
-                                   path_parts, 0, [&](nlohmann::json& h_obj, nlohmann::json& f_obj) {
+                                   highlight_meta, highlight_meta, path_parts, 0,
+                                   [&](nlohmann::json& h_obj, nlohmann::json& f_obj, nlohmann::json& m_obj) {
                 Match match;
                 match_index_t match_index(match, 0, 0);
                 int last_valid_offset_index = -1;
@@ -2437,9 +2443,11 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                 if(!array_highlight.snippets.empty()) {
                     h_obj = array_highlight.snippets[0];
                     found_highlight = found_highlight || true;
+
+                    m_obj = nlohmann::json::object();
                     for(auto& token_vec: array_highlight.matched_tokens) {
                         for(auto& token: token_vec) {
-                            matched_tokens.insert(token);
+                            m_obj["matched_tokens"].push_back(token);
                         }
                     }
                 }
@@ -2449,13 +2457,6 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                     found_full_highlight = found_full_highlight || true;
                 }
             });
-
-            if(found_highlight) {
-                highlight_meta[search_field.name] = nlohmann::json::object();
-                for(auto it = matched_tokens.begin(); it != matched_tokens.end(); ++it) {
-                    highlight_meta[search_field.name]["matched_tokens"].push_back(it.key());
-                }
-            }
 
             return ;
         }
@@ -2570,8 +2571,18 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
         StringUtils::split(search_field.name, parts, ".");
     }
 
+    nlohmann::json* mval = highlight_meta.contains(parts[0]) ? &highlight_meta[parts[0]] : nullptr;
     nlohmann::json* hval = highlight_doc.contains(parts[0]) ? &highlight_doc[parts[0]] : nullptr;
     nlohmann::json* fval = highlight_full_doc.contains(parts[0]) ? &highlight_full_doc[parts[0]] : nullptr;
+
+    for(size_t i = 1; mval != nullptr && i < parts.size(); i++) {
+        const auto& part = parts[i];
+        if(mval->contains(part)) {
+            mval = &mval->at(part);
+        } else {
+            mval = nullptr;
+        }
+    }
 
     for(size_t i = 1; hval != nullptr && i < parts.size(); i++) {
         const auto& part = parts[i];
@@ -2602,9 +2613,12 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             }
         }
 
-        highlight_meta[search_field.name] = nlohmann::json::object();
-        for(auto it = matched_tokens.begin(); it != matched_tokens.end(); ++it) {
-            highlight_meta[search_field.name]["matched_tokens"].push_back(it.key());
+        if(mval) {
+            *mval = nlohmann::json::object();
+            mval->emplace("matched_tokens", nlohmann::json::array());
+            for(auto it = matched_tokens.begin(); it != matched_tokens.end(); ++it) {
+                mval->at("matched_tokens").push_back(it.key());
+            }
         }
     }
 

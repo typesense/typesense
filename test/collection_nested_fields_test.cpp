@@ -786,14 +786,14 @@ TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
     ASSERT_EQ("brown", matched_tokens[0]);
     ASSERT_EQ("fox", matched_tokens[1]);
 
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"].size());
-    matched_tokens = results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"].get<std::vector<std::string>>();
+    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["details"]["names"]["matched_tokens"].size());
+    matched_tokens = results["hits"][0]["highlight"]["meta"]["details"]["names"]["matched_tokens"].get<std::vector<std::string>>();
     std::sort(matched_tokens.begin(), matched_tokens.end());
     ASSERT_EQ("brown", matched_tokens[0]);
     ASSERT_EQ("fox", matched_tokens[1]);
 
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"].size());
-    matched_tokens = results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"].get<std::vector<std::string>>();
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["locations"][0]["address"]["street"]["matched_tokens"].size());
+    matched_tokens = results["hits"][0]["highlight"]["meta"]["locations"][0]["address"]["street"]["matched_tokens"].get<std::vector<std::string>>();
     std::sort(matched_tokens.begin(), matched_tokens.end());
     ASSERT_EQ("Brown", matched_tokens[0]);
 
@@ -804,9 +804,10 @@ TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
                             20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
                             "x").get();
 
-    ASSERT_EQ(2, results["hits"][0]["highlight"].size());
+    ASSERT_EQ(3, results["hits"][0]["highlight"].size());
     ASSERT_EQ(0, results["hits"][0]["highlight"]["snippet"].size());
     ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["meta"].size());
 }
 
 TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {

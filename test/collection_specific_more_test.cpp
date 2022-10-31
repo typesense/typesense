@@ -930,9 +930,9 @@ TEST_F(CollectionSpecificMoreTest, HighlightWithAccentedChars) {
     ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"].size());
     ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"][0]);
 
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies.title"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies.title"]["matched_tokens"].size());
-    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["companies.title"]["matched_tokens"][0]);
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies"][0]["title"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies"][0]["title"]["matched_tokens"].size());
+    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["companies"][0]["title"]["matched_tokens"][0]);
 }
 
 TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {

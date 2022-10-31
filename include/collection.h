@@ -246,6 +246,7 @@ private:
     template<class T>
     static bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
                                        const nlohmann::json& fdoc, nlohmann::json& fobj,
+                                       const nlohmann::json& mdoc, nlohmann::json& mobj,
                                        std::vector<std::string>& path_parts, size_t path_index, T func);
 
     static Option<bool> resolve_field_type(field& new_field,
@@ -500,6 +501,7 @@ public:
 template<class T>
 bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
                             const nlohmann::json& fdoc, nlohmann::json& fobj,
+                            const nlohmann::json& mdoc, nlohmann::json& mobj,
                             std::vector<std::string>& path_parts, size_t path_index, T func) {
     if(path_index == path_parts.size()) {
         // end of path: guaranteed to be a string
@@ -507,7 +509,7 @@ bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::js
             return false;
         }
 
-        func(hobj, fobj);
+        func(hobj, fobj, mobj);
     }
 
     const std::string& fragment = path_parts[path_index];
@@ -519,12 +521,15 @@ bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::js
             for(size_t i = 0; i < it.value().size(); i++) {
                 auto& h_ele = it.value().at(i);
                 auto& f_ele = fobj.empty() ? fobj : fobj[fragment][i];
-                resolved |= highlight_nested_field(hdoc, h_ele, fdoc, f_ele, path_parts, path_index + 1, func);
+                auto& m_ele = mobj.empty() ? mobj : mobj[fragment][i];
+                resolved |= highlight_nested_field(hdoc, h_ele, fdoc, f_ele, mdoc, m_ele,
+                                                   path_parts, path_index + 1, func);
             }
             return resolved;
         } else {
             auto& f_ele = fobj.empty() ? fobj : fobj[fragment];
-            return highlight_nested_field(hdoc, it.value(), fdoc, f_ele, path_parts, path_index + 1, func);
+            auto& m_ele = mobj.empty() ? mobj : mobj[fragment];
+            return highlight_nested_field(hdoc, it.value(), fdoc, f_ele, mdoc, m_ele, path_parts, path_index + 1, func);
         }
     } {
         return false;
