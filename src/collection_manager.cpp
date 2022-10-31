@@ -1088,7 +1088,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     std::string fallback_field_type;
     std::vector<field> fields;
-    auto parse_op = field::json_fields_to_fields(req_json["fields"], fallback_field_type, fields);
+    auto parse_op = field::json_fields_to_fields(req_json[ENABLE_NESTED_FIELDS].get<bool>(),
+                                                 req_json["fields"], fallback_field_type, fields);
 
     if(!parse_op.ok()) {
         return Option<Collection*>(parse_op.code(), parse_op.error());

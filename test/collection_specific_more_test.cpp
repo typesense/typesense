@@ -1619,3 +1619,47 @@ TEST_F(CollectionSpecificMoreTest, PhraseMatchMultipleFields) {
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
 }
+
+TEST_F(CollectionSpecificMoreTest, HighlightOnFieldNameWithDot) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "org.title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["org.title"] = "Infinity Inc.";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("infinity", {"org.title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(1, res["hits"][0]["highlights"].size());
+    ASSERT_EQ("<mark>Infinity</mark> Inc.", res["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    nlohmann::json snippet = R"({"org.title":"<mark>Infinity</mark> Inc."})"_json;
+    ASSERT_EQ(snippet.dump(), res["hits"][0]["highlight"]["snippet"].dump());
+
+    // even if nested fields enabled, plain field names with dots should work fine
+
+    schema = R"({
+        "name": "coll2",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "org.title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll2 = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    res = coll2->search("infinity", {"org.title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(0, res["hits"][0]["highlights"].size());
+    snippet = R"({"org.title":"<mark>Infinity</mark> Inc."})"_json;
+    ASSERT_EQ(snippet.dump(), res["hits"][0]["highlight"]["snippet"].dump());
+}

@@ -2565,7 +2565,12 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
     // in-place highlighting under the new highlight structure
     std::vector<std::string> parts;
-    StringUtils::split(search_field.name, parts, ".");
+    if(!enable_nested_fields || highlight_doc.contains(search_field.name)) {
+        parts = {search_field.name};
+    } else {
+        StringUtils::split(search_field.name, parts, ".");
+    }
+
     nlohmann::json* hval = highlight_doc.contains(parts[0]) ? &highlight_doc[parts[0]] : nullptr;
     nlohmann::json* fval = highlight_full_doc.contains(parts[0]) ? &highlight_full_doc[parts[0]] : nullptr;
 
@@ -3656,8 +3661,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
             if(is_addition || is_reindex) {
                 // must validate fields
-                auto parse_op = field::json_field_to_field(kv.value(), diff_fields, fallback_field_type,
-                                                           num_auto_detect_fields);
+                auto parse_op = field::json_field_to_field(enable_nested_fields, kv.value(), diff_fields,
+                                                           fallback_field_type, num_auto_detect_fields);
                 if (!parse_op.ok()) {
                     return parse_op;
                 }

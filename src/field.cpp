@@ -437,7 +437,8 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<field>& the_fields,
+Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
+                                        std::vector<field>& the_fields,
                                         string& fallback_field_type, size_t& num_auto_detect_fields) {
 
     if(field_json["name"] == "id") {
@@ -614,7 +615,8 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
     bool is_obj = field_json[fields::type] == field_types::OBJECT || field_json[fields::type] == field_types::OBJECT_ARRAY;
     bool is_regexp_name = field_json[fields::name].get<std::string>().find(".*") != std::string::npos;
 
-    if(is_obj || (!is_regexp_name && field_json[fields::name].get<std::string>().find('.') != std::string::npos)) {
+    if(is_obj || (!is_regexp_name && enable_nested_fields &&
+                   field_json[fields::name].get<std::string>().find('.') != std::string::npos)) {
         field_json[fields::nested] = true;
         field_json[fields::nested_array] = field::VAL_UNKNOWN;  // unknown, will be resolved during read
     } else {

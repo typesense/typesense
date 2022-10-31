@@ -386,17 +386,20 @@ struct field {
         return Option<bool>(true);
     }
 
-    static Option<bool> json_field_to_field(nlohmann::json& field_json, std::vector<field>& the_fields,
+    static Option<bool> json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
+                                            std::vector<field>& the_fields,
                                             string& fallback_field_type, size_t& num_auto_detect_fields);
 
-    static Option<bool> json_fields_to_fields(nlohmann::json& fields_json,
+    static Option<bool> json_fields_to_fields(bool enable_nested_fields,
+                                              nlohmann::json& fields_json,
                                               std::string& fallback_field_type,
                                               std::vector<field>& the_fields) {
 
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
-            auto op = json_field_to_field(field_json, the_fields, fallback_field_type, num_auto_detect_fields);
+            auto op = json_field_to_field(enable_nested_fields,
+                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields);
             if(!op.ok()) {
                 return op;
             }
