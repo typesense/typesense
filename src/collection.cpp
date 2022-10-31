@@ -1494,7 +1494,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
                 highlight_res["snippet"] = nlohmann::json::object();
                 copy_highlight_doc(highlight_items, document, highlight_res["snippet"]);
-                highlight_res["snippet"] = document;
                 remove_flat_fields(highlight_res["snippet"]);
                 highlight_res["snippet"].erase("id");
 
