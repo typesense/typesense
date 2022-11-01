@@ -84,6 +84,10 @@ struct field {
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist) {
 
+        set_computed_defaults(sort, infix);
+    }
+
+    void set_computed_defaults(int sort, int infix) {
         if(sort != -1) {
             this->sort = bool(sort);
         } else {
@@ -413,7 +417,8 @@ struct field {
     }
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
-                            const std::string& flat_name, std::unordered_map<std::string, field>& flattened_fields);
+                            const field& the_field, const std::string& flat_name,
+                            std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                       std::vector<std::string>& path_parts, size_t path_index, bool has_array,

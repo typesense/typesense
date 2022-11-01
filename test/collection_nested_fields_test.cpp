@@ -816,7 +816,7 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
         "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": false },
-          {"name": "company.name", "type": "string", "optional": false },
+          {"name": "company.name", "type": "string", "optional": false, "facet": true },
           {"name": "locations", "type": "object[]", "optional": false }
         ]
     })"_json;
@@ -847,6 +847,9 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
 
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
+
+    ASSERT_TRUE(coll1->get_schema()["company.name"].facet);
+    ASSERT_FALSE(coll1->get_schema()["company.name"].optional);
 
     // search both simply nested and deeply nested array-of-objects
     auto results = coll1->search("brown fox", {"details", "locations"},
@@ -1573,4 +1576,35 @@ TEST_F(CollectionNestedFieldsTest, NestedSchemaWithSingularType) {
 
     add_op = coll2->add(doc1.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionNestedFieldsTest, NestedSchemaAutoAndFacet) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "person.*", "type": "auto", "facet": true},
+          {"name": "schools.*", "type": "auto", "facet": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "person": {"name": "Tony Stark"},
+        "schools": [{"name": "Primary School"}]
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto fields = coll1->get_fields();
+    for(const auto&f : fields) {
+        ASSERT_TRUE(f.facet);
+    }
+
+    ASSERT_TRUE(coll1->get_schema()["schools.name"].optional);
 }
