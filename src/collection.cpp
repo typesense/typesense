@@ -19,7 +19,7 @@
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
 const std::regex base_pattern("[a-z]+\\(.*\\)");
-const std::regex range_pattern("[[a-z]+:\\[([0-9]+)\\, ([0-9]+)\\]");
+const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\, ([0-9]+)\\]");
 
 
 struct sort_fields_guard_t {
@@ -4051,7 +4051,7 @@ bool Collection::parse_facet(const std::string& facet_field, facet& a_facet) con
 
         //split the ranges
         std::vector<std::string> result;
-        int pos = 0;
+        startpos = 0;
         int index=0;
         while(index < range_string.size()){
             if(range_string[index] == ']'){
@@ -4070,8 +4070,7 @@ bool Collection::parse_facet(const std::string& facet_field, facet& a_facet) con
 
         auto& range_map = a_facet.facet_range_map;
         int range_id = 0;
-        for(auto range : result)
-        {
+        for(auto range : result){
             //validate each range syntax
             if(!std::regex_match(range, range_pattern))
                 return false;

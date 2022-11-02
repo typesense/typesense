@@ -32,19 +32,18 @@ struct StringUtils {
             auto range_pos = current_str.find("(");
             auto normal_pos = current_str.find(",");
 
-            if(range_pos == std::string::npos && normal_pos == std::string::npos)
-            {
-                result.push_back(trim(current_str));
+            if(range_pos == std::string::npos && normal_pos == std::string::npos){
+                if(!current_str.empty()){
+                    result.push_back(trim(current_str));
+                }
 		        break;
             }
-            else if(range_pos < normal_pos)
-            {
+            else if(range_pos < normal_pos){
                 delim="),";
                 subend = std::search(substart, s.end(), delim.begin(), delim.end());
 		        temp = std::string(substart, subend + 1);
             }
-            else
-            {
+            else{
                 delim=",";
                 subend = std::search(substart, s.end(), delim.begin(), delim.end());
 		        temp = std::string(substart, subend);
