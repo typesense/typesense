@@ -336,6 +336,7 @@ TEST_F(CollectionVectorTest, VecSearchWithFilteringWithMissingVectorValues) {
     std::uniform_real_distribution<> distrib;
 
     size_t num_docs = 20;
+    std::vector<std::string> json_lines;
 
     for (size_t i = 0; i < num_docs; i++) {
         nlohmann::json doc;
@@ -351,8 +352,13 @@ TEST_F(CollectionVectorTest, VecSearchWithFilteringWithMissingVectorValues) {
         if(i != 5 && i != 15) {
             doc["vec"] = values;
         }
-        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+        json_lines.push_back(doc.dump());
     }
+
+    nlohmann::json insert_doc;
+    auto res = coll1->add_many(json_lines, insert_doc, UPSERT);
+    ASSERT_TRUE(res["success"].get<bool>());
 
     auto results = coll1->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                                  spp::sparse_hash_set<std::string>(),
@@ -418,6 +424,41 @@ TEST_F(CollectionVectorTest, VecSearchWithFilteringWithMissingVectorValues) {
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().size());
+    ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().count("points"));
+
+    // should not be able to filter / sort / facet on vector fields
+    auto res_op = coll1->search("*", {}, "vec:1", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                  spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>());
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Cannot filter on vector field `vec`.", res_op.error());
+
+    schema = R"({
+        "name": "coll2",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "vec", "type": "float[]", "num_dim": 4, "facet": true}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("Property `facet` is not allowed on a vector field.", coll_op.error());
+
+    schema = R"({
+        "name": "coll2",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "vec", "type": "float[]", "num_dim": 4, "sort": true}
+        ]
+    })"_json;
+
+    coll_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("Property `sort` cannot be enabled on a vector field.", coll_op.error());
 }
 
 TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {

@@ -181,10 +181,18 @@ Option<bool> toFilter(const std::string expression,
         }
         return Option<bool>(true);
     }
-    if (search_schema.count(field_name) == 0) {
+
+    auto field_it = search_schema.find(field_name);
+
+    if (field_it == search_schema.end()) {
         return Option<bool>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
     }
-    field _field = search_schema.at(field_name);
+
+    if (field_it->num_dim > 0) {
+        return Option<bool>(404, "Cannot filter on vector field `" + field_name + "`.");
+    }
+
+    const field& _field = field_it.value();
     std::string&& raw_value = expression.substr(found_index + 1, std::string::npos);
     StringUtils::trim(raw_value);
     // skip past optional `:=` operator, which has no meaning for non-string fields
@@ -568,7 +576,11 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         if(field_json["type"] == field_types::INT32 || field_json["type"] == field_types::INT64 ||
            field_json["type"] == field_types::FLOAT || field_json["type"] == field_types::BOOL ||
            field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY) {
-            field_json[fields::sort] = true;
+            if(field_json.count(fields::num_dim) == 0) {
+                field_json[fields::sort] = true;
+            } else {
+                field_json[fields::sort] = false;
+            }
         } else {
             field_json[fields::sort] = false;
         }
@@ -590,6 +602,14 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
         if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
             return Option<bool>(400, "Property `" + fields::num_dim + "` is only allowed on a float array field.");
+        }
+
+        if(field_json[fields::facet].get<bool>()) {
+            return Option<bool>(400, "Property `" + fields::facet + "` is not allowed on a vector field.");
+        }
+
+        if(field_json[fields::sort].get<bool>()) {
+            return Option<bool>(400, "Property `" + fields::sort + "` cannot be enabled on a vector field.");
         }
 
         if(field_json.count(fields::vec_dist) == 0) {

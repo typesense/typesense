@@ -64,6 +64,12 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             continue;
         }
 
+        if(a_field.num_dim > 0) {
+            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 1024, a_field.vec_dist);
+            vector_index.emplace(a_field.name, hnsw_index);
+            continue;
+        }
+
         if(a_field.is_string()) {
             art_tree *t = new art_tree;
             art_tree_init(t);
@@ -115,11 +121,6 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             }
 
             infix_index.emplace(a_field.name, infix_sets);
-        }
-
-        if(a_field.num_dim) {
-            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 1024, a_field.vec_dist);
-            vector_index.emplace(a_field.name, hnsw_index);
         }
     }
 
@@ -917,9 +918,77 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                                                   geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
                                               });
         } else if(afield.is_array()) {
+            // handle vector index first
+            if(afield.type == field_types::FLOAT_ARRAY && afield.num_dim > 0) {
+                auto vec_index = vector_index[afield.name]->vecdex;
+                size_t curr_ele_count = vec_index->getCurrentElementCount();
+                if(curr_ele_count + iter_batch.size() > vec_index->getMaxElements()) {
+                    vec_index->resizeIndex((curr_ele_count + iter_batch.size()) * 1.3);
+                }
+
+                const size_t num_threads = std::min<size_t>(4, iter_batch.size());
+                const size_t window_size = (num_threads == 0) ? 0 :
+                                           (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
+                size_t num_processed = 0;
+                std::mutex m_process;
+                std::condition_variable cv_process;
+
+                size_t num_queued = 0;
+                size_t result_index = 0;
+
+                for(size_t thread_id = 0; thread_id < num_threads && result_index < iter_batch.size(); thread_id++) {
+                    size_t batch_len = window_size;
+
+                    if(result_index + window_size > iter_batch.size()) {
+                        batch_len = iter_batch.size() - result_index;
+                    }
+
+                    num_queued++;
+
+                    thread_pool->enqueue([thread_id, &afield, &vec_index, &records = iter_batch,
+                                          result_index, batch_len, &num_processed, &m_process, &cv_process]() {
+
+                        size_t batch_counter = 0;
+                        while(batch_counter < batch_len) {
+                            auto& record = records[result_index + batch_counter];
+                            if(record.doc.count(afield.name) == 0) {
+                                batch_counter++;
+                                continue;
+                            }
+
+                            const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
+
+                            try {
+                                if(afield.vec_dist == cosine) {
+                                    std::vector<float> normalized_vals(afield.num_dim);
+                                    hnsw_index_t::normalize_vector(float_vals, normalized_vals);
+                                    vec_index->insertPoint(normalized_vals.data(), (size_t)record.seq_id);
+                                } else {
+                                    vec_index->insertPoint(float_vals.data(), (size_t)record.seq_id);
+                                }
+                            } catch(const std::exception &e) {
+                                record.index_failure(400, e.what());
+                            }
+
+                            batch_counter++;
+                        }
+
+                        std::unique_lock<std::mutex> lock(m_process);
+                        num_processed++;
+                        cv_process.notify_one();
+                    });
+
+                    result_index += batch_len;
+                }
+
+                std::unique_lock<std::mutex> lock_process(m_process);
+                cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+                return;
+            }
+
             // all other numerical arrays
             auto num_tree = numerical_index.at(afield.name);
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree, &vector_index=vector_index]
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
                     (const index_record& record, uint32_t seq_id) {
                 for(size_t arr_i = 0; arr_i < record.doc[afield.name].size(); arr_i++) {
                     const auto& arr_value = record.doc[afield.name][arr_i];
@@ -943,23 +1012,6 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     else if(afield.type == field_types::BOOL_ARRAY) {
                         const bool value = record.doc[afield.name][arr_i];
                         num_tree->insert(int64_t(value), seq_id);
-                    }
-                }
-
-                if(afield.type == field_types::FLOAT_ARRAY && afield.num_dim > 0) {
-                    auto vec_index = vector_index[afield.name]->vecdex;
-                    size_t curr_ele_count = vec_index->getCurrentElementCount();
-                    if(curr_ele_count == vec_index->getMaxElements()) {
-                        vec_index->resizeIndex(curr_ele_count * 1.3);
-                    }
-
-                    const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
-                    if(afield.vec_dist == cosine) {
-                        std::vector<float> normalized_vals(afield.num_dim);
-                        hnsw_index_t::normalize_vector(float_vals, normalized_vals);
-                        vector_index[afield.name]->vecdex->insertPoint(normalized_vals.data(), (size_t)seq_id);
-                    } else {
-                        vector_index[afield.name]->vecdex->insertPoint(float_vals.data(), (size_t)seq_id);
                     }
                 }
             });
@@ -5148,10 +5200,13 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
                 remove_facet_token(search_field, search_index, std::to_string(value), seq_id);
             }
         }
+    } else if(search_field.num_dim) {
+        vector_index[search_field.name]->vecdex->markDelete(seq_id);
     } else if(search_field.is_float()) {
         const std::vector<float>& values = search_field.is_single_float() ?
                                            std::vector<float>{document[field_name].get<float>()} :
                                            document[field_name].get<std::vector<float>>();
+
         for(float value: values) {
             num_tree_t* num_tree = numerical_index.at(field_name);
             int64_t fintval = float_to_int64_t(value);
@@ -5159,10 +5214,6 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
             if(search_field.facet) {
                 remove_facet_token(search_field, search_index, StringUtils::float_to_str(value), seq_id);
             }
-        }
-
-        if(search_field.num_dim) {
-            vector_index[search_field.name]->vecdex->markDelete(seq_id);
         }
     } else if(search_field.is_bool()) {
 
@@ -5322,6 +5373,12 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
         search_schema.emplace(new_field.name, new_field);
 
+        if(new_field.type == field_types::FLOAT_ARRAY && new_field.num_dim > 0) {
+            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 1024, new_field.vec_dist);
+            vector_index.emplace(new_field.name, hnsw_index);
+            continue;
+        }
+
         if(new_field.is_sortable()) {
             if(new_field.is_num_sortable()) {
                 spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
@@ -5372,11 +5429,6 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
             }
 
             infix_index.emplace(new_field.name, infix_sets);
-        }
-
-        if(new_field.type == field_types::FLOAT_ARRAY && new_field.num_dim) {
-            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 1024, new_field.vec_dist);
-            vector_index.emplace(new_field.name, hnsw_index);
         }
     }
 
