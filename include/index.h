@@ -91,10 +91,10 @@ struct search_args {
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<search_field_t> search_fields;
     const filter_node_t* filter_tree_root;
-    std::vector<facet>& facets;
-    std::vector<std::pair<uint32_t, uint32_t>>& included_ids;
+    std::vector<facet> facets;
+    std::vector<std::pair<uint32_t, uint32_t>> included_ids;
     std::vector<uint32_t> excluded_ids;
-    std::vector<sort_by>& sort_fields_std;
+    std::vector<sort_by> sort_fields_std;
     facet_query_t facet_query;
     facet_query_t raw_facet_query;
     std::vector<uint32_t> num_typos;
@@ -134,17 +134,17 @@ struct search_args {
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
-    std::string& query;
-    std::vector<std::string>& q_tokens;
-    int& match_score_index;
+    std::string query;
+    std::vector<std::string> q_tokens;
+    int match_score_index;
 
 
-    vector_query_t& vector_query;
+    vector_query_t vector_query;
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
-                filter_node_t* filter_tree_root, std::vector<facet>& facets,
-                std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
-                std::vector<sort_by>& sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
+                filter_node_t* filter_tree_root, std::vector<facet>&& facets,
+                std::vector<std::pair<uint32_t, uint32_t>>&& included_ids, std::vector<uint32_t> excluded_ids,
+                std::vector<sort_by>&& sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
                 size_t max_facet_values, size_t max_hits, size_t per_page, size_t page, token_ordering token_order,
                 const std::vector<bool>& prefixes, size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string> group_by_fields, size_t group_limit,
@@ -153,8 +153,8 @@ struct search_args {
                 size_t concurrency, size_t search_cutoff_ms,
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<enable_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
-                std::string& query, std::vector<std::string>& q_tokens, int& match_score_index) :
+                const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t&& vector_query,
+                std::string&& query, std::vector<std::string>&& q_tokens, int&& match_score_index) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -179,12 +179,6 @@ struct search_args {
     ~search_args() {
         delete topster;
         delete curated_topster;
-        delete &facets;
-        delete &included_ids;
-        delete &query;
-        delete &q_tokens;
-        delete &sort_fields_std;
-        delete &match_score_index;
         delete filter_tree_root;
     };
 };

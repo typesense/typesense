@@ -3291,23 +3291,23 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
         group_limit = 0;
     }
 
-    vector_query_t* vector_query = new vector_query_t();
+    vector_query_t vector_query;
     if(!vector_query_str.empty()) {
         if(raw_query != "*") {
             return Option<search_args*>(400, "Vector query is supported only on wildcard (q=*) searches.");
         }
 
-        if(!CollectionManager::parse_vector_query_str(vector_query_str, *vector_query)) {
+        if(!CollectionManager::parse_vector_query_str(vector_query_str, vector_query)) {
             return Option<search_args*>(400, "The `vector_query` parameter is malformed.");
         }
 
-        auto vector_field_it = search_schema.find(vector_query->field_name);
+        auto vector_field_it = search_schema.find(vector_query.field_name);
         if(vector_field_it == search_schema.end() || vector_field_it.value().num_dim == 0) {
-            return Option<search_args*>(400, "Field `" + vector_query->field_name + "` does not have a vector query index.");
+            return Option<search_args*>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
         }
 
-        if(vector_field_it.value().num_dim != vector_query->values.size()) {
-            return Option<search_args*>(400, "Query field `" + vector_query->field_name + "` must have " +
+        if(vector_field_it.value().num_dim != vector_query.values.size()) {
+            return Option<search_args*>(400, "Query field `" + vector_query.field_name + "` must have " +
                                                std::to_string(vector_field_it.value().num_dim) + " dimensions.");
         }
     }
@@ -3389,7 +3389,7 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
 
     const std::vector<std::string>& search_fields = reordered_search_fields.empty() ? processed_search_fields
                                                                                     : reordered_search_fields;
-    std::vector<facet>* facets = new std::vector<facet>();
+    std::vector<facet> facets;
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
@@ -3405,7 +3405,7 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
             std::string error = "Could not find a facet field named `" + field_name + "` in the schema.";
             return Option<search_args*>(404, error);
         }
-        facets->emplace_back(field_name);
+        facets.emplace_back(field_name);
     }
     // parse facet query
     facet_query_t facet_query = {"", ""};
@@ -3478,7 +3478,7 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
     }
 
     std::vector<uint32_t> excluded_ids;
-    std::vector<std::pair<uint32_t, uint32_t>>* included_ids = new std::vector<std::pair<uint32_t, uint32_t>>();
+    std::vector<std::pair<uint32_t, uint32_t>> included_ids;
     std::map<size_t, std::vector<std::string>> pinned_hits;
 
     Option<bool> pinned_hits_op = parse_pinned_hits(pinned_hits_str, pinned_hits);
@@ -3490,11 +3490,11 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
     std::vector<std::string> hidden_hits;
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
     std::vector<const override_t*> filter_overrides;
-    std::string* query = new std::string(raw_query);
+    std::string query(raw_query);
     bool filter_curated_hits = false;
     std::string curated_sort_by;
-    curate_results(*query, simple_filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
-                   *included_ids, excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
+    curate_results(query, simple_filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
+                   included_ids, excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
 
     if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
         // When query param has explicit value set, override level configuration takes lower precedence.
@@ -3502,13 +3502,13 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
     }
     // validate sort fields and standardize
     sort_fields_guard_t sort_fields_guard;
-    std::vector<sort_by>* sort_fields_std = new std::vector<sort_by>();
-    *sort_fields_std = sort_fields_guard.sort_fields_std;
+    std::vector<sort_by> sort_fields_std;
+    sort_fields_std = sort_fields_guard.sort_fields_std;
 
-    bool is_wildcard_query = (*query == "*");
+    bool is_wildcard_query = (query == "*");
 
     if(curated_sort_by.empty()) {
-        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, *sort_fields_std, is_wildcard_query);
+        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, sort_fields_std, is_wildcard_query);
         if(!sort_validation_op.ok()) {
             return Option<search_args*>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -3519,7 +3519,7 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
             return Option<search_args*>(400, "Parameter `sort_by` is malformed.");
         }
 
-        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, *sort_fields_std,
+        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, sort_fields_std,
                                                                        is_wildcard_query);
         if(!sort_validation_op.ok()) {
             return Option<search_args*>(sort_validation_op.code(), sort_validation_op.error());
@@ -3528,13 +3528,13 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
 
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
     std::vector<query_tokens_t> field_query_tokens;
-    std::vector<std::string>* q_tokens = new std::vector<std::string>();
+    std::vector<std::string> q_tokens;
     std::vector<std::string> q_include_tokens;
 
     if(search_fields.size() == 0) {
         // has to be a wildcard query
         field_query_tokens.emplace_back(query_tokens_t{});
-        parse_search_query(*query, q_include_tokens,
+        parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                            false);
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
@@ -3545,7 +3545,7 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
     } else {
         field_query_tokens.emplace_back(query_tokens_t{});
         const std::string & field_locale = search_schema.at(weighted_search_fields[0].name).locale;
-        parse_search_query(*query, q_include_tokens,
+        parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
                            field_locale, pre_segmented_query);
@@ -3554,18 +3554,18 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
 
         // included_ids, excluded_ids
         process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
-                                 *included_ids, excluded_ids);
+                                 included_ids, excluded_ids);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
-            q_tokens->push_back(q_include_token);
+            q_tokens.push_back(q_include_token);
             field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
                                                                 q_include_token.size(), 0);
         }
 
         for(auto& phrase: field_query_tokens[0].q_phrases) {
             for(auto& token: phrase) {
-                q_tokens->push_back(token);
+                q_tokens.push_back(token);
             }
         }
 
@@ -3576,13 +3576,13 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
     }
     
     // apply bucketing on text match score
-    int* match_score_index = new int;
-    *match_score_index = -1;
-    for(size_t i = 0; i < sort_fields_std->size(); i++) {
-        if((*sort_fields_std)[i].name == sort_field_const::text_match && (*sort_fields_std)[i].text_match_buckets != 0) {
-            *match_score_index = i;
+    int match_score_index;
+    match_score_index = -1;
+    for(size_t i = 0; i < sort_fields_std.size(); i++) {
+        if((sort_fields_std)[i].name == sort_field_const::text_match && (sort_fields_std)[i].text_match_buckets != 0) {
+            match_score_index = i;
 
-            if((*sort_fields_std)[i].text_match_buckets > 1) {
+            if((sort_fields_std)[i].text_match_buckets > 1) {
                 // we will disable prioritize exact match because it's incompatible with bucketing
                 prioritize_exact_match = false;
             }
@@ -3591,8 +3591,8 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
         }
     }
     search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
-                                                filter_tree_root, *facets, *included_ids, excluded_ids,
-                                                *sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
+                                                filter_tree_root, std::move(facets), std::move(included_ids), excluded_ids,
+                                                std::move(sort_fields_std), facet_query, num_typos, max_facet_values, max_hits,
                                                 per_page, page, token_order, prefixes,
                                                 drop_tokens_threshold, typo_tokens_threshold,
                                                 group_by_fields, group_limit, default_sorting_field,
@@ -3601,8 +3601,8 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
                                                 search_stop_millis,
                                                 min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                 max_extra_prefix, max_extra_suffix, facet_query_num_typos,
-                                                filter_curated_hits, split_join_tokens, *vector_query,
-                                                *query, *q_tokens,*match_score_index);
+                                                filter_curated_hits, split_join_tokens, std::move(vector_query),
+                                                std::move(query), std::move(q_tokens), std::move(match_score_index));
     return Option<search_args*>(search_params);
 }
 
@@ -4133,6 +4133,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
 
 Option<bool> Collection::run_search(search_args* search_params, std::vector<CollectionKVGroup>& result) {
     index->run_search(search_params);
+
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
     std::vector<std::vector<KV*>> result_group_kvs;
@@ -4233,6 +4234,7 @@ Option<bool> Collection::run_search(search_args* search_params, std::vector<Coll
             facet_kv.second.collection_id = get_collection_id();
         }
     }
+
     return Option<bool>(true);
 }
 
