@@ -650,3 +650,73 @@ TEST_F(CollectionMultiSearchAggTest, GroupingTest) {
     collectionManager.drop_collection("coll_people");
     collectionManager.drop_collection("coll_cars");
 }
+
+
+TEST_F(CollectionMultiSearchAggTest, FacetQueryTest) {
+    Collection* coll_people = collectionManager.get_collection("coll_people").get();
+    if(!coll_people) {
+        std::vector<field> fields = {
+            field("name", field_types::STRING, false),
+            field("age", field_types::INT32, false),
+            field("country", field_types::STRING, true),
+            field("points", field_types::INT32, true)
+        };
+        
+        coll_people =collectionManager.create_collection("coll_people", 4, fields, "points").get();
+    }
+    
+    coll_people->add("{\"name\": \"John Doe\", \"age\": 25, \"country\": \"USA\", \"points\": 100}");
+    coll_people->add("{\"name\": \"Jane Doe\", \"age\": 30, \"country\": \"USA\", \"points\": 200}");
+    coll_people->add("{\"name\": \"Adam Smith\", \"age\": 35, \"country\": \"UK\", \"points\": 300}");
+    coll_people->add("{\"name\": \"John Smith\", \"age\": 40, \"country\": \"UK\", \"points\": 400}");
+    
+    Collection* coll_cars = collectionManager.get_collection("coll_cars").get();
+    if(!coll_cars) {
+        std::vector<field> fields = {
+            field("name", field_types::STRING, false),
+            field("price", field_types::INT32, false),
+            field("country", field_types::STRING, true),
+            field("points", field_types::INT32, true)
+        };
+        
+        coll_cars =collectionManager.create_collection("coll_cars", 4, fields, "points").get();
+    }
+    
+    coll_cars->add("{\"name\": \"Ford\", \"price\": 10000, \"country\": \"USA\", \"points\": 100}");
+    coll_cars->add("{\"name\": \"BMW\", \"price\": 20000, \"country\": \"Germany\", \"points\": 200}");
+    coll_cars->add("{\"name\": \"Ferrari\", \"price\": 30000, \"country\": \"Italy\", \"points\": 300}");
+    coll_cars->add("{\"name\": \"Audi\", \"price\": 40000, \"country\": \"Germany\", \"points\": 400}");
+    
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    nlohmann::json body;
+
+    body["searches"] = nlohmann::json::array();
+    body["merge_hits"] = true;
+
+    nlohmann::json search1, search2;
+
+    search1["q"] = "*";
+    search1["collection"] = "coll_people";
+    search1["query_by"] = "name";
+    search1["facet_query"] = "country:USA";
+
+    search2["q"] = "*";
+    search2["collection"] = "coll_cars";
+    search2["query_by"] = "name";
+
+    body["searches"].push_back(search1);
+    body["searches"].push_back(search2);
+
+    req->body = body.dump();
+
+    req->embedded_params_vec.push_back(nlohmann::json{});
+    req->embedded_params_vec.push_back(nlohmann::json{});
+    post_multi_search(req, res);
+
+    nlohmann::json response = nlohmann::json::parse(res->body);
+    ASSERT_EQ(response["hits"].size(), 0);
+
+    collectionManager.drop_collection("coll_people");
+    collectionManager.drop_collection("coll_cars");
+}
