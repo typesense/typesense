@@ -426,8 +426,7 @@ std::vector<Collection*> CollectionManager::get_collections() const {
 }
 
 Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
-    std::unique_lock lock(mutex);
-
+    std::shared_lock s_lock(mutex);
     auto collection = get_collection_unsafe(collection_name);
 
     if(collection == nullptr) {
@@ -469,9 +468,14 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         store->remove(Collection::get_meta_key(actual_coll_name));
     }
 
+    s_lock.unlock();
+
+    std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
+    u_lock.unlock();
 
+    // don't hold any collection manager locks here, since this can take some time
     delete collection;
 
     return Option<nlohmann::json>(collection_json);
