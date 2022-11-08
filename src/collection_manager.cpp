@@ -1213,6 +1213,10 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             return Option<bool>(400, "Bad JSON.");
         }
 
+        if(collection->get_enable_nested_fields()) {
+            field::flatten_stored_doc(document, collection->get_nested_fields());
+        }
+
         auto dirty_values = DIRTY_VALUES::DROP;
 
         num_valid_docs++;
