@@ -247,7 +247,8 @@ private:
     static bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
                                        const nlohmann::json& fdoc, nlohmann::json& fobj,
                                        const nlohmann::json& mdoc, nlohmann::json& mobj,
-                                       std::vector<std::string>& path_parts, size_t path_index, T func);
+                                       std::vector<std::string>& path_parts, size_t path_index,
+                                       int arr_index, nlohmann::json& parent_mobj, T func);
 
     static Option<bool> resolve_field_type(field& new_field,
                                            nlohmann::detail::iter_impl<nlohmann::basic_json<>>& kv,
@@ -502,14 +503,16 @@ template<class T>
 bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
                             const nlohmann::json& fdoc, nlohmann::json& fobj,
                             const nlohmann::json& mdoc, nlohmann::json& mobj,
-                            std::vector<std::string>& path_parts, size_t path_index, T func) {
+                            std::vector<std::string>& path_parts, size_t path_index,
+                            int arr_index, nlohmann::json& parent_mobj,
+                            T func) {
     if(path_index == path_parts.size()) {
         // end of path: guaranteed to be a string
         if(!hobj.is_string()) {
             return false;
         }
 
-        func(hobj, fobj, mobj);
+        func(hobj, fobj, mobj, arr_index, parent_mobj);
     }
 
     const std::string& fragment = path_parts[path_index];
@@ -518,18 +521,24 @@ bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::js
     if(it != hobj.end()) {
         if(it.value().is_array()) {
             bool resolved = false;
+            auto& parent_mobj = mobj.empty() ? mobj : mobj[fragment];
+            nlohmann::json empty_obj;
+
             for(size_t i = 0; i < it.value().size(); i++) {
                 auto& h_ele = it.value().at(i);
                 auto& f_ele = fobj.empty() ? fobj : fobj[fragment][i];
-                auto& m_ele = mobj.empty() ? mobj : mobj[fragment][i];
+                // if value is a primitive, we don't want the array object getting destroyed
+                auto& m_ele = h_ele.is_object() && !mobj.empty() ? mobj[fragment][i] : empty_obj;
                 resolved |= highlight_nested_field(hdoc, h_ele, fdoc, f_ele, mdoc, m_ele,
-                                                   path_parts, path_index + 1, func);
+                                                   path_parts, path_index + 1, i, parent_mobj, func);
             }
             return resolved;
         } else {
             auto& f_ele = fobj.empty() ? fobj : fobj[fragment];
             auto& m_ele = mobj.empty() ? mobj : mobj[fragment];
-            return highlight_nested_field(hdoc, it.value(), fdoc, f_ele, mdoc, m_ele, path_parts, path_index + 1, func);
+            auto& parent_mobj = mobj.empty() ? mobj : mobj[fragment];
+            return highlight_nested_field(hdoc, it.value(), fdoc, f_ele, mdoc, m_ele, path_parts, path_index + 1,
+                                          -1, parent_mobj, func);
         }
     } {
         return false;

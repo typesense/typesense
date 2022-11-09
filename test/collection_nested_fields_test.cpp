@@ -620,8 +620,42 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
       ]
     })"_json;
 
+    auto highlight_meta_doc = R"({
+          "locations":[
+            {
+              "address":{
+                "city":"Beaverton",
+                "products":{
+                  "matched_indices":[
+                    0
+                  ],
+                  "matched_tokens":[
+                    "shoes"
+                  ]
+                },
+                "street":"One Bowerman Drive"
+              }
+            },
+            {
+              "address":{
+                "city":"Thornhill",
+                "products":{
+                  "matched_indices":[
+                    1
+                  ],
+                  "matched_tokens":[
+                    "shoes"
+                  ]
+                },
+                "street":"175 Commerce Drive"
+              }
+            }
+          ]
+        })"_json;
+
     ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
     ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_meta_doc.dump(), results["hits"][0]["highlight"]["meta"].dump());
 
     // full highlighting only one of the 3 highlight fields
     results = coll1->search("drive", {"company.names", "company_names", "locations.address"}, "", {}, sort_fields, {0}, 10, 1,
@@ -778,13 +812,18 @@ TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
 
     ASSERT_EQ(3, results["hits"][0]["highlight"]["meta"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["company_names"].size());
+    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"].size());
 
     ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"].size());
     std::vector<std::string> matched_tokens = results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"].get<std::vector<std::string>>();
     std::sort(matched_tokens.begin(), matched_tokens.end());
     ASSERT_EQ("brown", matched_tokens[0]);
     ASSERT_EQ("fox", matched_tokens[1]);
+
+    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"]["matched_indices"].size());
+    std::vector<size_t> matched_indices = results["hits"][0]["highlight"]["meta"]["company_names"]["matched_indices"].get<std::vector<size_t>>();
+    ASSERT_EQ(0, matched_indices[0]);
+    ASSERT_EQ(1, matched_indices[1]);
 
     ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["details"]["names"]["matched_tokens"].size());
     matched_tokens = results["hits"][0]["highlight"]["meta"]["details"]["names"]["matched_tokens"].get<std::vector<std::string>>();
@@ -796,6 +835,20 @@ TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
     matched_tokens = results["hits"][0]["highlight"]["meta"]["locations"][0]["address"]["street"]["matched_tokens"].get<std::vector<std::string>>();
     std::sort(matched_tokens.begin(), matched_tokens.end());
     ASSERT_EQ("Brown", matched_tokens[0]);
+
+    // partial matched index match
+
+    results = coll1->search("fast", {"company_names"},
+                            "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
+
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"].size());
+    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"].size());
+
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["company_names"]["matched_indices"].size());
+    matched_indices = results["hits"][0]["highlight"]["meta"]["company_names"]["matched_indices"].get<std::vector<size_t>>();
+    ASSERT_EQ(1, matched_indices[0]);
 
     // when no highlighting is enabled by setting unknown field for highlighting
     results = coll1->search("brown fox", {"company_names", "details", "locations"}, "", {}, sort_fields, {0}, 10, 1,
@@ -1607,4 +1660,55 @@ TEST_F(CollectionNestedFieldsTest, NestedSchemaAutoAndFacet) {
     }
 
     ASSERT_TRUE(coll1->get_schema()["schools.name"].optional);
+}
+
+TEST_F(CollectionNestedFieldsTest, HighlightArrayInsideArrayOfObj) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "studies", "type": "auto"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "studies": [
+            {"name": "College 1", "tags": ["foo", "bar"]},
+            {"name": "College 1", "tags": ["alpha", "beta"]}
+        ]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto results = coll1->search("beta", {"studies"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    nlohmann::json highlight_meta_doc = R"({
+      "studies":[
+        {
+          "tags":[
+            "foo",
+            "bar"
+          ]
+        },
+        {
+          "tags":{
+            "matched_indices":[
+              1
+            ],
+            "matched_tokens":[
+              "beta"
+            ]
+          }
+        }
+      ]
+    })"_json;
+
+    ASSERT_EQ(highlight_meta_doc.dump(), results["hits"][0]["highlight"]["meta"].dump());
 }

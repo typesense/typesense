@@ -2420,8 +2420,9 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             }
 
             highlight_nested_field(highlight_doc, highlight_doc, highlight_full_doc, highlight_full_doc,
-                                   highlight_meta, highlight_meta, path_parts, 0,
-                                   [&](nlohmann::json& h_obj, nlohmann::json& f_obj, nlohmann::json& m_obj) {
+                                   highlight_meta, highlight_meta, path_parts, 0, -1, highlight_meta,
+                                   [&](nlohmann::json& h_obj, nlohmann::json& f_obj, nlohmann::json& m_obj,
+                                       int arr_index, nlohmann::json& parent_mobj) {
                 Match match;
                 match_index_t match_index(match, 0, 0);
                 int last_valid_offset_index = -1;
@@ -2444,11 +2445,19 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                     h_obj = array_highlight.snippets[0];
                     found_highlight = found_highlight || true;
 
-                    m_obj = nlohmann::json::object();
+                    nlohmann::json& ref_meta_obj = (arr_index >= 0) ? parent_mobj : m_obj;
+                    if(!ref_meta_obj.is_object() || !ref_meta_obj.contains("matched_tokens")) {
+                        ref_meta_obj = nlohmann::json::object();
+                    }
+
                     for(auto& token_vec: array_highlight.matched_tokens) {
                         for(auto& token: token_vec) {
-                            m_obj["matched_tokens"].push_back(token);
+                            ref_meta_obj["matched_tokens"].push_back(token);
                         }
+                    }
+
+                    if(arr_index >= 0) {
+                        ref_meta_obj["matched_indices"].push_back(arr_index);
                     }
                 }
 
@@ -2618,6 +2627,13 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             mval->emplace("matched_tokens", nlohmann::json::array());
             for(auto it = matched_tokens.begin(); it != matched_tokens.end(); ++it) {
                 mval->at("matched_tokens").push_back(it.key());
+            }
+
+            if(hval->is_array()) {
+                mval->emplace("matched_indices", nlohmann::json::array());
+                for(auto highlight_index: highlight.indices) {
+                    mval->at("matched_indices").push_back(highlight_index);
+                }
             }
         }
     }
