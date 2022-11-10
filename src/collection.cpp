@@ -1636,15 +1636,16 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     }
 
     result["facet_counts"] = nlohmann::json::array();
+    
+    std::vector<facet_value_t> facet_values;
+    
+    nlohmann::json facet_result = nlohmann::json::object();
 
     // populate facets
     for(facet & a_facet: facets) {
-        nlohmann::json facet_result = nlohmann::json::object();
         facet_result["field_name"] = a_facet.field_name;
         facet_result["counts"] = nlohmann::json::array();
 
-        std::vector<facet_value_t> facet_values;
-        
         std::vector<std::pair<int64_t, facet_count_t>> facet_hash_counts;
             
         for (const auto & kv : a_facet.result_map) {
@@ -1760,33 +1761,36 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             }
             facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
             facet_values.emplace_back(facet_value);
+
+            // add facet value stats
+            facet_result["stats"] = nlohmann::json::object();
+
+            if(a_facet.stats.fvcount != 0) {
+                facet_result["stats"]["min"] = a_facet.stats.fvmin;
+                facet_result["stats"]["max"] = a_facet.stats.fvmax;
+                facet_result["stats"]["sum"] = a_facet.stats.fvsum;
+                facet_result["stats"]["avg"] = (a_facet.stats.fvsum / a_facet.stats.fvcount);
+            }
+
+            facet_result["stats"]["total_values"] = facet_hash_counts.size();
         }
         
-
-        std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
-
-        for(const auto & facet_count: facet_values) {
-            nlohmann::json facet_value_count = nlohmann::json::object();
-            const std::string & value = facet_count.value;
-
-            facet_value_count["value"] = value;
-            facet_value_count["highlighted"] = facet_count.highlighted;
-            facet_value_count["count"] = facet_count.count;
-            facet_result["counts"].push_back(facet_value_count);
-        }
-
-        // add facet value stats
-        facet_result["stats"] = nlohmann::json::object();
-        if(a_facet.stats.fvcount != 0) {
-            facet_result["stats"]["min"] = a_facet.stats.fvmin;
-            facet_result["stats"]["max"] = a_facet.stats.fvmax;
-            facet_result["stats"]["sum"] = a_facet.stats.fvsum;
-            facet_result["stats"]["avg"] = (a_facet.stats.fvsum / a_facet.stats.fvcount);
-        }
-
-        facet_result["stats"]["total_values"] = facet_hash_counts.size();
-        result["facet_counts"].push_back(facet_result);
     }
+
+    std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
+
+    for(const auto & facet_count: facet_values) {
+        nlohmann::json facet_value_count = nlohmann::json::object();
+        const std::string & value = facet_count.value;
+
+        facet_value_count["value"] = value;
+        facet_value_count["highlighted"] = facet_count.highlighted;
+        facet_value_count["count"] = facet_count.count;
+        facet_result["counts"].push_back(facet_value_count);
+    }
+
+        
+    result["facet_counts"].push_back(facet_result);
 
     // free search params
     delete search_params;
