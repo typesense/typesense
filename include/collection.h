@@ -30,10 +30,11 @@ struct highlight_field_t {
     std::string name;
     bool fully_highlighted;
     bool infix;
+    bool is_string;
     tsl::htrie_map<char, token_leaf> qtoken_leaves;
 
-    highlight_field_t(const std::string& name, bool fully_highlighted, bool infix):
-            name(name), fully_highlighted(fully_highlighted), infix(infix) {
+    highlight_field_t(const std::string& name, bool fully_highlighted, bool infix, bool is_string):
+            name(name), fully_highlighted(fully_highlighted), infix(infix), is_string(is_string) {
 
     }
 };
@@ -134,8 +135,6 @@ private:
                           const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
                           const KV* field_order_kv, const nlohmann::json &document,
                           nlohmann::json& highlight_doc,
-                          nlohmann::json& highlight_full_doc,
-                          nlohmann::json& highlight_meta,
                           StringUtils & string_utils,
                           const size_t snippet_threshold,
                           const size_t highlight_affix_num_tokens,
@@ -245,10 +244,8 @@ private:
 
     template<class T>
     static bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
-                                       const nlohmann::json& fdoc, nlohmann::json& fobj,
-                                       const nlohmann::json& mdoc, nlohmann::json& mobj,
                                        std::vector<std::string>& path_parts, size_t path_index,
-                                       int arr_index, nlohmann::json& parent_mobj, T func);
+                                       T func);
 
     static Option<bool> resolve_field_type(field& new_field,
                                            nlohmann::detail::iter_impl<nlohmann::basic_json<>>& kv,
@@ -346,7 +343,7 @@ public:
                                      const index_operation_t op, const DIRTY_VALUES& dirty_values);
 
     static void prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
-                          const tsl::htrie_set<char>& exclude_names, std::string parent_name = "", size_t depth = 0);
+                          const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0);
 
     const Index* _get_index() const;
 
@@ -478,6 +475,7 @@ public:
                    size_t snippet_start_offset) ;
 
     void process_highlight_fields(const std::vector<search_field_t>& search_fields,
+                                  const std::vector<std::string>& raw_search_fields,
                                   const tsl::htrie_set<char>& exclude_fields,
                                   const tsl::htrie_set<char>& include_fields,
                                   const std::vector<std::string>& highlight_field_names,
@@ -501,18 +499,16 @@ public:
 
 template<class T>
 bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
-                            const nlohmann::json& fdoc, nlohmann::json& fobj,
-                            const nlohmann::json& mdoc, nlohmann::json& mobj,
-                            std::vector<std::string>& path_parts, size_t path_index,
-                            int arr_index, nlohmann::json& parent_mobj,
-                            T func) {
+                                        std::vector<std::string>& path_parts, size_t path_index,
+                                        T func) {
     if(path_index == path_parts.size()) {
         // end of path: guaranteed to be a string
         if(!hobj.is_string()) {
-            return false;
+            //return false;
         }
 
-        func(hobj, fobj, mobj, arr_index, parent_mobj);
+        func(hobj);
+        return true;
     }
 
     const std::string& fragment = path_parts[path_index];
@@ -521,24 +517,13 @@ bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::js
     if(it != hobj.end()) {
         if(it.value().is_array()) {
             bool resolved = false;
-            auto& parent_mobj = mobj.empty() ? mobj : mobj[fragment];
-            nlohmann::json empty_obj;
-
             for(size_t i = 0; i < it.value().size(); i++) {
                 auto& h_ele = it.value().at(i);
-                auto& f_ele = fobj.empty() ? fobj : fobj[fragment][i];
-                // if value is a primitive, we don't want the array object getting destroyed
-                auto& m_ele = h_ele.is_object() && !mobj.empty() ? mobj[fragment][i] : empty_obj;
-                resolved |= highlight_nested_field(hdoc, h_ele, fdoc, f_ele, mdoc, m_ele,
-                                                   path_parts, path_index + 1, i, parent_mobj, func);
+                resolved |= highlight_nested_field(hdoc, h_ele, path_parts, path_index + 1, func);
             }
             return resolved;
         } else {
-            auto& f_ele = fobj.empty() ? fobj : fobj[fragment];
-            auto& m_ele = mobj.empty() ? mobj : mobj[fragment];
-            auto& parent_mobj = mobj.empty() ? mobj : mobj[fragment];
-            return highlight_nested_field(hdoc, it.value(), fdoc, f_ele, mdoc, m_ele, path_parts, path_index + 1,
-                                          -1, parent_mobj, func);
+            return highlight_nested_field(hdoc, it.value(), path_parts, path_index + 1, func);
         }
     } {
         return false;

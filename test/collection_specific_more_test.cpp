@@ -913,26 +913,25 @@ TEST_F(CollectionSpecificMoreTest, HighlightWithAccentedChars) {
     ASSERT_EQ("<mark>Rāp</mark>eti Early Learning Centre", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     auto highlight_doc = R"({
-      "companies":[
+      "companies": [
         {
-          "title":"<mark>Rāp</mark>eti Early Learning Centre"
+          "title": {
+            "matched_tokens": [
+              "Rāp"
+            ],
+            "snippet": "<mark>Rāp</mark>eti Early Learning Centre"
+          }
         }
       ],
-      "title":"<mark>Rāp</mark>eti Early Learning Centre"
+      "title": {
+        "matched_tokens": [
+          "Rāp"
+        ],
+        "snippet": "<mark>Rāp</mark>eti Early Learning Centre"
+      }
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"].size());
-
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["title"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"].size());
-    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"][0]);
-
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies"][0]["title"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies"][0]["title"]["matched_tokens"].size());
-    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["companies"][0]["title"]["matched_tokens"][0]);
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 }
 
 TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
@@ -1272,9 +1271,9 @@ TEST_F(CollectionSpecificMoreTest, HandleStringFieldWithObjectValueEarlier) {
 
 TEST_F(CollectionSpecificMoreTest, CopyDocHelper) {
     std::vector<highlight_field_t> hightlight_items = {
-        highlight_field_t("foo.bar", false, false),
-        highlight_field_t("baz", false, false),
-        highlight_field_t("not-found", false, false),
+        highlight_field_t("foo.bar", false, false, true),
+        highlight_field_t("baz", false, false, true),
+        highlight_field_t("not-found", false, false, true),
     };
 
     nlohmann::json src = R"({
@@ -1641,8 +1640,8 @@ TEST_F(CollectionSpecificMoreTest, HighlightOnFieldNameWithDot) {
     ASSERT_EQ(1, res["hits"][0]["highlights"].size());
     ASSERT_EQ("<mark>Infinity</mark> Inc.", res["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
-    nlohmann::json snippet = R"({"org.title":"<mark>Infinity</mark> Inc."})"_json;
-    ASSERT_EQ(snippet.dump(), res["hits"][0]["highlight"]["snippet"].dump());
+    nlohmann::json highlight = R"({"org.title":{"matched_tokens":["Infinity"],"snippet":"<mark>Infinity</mark> Inc."}})"_json;
+    ASSERT_EQ(highlight.dump(), res["hits"][0]["highlight"].dump());
 
     // even if nested fields enabled, plain field names with dots should work fine
 
@@ -1660,6 +1659,7 @@ TEST_F(CollectionSpecificMoreTest, HighlightOnFieldNameWithDot) {
     res = coll2->search("infinity", {"org.title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(0, res["hits"][0]["highlights"].size());
-    snippet = R"({"org.title":"<mark>Infinity</mark> Inc."})"_json;
-    ASSERT_EQ(snippet.dump(), res["hits"][0]["highlight"]["snippet"].dump());
+
+    highlight = R"({"org.title":{"matched_tokens":["Infinity"],"snippet":"<mark>Infinity</mark> Inc."}})"_json;
+    ASSERT_EQ(highlight.dump(), res["hits"][0]["highlight"].dump());
 }

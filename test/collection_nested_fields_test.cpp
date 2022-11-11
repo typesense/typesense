@@ -349,21 +349,85 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
     ASSERT_EQ(doc, results["hits"][0]["document"]);
 
     auto highlight_doc = R"({
-      "employees":{
-        "tags":[
-          "senior plumber",
-          "<mark>electrician</mark>"
+      "employees": {
+        "num": {
+          "matched_tokens": [],
+          "snippet": "1200"
+        },
+        "tags": [
+          {
+            "matched_tokens": [],
+            "snippet": "senior plumber"
+          },
+          {
+            "matched_tokens": [
+              "electrician"
+            ],
+            "snippet": "<mark>electrician</mark>"
+          }
         ]
       },
-      "locations":[
+      "locations": [
         {
-          "address":{
-            "street":"One Bowerman Drive"
+          "address": {
+            "city": {
+              "matched_tokens": [],
+              "snippet": "Beaverton"
+            },
+            "products": [
+              {
+                "matched_tokens": [],
+                "snippet": "shoes"
+              },
+              {
+                "matched_tokens": [],
+                "snippet": "tshirts"
+              }
+            ],
+            "street": {
+              "matched_tokens": [],
+              "snippet": "One Bowerman Drive"
+            }
+          },
+          "country": {
+            "matched_tokens": [],
+            "snippet": "USA"
+          },
+          "pincode": {
+            "matched_tokens": [],
+            "snippet": "100"
           }
         },
         {
-          "address":{
-            "street":"175 <mark>Commerce</mark> Valley"
+          "address": {
+            "city": {
+              "matched_tokens": [],
+              "snippet": "Thornhill"
+            },
+            "products": [
+              {
+                "matched_tokens": [],
+                "snippet": "sneakers"
+              },
+              {
+                "matched_tokens": [],
+                "snippet": "shoes"
+              }
+            ],
+            "street": {
+              "matched_tokens": [
+                "Commerce"
+              ],
+              "snippet": "175 <mark>Commerce</mark> Valley"
+            }
+          },
+          "country": {
+            "matched_tokens": [],
+            "snippet": "Canada"
+          },
+          "pincode": {
+            "matched_tokens": [],
+            "snippet": "200"
           }
         }
       ]
@@ -380,7 +444,7 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
     ASSERT_EQ(0, raw_doc.count("employees.tags"));
     ASSERT_EQ(4, raw_doc.size());
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
     // after update also the flat fields or meta should not be present on disk
@@ -404,18 +468,26 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
       "locations":[
         {
           "address":{
-            "street":"<mark>One</mark> Bowerman Drive"
+            "street":{
+              "matched_tokens":[
+                "One"
+              ],
+              "snippet":"<mark>One</mark> Bowerman Drive"
+            }
           }
         },
         {
           "address":{
-            "street":"175 Commerce Valley"
+            "street":{
+              "matched_tokens":[],
+              "snippet":"175 Commerce Valley"
+            }
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
     // try to search nested fields that don't exist
@@ -510,7 +582,6 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    // search both simply nested and deeply nested array-of-objects
     auto results = coll1->search("One", {"locations.address"}, "", {}, sort_fields, {0}, 10, 1,
                                  token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
@@ -521,44 +592,76 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
       "locations":[
         {
           "address":{
-            "street":"<mark>One</mark> Bowerman Drive"
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Beaverton",
+              "value":"Beaverton"
+            },
+            "products":[
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"shoes",
+                "value":"shoes"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"tshirts",
+                "value":"tshirts"
+              }
+            ],
+            "street":{
+              "matched_tokens":[
+                "One"
+              ],
+              "snippet":"<mark>One</mark> Bowerman Drive",
+              "value":"<mark>One</mark> Bowerman Drive"
+            }
           }
         },
         {
           "address":{
-            "street":"175 Commerce Drive"
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Thornhill",
+              "value":"Thornhill"
+            },
+            "products":[
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"sneakers",
+                "value":"sneakers"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"shoes",
+                "value":"shoes"
+              }
+            ],
+            "street":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"175 Commerce Drive",
+              "value":"175 Commerce Drive"
+            }
           }
         }
       ]
     })"_json;
 
-    auto highlight_full_doc = R"({
-        "locations":[
-          {
-            "address":{
-              "city":"Beaverton",
-              "products":[
-                "shoes",
-                "tshirts"
-              ],
-              "street":"<mark>One</mark> Bowerman Drive"
-            }
-          },
-          {
-            "address":{
-              "city":"Thornhill",
-              "products":[
-                "sneakers",
-                "shoes"
-              ],
-              "street":"175 Commerce Drive"
-            }
-          }
-        ]
-    })"_json;
-
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
     // repeating token
@@ -573,18 +676,76 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
       "locations":[
         {
           "address":{
-            "street":"One Bowerman <mark>Drive</mark>"
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Beaverton",
+              "value":"Beaverton"
+            },
+            "products":[
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"shoes",
+                "value":"shoes"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"tshirts",
+                "value":"tshirts"
+              }
+            ],
+            "street":{
+              "matched_tokens":[
+                "Drive"
+              ],
+              "snippet":"One Bowerman <mark>Drive</mark>",
+              "value":"One Bowerman <mark>Drive</mark>"
+            }
           }
         },
         {
           "address":{
-            "street":"175 Commerce <mark>Drive</mark>"
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Thornhill",
+              "value":"Thornhill"
+            },
+            "products":[
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"sneakers",
+                "value":"sneakers"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"shoes",
+                "value":"shoes"
+              }
+            ],
+            "street":{
+              "matched_tokens":[
+                "Drive"
+              ],
+              "snippet":"175 Commerce <mark>Drive</mark>",
+              "value":"175 Commerce <mark>Drive</mark>"
+            }
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
     // nested array of array, highlighting parent of searched nested field
@@ -595,67 +756,81 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             "locations.address").get();
 
     ASSERT_EQ(1, results["hits"].size());
-    highlight_full_doc = R"({
+
+    highlight_doc = R"({
       "locations":[
         {
           "address":{
-            "city":"Beaverton",
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Beaverton",
+              "value":"Beaverton"
+            },
             "products":[
-              "<mark>shoes</mark>",
-              "tshirts"
+              {
+                "matched_tokens":[
+                  "shoes"
+                ],
+                "snippet":"<mark>shoes</mark>",
+                "value":"<mark>shoes</mark>"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"tshirts",
+                "value":"tshirts"
+              }
             ],
-            "street":"One Bowerman Drive"
+            "street":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"One Bowerman Drive",
+              "value":"One Bowerman Drive"
+            }
           }
         },
         {
           "address":{
-            "city":"Thornhill",
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Thornhill",
+              "value":"Thornhill"
+            },
             "products":[
-              "sneakers",
-              "<mark>shoes</mark>"
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"sneakers",
+                "value":"sneakers"
+              },
+              {
+                "matched_tokens":[
+                  "shoes"
+                ],
+                "snippet":"<mark>shoes</mark>",
+                "value":"<mark>shoes</mark>"
+              }
             ],
-            "street":"175 Commerce Drive"
+            "street":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"175 Commerce Drive",
+              "value":"175 Commerce Drive"
+            }
           }
         }
       ]
     })"_json;
 
-    auto highlight_meta_doc = R"({
-          "locations":[
-            {
-              "address":{
-                "city":"Beaverton",
-                "products":{
-                  "matched_indices":[
-                    0
-                  ],
-                  "matched_tokens":[
-                    "shoes"
-                  ]
-                },
-                "street":"One Bowerman Drive"
-              }
-            },
-            {
-              "address":{
-                "city":"Thornhill",
-                "products":{
-                  "matched_indices":[
-                    1
-                  ],
-                  "matched_tokens":[
-                    "shoes"
-                  ]
-                },
-                "street":"175 Commerce Drive"
-              }
-            }
-          ]
-        })"_json;
-
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-    ASSERT_EQ(highlight_meta_doc.dump(), results["hits"][0]["highlight"]["meta"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // full highlighting only one of the 3 highlight fields
     results = coll1->search("drive", {"company.names", "company_names", "locations.address"}, "", {}, sort_fields, {0}, 10, 1,
@@ -664,62 +839,94 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
                             "company.names,company_names,locations.address").get();
 
-    highlight_full_doc = R"({
-        "locations":[
-          {
-            "address":{
-              "city":"Beaverton",
-              "products":[
-                "shoes",
-                "tshirts"
-              ],
-              "street":"One Bowerman <mark>Drive</mark>"
-            }
-          },
-          {
-            "address":{
-              "city":"Thornhill",
-              "products":[
-                "sneakers",
-                "shoes"
-              ],
-              "street":"175 Commerce <mark>Drive</mark>"
-            }
-          }
-        ]
-    })"_json;
-
     highlight_doc = R"({
-        "company":{
-          "names": ["Space Corp. LLC", "<mark>Drive</mark> One Inc."]
-        },
-        "company_names": ["Space Corp. LLC", "<mark>Drive</mark> One Inc."],
-        "locations":[
+      "company": {
+        "names": [
           {
-            "address":{
-              "city":"Beaverton",
-              "products":[
-                "shoes",
-                "tshirts"
-              ],
-              "street":"One Bowerman <mark>Drive</mark>"
-            }
+            "matched_tokens": [],
+            "snippet": "Space Corp. LLC"
           },
           {
-            "address":{
-              "city":"Thornhill",
-              "products":[
-                "sneakers",
-                "shoes"
-              ],
-              "street":"175 Commerce <mark>Drive</mark>"
-            }
+            "matched_tokens": [
+              "Drive"
+            ],
+            "snippet": "<mark>Drive</mark> One Inc."
           }
         ]
+      },
+      "company_names": [
+        {
+          "matched_tokens": [],
+          "snippet": "Space Corp. LLC"
+        },
+        {
+          "matched_tokens": [
+            "Drive"
+          ],
+          "snippet": "<mark>Drive</mark> One Inc."
+        }
+      ],
+      "locations": [
+        {
+          "address": {
+            "city": {
+              "matched_tokens": [],
+              "snippet": "Beaverton",
+              "value": "Beaverton"
+            },
+            "products": [
+              {
+                "matched_tokens": [],
+                "snippet": "shoes",
+                "value": "shoes"
+              },
+              {
+                "matched_tokens": [],
+                "snippet": "tshirts",
+                "value": "tshirts"
+              }
+            ],
+            "street": {
+              "matched_tokens": [
+                "Drive"
+              ],
+              "snippet": "One Bowerman <mark>Drive</mark>",
+              "value": "One Bowerman <mark>Drive</mark>"
+            }
+          }
+        },
+        {
+          "address": {
+            "city": {
+              "matched_tokens": [],
+              "snippet": "Thornhill",
+              "value": "Thornhill"
+            },
+            "products": [
+              {
+                "matched_tokens": [],
+                "snippet": "sneakers",
+                "value": "sneakers"
+              },
+              {
+                "matched_tokens": [],
+                "snippet": "shoes",
+                "value": "shoes"
+              }
+            ],
+            "street": {
+              "matched_tokens": [
+                "Drive"
+              ],
+              "snippet": "175 Commerce <mark>Drive</mark>",
+              "value": "175 Commerce <mark>Drive</mark>"
+            }
+          }
+        }
+      ]
     })"_json;
 
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // if highlight fields not provided, only matching sub-fields should appear in highlight
 
@@ -728,14 +935,35 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
 
     highlight_doc = R"({
-        "company":{
-          "names": ["<mark>Space</mark> Corp. LLC", "Drive One Inc."]
+      "company":{
+        "names":[
+          {
+            "matched_tokens":[
+              "Space"
+            ],
+            "snippet":"<mark>Space</mark> Corp. LLC"
+          },
+          {
+            "matched_tokens":[],
+            "snippet":"Drive One Inc."
+          }
+        ]
+      },
+      "company_names":[
+        {
+          "matched_tokens":[
+            "Space"
+          ],
+          "snippet":"<mark>Space</mark> Corp. LLC"
         },
-        "company_names": ["<mark>Space</mark> Corp. LLC", "Drive One Inc."]
+        {
+          "matched_tokens":[],
+          "snippet":"Drive One Inc."
+        }
+      ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // only a single highlight full field provided
 
@@ -743,30 +971,38 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "company.names").get();
 
-    highlight_full_doc = R"({
-      "company":{
-        "names":[
-          "<mark>Space</mark> Corp. LLC",
-          "Drive One Inc."
-        ]
-      }
-    })"_json;
-
     highlight_doc = R"({
-      "company":{
-        "names":[
-          "<mark>Space</mark> Corp. LLC",
-          "Drive One Inc."
+      "company": {
+        "names": [
+          {
+            "matched_tokens": [
+              "Space"
+            ],
+            "snippet": "<mark>Space</mark> Corp. LLC",
+            "value": "<mark>Space</mark> Corp. LLC"
+          },
+          {
+            "matched_tokens": [],
+            "snippet": "Drive One Inc.",
+            "value": "Drive One Inc."
+          }
         ]
       },
-      "company_names":[
-        "<mark>Space</mark> Corp. LLC",
-        "Drive One Inc."
+      "company_names": [
+        {
+          "matched_tokens": [
+            "Space"
+          ],
+          "snippet": "<mark>Space</mark> Corp. LLC"
+        },
+        {
+          "matched_tokens": [],
+          "snippet": "Drive One Inc."
+        }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // try to highlight `id` field
     results = coll1->search("shoes", {"locations.address.products"}, "", {}, sort_fields, {0}, 10, 1,
@@ -775,92 +1011,7 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
                             "id").get();
 
-    ASSERT_TRUE(results["hits"][0]["highlight"]["snippet"].empty());
-    ASSERT_TRUE(results["hits"][0]["highlight"]["full"].empty());
-}
-
-TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
-    std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
-
-    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO, {}, {}, true);
-    ASSERT_TRUE(op.ok());
-    Collection* coll1 = op.get();
-
-    auto doc = R"({
-        "company_names": ["Quick brown fox jumped.", "The red fox was not fast."],
-        "details": {
-            "description": "Quick set, go.",
-            "names": ["Quick brown fox jumped.", "The red fox was not fast."]
-        },
-        "locations": [
-            {
-              "address": { "street": "Brown Shade Avenue" }
-            },
-            {
-                "address": { "street": "Graywolf Lane" }
-            }
-        ]
-    })"_json;
-
-    auto add_op = coll1->add(doc.dump(), CREATE);
-    ASSERT_TRUE(add_op.ok());
-
-    // search both simply nested and deeply nested array-of-objects
-    auto results = coll1->search("brown fox", {"company_names", "details", "locations"},
-                                 "", {}, sort_fields, {0}, 10, 1,
-                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
-                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
-
-    ASSERT_EQ(3, results["hits"][0]["highlight"]["meta"].size());
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"].size());
-
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"].size());
-    std::vector<std::string> matched_tokens = results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"].get<std::vector<std::string>>();
-    std::sort(matched_tokens.begin(), matched_tokens.end());
-    ASSERT_EQ("brown", matched_tokens[0]);
-    ASSERT_EQ("fox", matched_tokens[1]);
-
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"]["matched_indices"].size());
-    std::vector<size_t> matched_indices = results["hits"][0]["highlight"]["meta"]["company_names"]["matched_indices"].get<std::vector<size_t>>();
-    ASSERT_EQ(0, matched_indices[0]);
-    ASSERT_EQ(1, matched_indices[1]);
-
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["details"]["names"]["matched_tokens"].size());
-    matched_tokens = results["hits"][0]["highlight"]["meta"]["details"]["names"]["matched_tokens"].get<std::vector<std::string>>();
-    std::sort(matched_tokens.begin(), matched_tokens.end());
-    ASSERT_EQ("brown", matched_tokens[0]);
-    ASSERT_EQ("fox", matched_tokens[1]);
-
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["locations"][0]["address"]["street"]["matched_tokens"].size());
-    matched_tokens = results["hits"][0]["highlight"]["meta"]["locations"][0]["address"]["street"]["matched_tokens"].get<std::vector<std::string>>();
-    std::sort(matched_tokens.begin(), matched_tokens.end());
-    ASSERT_EQ("Brown", matched_tokens[0]);
-
-    // partial matched index match
-
-    results = coll1->search("fast", {"company_names"},
-                            "", {}, sort_fields, {0}, 10, 1,
-                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
-
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"].size());
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"].size());
-
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["company_names"]["matched_indices"].size());
-    matched_indices = results["hits"][0]["highlight"]["meta"]["company_names"]["matched_indices"].get<std::vector<size_t>>();
-    ASSERT_EQ(1, matched_indices[0]);
-
-    // when no highlighting is enabled by setting unknown field for highlighting
-    results = coll1->search("brown fox", {"company_names", "details", "locations"}, "", {}, sort_fields, {0}, 10, 1,
-                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "x",
-                            20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
-                            "x").get();
-
-    ASSERT_EQ(3, results["hits"][0]["highlight"].size());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["snippet"].size());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["meta"].size());
+    ASSERT_TRUE(results["hits"][0]["highlight"].empty());
 }
 
 TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
@@ -911,28 +1062,51 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
 
     auto snippet_doc = R"({
-          "details":{
-            "names":[
-              "Quick <mark>brown</mark> <mark>fox</mark> jumped.",
-              "The red <mark>fox</mark> was not fast."
-            ]
+      "details": {
+        "description": {
+          "matched_tokens": [],
+          "snippet": "Quick set, go."
+        },
+        "names": [
+          {
+            "matched_tokens": [
+              "brown",
+              "fox"
+            ],
+            "snippet": "Quick <mark>brown</mark> <mark>fox</mark> jumped."
           },
-          "locations":[
-            {
-              "address":{
-                "street":"<mark>Brown</mark> Shade Avenue"
-              }
-            },
-            {
-              "address":{
-                "street":"Graywolf Lane"
-              }
+          {
+            "matched_tokens": [
+              "fox"
+            ],
+            "snippet": "The red <mark>fox</mark> was not fast."
+          }
+        ]
+      },
+      "locations": [
+        {
+          "address": {
+            "street": {
+              "matched_tokens": [
+                "Brown"
+              ],
+              "snippet": "<mark>Brown</mark> Shade Avenue"
             }
-          ]
+          }
+        },
+        {
+          "address": {
+            "street": {
+              "matched_tokens": [],
+              "snippet": "Graywolf Lane"
+            }
+          }
+        }
+      ]
     })"_json;
 
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"].dump());
 
     results = coll1->search("fix", {"company.name"},
                             "", {}, sort_fields, {0}, 10, 1,
@@ -967,21 +1141,29 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     ASSERT_EQ(1, results["hits"].size());
 
     snippet_doc = R"({
-      "locations":[
+      "locations": [
         {
-          "address":{
-            "street":"<mark>Brown</mark> Shade Avenue"
+          "address": {
+            "street": {
+              "matched_tokens": [
+                "Brown"
+              ],
+              "snippet": "<mark>Brown</mark> Shade Avenue"
+            }
           }
         },
         {
-          "address":{
-            "street":"Graywolf Lane"
+          "address": {
+            "street": {
+              "matched_tokens": [],
+              "snippet": "Graywolf Lane"
+            }
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // explicit partial array object field in the schema
     schema = R"({
@@ -1009,21 +1191,29 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     ASSERT_EQ(1, results["hits"].size());
 
     snippet_doc = R"({
-      "locations":[
+      "locations": [
         {
-          "address":{
-            "street":"<mark>Brown</mark> Shade Avenue"
+          "address": {
+            "street": {
+              "matched_tokens": [
+                "Brown"
+              ],
+              "snippet": "<mark>Brown</mark> Shade Avenue"
+            }
           }
         },
         {
-          "address":{
-            "street":"Graywolf Lane"
+          "address": {
+            "street": {
+              "matched_tokens": [],
+              "snippet": "Graywolf Lane"
+            }
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // non-optional object field validation (details)
     auto doc2 = R"({
@@ -1690,25 +1880,43 @@ TEST_F(CollectionNestedFieldsTest, HighlightArrayInsideArrayOfObj) {
     ASSERT_EQ(1, results["hits"].size());
 
     nlohmann::json highlight_meta_doc = R"({
-      "studies":[
+      "studies": [
         {
-          "tags":[
-            "foo",
-            "bar"
+          "name": {
+            "matched_tokens": [],
+            "snippet": "College 1"
+          },
+          "tags": [
+            {
+              "matched_tokens": [],
+              "snippet": "foo"
+            },
+            {
+              "matched_tokens": [],
+              "snippet": "bar"
+            }
           ]
         },
         {
-          "tags":{
-            "matched_indices":[
-              1
-            ],
-            "matched_tokens":[
-              "beta"
-            ]
-          }
+          "name": {
+            "matched_tokens": [],
+            "snippet": "College 1"
+          },
+          "tags": [
+            {
+              "matched_tokens": [],
+              "snippet": "alpha"
+            },
+            {
+              "matched_tokens": [
+                "beta"
+              ],
+              "snippet": "<mark>beta</mark>"
+            }
+          ]
         }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_meta_doc.dump(), results["hits"][0]["highlight"]["meta"].dump());
+    ASSERT_EQ(highlight_meta_doc.dump(), results["hits"][0]["highlight"].dump());
 }
