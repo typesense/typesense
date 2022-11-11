@@ -1219,24 +1219,27 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
             return Option<nlohmann::json>(search_results_op.code(), search_results_op.error());
         }
 
-        for(int i = 0;i < search_results.size();i++) {
+        for(int j = 0;j < search_results.size();j++) {
             if(args->group_by_fields.empty()) {
-                collection_kvs_vec.push_back(search_results[i]);
+                collection_kvs_vec.push_back(search_results[j]);
                 for(auto& collection_kv : collection_kvs_vec.back().collection_kvs) {
+                    collection_kv.query_id = i;
                     search_args_map[collection_kv.kv] = std::make_pair(args, search_params);
                 }
             }
             else {
-                if(group_key_map.find(search_results[i].group_key) == group_key_map.end()) {
-                    collection_kvs_vec.emplace_back(search_results[i]);
-                    group_key_map[search_results[i].group_key] = collection_kvs_vec.size() - 1;
+                if(group_key_map.find(search_results[j].group_key) == group_key_map.end()) {
+                    collection_kvs_vec.emplace_back(search_results[j]);
+                    group_key_map[search_results[j].group_key] = collection_kvs_vec.size() - 1;
                     for(auto& collection_kv : collection_kvs_vec.back().collection_kvs) {
+                        collection_kv.query_id = i;
                         search_args_map[collection_kv.kv] = std::make_pair(args, search_params);
                     }
                 }
                 else {
-                    auto& group = collection_kvs_vec[group_key_map[search_results[i].group_key]];
-                    for(auto& collection_kv : search_results[i].collection_kvs) {
+                    auto& group = collection_kvs_vec[group_key_map[search_results[j].group_key]];
+                    for(auto& collection_kv : search_results[j].collection_kvs) {
+                        collection_kv.query_id = i;
                         group.collection_kvs.emplace_back(collection_kv);
                         search_args_map[group.collection_kvs.back().kv] = std::make_pair(args, search_params);
                     }

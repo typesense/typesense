@@ -99,7 +99,7 @@ struct KV {
 struct CollectionKV {
     size_t collection_id{};
     KV* kv;
-    uint64_t group_key;
+    uint32_t query_id = 0;
 };
 
 struct CollectionKVGroup {

@@ -867,7 +867,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::shared_lock lock(mutex);
 
     
-    raw_search_args* raw_args = new raw_search_args{
+    std::shared_ptr<raw_search_args> raw_args = std::unique_ptr<raw_search_args>(new raw_search_args{
         raw_query,
         raw_search_fields,
         filter_query,
@@ -912,9 +912,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         filter_curated_hits_option,
         prioritize_token_position,
         vector_query_str
-    };
+    });
 
-    auto res = search(raw_args);
+    auto res = search(raw_args.get());
     return res;
 }
 
@@ -933,19 +933,16 @@ Option<nlohmann::json> Collection::search(raw_search_args* args) {
                                             args->facet_query_num_typos, args->filter_curated_hits_option, args->prioritize_token_position, args->vector_query_str);
 
     if(!search_params_op.ok()) {
-        delete args;
         return Option<nlohmann::json>(search_params_op.code(), search_params_op.error());
     }
 
     auto search_params = search_params_op.get();
-
+    std::unique_ptr<search_args> search_params_guard = std::unique_ptr<search_args>(search_params);
     std::vector<CollectionKVGroup> search_results;
 
     auto search_op = run_search(search_params, search_results);
 
     if(!search_op.ok()) {
-        delete search_params;
-        delete args;
         return Option<nlohmann::json>(search_op.code(), search_op.error());
     }
     
@@ -957,9 +954,6 @@ Option<nlohmann::json> Collection::search(raw_search_args* args) {
 
     auto result_op = get_result(*args, search_params, search_results);    
     if(!result_op.ok()) {
-        LOG(INFO) << "get_result failed: " << result_op.error();
-        delete search_params;
-        delete args;
         return Option<nlohmann::json>(result_op.code(), result_op.error());
     }
     auto result = result_op.get();
@@ -967,9 +961,6 @@ Option<nlohmann::json> Collection::search(raw_search_args* args) {
     result["request_params"]["collection_name"] = name;
     result["request_params"]["q"] = search_params->query;
 
-    // free search params
-    delete search_params;
-    delete args;
     return Option<nlohmann::json>(result);
 } 
 
@@ -3626,6 +3617,8 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                                             std::unordered_map<uint32_t, Collection*> collection_map,
                                             const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map) {
 
+    LOG(INFO) << "get_result";
+
     if(common_args.group_by_fields.empty()) {
         common_args.group_limit = 0;
     }
@@ -3690,7 +3683,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
     result[hits_key] = nlohmann::json::array();
     auto collection = this;
 
-    std::unordered_map<size_t, collection_highlight_vars_t> collection_highlight_vars_map;
+    std::unordered_map<uint32_t, collection_highlight_vars_t> collection_highlight_vars_map;
 
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
@@ -3712,7 +3705,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
             collection = collection_map.size() > 0 ? collection_map.at(field_order_kv.collection_id) : this;
             const auto& search_schema = collection->_get_schema();
 
-            if(collection_highlight_vars_map.find(field_order_kv.collection_id) == collection_highlight_vars_map.end()) {
+            if(collection_highlight_vars_map.find(field_order_kv.query_id) == collection_highlight_vars_map.end()) {
                 highlight_field_names.clear();
                 highlight_full_field_names.clear();
                 include_fields_vec.clear();
@@ -3767,18 +3760,18 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                             has_atleast_one_fully_highlighted_field = true;
                         }
                     }
-                    collection_highlight_vars_map[field_order_kv.collection_id] = {highlight_items, has_atleast_one_fully_highlighted_field, true, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
+                    collection_highlight_vars_map[field_order_kv.query_id] = {highlight_items, has_atleast_one_fully_highlighted_field, true, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
                 }
                 else {
-                    collection_highlight_vars_map[field_order_kv.collection_id] = {highlight_items, has_atleast_one_fully_highlighted_field, false, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
+                    collection_highlight_vars_map[field_order_kv.query_id] = {highlight_items, has_atleast_one_fully_highlighted_field, false, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
                 }
 
-                index_symbols = collection_highlight_vars_map[field_order_kv.collection_id].index_symbols;
+                index_symbols = collection_highlight_vars_map[field_order_kv.query_id].index_symbols;
                 for(char c: collection->symbols_to_index) {
                     index_symbols[uint8_t(c)] = 1;
                 }
             } else {
-                auto& entry = collection_highlight_vars_map.at(field_order_kv.collection_id);
+                auto& entry = collection_highlight_vars_map.at(field_order_kv.query_id);
                 highlight_items = entry.highlight_items;
                 has_atleast_one_fully_highlighted_field = entry.has_atleast_one_fully_highlighted_field;
                 highlight_field_names = entry.highlight_field_names;
@@ -3796,7 +3789,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                             has_atleast_one_fully_highlighted_field = true;
                         }
                     }
-                    collection_highlight_vars_map[field_order_kv.collection_id] = {highlight_items, has_atleast_one_fully_highlighted_field, true, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
+                    collection_highlight_vars_map[field_order_kv.query_id] = {highlight_items, has_atleast_one_fully_highlighted_field, true, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
                 } else if(args.query == "*" && entry.has_highlights) {
                     highlight_items.clear();
                     highlight_field_names.clear();
@@ -4142,6 +4135,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
 
+
     return Option<nlohmann::json>(result);
 }
 
@@ -4220,10 +4214,12 @@ Option<bool> Collection::run_search(search_args* search_params, std::vector<Coll
         override_kv_index++;
     }
 
+    size_t colllection_id = this->get_collection_id();
+
     for(size_t i = 0; i < result_group_kvs.size(); i++) {
         CollectionKVGroup group;
         for(size_t j = 0; j < result_group_kvs[i].size(); j++) {
-            group.collection_kvs.push_back(CollectionKV{(size_t) get_collection_id(), result_group_kvs[i][j]});
+            group.collection_kvs.push_back(CollectionKV{collection_id, result_group_kvs[i][j]});
         }
         if(search_params->group_by_fields.size() > 0) {
             nlohmann::json doc;
