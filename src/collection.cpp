@@ -3617,8 +3617,6 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                                             std::unordered_map<uint32_t, Collection*> collection_map,
                                             const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map) {
 
-    LOG(INFO) << "get_result";
-
     if(common_args.group_by_fields.empty()) {
         common_args.group_limit = 0;
     }
