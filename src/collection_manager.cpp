@@ -1158,10 +1158,25 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
     std::vector<search_args*> search_args_vec;
     std::vector<CollectionKVGroup> collection_kvs_vec;
     std::vector<raw_search_args*> raw_search_args_vec;
+    std::vector<collection_highlight_vars_t> collection_highlight_vars_vec(req_params.size());
+    std::vector<std::pair<raw_search_args*, search_args*>> search_args_pair_vec(req_params.size());
+
     std::unordered_map<uint64_t, int> group_key_map;
     // To retrieve collections in get_result
     std::unordered_map<uint32_t, Collection*> collection_id_map;
-    std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>> search_args_map;
+
+    // handle which fields have to be highlighted
+    std::vector<highlight_field_t> highlight_items;
+    bool has_atleast_one_fully_highlighted_field = false;
+
+    std::vector<std::string> highlight_field_names;
+    std::vector<std::string> highlight_full_field_names;
+    std::vector<std::string> include_fields_vec;
+    std::vector<std::string> exclude_fields_vec;
+    tsl::htrie_set<char> include_fields_full;
+    tsl::htrie_set<char> exclude_fields_full;
+
+
 
     for(int i = 0;i < req_params.size();i++) {
         if(req_params[i].count("collection") == 0) {
@@ -1224,7 +1239,7 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
                 collection_kvs_vec.push_back(search_results[j]);
                 for(auto& collection_kv : collection_kvs_vec.back().collection_kvs) {
                     collection_kv.query_id = i;
-                    search_args_map[collection_kv.kv] = std::make_pair(args, search_params);
+                    search_args_pair_vec[i] = std::make_pair(args, search_params);
                 }
             }
             else {
@@ -1233,7 +1248,7 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
                     group_key_map[search_results[j].group_key] = collection_kvs_vec.size() - 1;
                     for(auto& collection_kv : collection_kvs_vec.back().collection_kvs) {
                         collection_kv.query_id = i;
-                        search_args_map[collection_kv.kv] = std::make_pair(args, search_params);
+                        search_args_pair_vec[i] = std::make_pair(args, search_params);
                     }
                 }
                 else {
@@ -1241,12 +1256,78 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
                     for(auto& collection_kv : search_results[j].collection_kvs) {
                         collection_kv.query_id = i;
                         group.collection_kvs.emplace_back(collection_kv);
-                        search_args_map[group.collection_kvs.back().kv] = std::make_pair(args, search_params);
+                        search_args_pair_vec[i] = std::make_pair(args, search_params);
                     }
                 }
             }
         }
         search_args_vec.push_back(search_params);
+
+        highlight_field_names.clear();
+        highlight_full_field_names.clear();
+        include_fields_vec.clear();
+        exclude_fields_vec.clear();
+        highlight_items.clear();
+
+        const auto& search_schema = collection->_get_schema();
+
+        StringUtils::split(args->highlight_fields, highlight_field_names, ",");
+        StringUtils::split(args->highlight_full_fields, highlight_full_field_names, ",");
+
+        for(auto& f_name: args->include_fields) {
+            auto field_op = collection->extract_field_name(f_name, search_schema, include_fields_vec, false, collection->get_enable_nested_fields());
+            if(!field_op.ok()) {
+                if(field_op.code() == 404) {
+                    // field need not be part of schema to be included (could be a stored value in the doc)
+                    include_fields_vec.push_back(f_name);
+                    continue;
+                }
+                return Option<nlohmann::json>(field_op.code(), field_op.error());
+            }
+        }
+        for(auto& f_name: args->exclude_fields) {
+            auto field_op = collection->extract_field_name(f_name, search_schema, exclude_fields_vec, false, collection->get_enable_nested_fields());
+            if(!field_op.ok()) {
+                if(field_op.code() == 404) {
+                    // field need not be part of schema to be excluded (could be a stored value in the doc)
+                    exclude_fields_vec.push_back(f_name);
+                    continue;
+                }
+                return Option<nlohmann::json>(field_op.code(), field_op.error());
+            }
+        }
+        for(auto& f_name: include_fields_vec) {
+            include_fields_full.insert(f_name);
+        }
+        for(auto& f_name: exclude_fields_vec) {
+                if(f_name == "out_of") {
+                // `out_of` is strictly a meta-field, but we handle it since it's useful
+                continue;
+            }
+            exclude_fields_full.insert(f_name);
+        }
+        highlight_items.clear();
+        if(args->query != "*") {
+            auto index = collection->_get_index();
+            collection->process_highlight_fields(search_params->search_fields, include_fields_full, exclude_fields_full,
+                                    highlight_field_names, highlight_full_field_names, args->infixes, search_params->q_tokens,
+                                    search_params->qtoken_set, highlight_items, index, collection->_get_schema(), collection->get_enable_nested_fields());
+
+            for(auto& highlight_item: highlight_items) {
+                if(highlight_item.fully_highlighted) {
+                    has_atleast_one_fully_highlighted_field = true;
+                }
+            }
+            collection_highlight_vars_vec[i] = {highlight_items, has_atleast_one_fully_highlighted_field, true, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
+        }
+        else {
+            collection_highlight_vars_vec[i] = {highlight_items, has_atleast_one_fully_highlighted_field, false, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
+        }
+
+        auto index_symbols = collection_highlight_vars_vec[i].index_symbols;
+        for(char c: collection->get_symbols_to_index()) {
+            index_symbols[uint8_t(c)] = 1;
+        }
     }
     size_t topster_size = 0;
     size_t curated_topster_size = 0;
@@ -1339,7 +1420,7 @@ Option<nlohmann::json> CollectionManager::search_multiple_collections(std::vecto
         });
     }
 
-    auto result_op = get_collection(req_params[0]["collection"])->get_result(*raw_search_args_vec[0], search_args_vec[0], collection_kvs_vec,collection_id_map, search_args_map);
+    auto result_op = get_collection(req_params[0]["collection"])->get_result(*raw_search_args_vec[0], search_args_vec[0], collection_kvs_vec,collection_id_map, collection_highlight_vars_vec, search_args_pair_vec);
     result = result_op.get();
     result["out_of"] = total_doc_count;
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

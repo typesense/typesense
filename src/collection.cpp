@@ -867,7 +867,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::shared_lock lock(mutex);
 
     
-    std::shared_ptr<raw_search_args> raw_args = std::unique_ptr<raw_search_args>(new raw_search_args{
+    raw_search_args* raw_args = new raw_search_args{
         raw_query,
         raw_search_fields,
         filter_query,
@@ -912,9 +912,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         filter_curated_hits_option,
         prioritize_token_position,
         vector_query_str
-    });
+    };
+    std::unique_ptr<raw_search_args> raw_args_guard(raw_args);
 
-    auto res = search(raw_args.get());
+    auto res = search(raw_args);
     return res;
 }
 
@@ -937,7 +938,7 @@ Option<nlohmann::json> Collection::search(raw_search_args* args) {
     }
 
     auto search_params = search_params_op.get();
-    std::unique_ptr<search_args> search_params_guard = std::unique_ptr<search_args>(search_params);
+    std::unique_ptr<search_args> search_params_guard(search_params);
     std::vector<CollectionKVGroup> search_results;
 
     auto search_op = run_search(search_params, search_results);
@@ -3615,7 +3616,8 @@ Option<search_args*> Collection::get_search_args(const std::string & raw_query,
 Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, search_args* search_params, 
                                             std::vector<CollectionKVGroup>& collection_kvs,
                                             std::unordered_map<uint32_t, Collection*> collection_map,
-                                            const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map) {
+                                            std::vector<collection_highlight_vars_t> collection_highlight_vars_vec,
+                                            const std::vector<std::pair<raw_search_args*, search_args*>>& search_args_vec) {
 
     if(common_args.group_by_fields.empty()) {
         common_args.group_limit = 0;
@@ -3693,83 +3695,24 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
         nlohmann::json& hits_array = common_args.group_limit ? group_hits["hits"] : result["hits"];
         nlohmann::json group_key = nlohmann::json::array();
         for(CollectionKV& field_order_kv: kv_group.collection_kvs) {
-            auto& args = (args_map.size() > 0) ? *args_map.at(field_order_kv.kv).first : common_args;
+            auto& args = (search_args_vec.size() > 0) ? *search_args_vec.at(field_order_kv.query_id).first : common_args;
             search_args* args_temp = search_params;
-            search_args* search_params = (args_map.size() > 0) ? args_map.at(field_order_kv.kv).second : args_temp;
-            uint8_t* index_symbols = nullptr;
+            search_args* search_params = (search_args_vec.size() > 0) ? search_args_vec.at(field_order_kv.query_id).second : args_temp;
             if(collection_map.size() > 0 && collection_map.find(collection_kvs[field_order_kv.collection_id].collection_kvs.front().collection_id) == collection_map.end()) {
                 return Option<nlohmann::json>(404, "Collection not found");
             }
             collection = collection_map.size() > 0 ? collection_map.at(field_order_kv.collection_id) : this;
+            uint8_t* index_symbols = nullptr;
             const auto& search_schema = collection->_get_schema();
 
-            if(collection_highlight_vars_map.find(field_order_kv.query_id) == collection_highlight_vars_map.end()) {
-                highlight_field_names.clear();
-                highlight_full_field_names.clear();
-                include_fields_vec.clear();
-                exclude_fields_vec.clear();
-                highlight_items.clear();
-                const auto& search_schema = collection->_get_schema();
-
-                StringUtils::split(args.highlight_fields, highlight_field_names, ",");
-                StringUtils::split(args.highlight_full_fields, highlight_full_field_names, ",");
-
-                for(auto& f_name: args.include_fields) {
-                    auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false, enable_nested_fields);
-                    if(!field_op.ok()) {
-                        if(field_op.code() == 404) {
-                            // field need not be part of schema to be included (could be a stored value in the doc)
-                            include_fields_vec.push_back(f_name);
-                            continue;
-                        }
-                        return Option<nlohmann::json>(field_op.code(), field_op.error());
-                    }
-                }
-                for(auto& f_name: args.exclude_fields) {
-                    auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields);
-                    if(!field_op.ok()) {
-                        if(field_op.code() == 404) {
-                            // field need not be part of schema to be excluded (could be a stored value in the doc)
-                            exclude_fields_vec.push_back(f_name);
-                            continue;
-                        }
-                        return Option<nlohmann::json>(field_op.code(), field_op.error());
-                    }
-                }
-                for(auto& f_name: include_fields_vec) {
-                    include_fields_full.insert(f_name);
-                }
-                for(auto& f_name: exclude_fields_vec) {
-                     if(f_name == "out_of") {
-                        // `out_of` is strictly a meta-field, but we handle it since it's useful
-                        continue;
-                    }
-                    exclude_fields_full.insert(f_name);
-                }
-                highlight_items.clear();
-                if(args.query != "*") {
-                    auto index = collection->index;
-                    process_highlight_fields(search_params->search_fields, include_fields_full, exclude_fields_full,
-                                            highlight_field_names, highlight_full_field_names, args.infixes, search_params->q_tokens,
-                                            search_params->qtoken_set, highlight_items, index, collection->_get_schema(), collection->enable_nested_fields);
-
-                    for(auto& highlight_item: highlight_items) {
-                        if(highlight_item.fully_highlighted) {
-                            has_atleast_one_fully_highlighted_field = true;
-                        }
-                    }
-                    collection_highlight_vars_map[field_order_kv.query_id] = {highlight_items, has_atleast_one_fully_highlighted_field, true, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
-                }
-                else {
-                    collection_highlight_vars_map[field_order_kv.query_id] = {highlight_items, has_atleast_one_fully_highlighted_field, false, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
+            if(collection_highlight_vars_vec.size() > 0) {
+                if(field_order_kv.query_id < 0 || field_order_kv.query_id >= collection_highlight_vars_vec.size()) {
+                    LOG(INFO) << "Invalid query id: " << field_order_kv.query_id;
+                    LOG(INFO) << "collection_highlight_vars_vec size: " << collection_highlight_vars_vec.size();
+                    return Option<nlohmann::json>(400, "Invalid query id");
                 }
 
-                index_symbols = collection_highlight_vars_map[field_order_kv.query_id].index_symbols;
-                for(char c: collection->symbols_to_index) {
-                    index_symbols[uint8_t(c)] = 1;
-                }
-            } else {
-                auto& entry = collection_highlight_vars_map.at(field_order_kv.query_id);
+                auto& entry = collection_highlight_vars_vec.at(field_order_kv.query_id);
                 highlight_items = entry.highlight_items;
                 has_atleast_one_fully_highlighted_field = entry.has_atleast_one_fully_highlighted_field;
                 highlight_field_names = entry.highlight_field_names;
@@ -3787,11 +3730,84 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                             has_atleast_one_fully_highlighted_field = true;
                         }
                     }
-                    collection_highlight_vars_map[field_order_kv.query_id] = {highlight_items, has_atleast_one_fully_highlighted_field, true, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full};
+                    auto& collection_highlight_vars = collection_highlight_vars_map[field_order_kv.collection_id];
+                    collection_highlight_vars.highlight_items = highlight_items;
+                    collection_highlight_vars.has_atleast_one_fully_highlighted_field = has_atleast_one_fully_highlighted_field;
+                    collection_highlight_vars.has_highlights = true;
+                    collection_highlight_vars.highlight_field_names = highlight_field_names;
+                    collection_highlight_vars.highlight_full_field_names = highlight_full_field_names;
+                    collection_highlight_vars.include_fields_full = include_fields_full;
+                    collection_highlight_vars.exclude_fields_full = exclude_fields_full;
                 } else if(args.query == "*" && entry.has_highlights) {
                     highlight_items.clear();
                     highlight_field_names.clear();
                     highlight_full_field_names.clear();
+                }
+            } else {
+                highlight_field_names.clear();
+                highlight_full_field_names.clear();
+                include_fields_vec.clear();
+                exclude_fields_vec.clear();
+                highlight_items.clear();
+
+                const auto& search_schema = collection->_get_schema();
+
+                StringUtils::split(common_args.highlight_fields, highlight_field_names, ",");
+                StringUtils::split(common_args.highlight_full_fields, highlight_full_field_names, ",");
+
+                for(auto& f_name: common_args.include_fields) {
+                    auto field_op = collection->extract_field_name(f_name, search_schema, include_fields_vec, false, collection->get_enable_nested_fields());
+                    if(!field_op.ok()) {
+                        if(field_op.code() == 404) {
+                            // field need not be part of schema to be included (could be a stored value in the doc)
+                            include_fields_vec.push_back(f_name);
+                            continue;
+                        }
+                        return Option<nlohmann::json>(field_op.code(), field_op.error());
+                    }
+                }
+                for(auto& f_name: common_args.exclude_fields) {
+                    auto field_op = collection->extract_field_name(f_name, search_schema, exclude_fields_vec, false, collection->get_enable_nested_fields());
+                    if(!field_op.ok()) {
+                        if(field_op.code() == 404) {
+                            // field need not be part of schema to be excluded (could be a stored value in the doc)
+                            exclude_fields_vec.push_back(f_name);
+                            continue;
+                        }
+                        return Option<nlohmann::json>(field_op.code(), field_op.error());
+                    }
+                }
+                for(auto& f_name: include_fields_vec) {
+                    include_fields_full.insert(f_name);
+                }
+                for(auto& f_name: exclude_fields_vec) {
+                        if(f_name == "out_of") {
+                        // `out_of` is strictly a meta-field, but we handle it since it's useful
+                        continue;
+                    }
+                    exclude_fields_full.insert(f_name);
+                }
+                highlight_items.clear();
+                if(common_args.query != "*") {
+                    auto index = collection->_get_index();
+                    collection->process_highlight_fields(search_params->search_fields, include_fields_full, exclude_fields_full,
+                                            highlight_field_names, highlight_full_field_names, common_args.infixes, search_params->q_tokens,
+                                            search_params->qtoken_set, highlight_items, index, collection->_get_schema(), collection->get_enable_nested_fields());
+
+                    for(auto& highlight_item: highlight_items) {
+                        if(highlight_item.fully_highlighted) {
+                            has_atleast_one_fully_highlighted_field = true;
+                        }
+                    }
+                    collection_highlight_vars_vec.push_back({highlight_items, has_atleast_one_fully_highlighted_field, true, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full});
+                }
+                else {
+                    collection_highlight_vars_vec.push_back({highlight_items, has_atleast_one_fully_highlighted_field, false, highlight_field_names, highlight_full_field_names, include_fields_full, exclude_fields_full});
+                }
+
+                index_symbols = collection_highlight_vars_vec.back().index_symbols;
+                for(char c: collection->get_symbols_to_index()) {
+                    index_symbols[uint8_t(c)] = 1;
                 }
             }
 
@@ -4122,7 +4138,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
         result["facet_counts"].push_back(facet_result);
     }
     if(common_args.exclude_fields.count("out_of") == 0) {
-        result["out_of"] = args_map.size() > 0 ? search_params->out_of : num_documents.load();
+        result["out_of"] = search_args_vec.size() > 0 ? search_params->out_of : num_documents.load();
     }
 
     result["search_cutoff"] = search_cutoff;

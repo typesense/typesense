@@ -292,11 +292,6 @@ private:
                                const std::string& highlight_start_tag, const std::string& highlight_end_tag,
                                const uint8_t* index_symbols, const match_index_t& match_index) const;
 
-    static Option<bool> extract_field_name(const std::string& field_name,
-                                           const tsl::htrie_map<char, field>& search_schema,
-                                           std::vector<std::string>& processed_search_fields,
-                                           bool extract_only_string_fields,
-                                           bool enable_nested_fields);
 
     static Option<bool> flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields_found,
                                                          const tsl::htrie_map<char, field>& schema,
@@ -426,6 +421,13 @@ public:
                             std::vector<std::vector<std::string>>& q_phrases,
                             const std::string& locale, const bool already_segmented) const;
 
+    static Option<bool> extract_field_name(const std::string& field_name,
+                                        const tsl::htrie_map<char, field>& search_schema,
+                                        std::vector<std::string>& processed_search_fields,
+                                        bool extract_only_string_fields,
+                                        bool enable_nested_fields);
+    
+
     // PUBLIC OPERATIONS
 
     nlohmann::json get_summary_json() const;
@@ -524,8 +526,9 @@ public:
                                   const std::string& vector_query_str = "");
                                   
     Option<nlohmann::json> get_result(raw_search_args& common_args, search_args* search_params, std::vector<CollectionKVGroup>& collection_kvs, 
-    std::unordered_map<uint32_t, Collection*> collection_map = {},
-    const std::unordered_map<KV*, std::pair<raw_search_args*,search_args*>>& args_map = {});
+                                    std::unordered_map<uint32_t, Collection*> collection_map = {},
+                                    std::vector<collection_highlight_vars_t> collection_highlight_vars_vec = {},
+                                    const std::vector<std::pair<raw_search_args*, search_args*>>& search_args_vec = {});
 
     Option<bool> run_search(search_args* search_params,std::vector<CollectionKVGroup>& collection_kvs);
 
