@@ -3705,13 +3705,12 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
             uint8_t* index_symbols = nullptr;
             const auto& search_schema = collection->_get_schema();
 
-            if(collection_highlight_vars_vec.size() > 0) {
+            if(collection_highlight_vars_vec.size() > 0 && search_args_vec.size() > 0) {
                 if(field_order_kv.query_id < 0 || field_order_kv.query_id >= collection_highlight_vars_vec.size()) {
                     LOG(INFO) << "Invalid query id: " << field_order_kv.query_id;
                     LOG(INFO) << "collection_highlight_vars_vec size: " << collection_highlight_vars_vec.size();
                     return Option<nlohmann::json>(400, "Invalid query id");
                 }
-
                 auto& entry = collection_highlight_vars_vec.at(field_order_kv.query_id);
                 highlight_items = entry.highlight_items;
                 has_atleast_one_fully_highlighted_field = entry.has_atleast_one_fully_highlighted_field;
@@ -3720,37 +3719,12 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
                 include_fields_full = entry.include_fields_full;
                 exclude_fields_full = entry.exclude_fields_full;
                 index_symbols = entry.index_symbols;
-                if(args.query != "*" && !entry.has_highlights) {
-                    auto index = collection->index;
-                    process_highlight_fields(search_params->search_fields, include_fields_full, exclude_fields_full,
-                                            highlight_field_names, highlight_full_field_names, args.infixes, search_params->q_tokens,
-                                            search_params->qtoken_set, highlight_items, index, collection->_get_schema(), collection->enable_nested_fields);
-                    for(auto& highlight_item: highlight_items) {
-                        if(highlight_item.fully_highlighted) {
-                            has_atleast_one_fully_highlighted_field = true;
-                        }
-                    }
-                    auto& collection_highlight_vars = collection_highlight_vars_map[field_order_kv.collection_id];
-                    collection_highlight_vars.highlight_items = highlight_items;
-                    collection_highlight_vars.has_atleast_one_fully_highlighted_field = has_atleast_one_fully_highlighted_field;
-                    collection_highlight_vars.has_highlights = true;
-                    collection_highlight_vars.highlight_field_names = highlight_field_names;
-                    collection_highlight_vars.highlight_full_field_names = highlight_full_field_names;
-                    collection_highlight_vars.include_fields_full = include_fields_full;
-                    collection_highlight_vars.exclude_fields_full = exclude_fields_full;
-                } else if(args.query == "*" && entry.has_highlights) {
-                    highlight_items.clear();
-                    highlight_field_names.clear();
-                    highlight_full_field_names.clear();
-                }
-            } else {
+            } else if(collection_highlight_vars_vec.size() == 0) {
                 highlight_field_names.clear();
                 highlight_full_field_names.clear();
                 include_fields_vec.clear();
                 exclude_fields_vec.clear();
                 highlight_items.clear();
-
-                const auto& search_schema = collection->_get_schema();
 
                 StringUtils::split(common_args.highlight_fields, highlight_field_names, ",");
                 StringUtils::split(common_args.highlight_full_fields, highlight_full_field_names, ",");
