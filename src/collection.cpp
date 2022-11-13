@@ -3706,7 +3706,7 @@ Option<nlohmann::json> Collection::get_result(raw_search_args& common_args, sear
             const auto& search_schema = collection->_get_schema();
 
             if(collection_highlight_vars_vec.size() > 0) {
-                if(field_order_kv.query_id < 0 || field_order_kv.query_id >= collection_highlight_vars_vec.size()) {
+                if(field_order_kv.query_id >= collection_highlight_vars_vec.size()) {
                     LOG(INFO) << "Invalid query id: " << field_order_kv.query_id;
                     LOG(INFO) << "collection_highlight_vars_vec size: " << collection_highlight_vars_vec.size();
                     return Option<nlohmann::json>(400, "Invalid query id");
