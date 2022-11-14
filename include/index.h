@@ -540,7 +540,9 @@ public:
 
     enum {COMBINATION_MAX_LIMIT = 10000};
     enum {COMBINATION_MIN_LIMIT = 10};
-    enum {MAX_CANDIDATES_DEFAULT = 4};
+
+    enum {NUM_CANDIDATES_DEFAULT_MIN = 4};
+    enum {NUM_CANDIDATES_DEFAULT_MAX = 10};
 
     // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
     // in the query that have the least individual hits one by one until enough results are found.

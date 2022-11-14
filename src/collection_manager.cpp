@@ -918,7 +918,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     if(!max_candidates) {
-        max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::MAX_CANDIDATES_DEFAULT;
+        max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT :
+                         (collection->get_num_documents() < 500000 ? Index::NUM_CANDIDATES_DEFAULT_MAX :
+                          Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
