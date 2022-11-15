@@ -590,6 +590,13 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         field_json[fields::infix] = false;
     }
 
+    if(field_json[fields::type] == field_types::OBJECT || field_json[fields::type] == field_types::OBJECT_ARRAY) {
+        if(!enable_nested_fields) {
+            return Option<bool>(400, "Type `object` or `object[]` can be used only when nested fields are enabled by "
+                                     "setting` enable_nested_fields` to true.");
+        }
+    }
+
     auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
 
     if(field_json.count(fields::num_dim) == 0) {

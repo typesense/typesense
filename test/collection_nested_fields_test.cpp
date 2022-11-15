@@ -1920,3 +1920,29 @@ TEST_F(CollectionNestedFieldsTest, HighlightArrayInsideArrayOfObj) {
 
     ASSERT_EQ(highlight_meta_doc.dump(), results["hits"][0]["highlight"].dump());
 }
+
+TEST_F(CollectionNestedFieldsTest, ErrorWhenObjectTypeUsedWithoutEnablingNestedFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "details", "type": "object", "optional": false }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Type `object` or `object[]` can be used only when nested fields are enabled by setting` "
+              "enable_nested_fields` to true.", op.error());
+
+    schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "details", "type": "object[]", "optional": false }
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Type `object` or `object[]` can be used only when nested fields are enabled by setting` "
+              "enable_nested_fields` to true.", op.error());
+}
