@@ -102,6 +102,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<bool>("enable-access-logging", '\0', "Enable access logging.", false, false);
     options.add<int>("disk-used-max-percentage", '\0', "Reject writes when used disk space exceeds this percentage. Default: 100 (never reject).", false, 100);
+    options.add<int>("memory-used-max-percentage", '\0', "Reject writes when memory usage exceeds this percentage. Default: 100 (never reject).", false, 100);
     options.add<bool>("skip-writes", '\0', "Skip all writes except config changes. Default: false.", false, false);
 
     // DEPRECATED
