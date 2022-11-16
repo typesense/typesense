@@ -640,11 +640,11 @@ struct facet {
     facet_stats_t stats;
 
     //dictionary of key=>pair(range_id, range_val)
-    std::map<int64_t, std::pair<int32_t, std::string>> facet_range_map;
+    std::map<int64_t, std::string> facet_range_map;
 
     bool is_range_query;
 
-    bool get_range(int64_t key, std::pair<int32_t, std::string>& range_pair)
+    bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair)
     {
         if(facet_range_map.empty())
         {
@@ -654,7 +654,8 @@ struct facet {
 
         if(it != facet_range_map.end())
         {
-            range_pair = it->second;
+            range_pair.first = it->first;
+            range_pair.second = it->second;
             return true;
         }
 
@@ -662,7 +663,7 @@ struct facet {
     }
 
     explicit facet(const std::string& field_name, 
-        std::map<int64_t, std::pair<int32_t, std::string>> facet_range = {}, bool is_range_q = false)
+        std::map<int64_t, std::string> facet_range = {}, bool is_range_q = false)
         :field_name(field_name){
             facet_range_map = facet_range;
             is_range_query = is_range_q;
