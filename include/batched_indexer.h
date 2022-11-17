@@ -67,6 +67,9 @@ private:
     rocksdb::Iterator* skip_index_iter = nullptr;
     static constexpr const char* SKIP_INDICES_PREFIX = "$XP";
 
+    std::string skip_index_upper_bound_key = std::string(SKIP_INDICES_PREFIX) + "`";  // cannot inline this
+    rocksdb::Slice* skip_index_iter_upper_bound = nullptr;
+
     // When set, all writes (both live and log serialized) are skipped with 422 response
     const std::atomic<bool>& skip_writes;
 

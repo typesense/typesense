@@ -29,12 +29,15 @@ struct export_state_t: public req_state_t {
     bool filtered_export = false;
 
     rocksdb::Iterator* it = nullptr;
+    std::string iter_upper_bound_key;
+    rocksdb::Slice* iter_upper_bound = nullptr;
 
     ~export_state_t() override {
         for(auto& kv: index_ids) {
             delete [] kv.second;
         }
 
+        delete iter_upper_bound;
         delete it;
     }
 };

@@ -436,8 +436,10 @@ Option<bool> RateLimitManager::init(Store *store) {
     else {
         last_rule_id = 0;
     }
+
     std::vector<std::string> rule_json_strs;
-    store->scan_fill(RULES_PREFIX, rule_json_strs);
+    store->scan_fill(std::string(RULES_PREFIX) + "_", std::string(RULES_PREFIX) + "`", rule_json_strs);
+
     for(const auto& rule_json_str: rule_json_strs) {
         nlohmann::json rule_json = nlohmann::json::parse(rule_json_str);
         Option<rate_limit_rule_t> rule_option = parse_rule(rule_json);
@@ -460,8 +462,10 @@ Option<bool> RateLimitManager::init(Store *store) {
     else {
         last_ban_id = 0;
     }
+
     std::vector<std::string> ban_json_strs;
-    store->scan_fill(BANS_PREFIX, ban_json_strs);
+    store->scan_fill(std::string(BANS_PREFIX) + "_", std::string(BANS_PREFIX) + "`", ban_json_strs);
+
     for(const auto& ban_json_str: ban_json_strs) {
         nlohmann::json ban_json = nlohmann::json::parse(ban_json_str);
         rate_limit_status_t ban_status;

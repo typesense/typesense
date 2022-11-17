@@ -3266,7 +3266,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
     // Now, we can index existing data onto the updated schema
     const std::string seq_id_prefix = get_seq_id_collection_prefix();
-    rocksdb::Iterator* iter = store->scan(seq_id_prefix);
+    std::string upper_bound_key = get_seq_id_collection_prefix() + "`";  // cannot inline this
+    rocksdb::Slice upper_bound(upper_bound_key);
+
+    rocksdb::Iterator* iter = store->scan(seq_id_prefix, &upper_bound);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
     size_t num_found_docs = 0;
@@ -3662,8 +3665,10 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
     // data validations: here we ensure that already stored data is compatible with requested schema changes
     const std::string seq_id_prefix = get_seq_id_collection_prefix();
+    std::string upper_bound_key = get_seq_id_collection_prefix() + "`";  // cannot inline this
+    rocksdb::Slice upper_bound(upper_bound_key);
 
-    rocksdb::Iterator* iter = store->scan(seq_id_prefix);
+    rocksdb::Iterator* iter = store->scan(seq_id_prefix, &upper_bound);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
     size_t num_found_docs = 0;

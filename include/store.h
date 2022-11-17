@@ -168,7 +168,7 @@ public:
         return status.ok();
     }
 
-    rocksdb::Iterator* scan(const std::string & prefix, const rocksdb::Slice* iterate_upper_bound = nullptr) {
+    rocksdb::Iterator* scan(const std::string & prefix, const rocksdb::Slice* iterate_upper_bound) {
         std::shared_lock lock(mutex);
         rocksdb::ReadOptions read_opts;
         if(iterate_upper_bound) {
@@ -185,10 +185,14 @@ public:
         return it;
     };
 
-    void scan_fill(const std::string & prefix, std::vector<std::string> & values) {
+    void scan_fill(const std::string& prefix_start, const std::string& prefix_end, std::vector<std::string> & values) {
+        rocksdb::ReadOptions read_opts;
+        rocksdb::Slice upper_bound(prefix_end);
+        read_opts.iterate_upper_bound = &upper_bound;
+
         std::shared_lock lock(mutex);
-        rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
-        for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
+        rocksdb::Iterator *iter = db->NewIterator(read_opts);
+        for (iter->Seek(prefix_start); iter->Valid() && iter->key().starts_with(prefix_start); iter->Next()) {
             values.push_back(iter->value().ToString());
         }
 

@@ -27,7 +27,9 @@ Option<bool> AuthManager::init(Store* store, const std::string& bootstrap_auth_k
     }
 
     std::vector<std::string> api_key_json_strs;
-    store->scan_fill(API_KEYS_PREFIX, api_key_json_strs);
+    store->scan_fill(std::string(API_KEYS_PREFIX) + "_",
+                     std::string(API_KEYS_PREFIX) + "`",
+                     api_key_json_strs);
 
     LOG(INFO) << "Indexing " << api_key_json_strs.size() << " API key(s) found on disk.";
 
@@ -48,7 +50,8 @@ Option<std::vector<api_key_t>> AuthManager::list_keys() const {
     std::shared_lock lock(mutex);
 
     std::vector<std::string> api_key_json_strs;
-    store->scan_fill(API_KEYS_PREFIX, api_key_json_strs);
+    store->scan_fill(std::string(API_KEYS_PREFIX) + "_",
+                     std::string(API_KEYS_PREFIX) + "`", api_key_json_strs);
 
     std::vector<api_key_t> stored_api_keys;
 

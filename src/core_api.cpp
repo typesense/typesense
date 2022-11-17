@@ -618,7 +618,9 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         }
 
         if(simple_filter_query.empty()) {
-            export_state->it = collectionManager.get_store()->scan(seq_id_prefix);
+            export_state->iter_upper_bound_key = collection->get_seq_id_collection_prefix() + "`";  // cannot inline this
+            export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
+            export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
             auto filter_ids_op = collection->get_filter_ids(simple_filter_query, export_state->index_ids);
 
