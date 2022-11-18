@@ -661,6 +661,55 @@ TEST_F(CollectionSpecificMoreTest, ExactFilteringOnArray) {
                                  false, false).get();
 
     ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("*", {"tags"}, "tags:=§ 23", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("*", {"tags"}, "tags:=§ 23 Satz", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, false).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, ExactFilteringOnArray2) {
+    auto schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "capability", "type": "string[]", "facet": true}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["capability"] = {"Encoding capabilities for network communications",
+                            "Obfuscation capabilities"};
+    coll1->add(doc1.dump());
+
+    auto results = coll1->search("*", {}, "capability:=Encoding capabilities", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                                 Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, false).get();
+
+    ASSERT_EQ(0, results["hits"].size());
 }
 
 TEST_F(CollectionSpecificMoreTest, SplitTokensCrossFieldMatching) {

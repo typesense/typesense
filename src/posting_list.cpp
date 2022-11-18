@@ -1124,10 +1124,15 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
         else {
             // field is an array
 
+            struct token_index_meta_t {
+                std::bitset<32> token_index;
+                bool has_last_token;
+            };
+
             for(size_t i = 0; i < num_ids; i++) {
                 uint32_t id = ids[i];
 
-                std::map<size_t, std::bitset<32>> array_index_to_token_index;
+                std::map<size_t, token_index_meta_t> array_index_to_token_index;
                 bool premature_exit = false;
 
                 for(int j = its.size()-1; j >= 0; j--) {
@@ -1165,13 +1170,14 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
                                 size_t next_offset = (size_t) offsets[start_offset_index + 1];
                                 if(next_offset == 0 && pos == its.size()) {
                                     // indicates that token is the last token on the doc
+                                    array_index_to_token_index[array_index].has_last_token = true;
                                     has_atleast_one_last_token = true;
                                     start_offset_index++;
                                 }
                             }
 
                             if(found_matching_index) {
-                                array_index_to_token_index[array_index].set(j+1);
+                                array_index_to_token_index[array_index].token_index.set(j+1);
                             }
 
                             start_offset_index++;  // skip current value which is the array index or flag for last index
@@ -1205,7 +1211,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
                 if(!premature_exit) {
                     // iterate array index to token index to check if atleast 1 array position contains all tokens
                     for(auto& kv: array_index_to_token_index) {
-                        if(kv.second.count() == its.size()) {
+                        if(kv.second.token_index.count() == its.size() && kv.second.has_last_token) {
                             exact_ids[exact_id_index++] = id;
                             break;
                         }
