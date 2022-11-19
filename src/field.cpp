@@ -799,7 +799,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
 Option<bool> field::flatten_doc(nlohmann::json& document,
                                 const std::vector<field>& nested_fields,
-                                std::vector<field>& flattened_fields) {
+                                bool missing_is_ok, std::vector<field>& flattened_fields) {
 
     std::unordered_map<std::string, field> flattened_fields_map;
 
@@ -817,7 +817,7 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
             continue;
         }
 
-        if(op.code() == 404 && nested_field.optional) {
+        if(op.code() == 404 && (missing_is_ok || nested_field.optional)) {
             continue;
         } else {
             return op;

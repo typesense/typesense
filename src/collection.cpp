@@ -264,6 +264,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                                                search_schema, dynamic_fields,
                                                                nested_fields,
                                                                fallback_field_type,
+                                                               record.is_update,
                                                                new_fields, nested_fields_found,
                                                                enable_nested_fields);
                 if(!new_fields_op.ok()) {
@@ -3697,7 +3698,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             Option<bool> new_fields_op = detect_new_fields(document, DIRTY_VALUES::DROP,
                                                            updated_search_schema, new_dynamic_fields,
                                                            new_nested_fields,
-                                                           fallback_field_type,
+                                                           fallback_field_type, false,
                                                            new_fields, nested_fields_found,
                                                            enable_nested_fields);
             if(!new_fields_op.ok()) {
@@ -3859,6 +3860,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                                            const std::unordered_map<std::string, field>& dyn_fields,
                                            const tsl::htrie_map<char, field>& nested_fields,
                                            const std::string& fallback_field_type,
+                                           bool is_update,
                                            std::vector<field>& new_fields,
                                            std::vector<field>& nested_fields_found,
                                            const bool enable_nested_fields) {
@@ -3930,7 +3932,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     }
 
     if(enable_nested_fields) {
-        return flatten_and_identify_new_fields(document, nested_fields_found, schema, new_fields);
+        return flatten_and_identify_new_fields(document, nested_fields_found, schema, is_update, new_fields);
     }
 
     return Option<bool>(true);
@@ -3939,13 +3941,14 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
 Option<bool> Collection::flatten_and_identify_new_fields(nlohmann::json& doc,
                                                          const std::vector<field>& nested_fields_found,
                                                          const tsl::htrie_map<char, field>& schema,
+                                                         bool missing_is_ok,
                                                          std::vector<field>& new_fields) {
     if(nested_fields_found.empty()) {
         return Option<bool>(true);
     }
 
     std::vector<field> flattened_fields;
-    auto flatten_op = field::flatten_doc(doc, nested_fields_found, flattened_fields);
+    auto flatten_op = field::flatten_doc(doc, nested_fields_found, missing_is_ok, flattened_fields);
     if(!flatten_op.ok()) {
         return flatten_op;
     }

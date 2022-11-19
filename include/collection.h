@@ -163,6 +163,7 @@ private:
                                           const std::unordered_map<std::string, field>& dyn_fields,
                                           const tsl::htrie_map<char, field>& nested_fields,
                                           const std::string& fallback_field_type,
+                                          bool is_update,
                                           std::vector<field>& new_fields,
                                           std::vector<field>& nested_fields_found,
                                           bool enable_nested_fields);
@@ -238,6 +239,7 @@ private:
 
     static Option<bool> flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields_found,
                                                          const tsl::htrie_map<char, field>& schema,
+                                                         bool missing_is_ok,
                                                          std::vector<field>& new_fields);
 
     bool is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const;

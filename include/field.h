@@ -425,7 +425,7 @@ struct field {
                                       bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_doc(nlohmann::json& document, const std::vector<field>& nested_fields,
-                                    std::vector<field>& flattened_fields);
+                                    bool missing_is_ok, std::vector<field>& flattened_fields);
 
     static Option<bool> flatten_stored_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields);
 };

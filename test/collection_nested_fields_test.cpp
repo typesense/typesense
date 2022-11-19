@@ -56,7 +56,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
     // array of objects
     std::vector<field> flattened_fields;
     nlohmann::json doc = nlohmann::json::parse(json_str);
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
     ASSERT_EQ(5, flattened_fields.size());
 
     for(const auto& f: flattened_fields) {
@@ -99,7 +99,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         field("company", field_types::OBJECT, false)
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
 
     expected_json = R"(
         {
@@ -126,14 +126,14 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         field("locations.address", field_types::OBJECT, false)
     };
 
-    ASSERT_FALSE(field::flatten_doc(doc, nested_fields, flattened_fields).ok()); // must be of type object_array
+    ASSERT_FALSE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok()); // must be of type object_array
 
     nested_fields = {
         field("locations.address", field_types::OBJECT_ARRAY, false)
     };
 
     flattened_fields.clear();
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
 
     expected_json = R"(
         {
@@ -165,7 +165,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         field("company.name", field_types::STRING, false)
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
 
     expected_json = R"(
         {
@@ -216,7 +216,7 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
     // array of objects
     std::vector<field> flattened_fields;
     nlohmann::json doc = nlohmann::json::parse(json_str);
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
     ASSERT_EQ(5, flattened_fields.size());
 
     for(const auto& f: flattened_fields) {
@@ -232,7 +232,7 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
         field("employees", field_types::OBJECT, false)
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
     ASSERT_EQ(5, flattened_fields.size());
 
     for(const auto& f: flattened_fields) {
@@ -252,7 +252,7 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
         field("employees.detail.tags", field_types::STRING_ARRAY, false),
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
     ASSERT_EQ(3, flattened_fields.size());
 
     ASSERT_EQ("employees.detail.tags",flattened_fields[0].name);
@@ -277,7 +277,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
     std::vector<field> flattened_fields;
 
     nlohmann::json doc = nlohmann::json::parse(json_str);
-    auto flatten_op = field::flatten_doc(doc, nested_fields, flattened_fields);
+    auto flatten_op = field::flatten_doc(doc, nested_fields, false, flattened_fields);
     ASSERT_FALSE(flatten_op.ok());
     ASSERT_EQ("Field `locations` not found.", flatten_op.error());
 
@@ -286,7 +286,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
     };
 
     flattened_fields.clear();
-    flatten_op = field::flatten_doc(doc, nested_fields, flattened_fields);
+    flatten_op = field::flatten_doc(doc, nested_fields, false, flattened_fields);
     ASSERT_FALSE(flatten_op.ok());
     ASSERT_EQ("Field `company` has an incorrect type.", flatten_op.error());
 }
@@ -1945,4 +1945,71 @@ TEST_F(CollectionNestedFieldsTest, ErrorWhenObjectTypeUsedWithoutEnablingNestedF
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Type `object` or `object[]` can be used only when nested fields are enabled by setting` "
               "enable_nested_fields` to true.", op.error());
+}
+
+TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "contributors", "type": "object", "optional": false},
+          {"name": "title", "type": "string", "optional": false}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "contributors": {"first_name": "John", "last_name": "Galt"}
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // update document partially
+
+    doc1 = R"({
+        "id": "0",
+        "title": "Title Beta"
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("beta", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // emplace document partially
+
+    doc1 = R"({
+        "id": "0",
+        "title": "Title Gamma"
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("gamma", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // update a sub-field of an object
+    doc1 = R"({
+        "id": "0",
+        "contributors": {"last_name": "Shaw"}
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("shaw", {"contributors"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // should not be able to find the old name
+
+    results = coll1->search("galt", {"contributors"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
 }
