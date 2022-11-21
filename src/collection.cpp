@@ -18,8 +18,6 @@
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
-const std::regex base_pattern("[a-z]+\\(.*\\)");
-const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\, ([0-9]+)\\]");
 
 
 struct sort_fields_guard_t {
@@ -1030,19 +1028,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     // validate facet fields
     for(const std::string & facet_field: facet_fields) {
-        facet a_facet("");
         
-        if(!parse_facet(facet_field, a_facet)){
-            std::string error = "facet format error";
-            return Option<nlohmann::json>(404, error);
+        const auto& res = parse_facet(facet_field, facets);
+        if(!res.ok()){
+            return Option<nlohmann::json>(res.code(), res.error());
         }
-        
-        if(search_schema.count(a_facet.field_name) == 0 || !search_schema.at(a_facet.field_name).facet) {
-            std::string error = "Could not find a facet field named `" + a_facet.field_name + "` in the schema.";
-            return Option<nlohmann::json>(404, error);
-        }
-        
-        facets.emplace_back(std::move(a_facet));
     }
 
     // parse facet query
@@ -4028,23 +4018,27 @@ bool Collection::get_enable_nested_fields() {
     return enable_nested_fields;
 };
 
-bool Collection::parse_facet(const std::string& facet_field, facet& a_facet) const{
+Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const{
+   const std::regex base_pattern("[a-z]+\\(.*\\)");
+   const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\, ([0-9]+)\\]");
+   
+   if(facet_field.find(":") != std::string::npos){ //range based facet
 
-   if(facet_field.find(":") != std::string::npos){
-
-        if(!std::regex_match(facet_field, base_pattern))
-            return false;
+        if(!std::regex_match(facet_field, base_pattern)){
+            std::string error = "range string base pattern not matched!!!!";
+            return Option<bool>(400, error);
+        }
 
         auto startpos = facet_field.find("(");
         auto field_name = facet_field.substr(0, startpos);
 
         const field& a_field = search_schema.at(field_name);
         if(!a_field.is_int32() && !a_field.is_int64()){
-            LOG (ERROR) << "Range facet is restricted to Numeric fields only.";
-            return false;
+            std::string error = "Range facet is restricted to Numeric fields only.";
+            return Option<bool>(400, error);
         }
 
-        new (&a_facet)facet(field_name);
+        facet a_facet(field_name);
 
         //starting after "(" and excluding ")" 
         auto range_string = std::string(facet_field.begin() + startpos + 1, facet_field.end() - 1);
@@ -4065,7 +4059,8 @@ bool Collection::parse_facet(const std::string& facet_field, facet& a_facet) con
                     range_open=false;
                 }
                 else{
-                    return false;
+                    result.clear();
+                    break;
                 }
             }
             else if(range_string[index] == ',' && range_open == false){
@@ -4077,7 +4072,8 @@ bool Collection::parse_facet(const std::string& facet_field, facet& a_facet) con
                     range_open=true;
                 }
                 else{
-                    return false;
+                    result.clear();
+                    break;
                 }
             }
 
@@ -4085,17 +4081,20 @@ bool Collection::parse_facet(const std::string& facet_field, facet& a_facet) con
         }   
 
         if((result.empty()) || (range_open==true)){
-            return false;
+            std::string error = "error spliting the range string!!!!";
+            return Option<bool>(400, error);
         }
 
         std::vector<std::tuple<int64_t, int64_t, std::string>> tupVec;
 
         auto& range_map = a_facet.facet_range_map;
         int range_id = 0;
-        for(auto range : result){
+        for(const auto& range : result){
             //validate each range syntax
-            if(!std::regex_match(range, range_pattern))
-                return false;
+            if(!std::regex_match(range, range_pattern)){
+                std::string error = "Range String range pattern not matched!!!";
+                return Option<bool>(400, error);
+            }
     
             auto pos1 = range.find(":");
             std::string range_val = range.substr(0, pos1);
@@ -4112,24 +4111,33 @@ bool Collection::parse_facet(const std::string& facet_field, facet& a_facet) con
         //sort the range values so that we can check continuity
         sort(tupVec.begin(), tupVec.end());
 
-        for(auto tup : tupVec){
+        for(const auto& tup : tupVec){
 
             int64_t lower_range = std::get<0>(tup);
             int64_t upper_range = std::get<1>(tup);
             std::string range_val = std::get<2>(tup);
             //check if ranges are continous or not
             if((!range_map.empty()) && (range_map.find(lower_range)== range_map.end())){
-                LOG (ERROR) << "Ranges in range facet syntax should be continous!!!!";
-                return false;
+                std::string error = "Ranges in range facet syntax should be continous!!!!";
+                return Option<bool>(400, error);
             }
             
             range_map[upper_range] =  range_val;
         }
+        
         a_facet.is_range_query = true;
+
+        facets.emplace_back(std::move(a_facet));
     }
-    else{
-        new(&a_facet)facet(facet_field);
+    else{//normal facet
+        facets.emplace_back(facet(facet_field));
     }
 
-    return true;
+    if(search_schema.count(facets.back().field_name) == 0 || !search_schema.at(facets.back().field_name).facet) {
+            std::string error = "Could not find a facet field named `" + facets.back().field_name + "` in the schema.";
+            facets.pop_back();
+            return Option<bool>(400, error);
+        }
+
+    return Option<bool>(true);
 }

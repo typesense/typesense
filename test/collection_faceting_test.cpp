@@ -996,14 +996,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     };
     std::vector<facet> range_facets;
     for(const std::string & facet_field: range_facet_fields) {
-        facet a_facet("");
-
-        if(!coll1->parse_facet(facet_field, a_facet)){
-            std::string error = "facet format error";
-            continue;
-        }
-        
-        range_facets.emplace_back(std::move(a_facet));
+        coll1->parse_facet(facet_field, range_facets);
     }
     ASSERT_EQ(2, range_facets.size());
     
@@ -1023,13 +1016,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     };
     std::vector<facet> normal_facets;
     for(const std::string & facet_field: normal_facet_fields) {
-        facet a_facet("");
-        
-        if(!coll1->parse_facet(facet_field, a_facet)){
-            std::string error = "facet format error";
-        }
-        
-        normal_facets.emplace_back(std::move(a_facet));
+        coll1->parse_facet(facet_field, normal_facets);
     }
     ASSERT_EQ(2, normal_facets.size());
 
@@ -1045,13 +1032,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     };
     std::vector<facet> mixed_facets;
     for(const std::string & facet_field: mixed_facet_fields) {
-        facet a_facet("");
-        
-        if(!coll1->parse_facet(facet_field, a_facet)){
-            std::string error = "facet format error";
-        }
-        
-        mixed_facets.emplace_back(std::move(a_facet));
+        coll1->parse_facet(facet_field, mixed_facets);
     }
     ASSERT_EQ(3, mixed_facets.size());
     

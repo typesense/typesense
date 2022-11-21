@@ -439,7 +439,7 @@ public:
 
     bool get_enable_nested_fields();
 
-    bool parse_facet(const std::string& facet_field, facet& facet) const;
+    Option<bool> parse_facet(const std::string& facet_field, std::vector<facet>& facets) const;
 
     // Override operations
 
