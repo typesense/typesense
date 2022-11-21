@@ -4025,7 +4025,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
    if(facet_field.find(":") != std::string::npos){ //range based facet
 
         if(!std::regex_match(facet_field, base_pattern)){
-            std::string error = "range string base pattern not matched!!!!";
+            std::string error = "Range string base pattern not matched.";
             return Option<bool>(400, error);
         }
 
@@ -4081,18 +4081,17 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         }   
 
         if((result.empty()) || (range_open==true)){
-            std::string error = "error spliting the range string!!!!";
+            std::string error = "Error splitting the range string.";
             return Option<bool>(400, error);
         }
 
         std::vector<std::tuple<int64_t, int64_t, std::string>> tupVec;
 
         auto& range_map = a_facet.facet_range_map;
-        int range_id = 0;
         for(const auto& range : result){
             //validate each range syntax
             if(!std::regex_match(range, range_pattern)){
-                std::string error = "Range String range pattern not matched!!!";
+                std::string error = "Range String range pattern not matched.";
                 return Option<bool>(400, error);
             }
     
@@ -4118,7 +4117,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             std::string range_val = std::get<2>(tup);
             //check if ranges are continous or not
             if((!range_map.empty()) && (range_map.find(lower_range)== range_map.end())){
-                std::string error = "Ranges in range facet syntax should be continous!!!!";
+                std::string error = "Ranges in range facet syntax should be continous.";
                 return Option<bool>(400, error);
             }
             

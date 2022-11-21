@@ -3041,7 +3041,7 @@ TEST_F(CollectionSpecificTest, RangeFacetContinuity) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000,
                                  true, false, true, "", true);
-    ASSERT_FALSE(results.error().empty());
+    ASSERT_STREQ("Ranges in range facet syntax should be continous.", results.error().c_str());
 
     auto results2 = coll1->search("TamilNadu", {"state"},
                                  "", {"visitors(Busy:[0, 200000], VeryBusy:[199999, 500000])"},
@@ -3051,7 +3051,7 @@ TEST_F(CollectionSpecificTest, RangeFacetContinuity) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000,
                                  true, false, true, "", true);
-    ASSERT_FALSE(results2.error().empty());
+    ASSERT_STREQ("Ranges in range facet syntax should be continous.", results2.error().c_str());
     
     collectionManager.drop_collection("coll1");
 }
@@ -3108,7 +3108,7 @@ TEST_F(CollectionSpecificTest, RangeFacetTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000,
                                  true, false, true, "", true);
-    ASSERT_FALSE(results.error().empty());
+    ASSERT_STREQ("Error splitting the range string.", results.error().c_str());
 
     auto results2 = coll1->search("TamilNadu", {"state"},
                                  "", {"visitors(Busy:[0, 200000], VeryBusy:200000, 500000])"}, //missing '[' in second range
@@ -3118,7 +3118,7 @@ TEST_F(CollectionSpecificTest, RangeFacetTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000,
                                  true, false, true, "", true);
-    ASSERT_FALSE(results2.error().empty());
+    ASSERT_STREQ("Error splitting the range string.", results2.error().c_str());
 
     auto results3 = coll1->search("TamilNadu", {"state"},
                                  "", {"visitors(Busy:[0, 200000] VeryBusy:[200000, 500000])"}, //missing ',' between ranges
@@ -3128,7 +3128,7 @@ TEST_F(CollectionSpecificTest, RangeFacetTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000,
                                  true, false, true, "", true);
-    ASSERT_FALSE(results3.error().empty());
+    ASSERT_STREQ("Error splitting the range string.", results3.error().c_str());
 
     auto results4 = coll1->search("TamilNadu", {"state"},
                                  "", {"visitors(Busy:[0 200000], VeryBusy:[200000, 500000])"}, //missing ',' between first ranges values
@@ -3138,7 +3138,7 @@ TEST_F(CollectionSpecificTest, RangeFacetTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000,
                                  true, false, true, "", true);
-    ASSERT_FALSE(results4.error().empty());
+    ASSERT_STREQ("Range String range pattern not matched.", results4.error().c_str());
 
     auto results5 = coll1->search("TamilNadu", {"state"},
                                  "", {"visitors(Busy:[0, 200000 VeryBusy:200000, 500000])"}, //missing '],' and '['
@@ -3148,7 +3148,7 @@ TEST_F(CollectionSpecificTest, RangeFacetTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000,
                                  true, false, true, "", true);
-    ASSERT_FALSE(results5.error().empty());
+    ASSERT_STREQ("Range String range pattern not matched.", results5.error().c_str());
     
     collectionManager.drop_collection("coll1");
 }
