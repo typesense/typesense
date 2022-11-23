@@ -1109,11 +1109,12 @@ TEST_F(CollectionAllFieldsTest, WildcardFieldAndDictionaryField) {
     ASSERT_EQ(1, results["hits"].size());
 
     auto schema = coll1->get_fields();
-    ASSERT_EQ(4, schema.size());
+    ASSERT_EQ(5, schema.size());
     ASSERT_EQ(".*", schema[0].name);
-    ASSERT_EQ("year", schema[1].name);
-    ASSERT_EQ("kinds.ZBXX", schema[2].name);
-    ASSERT_EQ("kinds.CGXX", schema[3].name);
+    ASSERT_EQ("kinds", schema[1].name);
+    ASSERT_EQ("year", schema[2].name);
+    ASSERT_EQ("kinds.ZBXX", schema[3].name);
+    ASSERT_EQ("kinds.CGXX", schema[4].name);
 
     // filter on object key
     results = coll1->search("*", {}, "kinds.CGXX: 13", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();

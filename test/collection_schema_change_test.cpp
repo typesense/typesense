@@ -1227,6 +1227,7 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldExplicitSchemaDropping) {
 
     ASSERT_EQ(4, fields.size());
     ASSERT_EQ(4, schema_map.size());
+    ASSERT_EQ(2, coll1->get_nested_fields().size());
 
     // drop object field
 
@@ -1244,6 +1245,7 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldExplicitSchemaDropping) {
 
     ASSERT_EQ(2, fields.size());
     ASSERT_EQ(2, schema_map.size());
+    ASSERT_EQ(1, coll1->get_nested_fields().size());
 
     // drop primitive nested field
 
@@ -1261,6 +1263,7 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldExplicitSchemaDropping) {
 
     ASSERT_EQ(1, fields.size());
     ASSERT_EQ(1, schema_map.size());
+    ASSERT_EQ(0, coll1->get_nested_fields().size());
 }
 
 TEST_F(CollectionSchemaChangeTest, NestedFieldSchemaAdditions) {

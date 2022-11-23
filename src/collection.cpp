@@ -257,7 +257,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
             if(!fallback_field_type.empty() || !dynamic_fields.empty() || !nested_fields.empty()) {
                 std::vector<field> new_fields;
-                std::vector<field> nested_fields_found;
                 std::unique_lock lock(mutex);
 
                 Option<bool> new_fields_op = detect_new_fields(record.doc, dirty_values,
@@ -265,27 +264,32 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                                                nested_fields,
                                                                fallback_field_type,
                                                                record.is_update,
-                                                               new_fields, nested_fields_found,
+                                                               new_fields,
                                                                enable_nested_fields);
                 if(!new_fields_op.ok()) {
                     record.index_failure(new_fields_op.code(), new_fields_op.error());
                 }
 
                 else if(!new_fields.empty()) {
+                    bool found_new_field = false;
                     for(auto& new_field: new_fields) {
-                        search_schema.emplace(new_field.name, new_field);
-                        fields.emplace_back(new_field);
+                        if(search_schema.find(new_field.name) == search_schema.end()) {
+                            found_new_field = true;
+                            search_schema.emplace(new_field.name, new_field);
+                            fields.emplace_back(new_field);
+                            if(new_field.nested) {
+                                nested_fields.emplace(new_field.name, new_field);
+                            }
+                        }
                     }
 
-                    for(auto& nested_field: nested_fields_found) {
-                        nested_fields.emplace(nested_field.name, nested_field);
-                    }
-
-                    auto persist_op = persist_collection_meta();
-                    if(!persist_op.ok()) {
-                        record.index_failure(persist_op.code(), persist_op.error());
-                    } else {
-                        index->refresh_schemas(new_fields, {});
+                    if(found_new_field) {
+                        auto persist_op = persist_collection_meta();
+                        if(!persist_op.ok()) {
+                            record.index_failure(persist_op.code(), persist_op.error());
+                        } else {
+                            index->refresh_schemas(new_fields, {});
+                        }
                     }
                 }
             }
@@ -347,7 +351,7 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                 }
 
             } else {
-                // remove flattened field values before storing on disk (.flat meta will be kept)
+                // remove flattened field values before storing on disk
                 remove_flat_fields(index_record.doc);
 
                 const std::string& seq_id_str = std::to_string(index_record.seq_id);
@@ -3110,8 +3114,10 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key,
     }
 
     if(!raw_doc && enable_nested_fields) {
-        field::flatten_stored_doc(document, nested_fields);
+        std::vector<field> flattened_fields;
+        field::flatten_doc(document, nested_fields, true, flattened_fields);
     }
+
     return Option<bool>(true);
 }
 
@@ -3193,6 +3199,9 @@ SynonymIndex* Collection::get_synonym_index() {
 }
 
 Option<bool> Collection::persist_collection_meta() {
+    // first compact nested fields (to keep only parents of expanded children)
+    field::compact_nested_fields(nested_fields);
+
     std::string coll_meta_json;
     StoreStatus status = store->get(Collection::get_meta_key(name), coll_meta_json);
 
@@ -3229,8 +3238,7 @@ Option<bool> Collection::persist_collection_meta() {
 
 Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields,
                                           const std::vector<field>& del_fields,
-                                          const std::string& this_fallback_field_type,
-                                          const tsl::htrie_map<char, field>& alter_nested_fields) {
+                                          const std::string& this_fallback_field_type) {
     // Update schema with additions (deletions can only be made later)
     std::vector<field> new_fields;
     tsl::htrie_map<char, field> schema_additions;
@@ -3252,11 +3260,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(f.nested) {
-            // We should add only root nested fields into `nested_fields` data structure
-            if(alter_nested_fields.count(f.name) != 0) {
-                nested_fields.emplace(f.name, f);
-            }
-
+            nested_fields.emplace(f.name, f);
             nested_field_names.push_back(f.name);
         }
 
@@ -3264,6 +3268,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     }
 
     index->refresh_schemas(new_fields, {});
+
+    field::compact_nested_fields(nested_fields);
 
     // Now, we can index existing data onto the updated schema
     const std::string seq_id_prefix = get_seq_id_collection_prefix();
@@ -3293,7 +3299,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(enable_nested_fields) {
-            field::flatten_stored_doc(document, nested_fields);
+            std::vector<field> flattened_fields;
+            field::flatten_doc(document, nested_fields, true, flattened_fields);
         }
 
         index_record record(num_found_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::REJECT);
@@ -3344,6 +3351,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             dynamic_fields.erase(del_field.name);
         }
 
+        if(del_field.nested) {
+            nested_fields.erase(del_field.name);
+        }
+
         if(del_field.name == ".*") {
             fallback_field_type = "";
         }
@@ -3370,12 +3381,11 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::vector<field> del_fields;
     std::vector<field> addition_fields;
     std::vector<field> reindex_fields;
-    tsl::htrie_map<char, field> new_nested_fields;
 
     std::string this_fallback_field_type;
 
     auto validate_op = validate_alter_payload(alter_payload, addition_fields, reindex_fields,
-                                              new_nested_fields, del_fields, this_fallback_field_type);
+                                              del_fields, this_fallback_field_type);
     if(!validate_op.ok()) {
         return validate_op;
     }
@@ -3393,14 +3403,14 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         LOG(INFO) << "Processing field additions and deletions first...";
     }
 
-    auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type, new_nested_fields);
+    auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type);
     if(!batch_alter_op.ok()) {
         return batch_alter_op;
     }
 
     if(!reindex_fields.empty()) {
         LOG(INFO) << "Processing field modifications now...";
-        batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type, new_nested_fields);
+        batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type);
         if(!batch_alter_op.ok()) {
             return batch_alter_op;
         }
@@ -3502,7 +3512,6 @@ void Collection::prune_doc(nlohmann::json& doc,
 Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                 std::vector<field>& addition_fields,
                                                 std::vector<field>& reindex_fields,
-                                                tsl::htrie_map<char, field>& new_nested_fields,
                                                 std::vector<field>& del_fields,
                                                 std::string& fallback_field_type) {
     if(!schema_changes.is_object()) {
@@ -3585,19 +3594,15 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 updated_search_schema.erase(field_it.key());
                 updated_nested_fields.erase(field_it.key());
 
-                // handle nested fields
+                // should also remove children if the field being dropped is an object
                 if(field_it.value().nested && enable_nested_fields) {
-                    std::vector<std::string> sub_fields;
-                    auto ex_op = extract_field_name(field_name, search_schema, sub_fields, false, enable_nested_fields);
-                    if(!ex_op.ok()) {
-                        return ex_op;
-                    }
-
-                    for(auto& sub_field: sub_fields) {
-                        auto sub_field_it = search_schema.find(sub_field);
-                        if(sub_field_it != search_schema.end()) {
-                            del_fields.push_back(sub_field_it.value());
-                            updated_search_schema.erase(sub_field);
+                    auto prefix_it = search_schema.equal_prefix_range(field_name);
+                    for(auto prefix_kv = prefix_it.first; prefix_kv != prefix_it.second; ++prefix_kv) {
+                        bool exact_key_match = (prefix_kv.key().size() == field_name.size());
+                        if(!exact_key_match) {
+                            del_fields.push_back(prefix_kv.value());
+                            updated_search_schema.erase(prefix_kv.key());
+                            updated_nested_fields.erase(prefix_kv.key());
                         }
                     }
                 }
@@ -3648,8 +3653,24 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     addition_fields.push_back(f);
                 }
 
-                if(f.nested) {
-                    new_nested_fields.emplace(f.name, f);
+                if(f.nested && enable_nested_fields) {
+                    updated_nested_fields.emplace(f.name, f);
+
+                    // should also add children if the field is an object
+                    auto prefix_it = search_schema.equal_prefix_range(field_name);
+                    for(auto prefix_kv = prefix_it.first; prefix_kv != prefix_it.second; ++prefix_kv) {
+                        bool exact_key_match = (prefix_kv.key().size() == field_name.size());
+                        if(!exact_key_match) {
+                            updated_search_schema.emplace(prefix_kv.key(), prefix_kv.value());
+                            updated_nested_fields.emplace(prefix_kv.key(), prefix_kv.value());
+
+                            if(is_reindex) {
+                                reindex_fields.push_back(prefix_kv.value());
+                            } else {
+                                addition_fields.push_back(prefix_kv.value());
+                            }
+                        }
+                    }
                 }
 
             } else {
@@ -3687,28 +3708,26 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                                                 nlohmann::detail::error_handler_t::ignore));
         }
 
-        if(enable_nested_fields) {
-            field::flatten_stored_doc(document, updated_nested_fields);
-        }
-
-        if(!fallback_field_type.empty() || !new_dynamic_fields.empty() || !new_nested_fields.empty()) {
+        if(!fallback_field_type.empty() || !new_dynamic_fields.empty() || !updated_nested_fields.empty()) {
             std::vector<field> new_fields;
-            std::vector<field> nested_fields_found;
-
             Option<bool> new_fields_op = detect_new_fields(document, DIRTY_VALUES::DROP,
                                                            updated_search_schema, new_dynamic_fields,
-                                                           new_nested_fields,
+                                                           updated_nested_fields,
                                                            fallback_field_type, false,
-                                                           new_fields, nested_fields_found,
+                                                           new_fields,
                                                            enable_nested_fields);
             if(!new_fields_op.ok()) {
                 return new_fields_op;
             }
 
             for(auto& new_field: new_fields) {
-                updated_search_schema[new_field.name] = new_field;
-                // NOTE: cannot be pushed to `addition_fields` to support drop+re-addition use case
-                reindex_fields.push_back(new_field);
+                if(updated_search_schema.find(new_field.name) == updated_search_schema.end()) {
+                    reindex_fields.push_back(new_field);
+                    updated_search_schema[new_field.name] = new_field;
+                    if(new_field.nested) {
+                        updated_nested_fields[new_field.name] = new_field;
+                    }
+                }
             }
         }
 
@@ -3774,8 +3793,8 @@ Option<bool> Collection::resolve_field_type(field& new_field,
                                             const DIRTY_VALUES& dirty_values,
                                             const bool found_dynamic_field,
                                             const std::string& fallback_field_type,
-                                            std::vector<field>& new_fields,
-                                            std::vector<field>& nested_fields_found) {
+                                            const bool enable_nested_fields,
+                                            std::vector<field>& new_fields) {
     if(!new_field.index) {
         return Option<bool>(true);
     }
@@ -3845,9 +3864,8 @@ Option<bool> Collection::resolve_field_type(field& new_field,
         new_field.sort = true;
     }
 
-    if(new_field.nested) {
-        nested_fields_found.emplace_back(new_field);
-    } else {
+    if(enable_nested_fields || !new_field.nested) {
+        // only detect nested field if it is enabled explicitly
         new_fields.emplace_back(new_field);
     }
 
@@ -3858,18 +3876,11 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                                            const DIRTY_VALUES& dirty_values,
                                            const tsl::htrie_map<char, field>& schema,
                                            const std::unordered_map<std::string, field>& dyn_fields,
-                                           const tsl::htrie_map<char, field>& nested_fields,
+                                           tsl::htrie_map<char, field>& nested_fields,
                                            const std::string& fallback_field_type,
                                            bool is_update,
                                            std::vector<field>& new_fields,
-                                           std::vector<field>& nested_fields_found,
                                            const bool enable_nested_fields) {
-
-    if(enable_nested_fields) {
-        for(auto& nested_field: nested_fields) {
-            nested_fields_found.push_back(nested_field);
-        }
-    }
 
     auto kv = document.begin();
     while(kv != document.end()) {
@@ -3917,7 +3928,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
             }
 
             auto add_op = resolve_field_type(new_field, kv, document, dirty_values, found_dynamic_field,
-                                             fallback_field_type, new_fields, nested_fields_found);
+                                             fallback_field_type, enable_nested_fields, new_fields);
             if(!add_op.ok()) {
                 return add_op;
             }
@@ -3932,31 +3943,13 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     }
 
     if(enable_nested_fields) {
-        return flatten_and_identify_new_fields(document, nested_fields_found, schema, is_update, new_fields);
-    }
-
-    return Option<bool>(true);
-}
-
-Option<bool> Collection::flatten_and_identify_new_fields(nlohmann::json& doc,
-                                                         const std::vector<field>& nested_fields_found,
-                                                         const tsl::htrie_map<char, field>& schema,
-                                                         bool missing_is_ok,
-                                                         std::vector<field>& new_fields) {
-    if(nested_fields_found.empty()) {
-        return Option<bool>(true);
-    }
-
-    std::vector<field> flattened_fields;
-    auto flatten_op = field::flatten_doc(doc, nested_fields_found, missing_is_ok, flattened_fields);
-    if(!flatten_op.ok()) {
-        return flatten_op;
-    }
-
-    for(const auto& flattened_field: flattened_fields) {
-        if(schema.count(flattened_field.name) == 0) {
-            new_fields.push_back(flattened_field);
+        for(auto& new_field: new_fields) {
+            if(new_field.nested) {
+                nested_fields.emplace(new_field.name, new_field);
+            }
         }
+
+        return field::flatten_doc(document, nested_fields, is_update, new_fields);
     }
 
     return Option<bool>(true);
@@ -3980,6 +3973,8 @@ Index* Collection::init_index() {
             nested_fields.emplace(field.name, field);
         }
     }
+
+    field::compact_nested_fields(nested_fields);
 
     synonym_index = new SynonymIndex(store);
 

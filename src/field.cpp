@@ -798,7 +798,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 }
 
 Option<bool> field::flatten_doc(nlohmann::json& document,
-                                const std::vector<field>& nested_fields,
+                                const tsl::htrie_map<char, field>& nested_fields,
                                 bool missing_is_ok, std::vector<field>& flattened_fields) {
 
     std::unordered_map<std::string, field> flattened_fields_map;
@@ -833,27 +833,13 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
     return Option<bool>(true);
 }
 
-Option<bool> field::flatten_stored_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields) {
-    std::unordered_map<std::string, field> flattened_fields_map;
-    for(const auto& nested_field: nested_fields) {
-        std::vector<std::string> field_parts;
-        StringUtils::split(nested_field.name, field_parts, ".");
-
-        if(field_parts.size() > 1 && document.count(nested_field.name) != 0) {
-            // skip explicitly present nested fields
-            continue;
-        }
-
-        flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields_map);
+void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
+    std::vector<std::string> nested_fields_vec;
+    for(const auto& f: nested_fields) {
+        nested_fields_vec.push_back(f.name);
     }
 
-    if(document.count(".flat") == 0) {
-        document[".flat"] = nlohmann::json::array();
+    for(auto& field_name: nested_fields_vec) {
+        nested_fields.erase_prefix(field_name + ".");
     }
-
-    for(auto& kv: flattened_fields_map) {
-        document[".flat"].push_back(kv.second.name);
-    }
-
-    return Option<bool>(true);
 }

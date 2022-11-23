@@ -161,11 +161,10 @@ private:
                                           const DIRTY_VALUES& dirty_values,
                                           const tsl::htrie_map<char, field>& schema,
                                           const std::unordered_map<std::string, field>& dyn_fields,
-                                          const tsl::htrie_map<char, field>& nested_fields,
+                                          tsl::htrie_map<char, field>& nested_fields,
                                           const std::string& fallback_field_type,
                                           bool is_update,
                                           std::vector<field>& new_fields,
-                                          std::vector<field>& nested_fields_found,
                                           bool enable_nested_fields);
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
@@ -199,13 +198,11 @@ private:
 
     Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
                                   const std::vector<field>& del_fields,
-                                  const std::string& this_fallback_field_type,
-                                  const tsl::htrie_map<char, field>& alter_nested_fields);
+                                  const std::string& this_fallback_field_type);
 
     Option<bool> validate_alter_payload(nlohmann::json& schema_changes,
                                         std::vector<field>& addition_fields,
                                         std::vector<field>& reindex_fields,
-                                        tsl::htrie_map<char, field>& new_nested_fields,
                                         std::vector<field>& del_fields,
                                         std::string& fallback_field_type);
 
@@ -237,11 +234,6 @@ private:
                                            bool extract_only_string_fields,
                                            bool enable_nested_fields);
 
-    static Option<bool> flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields_found,
-                                                         const tsl::htrie_map<char, field>& schema,
-                                                         bool missing_is_ok,
-                                                         std::vector<field>& new_fields);
-
     bool is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const;
 
     template<class T>
@@ -255,8 +247,8 @@ private:
                                            const DIRTY_VALUES& dirty_values,
                                            const bool found_dynamic_field,
                                            const std::string& fallback_field_type,
-                                           std::vector<field>& new_fields,
-                                           std::vector<field>& nested_fields_found);
+                                           bool enable_nested_fields,
+                                           std::vector<field>& new_fields);
 
 public:
 

@@ -35,6 +35,15 @@ protected:
     }
 };
 
+tsl::htrie_map<char, field> get_nested_map(const std::vector<field>& nested_fields) {
+    tsl::htrie_map<char, field> map;
+    for(const auto& f: nested_fields) {
+        map.emplace(f.name, f);
+    }
+
+    return map;
+}
+
 TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
     auto json_str = R"({
         "company": {"name": "nike"},
@@ -56,7 +65,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
     // array of objects
     std::vector<field> flattened_fields;
     nlohmann::json doc = nlohmann::json::parse(json_str);
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
     ASSERT_EQ(5, flattened_fields.size());
 
     for(const auto& f: flattened_fields) {
@@ -99,7 +108,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         field("company", field_types::OBJECT, false)
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
 
     expected_json = R"(
         {
@@ -126,14 +135,14 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         field("locations.address", field_types::OBJECT, false)
     };
 
-    ASSERT_FALSE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok()); // must be of type object_array
+    ASSERT_FALSE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok()); // must be of type object_array
 
     nested_fields = {
         field("locations.address", field_types::OBJECT_ARRAY, false)
     };
 
     flattened_fields.clear();
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
 
     expected_json = R"(
         {
@@ -165,7 +174,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         field("company.name", field_types::STRING, false)
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
 
     expected_json = R"(
         {
@@ -216,7 +225,7 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
     // array of objects
     std::vector<field> flattened_fields;
     nlohmann::json doc = nlohmann::json::parse(json_str);
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
     ASSERT_EQ(5, flattened_fields.size());
 
     for(const auto& f: flattened_fields) {
@@ -232,7 +241,7 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
         field("employees", field_types::OBJECT, false)
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
     ASSERT_EQ(5, flattened_fields.size());
 
     for(const auto& f: flattened_fields) {
@@ -252,16 +261,20 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
         field("employees.detail.tags", field_types::STRING_ARRAY, false),
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, false, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
     ASSERT_EQ(3, flattened_fields.size());
+
+    std::sort(flattened_fields.begin(), flattened_fields.end(), [](field& a, field& b) {
+        return a.name < b.name;
+    });
 
     ASSERT_EQ("employees.detail.tags",flattened_fields[0].name);
     ASSERT_FALSE(flattened_fields[0].nested_array);
 
-    ASSERT_EQ("employees.details.tags",flattened_fields[1].name);
+    ASSERT_EQ("employees.details.num_tags",flattened_fields[1].name);
     ASSERT_TRUE(flattened_fields[1].nested_array);
 
-    ASSERT_EQ("employees.details.num_tags",flattened_fields[2].name);
+    ASSERT_EQ("employees.details.tags",flattened_fields[2].name);
     ASSERT_TRUE(flattened_fields[2].nested_array);
 }
 
@@ -277,7 +290,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
     std::vector<field> flattened_fields;
 
     nlohmann::json doc = nlohmann::json::parse(json_str);
-    auto flatten_op = field::flatten_doc(doc, nested_fields, false, flattened_fields);
+    auto flatten_op = field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields);
     ASSERT_FALSE(flatten_op.ok());
     ASSERT_EQ("Field `locations` not found.", flatten_op.error());
 
@@ -286,7 +299,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
     };
 
     flattened_fields.clear();
-    flatten_op = field::flatten_doc(doc, nested_fields, false, flattened_fields);
+    flatten_op = field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields);
     ASSERT_FALSE(flatten_op.ok());
     ASSERT_EQ("Field `company` has an incorrect type.", flatten_op.error());
 }
@@ -303,7 +316,8 @@ TEST_F(CollectionNestedFieldsTest, FlattenStoredDoc) {
     schema.emplace("details.name", field("details.name", field_types::STRING_ARRAY, false));
     schema.emplace("details.year", field("details.year", field_types::INT32_ARRAY, false));
 
-    field::flatten_stored_doc(stored_doc, schema);
+    std::vector<field> flattened_fields;
+    field::flatten_doc(stored_doc, schema, true, flattened_fields);
 
     ASSERT_EQ(3, stored_doc[".flat"].size());
     ASSERT_EQ(7, stored_doc.size());
@@ -311,6 +325,51 @@ TEST_F(CollectionNestedFieldsTest, FlattenStoredDoc) {
     ASSERT_EQ(1, stored_doc.count("employees.num"));
     ASSERT_EQ(1, stored_doc.count("details.name"));
     ASSERT_EQ(1, stored_doc.count("details.year"));
+}
+
+TEST_F(CollectionNestedFieldsTest, CompactNestedFields) {
+    auto stored_doc = R"({
+      "company_name": "Acme Corp",
+      "display_address": {
+        "city": "LA",
+        "street": "Lumbard St"
+      },
+      "id": "314",
+      "location_addresses": [
+        {
+          "city": "Columbus",
+          "street": "Yale St"
+        },
+        {
+          "city": "Soda Springs",
+          "street": "5th St"
+        }
+      ],
+      "num_employees": 10,
+      "primary_address": {
+        "city": "Los Angeles",
+        "street": "123 Lumbard St"
+      }
+    })"_json;
+
+    tsl::htrie_map<char, field> schema;
+    schema.emplace("location_addresses.city", field("location_addresses.city", field_types::STRING_ARRAY, true));
+    schema.emplace("location_addresses", field("location_addresses", field_types::OBJECT_ARRAY, true));
+    schema.emplace("primary_address", field("primary_address", field_types::OBJECT, true));
+    schema.emplace("primary_address.city", field("primary_address.city", field_types::STRING, true));
+    schema.emplace("location_addresses.street", field("location_addresses.street", field_types::STRING_ARRAY, true));
+    schema.emplace("primary_address.street", field("primary_address.street", field_types::STRING, true));
+
+    field::compact_nested_fields(schema);
+    ASSERT_EQ(2, schema.size());
+    ASSERT_EQ(1, schema.count("primary_address"));
+    ASSERT_EQ(1, schema.count("location_addresses"));
+
+    std::vector<field> flattened_fields;
+    field::flatten_doc(stored_doc, schema, true, flattened_fields);
+
+    ASSERT_EQ(2, stored_doc["location_addresses.city"].size());
+    ASSERT_EQ(2, stored_doc["location_addresses.street"].size());
 }
 
 TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
@@ -1465,7 +1524,7 @@ TEST_F(CollectionNestedFieldsTest, ExplicitDotSeparatedFieldsShouldHavePrecenden
 
     ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
     auto fs = coll1->get_fields();
-    ASSERT_EQ(4, coll1->get_fields().size());
+    ASSERT_EQ(6, coll1->get_fields().size());
 
     // simple nested object
     auto results = coll1->search("*", {}, "company.num_employees: 2000", {}, sort_fields, {0}, 10, 1,
@@ -1850,6 +1909,68 @@ TEST_F(CollectionNestedFieldsTest, NestedSchemaAutoAndFacet) {
     }
 
     ASSERT_TRUE(coll1->get_schema()["schools.name"].optional);
+}
+
+TEST_F(CollectionNestedFieldsTest, ArrayOfObjectsFaceting) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "location_addresses", "type": "object[]", "facet": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "company_name": "Acme Corp",
+        "display_address": {
+            "city": "LA",
+            "street": "Lumbard St"
+        },
+        "location_addresses": [
+            {
+                "city": "Columbus",
+                "street": "Yale St"
+            },
+            {
+                "city": "Soda Springs",
+                "street": "5th St"
+            }
+        ],
+        "num_employees": 10,
+        "primary_address": {
+            "city": "Los Angeles",
+            "street": "123 Lumbard St"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "", {"location_addresses.city"}, {},
+                                 {0}, 10, 1, FREQUENCY, {false}).get();
+
+    // add same doc again
+    doc1["id"] = "1";
+    add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {"location_addresses.city"}, {},
+                            {0}, 10, 1, FREQUENCY, {false}).get();
+
+    // facet count should be 2
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_EQ("Columbus", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+
+    ASSERT_EQ("Soda Springs", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][1]["count"].get<size_t>());
 }
 
 TEST_F(CollectionNestedFieldsTest, HighlightArrayInsideArrayOfObj) {
