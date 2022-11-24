@@ -1410,3 +1410,39 @@ TEST_F(CollectionSchemaChangeTest, DropAndReAddNestedObject) {
     ASSERT_EQ(4, fields.size());
     ASSERT_EQ(4, schema_map.size());
 }
+
+TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Title 1";
+    doc["location"] = {22.847641, 89.5405279};
+
+    coll1->add(doc.dump());
+    doc["title"] = "Title 2";
+    doc["location"] = {22.8951791, 89.5125549};
+    coll1->add(doc.dump());
+
+    // add location field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "location", "type": "geopoint"}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    // try searching on new fields
+    auto res_op = coll1->search("*", {}, "location:(22.848641, 89.5406279, 50 km)", {}, {}, {0}, 3, 1, FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(2, res_op.get()["found"].get<size_t>());
+}
