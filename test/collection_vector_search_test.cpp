@@ -559,3 +559,37 @@ TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {
     ASSERT_EQ(1014, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
     ASSERT_EQ(0, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getDeletedCount());
 }
+
+TEST_F(CollectionVectorTest, VectorWithNullValue) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "vec", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::string> json_lines;
+
+    nlohmann::json doc;
+
+    doc["id"] = "0";
+    doc["vec"] = {0.1, 0.2, 0.3, 0.4};
+    json_lines.push_back(doc.dump());
+
+
+    doc["id"] = "1";
+    doc["vec"] = nullptr;
+    json_lines.push_back(doc.dump());
+
+    auto res = coll1->add_many(json_lines, doc);
+
+    ASSERT_FALSE(res["success"].get<bool>());
+    ASSERT_EQ(1, res["num_imported"].get<size_t>());
+
+    ASSERT_TRUE(nlohmann::json::parse(json_lines[0])["success"].get<bool>());
+    ASSERT_FALSE(nlohmann::json::parse(json_lines[1])["success"].get<bool>());
+    ASSERT_EQ("Field `vec` must be an array.",
+              nlohmann::json::parse(json_lines[1])["error"].get<std::string>());
+}

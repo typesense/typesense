@@ -951,7 +951,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         size_t batch_counter = 0;
                         while(batch_counter < batch_len) {
                             auto& record = records[result_index + batch_counter];
-                            if(record.doc.count(afield.name) == 0) {
+                            if(record.doc.count(afield.name) == 0 || !record.indexed.ok()) {
                                 batch_counter++;
                                 continue;
                             }
