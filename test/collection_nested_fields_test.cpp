@@ -401,13 +401,40 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
     nlohmann::json create_res = add_op.get();
     ASSERT_EQ(doc.dump(), create_res.dump());
 
+    auto results = coll1->search("electrician", {"employees"}, "", {}, sort_fields,
+                                  {0}, 10, 1, FREQUENCY, {true}).get();
+
+    auto highlight_doc = R"({
+        "employees": {
+          "num": {
+            "matched_tokens": [],
+            "snippet": "1200"
+          },
+          "tags": [
+            {
+              "matched_tokens": [],
+              "snippet": "senior plumber"
+            },
+            {
+              "matched_tokens": [
+                "electrician"
+              ],
+              "snippet": "<mark>electrician</mark>"
+            }
+          ]
+        }
+      })"_json;
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
+
     // search both simply nested and deeply nested array-of-objects
-    auto results = coll1->search("electrician commerce", {"employees", "locations"}, "", {}, sort_fields,
+    results = coll1->search("electrician commerce", {"employees", "locations"}, "", {}, sort_fields,
                                  {0}, 10, 1, FREQUENCY, {true}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(doc, results["hits"][0]["document"]);
 
-    auto highlight_doc = R"({
+    highlight_doc = R"({
       "employees": {
         "num": {
           "matched_tokens": [],
@@ -2133,4 +2160,70 @@ TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
 
     results = coll1->search("galt", {"contributors"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionNestedFieldsTest, HighlightOnFlatFieldWithSnippeting) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("body", field_types::STRING, false)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "pimples keep popping up on chin";
+    doc1["body"] = "on left side of chin under the corner of my mouth i keep getting huge pimples. they’ll go away for "
+                   "a few days but come back every time and i don’t quit it. I have oily skin and acne prone. i "
+                   "also just started using twice a week";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("pimples", {"title", "body"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    auto highlight_doc = R"({
+        "body": {
+          "matched_tokens": [
+            "pimples"
+          ],
+          "snippet": "i keep getting huge <mark>pimples</mark>. they’ll go away for"
+        },
+        "title": {
+          "matched_tokens": [
+            "pimples"
+          ],
+          "snippet": "<mark>pimples</mark> keep popping up on chin"
+        }
+    })"_json;
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
+
+    // with full highlighting
+
+    highlight_doc = R"({
+        "body": {
+          "matched_tokens": [
+            "pimples"
+          ],
+          "snippet": "i keep getting huge <mark>pimples</mark>. they’ll go away for",
+          "value": ""
+        },
+        "title": {
+          "matched_tokens": [
+            "pimples"
+          ],
+          "snippet": "<mark>pimples</mark> keep popping up on chin",
+          "value": "<mark>pimples</mark> keep popping up on chin"
+        }
+    })"_json;
+
+    highlight_doc["body"]["value"] = "on left side of chin under the corner of my mouth i keep getting huge "
+                                     "<mark>pimples</mark>. they’ll go away for a few days but come back every time "
+                                     "and i don’t quit it. I have oily skin and acne prone. i also just started "
+                                     "using twice a week";
+
+    results = coll1->search("pimples", {"title", "body"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title,body").get();
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 }

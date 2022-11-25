@@ -2363,6 +2363,14 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
         return ;
     }
 
+    bool flat_field = highlight_doc.contains(search_field.name);
+    std::vector<std::string> path_parts;
+    if(enable_nested_fields && !flat_field) {
+        StringUtils::split(search_field.name, path_parts, ".");
+    } else {
+        path_parts = {search_field.name};
+    }
+
     const std::string& last_raw_q_token = raw_query_tokens.back();
     size_t prefix_token_num_chars = StringUtils::get_num_chars(last_raw_q_token);
 
@@ -2399,38 +2407,69 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             LOG(INFO) << "Token: " << qtok_buff << ", root_len: " << it.value().root_len;
         }*/
 
-        bool flat_field = highlight_doc.contains(search_field.name);
-
-        std::vector<std::string> path_parts;
-        if(enable_nested_fields && !flat_field) {
-            StringUtils::split(search_field.name, path_parts, ".");
-        } else {
-            path_parts = {search_field.name};
-        }
-
-        highlight_nested_field(highlight_doc, highlight_doc, path_parts, 0, [&](nlohmann::json& h_obj) {
-            Match match;
-            match_index_t match_index(match, 0, 0);
-            int last_valid_offset_index = -1;
-            size_t last_valid_offset = 0;
-
-            highlight_t array_highlight = highlight;
-
-            if(!h_obj.is_string()) {
-                auto val_back = h_obj;
-                h_obj = nlohmann::json::object();
-                h_obj["snippet"] = to_string(val_back);
-                h_obj["matched_tokens"] = nlohmann::json::array();
-                if(highlight_fully) {
-                    h_obj["value"] = val_back;
-                }
-                return ;
+        if(!qtoken_leaves.empty()) {
+            std::vector<void*> posting_lists;
+            for(auto token_leaf: qtoken_leaves) {
+                posting_lists.push_back(token_leaf.leaf->values);
             }
 
-            std::string text = h_obj.get<std::string>();
-            h_obj = nlohmann::json::object();
+            std::map<size_t, std::vector<token_positions_t>> array_token_positions;
+            posting_t::get_array_token_positions(field_order_kv->key, posting_lists, array_token_positions);
 
-            if(qtoken_leaves.empty()) {
+            for(const auto& kv: array_token_positions) {
+                const std::vector<token_positions_t>& token_positions = kv.second;
+                size_t array_index = kv.first;
+
+                if(token_positions.empty()) {
+                    continue;
+                }
+
+                const Match & this_match = Match(field_order_kv->key, token_positions, true, true);
+                uint64_t this_match_score = this_match.get_match_score(1, token_positions.size());
+                match_indices.emplace_back(this_match, this_match_score, array_index);
+
+                /*LOG(INFO) << "doc_id: " << document["id"] << ", search_field: " << search_field.name
+                          << ", words_present: " << size_t(this_match.words_present)
+                          << ", match_score: " << this_match_score
+                          << ", match.distance: " << size_t(this_match.distance);*/
+            }
+        }
+    }
+
+    const size_t max_array_matches = std::min((size_t)MAX_ARRAY_MATCHES, match_indices.size());
+    std::partial_sort(match_indices.begin(), match_indices.begin()+max_array_matches, match_indices.end());
+
+    highlight_nested_field(highlight_doc, highlight_doc, path_parts, 0, false, -1,
+                           [&](nlohmann::json& h_obj, bool is_arr_obj_ele, int array_i) {
+        if(!h_obj.is_string()) {
+            auto val_back = h_obj;
+            h_obj = nlohmann::json::object();
+            h_obj["snippet"] = to_string(val_back);
+            h_obj["matched_tokens"] = nlohmann::json::array();
+            if(highlight_fully) {
+                h_obj["value"] = val_back;
+            }
+            return ;
+        }
+
+        int matched_index = -1;
+
+        if(!is_arr_obj_ele) {
+            // Since we will iterate on both matching and non-matching array elements for highlighting,
+            // we need to check if `array_i`exists within match_indices vec.
+
+            for (size_t match_index = 0; match_index < match_indices.size(); match_index++) {
+                if (match_indices[match_index].index == array_i) {
+                    matched_index = match_index;
+                    break;
+                }
+            }
+
+            if(matched_index == -1) {
+                // If an element does not belong to an array of object field and also does not have a matching index
+                // we know that there cannot be any matching tokens for highlighting
+                std::string text = h_obj.get<std::string>();
+                h_obj = nlohmann::json::object();
                 h_obj["snippet"] = text;
                 h_obj["matched_tokens"] = nlohmann::json::array();
                 if(highlight_fully) {
@@ -2439,89 +2478,88 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                 return ;
             }
 
-            handle_highlight_text(text, normalise, search_field, symbols_to_index,
-                                  token_separators, array_highlight, string_utils, use_word_tokenizer,
-                                  highlight_affix_num_tokens,
-                                  qtoken_leaves, last_valid_offset_index, match,
-                                  prefix_token_num_chars,
-                                  highlight_fully, snippet_threshold, is_infix_search,
-                                  raw_query_tokens,
-                                  last_valid_offset, highlight_start_tag, highlight_end_tag,
-                                  index_symbols, match_index);
+            std::sort(match_indices[matched_index].match.offsets.begin(),
+                      match_indices[matched_index].match.offsets.end());
+        } else {
+            // array of object element indices will not match indexed offsets, so we will use dummy match
+            // the highlighting logic will ignore this and try to do exhaustive highlighting (look at all tokens)
+            match_indices.clear();
+            match_indices.push_back(match_index_t(Match(), 0, 0));
+            matched_index = 0;
+        }
 
+        const auto& match_index = match_indices[matched_index];
 
-            if(array_highlight.snippets.empty() && array_highlight.values.empty()) {
-                h_obj["snippet"] = text;
-                h_obj["matched_tokens"] = nlohmann::json::array();
+        size_t last_valid_offset = 0;
+        int last_valid_offset_index = -1;
+
+        for(size_t match_offset_i = 0; match_offset_i < match_index.match.offsets.size(); match_offset_i++) {
+            const auto& token_offset = match_index.match.offsets[match_offset_i];
+            if(token_offset.offset != MAX_DISPLACEMENT) {
+                last_valid_offset = token_offset.offset;
+                last_valid_offset_index = match_offset_i;
+            } else {
+                break;
             }
+        }
 
-            if(!array_highlight.snippets.empty()) {
-                found_highlight = found_highlight || true;
+        highlight_t array_highlight = highlight;
+        std::string text = h_obj.get<std::string>();
+        h_obj = nlohmann::json::object();
 
-                h_obj["snippet"] = array_highlight.snippets[0];
-                h_obj["matched_tokens"] = nlohmann::json::array();
+        handle_highlight_text(text, normalise, search_field, symbols_to_index,
+                              token_separators, array_highlight, string_utils, use_word_tokenizer,
+                              highlight_affix_num_tokens,
+                              qtoken_leaves, last_valid_offset_index,
+                              prefix_token_num_chars,
+                              highlight_fully, snippet_threshold, is_infix_search,
+                              raw_query_tokens,
+                              last_valid_offset, highlight_start_tag, highlight_end_tag,
+                              index_symbols, match_index);
 
-                for(auto& token_vec: array_highlight.matched_tokens) {
-                    for(auto& token: token_vec) {
-                        h_obj["matched_tokens"].push_back(token);
-                    }
+
+        if(array_highlight.snippets.empty() && array_highlight.values.empty()) {
+            h_obj["snippet"] = text;
+            h_obj["matched_tokens"] = nlohmann::json::array();
+        }
+
+        if(!array_highlight.snippets.empty()) {
+            found_highlight = found_highlight || true;
+
+            h_obj["snippet"] = array_highlight.snippets[0];
+            h_obj["matched_tokens"] = nlohmann::json::array();
+
+            for(auto& token_vec: array_highlight.matched_tokens) {
+                for(auto& token: token_vec) {
+                    h_obj["matched_tokens"].push_back(token);
                 }
             }
-
-            if(!array_highlight.values.empty()) {
-                h_obj["value"] = array_highlight.values[0];;
-                found_full_highlight = found_full_highlight || true;
-            } else if(highlight_fully) {
-                h_obj["value"] = text;
-            }
-        });
-
-        if(!flat_field) {
-            return;
         }
 
-        if(qtoken_leaves.empty()) {
-            // none of the tokens from the query were found on this field
-            return ;
+        if(!array_highlight.values.empty()) {
+            h_obj["value"] = array_highlight.values[0];;
+            found_full_highlight = found_full_highlight || true;
+        } else if(highlight_fully) {
+            h_obj["value"] = text;
         }
+    });
 
-        if(!search_field.is_string()) {
-            return ;
-        }
+    if(!flat_field) {
+        return;
+    }
 
-        std::vector<void*> posting_lists;
-        for(auto token_leaf: qtoken_leaves) {
-            posting_lists.push_back(token_leaf.leaf->values);
-        }
+    if(!search_field.is_string()) {
+        return ;
+    }
 
-        std::map<size_t, std::vector<token_positions_t>> array_token_positions;
-        posting_t::get_array_token_positions(field_order_kv->key, posting_lists, array_token_positions);
-
-        for(const auto& kv: array_token_positions) {
-            const std::vector<token_positions_t>& token_positions = kv.second;
-            size_t array_index = kv.first;
-
-            if(token_positions.empty()) {
-                continue;
-            }
-
-            const Match & this_match = Match(field_order_kv->key, token_positions, true, true);
-            uint64_t this_match_score = this_match.get_match_score(1, token_positions.size());
-            match_indices.emplace_back(this_match, this_match_score, array_index);
-
-            /*LOG(INFO) << "doc_id: " << document["id"] << ", search_field: " << search_field.name
-                      << ", words_present: " << size_t(this_match.words_present)
-                      << ", match_score: " << this_match_score
-                      << ", match.distance: " << size_t(this_match.distance);*/
-        }
+    if(!is_infix_search && qtoken_leaves.empty()) {
+        // none of the tokens from the query were found on this field
+        return ;
     }
 
     if(match_indices.empty()) {
         return ;
     }
-
-    const size_t max_array_matches = std::min((size_t)MAX_ARRAY_MATCHES, match_indices.size());
-    std::partial_sort(match_indices.begin(), match_indices.begin()+max_array_matches, match_indices.end());
 
     for(size_t array_i = 0; array_i < max_array_matches; array_i++) {
         std::sort(match_indices[array_i].match.offsets.begin(), match_indices[array_i].match.offsets.end());
@@ -2565,7 +2603,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
         handle_highlight_text(text, normalise, search_field, symbols_to_index, token_separators,
                               highlight, string_utils, use_word_tokenizer, highlight_affix_num_tokens,
-                              qtoken_leaves, last_valid_offset_index, match, prefix_token_num_chars,
+                              qtoken_leaves, last_valid_offset_index, prefix_token_num_chars,
                               highlight_fully, snippet_threshold, is_infix_search, raw_query_tokens,
                               last_valid_offset, highlight_start_tag, highlight_end_tag,
                               index_symbols, match_index);
@@ -2596,12 +2634,13 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
                            const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                            highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
                            const size_t highlight_affix_num_tokens,
-                           const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
-                           int last_valid_offset_index, const Match& match,
+                           const tsl::htrie_map<char, token_leaf>& qtoken_leaves, int last_valid_offset_index,
                            const size_t prefix_token_num_chars, bool highlight_fully, const size_t snippet_threshold,
                            bool is_infix_search, std::vector<std::string>& raw_query_tokens, size_t last_valid_offset,
                            const std::string& highlight_start_tag, const std::string& highlight_end_tag,
                            const uint8_t* index_symbols, const match_index_t& match_index) const {
+
+    const Match& match = match_index.match;
 
     Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators);
 

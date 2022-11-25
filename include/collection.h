@@ -221,8 +221,7 @@ private:
                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
                                const size_t highlight_affix_num_tokens,
-                               const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
-                               int last_valid_offset_index, const Match& match,
+                               const tsl::htrie_map<char, token_leaf>& qtoken_leaves, int last_valid_offset_index,
                                const size_t prefix_token_num_chars, bool highlight_fully, const size_t snippet_threshold,
                                bool is_infix_search, std::vector<std::string>& raw_query_tokens, size_t last_valid_offset,
                                const std::string& highlight_start_tag, const std::string& highlight_end_tag,
@@ -239,7 +238,7 @@ private:
     template<class T>
     static bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
                                        std::vector<std::string>& path_parts, size_t path_index,
-                                       T func);
+                                       bool is_arr_obj_ele, int array_index, T func);
 
     static Option<bool> resolve_field_type(field& new_field,
                                            nlohmann::detail::iter_impl<nlohmann::basic_json<>>& kv,
@@ -494,14 +493,9 @@ public:
 template<class T>
 bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
                                         std::vector<std::string>& path_parts, size_t path_index,
-                                        T func) {
+                                        bool is_arr_obj_ele, int array_index, T func) {
     if(path_index == path_parts.size()) {
-        // end of path: guaranteed to be a string
-        if(!hobj.is_string()) {
-            //return false;
-        }
-
-        func(hobj);
+        func(hobj, is_arr_obj_ele, array_index);
         return true;
     }
 
@@ -513,11 +507,13 @@ bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::js
             bool resolved = false;
             for(size_t i = 0; i < it.value().size(); i++) {
                 auto& h_ele = it.value().at(i);
-                resolved |= highlight_nested_field(hdoc, h_ele, path_parts, path_index + 1, func);
+                is_arr_obj_ele = is_arr_obj_ele || h_ele.is_object();
+                resolved = highlight_nested_field(hdoc, h_ele, path_parts, path_index + 1,
+                                                  is_arr_obj_ele, i, func) || resolved;
             }
             return resolved;
         } else {
-            return highlight_nested_field(hdoc, it.value(), path_parts, path_index + 1, func);
+            return highlight_nested_field(hdoc, it.value(), path_parts, path_index + 1, is_arr_obj_ele, 0, func);
         }
     } {
         return false;
