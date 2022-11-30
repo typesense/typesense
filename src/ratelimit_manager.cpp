@@ -103,7 +103,10 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
             if(rule.max_requests.minute_threshold >= 0 && current_rate_for_minute >= rule.max_requests.minute_threshold) {
                 bool auto_ban_is_enabled = (rule.auto_ban_threshold_num > 0 && rule.auto_ban_num_days > 0);
                 if(auto_ban_is_enabled) {
-                    request_counts.threshold_exceed_count_minute++;
+                    if(get_current_time() - request_counts.last_threshold_exceed_time >= 60) {
+                        request_counts.threshold_exceed_count_minute++;
+                        request_counts.last_threshold_exceed_time = get_current_time();
+                    }
                     if(request_counts.threshold_exceed_count_minute > rule.auto_ban_threshold_num) {
                         temp_ban_entity_wrapped(entity, rule.auto_ban_num_days);
                     }
@@ -165,7 +168,7 @@ const std::vector<rate_limit_rule_t> RateLimitManager::get_all_rules() {
 
 const std::vector<rate_limit_status_t> RateLimitManager::get_banned_entities(const RateLimitedEntityType entity_type) {
     std::shared_lock<std::shared_mutex> lock(rate_limit_mutex);
-    std::vector < rate_limit_status_t > banned_entities;
+    std::vector <rate_limit_status_t> banned_entities;
     for (auto & element: throttled_entities) {
         if (element.second.entity_type == entity_type) {
             banned_entities.push_back(element.second);
@@ -174,9 +177,10 @@ const std::vector<rate_limit_status_t> RateLimitManager::get_banned_entities(con
     // Get permanent bans
     for (auto & element: rule_store) {
         if (element.second.action == RateLimitAction::block && element.second.entity_type == entity_type) {
-            for (auto & entity : element.second.entity_ids) {
+            for (auto& entity : element.second.entity_ids) {
                 banned_entities.push_back(rate_limit_status_t{last_ban_id, 0, 0, entity, entity_type});
                 last_ban_id++;
+                store->increment(std::string(BANS_NEXT_ID), 1);
             }
         }
     }
@@ -203,9 +207,13 @@ void RateLimitManager::temp_ban_entity_wrapped(const rate_limit_entity_t& entity
     // Add entity to throttled_entities for the given number of days
     rate_limit_status_t status{last_ban_id, now, now + (number_of_days * 24 * 60 * 60), entity.entity_id, entity.entity_type};
     std::string ban_key = get_ban_key(last_ban_id);
-    store->insert(ban_key, status.to_json().dump());
+    bool inserted = store->insert(ban_key, status.to_json().dump());
+    if(!inserted) {
+        LOG(INFO) << "Failed to insert ban for entity " << entity.entity_id;
+    }
     throttled_entities.insert({entity, rate_limit_status_t{last_ban_id, now, now + (number_of_days * 24 * 60 * 60), entity.entity_id, entity.entity_type}});
     last_ban_id++;
+    store->increment(std::string(BANS_NEXT_ID), 1);
     if(rate_limit_request_counts.contains(entity)){
         // Reset counters for the given entity
         rate_limit_request_counts.lookup(entity).current_requests_count_minute = 0;
@@ -253,6 +261,7 @@ const nlohmann::json rate_limit_status_t::to_json() const {
     status["throttling_to"] = throttling_to;
     status["value"] = value;
     status["entity_type"] = magic_enum::enum_name(entity_type);
+    status["id"] = status_id;
     return status;
 }
 
@@ -261,6 +270,7 @@ void rate_limit_status_t::parse_json(const nlohmann::json &json) {
     throttling_to = json["throttling_to"];
     value = json["value"];
     entity_type = magic_enum::enum_cast<RateLimitedEntityType>(json["entity_type"].get<std::string>()).value();
+    status_id = json["id"];
 }
 
 
@@ -456,12 +466,15 @@ Option<bool> RateLimitManager::init(Store *store) {
     }
     else if(last_ban_id_status == StoreStatus::FOUND) {
         last_ban_id = StringUtils::deserialize_uint32_t(last_ban_id_str);
+        LOG(INFO) << "Last ban id: " << last_ban_id;
     }
     else {
         last_ban_id = 0;
+        LOG(INFO) << "No bans found in database.";
     }
     std::vector<std::string> ban_json_strs;
     store->scan_fill(BANS_PREFIX, ban_json_strs);
+    LOG(INFO) << "Loading " << ban_json_strs.size() << " bans from database.";
     for(const auto& ban_json_str: ban_json_strs) {
         nlohmann::json ban_json = nlohmann::json::parse(ban_json_str);
         rate_limit_status_t ban_status;
@@ -487,4 +500,55 @@ time_t RateLimitManager::get_current_time() {
 
 void RateLimitManager::_set_base_timestamp(const time_t& timestamp) {
     base_timestamp = timestamp;
+}
+
+
+const nlohmann::json RateLimitManager::get_all_throttled_entities_json() {
+    nlohmann::json throttled_entities_array = nlohmann::json::object();
+
+    for(const auto& entity : throttled_entities) {
+        if(entity.second.throttling_to <= get_current_time()) {
+            store->remove(get_ban_key(entity.second.status_id));
+            throttled_entities.erase(entity.first);
+        }
+        auto entity_json = entity.second.to_json();
+
+        if(entity.second.entity_type == RateLimitedEntityType::api_key) {
+            entity_json["api_key"] = entity_json["value"];
+        } else {
+            entity_json["ip_address"] = entity_json["value"];
+        }
+
+        entity_json.erase("value");
+        entity_json.erase("entity_type");
+        throttled_entities_array["active"].push_back(entity_json);
+    }
+
+    LOG(INFO) << "Returning " << throttled_entities.size() << " throttled entities.";
+    return throttled_entities_array;
+}
+
+const Option<nlohmann::json> RateLimitManager::delete_throttle_by_id(const uint64_t id) {
+    std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
+    std::string ban_json_str;
+
+    const auto found = store->get(get_ban_key(id), ban_json_str);
+
+    if(found == StoreStatus::NOT_FOUND) {
+        return Option<nlohmann::json>(400, "Could not find any ban with the given ID");
+    }
+
+    nlohmann::json ban_json = nlohmann::json::parse(ban_json_str);
+    rate_limit_status_t ban_status;
+    ban_status.parse_json(ban_json);
+    throttled_entities.erase(rate_limit_entity_t{ban_status.entity_type, ban_status.value});
+    const auto removed = store->remove(get_ban_key(id));
+
+    if(!removed) {
+        return Option<nlohmann::json>(400, "Error while removing the ban from the store");
+    }
+
+    nlohmann::json res;
+    res["id"] = id;
+    return Option<nlohmann::json>(res);
 }
