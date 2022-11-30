@@ -1712,3 +1712,27 @@ TEST_F(CollectionSpecificMoreTest, HighlightOnFieldNameWithDot) {
     highlight = R"({"org.title":{"matched_tokens":["Infinity"],"snippet":"<mark>Infinity</mark> Inc."}})"_json;
     ASSERT_EQ(highlight.dump(), res["hits"][0]["highlight"].dump());
 }
+
+TEST_F(CollectionSpecificMoreTest, SearchCutoffTest) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    for(size_t i = 0; i < 70000; i++) {
+        nlohmann::json doc;
+        doc["title"] = "1 2";
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto res = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1).get();
+
+    ASSERT_TRUE(res["search_cutoff"].get<bool>());
+}

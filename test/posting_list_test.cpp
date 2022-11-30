@@ -642,7 +642,7 @@ TEST_F(PostingListTest, IntersectionBasics) {
     result_iter_state_t iter_state;
     result_ids.clear();
 
-    posting_t::block_intersector_t(raw_lists, iter_state, pool).intersect([&](auto id, auto& its, size_t index){
+    posting_t::block_intersector_t(raw_lists, iter_state).intersect([&](auto id, auto& its){
         std::unique_lock lk(vecm);
         result_ids.push_back(id);
     });
@@ -668,7 +668,7 @@ TEST_F(PostingListTest, IntersectionBasics) {
     result_ids.clear();
     raw_lists = {&p1};
 
-    posting_t::block_intersector_t(raw_lists, iter_state2, pool).intersect([&](auto id, auto& its, size_t index){
+    posting_t::block_intersector_t(raw_lists, iter_state2).intersect([&](auto id, auto& its){
         std::unique_lock lk(vecm);
         result_ids.push_back(id);
     });
@@ -691,7 +691,7 @@ TEST_F(PostingListTest, IntersectionBasics) {
     result_ids.clear();
     raw_lists.clear();
 
-    posting_t::block_intersector_t(raw_lists, iter_state3, pool).intersect([&](auto id, auto& its, size_t index){
+    posting_t::block_intersector_t(raw_lists, iter_state3).intersect([&](auto id, auto& its){
         std::unique_lock lk(vecm);
         result_ids.push_back(id);
     });
@@ -1305,8 +1305,8 @@ TEST_F(PostingListTest, BlockIntersectionOnMixedLists) {
     std::vector<uint32_t> result_ids;
     std::mutex vecm;
 
-    posting_t::block_intersector_t(raw_posting_lists, iter_state, pool)
-    .intersect([&](auto seq_id, auto& its, size_t index) {
+    posting_t::block_intersector_t(raw_posting_lists, iter_state)
+    .intersect([&](auto seq_id, auto& its) {
         std::unique_lock lock(vecm);
         result_ids.push_back(seq_id);
     });

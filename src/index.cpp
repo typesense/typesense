@@ -1470,66 +1470,26 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
             single_exact_query_token = true;
         }
 
-        std::vector<uint32_t> result_id_vecs[concurrency];
-        Topster* topsters[concurrency];
-        std::vector<spp::sparse_hash_set<uint64_t>> groups_processed_vec(concurrency);
-
         if(topster == nullptr) {
-            posting_t::block_intersector_t(
-                    posting_lists, iter_state, thread_pool, 100
-            )
-                    .intersect([&](uint32_t seq_id, std::vector<posting_list_t::iterator_t>& its, size_t index) {
-                        result_id_vecs[index].push_back(seq_id);
-                    }, concurrency);
+            posting_t::block_intersector_t(posting_lists, iter_state)
+            .intersect([&](uint32_t seq_id, std::vector<posting_list_t::iterator_t>& its) {
+                id_buff.push_back(seq_id);
+            });
         } else {
-            for(size_t i = 0; i < concurrency; i++) {
-                topsters[i] = new Topster(topster->MAX_SIZE, topster->distinct);
-            }
+            posting_t::block_intersector_t(posting_lists, iter_state)
+            .intersect([&](uint32_t seq_id, std::vector<posting_list_t::iterator_t>& its) {
+                score_results(sort_fields, searched_queries.size(), field_id, field_is_array,
+                              total_cost, topster, query_suggestion, groups_processed,
+                              seq_id, sort_order, field_values, geopoint_indices,
+                              group_limit, group_by_fields, token_bits,
+                              prioritize_exact_match, single_exact_query_token, syn_orig_num_tokens, its);
 
-            posting_t::block_intersector_t(
-                    posting_lists, iter_state, thread_pool, 100
-            )
-                    .intersect([&](uint32_t seq_id, std::vector<posting_list_t::iterator_t>& its, size_t index) {
-                        score_results(sort_fields, searched_queries.size(), field_id, field_is_array,
-                                      total_cost, topsters[index], query_suggestion, groups_processed_vec[index],
-                                      seq_id, sort_order, field_values, geopoint_indices,
-                                      group_limit, group_by_fields, token_bits,
-                                      prioritize_exact_match, single_exact_query_token, syn_orig_num_tokens, its);
-
-                        result_id_vecs[index].push_back(seq_id);
-                    }, concurrency);
+                id_buff.push_back(seq_id);
+            });
         }
 
         delete [] excluded_result_ids;
-
-        size_t num_result_ids = 0;
-
-        for(size_t i = 0; i < concurrency; i++) {
-            // empty vec can happen if not all threads produce results
-            if (!result_id_vecs[i].empty()) {
-                if(exhaustive_search) {
-                    id_buff.insert(id_buff.end(), result_id_vecs[i].begin(), result_id_vecs[i].end());
-                } else {
-                    uint32_t* new_all_result_ids = nullptr;
-                    all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, &result_id_vecs[i][0],
-                                                               result_id_vecs[i].size(), &new_all_result_ids);
-                    delete[] *all_result_ids;
-                    *all_result_ids = new_all_result_ids;
-                }
-
-                num_result_ids += result_id_vecs[i].size();
-
-                if (topster != nullptr) {
-                    // topster is null when used by overrides which requires only IDs but not actual processing
-                    aggregate_topster(topster, topsters[i]);
-                    groups_processed.insert(groups_processed_vec[i].begin(), groups_processed_vec[i].end());
-                }
-            }
-
-            if(topster != nullptr) {
-                delete topsters[i];
-            }
-        }
+        const size_t num_result_ids = id_buff.size();
 
         if(id_buff.size() > 100000) {
             // prevents too many ORs during exhaustive searching
