@@ -241,10 +241,10 @@ const nlohmann::json rate_limit_rule_t::to_json() const {
             rule["api_keys"] = entity_ids;
         }
         if(max_requests.minute_threshold >= 0) {
-            rule["max_requests"]["minute_threshold"] = max_requests.minute_threshold;
+            rule["max_requests_60s"] = max_requests.minute_threshold;
         }
         if(max_requests.hour_threshold >= 0) {
-            rule["max_requests"]["hour_threshold"] = max_requests.hour_threshold;
+            rule["max_requests_1h"] = max_requests.hour_threshold;
         }
         if(auto_ban_threshold_num >= 0) {
             rule["auto_ban_threshold_num"] = auto_ban_threshold_num;
