@@ -3,6 +3,7 @@
 #include <thread>
 #include "ratelimit_manager.h"
 #include "logger.h"
+#include "core_api.h"
 
 // Google test for RateLimitManager
 class RateLimitManagerTest : public ::testing::Test
@@ -436,4 +437,62 @@ TEST_F(RateLimitManagerTest, TestCorrectOrderofRules) {
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test2"}}));
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test2"}}));
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test2"}}));
+}
+
+TEST_F(RateLimitManagerTest, TestAutoBannedEntitiesList) {
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 5},
+        {"max_requests_1h", -1},
+        {"auto_ban_threshold_num", 1},
+        {"auto_ban_num_days", 3}
+    });
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    this->changeBaseTimestamp(120);
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+
+    auto throttled_entities = manager->get_all_throttled_entities_json();
+    EXPECT_EQ(throttled_entities.size(), 1);
+    EXPECT_EQ(throttled_entities["active"][0]["api_key"], "test");
+}
+
+TEST_F(RateLimitManagerTest, TestMultiSearchRateLimit) {
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({".*"})},
+        {"max_requests_60s", 3},
+        {"max_requests_1h", -1}
+    });
+
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json search,body;
+    search["collection"] = "cars";
+    search["query_by"] = "brand";
+    search["q"] = "bmw";
+    for(int i=0;i<6;i++) {
+        body["searches"].push_back(search);
+        req->embedded_params_vec.push_back(nlohmann::json::object());
+    }
+
+    req->metadata = "test 0.0.0.0";
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+
+    EXPECT_EQ(res->status_code, 429);
+    EXPECT_EQ(res->body, "{\"message\": \"Rate limit exceeded.\"}");
 }

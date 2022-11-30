@@ -499,6 +499,13 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     // routes match and is an authenticated request
     // do any additional pre-request middleware operations here
+
+
+    if(rpath->action == "documents:search" && path_without_query == "/multi_search") {
+        // append api key and ip to metadata
+        request->metadata = api_auth_key_sent + " " + client_ip;
+    }
+
     if(rpath->action == "keys:create") {
         // we enrich incoming request with a random API key here so that leader and replicas will use the same key
         request->metadata = StringUtils::randstring(AuthManager::GENERATED_KEY_LEN);

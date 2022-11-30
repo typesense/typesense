@@ -64,6 +64,7 @@ struct request_counter_t {
     int64_t previous_requests_count_minute = 0;
     int64_t previous_requests_count_hour = 0;
     int64_t threshold_exceed_count_minute = 0;
+    time_t last_threshold_exceed_time = 0;
     time_t last_reset_time_minute = 0;
     time_t last_reset_time_hour = 0;
 
@@ -150,6 +151,12 @@ class RateLimitManager
 
         // Get all rules as json
         const nlohmann::json get_all_rules_json();
+
+        // Get all throttled entities as json
+        const nlohmann::json get_all_throttled_entities_json();
+
+        // Delete throttled entity
+        const Option<nlohmann::json> delete_throttle_by_id(const uint64_t id);
 
         // Clear all rules
         void clear_all();
