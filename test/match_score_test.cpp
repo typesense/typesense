@@ -2,6 +2,9 @@
 #include <gtest/gtest.h>
 #include <match_score.h>
 #include "posting_list.h"
+#include <fstream>
+
+#define token_offsets_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/token_offsets.txt").c_str()
 
 TEST(MatchTest, TokenOffsetsExceedWindowSize) {
     std::vector<token_positions_t> token_positions = {
@@ -165,4 +168,26 @@ TEST(MatchTest, MatchScoreV2) {
             std::chrono::high_resolution_clock::now() - begin).count();
     LOG(INFO) << "Time taken: " << timeNanos;
     LOG(INFO) << total_distance << ", " << words_present << ", " << offset_sum;*/
+}
+
+TEST(MatchTest, MatchScoreWithOffsetWrapAround) {
+    std::vector<token_positions_t> token_offsets;
+
+    std::ifstream infile(token_offsets_file_path);
+    std::string line;
+
+    while (std::getline(infile, line)) {
+        if(line == "last_token:") {
+            std::vector<uint16_t> positions;
+            token_offsets.push_back(token_positions_t{false, positions});
+        } else {
+            token_offsets.back().positions.push_back(std::stoi(line));
+        }
+    }
+
+    infile.close();
+
+    auto match = Match(100, token_offsets, true, true);
+    ASSERT_EQ(2, match.words_present);
+    //ASSERT_EQ(2, match.distance);
 }

@@ -19,7 +19,7 @@ struct token_positions_t {
 struct TokenOffset {
     uint8_t token_id;                            // token identifier
     uint16_t offset = MAX_DISPLACEMENT;          // token's offset in the text
-    uint16_t offset_index;                       // index of the offset in the offset vector
+    uint32_t offset_index;                       // index of the offset in the offset vector
 
     bool operator()(const TokenOffset &a, const TokenOffset &b) {
         return a.offset > b.offset;
@@ -162,7 +162,8 @@ struct Match {
             size_t this_num_match = 0;
             std::vector<TokenOffset> this_window(tokens_size);
 
-            uint8_t prev_token_id = window[0].token_id;
+            uint16_t prev_offset = window[0].offset;
+            bool all_offsets_are_same = true;
 
             for (size_t i = 0; i < window.size(); i++) {
                 if(populate_window) {
@@ -179,10 +180,12 @@ struct Match {
                         this_window[window[i].token_id].offset = window[i].offset;
                     }
                 }
+
+                all_offsets_are_same = all_offsets_are_same && (window[i].offset == prev_offset);
             }
 
-            if ( (this_num_match > best_num_match) ||
-                 (this_num_match == best_num_match && this_displacement < best_displacement)) {
+            if ( ((this_num_match > best_num_match) ||
+                 (this_num_match == best_num_match && this_displacement < best_displacement))) {
                 best_displacement = this_displacement;
                 best_num_match = this_num_match;
                 max_offset = std::min((uint16_t)255, window.front().offset);
@@ -209,7 +212,7 @@ struct Match {
             }
 
             // Push next offset of same token popped
-            uint16_t next_offset_index = (smallest_offset.offset_index + 1);
+            uint32_t next_offset_index = (smallest_offset.offset_index + 1);
             TokenOffset token_offset{token_id, this_token_offsets[next_offset_index], next_offset_index};
             window.emplace_back(token_offset);
         }
