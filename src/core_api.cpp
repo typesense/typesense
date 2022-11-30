@@ -485,7 +485,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     nlohmann::json response;
     response["results"] = nlohmann::json::array();
-
+    std::string client_api_key, client_ip;
     nlohmann::json& searches = req_json["searches"];
 
     if(searches.size() != req->embedded_params_vec.size()) {
@@ -497,8 +497,21 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     //LOG(INFO) << "REQ: " << req_json.dump(-1);
+    client_api_key = req->metadata.substr(0, req->metadata.find(" "));
+    client_ip = req->metadata.substr(req->metadata.find(" ") + 1);
+    auto* rate_limit_manager = RateLimitManager::getInstance();
+    std::vector<rate_limit_entity_t> rate_limit_entities{{RateLimitedEntityType::api_key, client_api_key},
+                                                        {RateLimitedEntityType::ip, client_ip}};
+
 
     for(size_t i = 0; i < searches.size(); i++) {
+
+        // check if rate limit is exceeded
+        if(rate_limit_manager->is_rate_limited(rate_limit_entities)) {
+            res->set(429, "Rate limit exceeded.");
+            return false;
+        }
+
         auto& search_params = searches[i];
 
         if(!search_params.is_object()) {
@@ -1703,6 +1716,13 @@ bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr
 
 bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+
+    // check if id is numeric
+    if(!StringUtils::is_int64_t(req->params["id"])) {
+        res->set_400("Bad ID");
+        return false;
+    }
+
     // Convert param id to uint64_t
     uint64_t id = std::stoull(req->params["id"]);
     const auto& rule_option = rateLimitManager->find_rule_by_id(id);
@@ -1718,6 +1738,13 @@ bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 
 bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+
+    // check if id is numeric
+    if(!StringUtils::is_int64_t(req->params["id"])) {
+        res->set_400("Bad ID");
+        return false;
+    }
+
     nlohmann::json req_json;
     uint64_t id = std::stoull(req->params["id"]);
 
@@ -1742,6 +1769,13 @@ bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 
 bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+
+    // check if id is numeric
+    if(!StringUtils::is_int64_t(req->params["id"])) {
+        res->set_400("Bad ID");
+        return false;
+    }
+
     uint64_t id = std::stoull(req->params["id"]);
     const auto& rule_option = rateLimitManager->find_rule_by_id(id);
 
@@ -1751,7 +1785,10 @@ bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     }
 
     rateLimitManager->delete_rule_by_id(id);
-    res->set_200("OK");
+    // Return deleted ID in JSON
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
     return true;
 }
 
@@ -1776,3 +1813,31 @@ bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr
     res->set_200(add_rule_result.get().dump());
     return true;
 }
+
+bool get_active_rate_limit_throttles(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+
+    res->set_200(rateLimitManager->get_all_throttled_entities_json().dump());
+    return true;
+}
+
+bool del_rate_limit_ban(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+
+    // check if id is numeric
+    if(!StringUtils::is_int64_t(req->params["id"])) {
+        res->set_400("Bad ID");
+        return false;
+    }
+    
+    uint64_t id = std::stoull(req->params["id"]);
+    auto delete_res = rateLimitManager->delete_throttle_by_id(id);
+
+    if(!delete_res.ok()) {
+        res->set(delete_res.code(), delete_res.error());
+        return false;
+    }
+
+    res->set_200(delete_res.get().dump());
+    return true;
+  }

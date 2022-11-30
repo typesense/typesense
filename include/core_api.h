@@ -127,6 +127,10 @@ bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 
 bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_active_rate_limit_throttles(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_rate_limit_ban(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Misc helpers
 
 void get_collections_for_auth(std::map<std::string, std::string>& req_params, const std::string& body,
