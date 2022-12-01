@@ -31,7 +31,7 @@ bool RateLimitManager::remove_rule_entity(const RateLimitedEntityType entity_typ
 void RateLimitManager::temp_ban_entity(const rate_limit_entity_t& entity, const int64_t number_of_days) {
     // lock mutex
     std::unique_lock<std::shared_mutex>lock(rate_limit_mutex);
-    temp_ban_entity_wrapped(entity, number_of_days);
+    temp_ban_entity_unsecure(entity, number_of_days);
 }
 
 bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &entities) {
@@ -108,7 +108,7 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
                         request_counts.last_threshold_exceed_time = get_current_time();
                     }
                     if(request_counts.threshold_exceed_count_minute > rule.auto_ban_threshold_num) {
-                        temp_ban_entity_wrapped(entity, rule.auto_ban_num_days);
+                        temp_ban_entity_unsecure(entity, rule.auto_ban_num_days);
                     }
                 } 
                 return true;
@@ -179,8 +179,6 @@ const std::vector<rate_limit_status_t> RateLimitManager::get_banned_entities(con
         if (element.second.action == RateLimitAction::block && element.second.entity_type == entity_type) {
             for (auto& entity : element.second.entity_ids) {
                 banned_entities.push_back(rate_limit_status_t{last_ban_id, 0, 0, entity, entity_type});
-                last_ban_id++;
-                store->increment(std::string(BANS_NEXT_ID), 1);
             }
         }
     }
@@ -198,7 +196,7 @@ void RateLimitManager::clear_all() {
     base_timestamp = 0;
 }
 
-void RateLimitManager::temp_ban_entity_wrapped(const rate_limit_entity_t& entity, const int64_t number_of_days) {
+void RateLimitManager::temp_ban_entity_unsecure(const rate_limit_entity_t& entity, const int64_t number_of_days) {
     // Check if entity is already banned
     if (throttled_entities.count(entity) > 0) {
         return;
@@ -464,12 +462,15 @@ Option<bool> RateLimitManager::init(Store *store) {
     std::string last_ban_id_str;
     StoreStatus last_ban_id_status = store->get(BANS_NEXT_ID, last_ban_id_str);
     if(last_ban_id_status == StoreStatus::ERROR) {
+        LOG(INFO) << "Error while fetching ban next id from database.";
         return Option<bool>(500, "Error while fetching ban next id from database.");
     }
     else if(last_ban_id_status == StoreStatus::FOUND) {
         last_ban_id = StringUtils::deserialize_uint32_t(last_ban_id_str);
+        LOG(INFO) << "Last ban id: " << last_ban_id;
     }
     else {
+        LOG(INFO) << "No bans found in database.";
         last_ban_id = 0;
     }
 

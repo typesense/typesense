@@ -213,7 +213,7 @@ class RateLimitManager
         // Helper function to ban an entity temporarily
         void temp_ban_entity(const rate_limit_entity_t& entity, const int64_t number_of_days);
         // Helper function to ban an entity temporarily without locking mutex
-        void temp_ban_entity_wrapped(const rate_limit_entity_t& entity, const int64_t number_of_days);
+        void temp_ban_entity_unsecure(const rate_limit_entity_t& entity, const int64_t number_of_days);
 
         // Helper function to check if JSON rule is valid
         Option<bool> is_valid_rule(const nlohmann::json &rule_json);
