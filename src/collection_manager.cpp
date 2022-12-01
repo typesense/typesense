@@ -1416,6 +1416,8 @@ bool CollectionManager::parse_vector_query_str(std::string vector_query_str, vec
             // field name is done
             i++;
 
+            StringUtils::trim(vector_query.field_name);
+
             while(i < vector_query_str.size() && vector_query_str[i] != '(') {
                 i++;
             }
