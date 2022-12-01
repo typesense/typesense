@@ -474,20 +474,16 @@ TEST_F(RateLimitManagerTest, TestMultiSearchRateLimit) {
         {"max_requests_60s", 3},
         {"max_requests_1h", -1}
     });
-
-
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
     nlohmann::json search,body;
+    
     search["collection"] = "cars";
     search["query_by"] = "brand";
     search["q"] = "bmw";
-    for(int i=0;i<6;i) {
-        body["searches"].push_back(search);
-        req->embedded_params_vec.push_back(nlohmann::json::object());
-    }
-
+    body["searches"] = nlohmann::json::array({search, search, search, search, search, search});
+    req->embedded_params_vec.resize(6);
     req->metadata = "test 0.0.0.0";
     req->body = body.dump();
 
