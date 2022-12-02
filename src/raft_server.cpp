@@ -9,6 +9,7 @@
 #include <http_client.h>
 #include "rocksdb/utilities/checkpoint.h"
 #include "thread_local_vars.h"
+#include "ratelimit_manager.h"
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -496,6 +497,14 @@ int ReplicationState::init_db() {
         LOG(INFO) << "Finished loading collections from disk.";
     } else {
         LOG(ERROR)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
+        return 1;
+    }
+
+    RateLimitManager *rateLimitManager = RateLimitManager::getInstance();
+    auto rate_limit_manager_init = rateLimitManager->init();
+
+    if(!rate_limit_manager_init.ok()) {
+        LOG(ERROR) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
         return 1;
     }
 

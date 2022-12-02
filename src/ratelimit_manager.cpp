@@ -429,9 +429,8 @@ void RateLimitManager::insert_rule(const rate_limit_rule_t &rule) {
 }
 
 
-Option<bool> RateLimitManager::init(Store *store) {
+Option<bool> RateLimitManager::init() {
     std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
-    this->store = store;
     // Load rules from database
     std::string last_rule_id_str;
     StoreStatus last_rule_id_status = store->get(std::string(RULES_NEXT_ID), last_rule_id_str);

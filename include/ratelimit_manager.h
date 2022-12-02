@@ -164,8 +164,13 @@ class RateLimitManager
         // Internal function to set base time
         void _set_base_timestamp(const time_t& base_time);
 
+        // Init
+        Option<bool> init();
+
         // Set store
-        Option<bool> init(Store* store);
+        inline void set_store(Store* store) {
+            this->store = store;
+        }
 
     private:    
 
