@@ -37,7 +37,8 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        manager->init(store);
+        manager->set_store(store);
+        manager->init();
     }
 
     virtual void TearDown() {
