@@ -484,8 +484,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     nlohmann::json response;
-    response["results"] = nlohmann::json::array();
     std::string client_api_key, client_ip;
+    response["results"] = nlohmann::json::array();
     nlohmann::json& searches = req_json["searches"];
 
     if(searches.size() != req->embedded_params_vec.size()) {
@@ -496,18 +496,20 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
-    //LOG(INFO) << "REQ: " << req_json.dump(-1);
-    client_api_key = req->metadata.substr(0, req->metadata.find(" "));
-    client_ip = req->metadata.substr(req->metadata.find(" ") + 1);
+    if(req->metadata.length() > 0) {
+        size_t client_api_key_length = std::stoi(req->metadata.substr(0, req->metadata.find(":")));
+        client_api_key = req->metadata.substr(req->metadata.find(":") + 1, client_api_key_length);
+        client_ip = req->metadata.substr(req->metadata.find(":") + 1 + client_api_key_length);
+    }
+
     auto* rate_limit_manager = RateLimitManager::getInstance();
     std::vector<rate_limit_entity_t> rate_limit_entities{{RateLimitedEntityType::api_key, client_api_key},
                                                         {RateLimitedEntityType::ip, client_ip}};
 
 
     for(size_t i = 0; i < searches.size(); i++) {
-
         // check if rate limit is exceeded
-        if(rate_limit_manager->is_rate_limited(rate_limit_entities)) {
+        if(req->metadata.length() > 0 && rate_limit_manager->is_rate_limited(rate_limit_entities)) {
             res->set(429, "Rate limit exceeded.");
             return false;
         }
@@ -1718,7 +1720,7 @@ bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
 
     // check if id is numeric
-    if(!StringUtils::is_int64_t(req->params["id"])) {
+    if(!StringUtils::is_uint64_t(req->params["id"])) {
         res->set_400("Bad ID");
         return false;
     }
@@ -1740,7 +1742,7 @@ bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
 
     // check if id is numeric
-    if(!StringUtils::is_int64_t(req->params["id"])) {
+    if(!StringUtils::is_uint64_t(req->params["id"])) {
         res->set_400("Bad ID");
         return false;
     }
@@ -1771,7 +1773,7 @@ bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
 
     // check if id is numeric
-    if(!StringUtils::is_int64_t(req->params["id"])) {
+    if(!StringUtils::is_uint64_t(req->params["id"])) {
         res->set_400("Bad ID");
         return false;
     }
@@ -1825,7 +1827,7 @@ bool del_rate_limit_ban(const std::shared_ptr<http_req>& req, const std::shared_
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
 
     // check if id is numeric
-    if(!StringUtils::is_int64_t(req->params["id"])) {
+    if(!StringUtils::is_uint64_t(req->params["id"])) {
         res->set_400("Bad ID");
         return false;
     }

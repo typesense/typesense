@@ -445,8 +445,13 @@ int run_server(const Config & config, const std::string & version, void (*master
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
                            config.get_api_key(), quit_raft_service, batch_indexer);
     
-    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
-    rateLimitManager->set_store(&meta_store);
+  
+    RateLimitManager *rateLimitManager = RateLimitManager::getInstance();
+    auto rate_limit_manager_init = rateLimitManager->init(&meta_store);
+
+    if(!rate_limit_manager_init.ok()) {
+        LOG(ERROR) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
+    }
 
     // first we start the peering service
     ReplicationState replication_state(server, batch_indexer, &store,

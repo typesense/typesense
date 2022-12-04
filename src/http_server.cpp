@@ -497,9 +497,11 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     //LOG(INFO) << "Init res: " << custom_gen->response << ", ref count: " << custom_gen->response.use_count();
 
-    if(rpath->action == "documents:search" && path_without_query == "/multi_search") {
+    if(root_resource == "multi_search") {
         // append api key and ip to metadata
-        request->metadata = api_auth_key_sent + " " + client_ip;
+        std::stringstream ss;
+        ss << api_auth_key_sent.length() << ":" << api_auth_key_sent << client_ip;
+        request->metadata = ss.str();
     }
 
     // routes match and is an authenticated request

@@ -14,7 +14,7 @@ RateLimitManager * RateLimitManager::getInstance() {
 
 bool RateLimitManager::remove_rule_entity(const RateLimitedEntityType entity_type, const std::string &entity) {
     // lock mutex
-    std::unique_lock<std::shared_mutex>lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
     // Check if a rule exists for the given IP
     if (rate_limit_entities.count(rate_limit_entity_t{entity_type,entity}) == 0) {
         return false;
@@ -30,13 +30,13 @@ bool RateLimitManager::remove_rule_entity(const RateLimitedEntityType entity_typ
 
 void RateLimitManager::temp_ban_entity(const rate_limit_entity_t& entity, const int64_t number_of_days) {
     // lock mutex
-    std::unique_lock<std::shared_mutex>lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
     temp_ban_entity_unsecure(entity, number_of_days);
 }
 
 bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &entities) {
     // lock mutex
-    std::unique_lock<std::shared_mutex>lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
     // Check if any of the entities has rule
     for(const auto &entity : entities) {
 
@@ -127,7 +127,8 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
 }
 
 Option<nlohmann::json> RateLimitManager::find_rule_by_id(const uint64_t id) {
-    std::shared_lock<std::shared_mutex> lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
+
     if(rule_store.count(id) > 0) {
         return Option<nlohmann::json>(rule_store.at(id).to_json());
     }
@@ -135,7 +136,7 @@ Option<nlohmann::json> RateLimitManager::find_rule_by_id(const uint64_t id) {
 }
 
 bool RateLimitManager::delete_rule_by_id(const uint64_t id) {
-    std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
     const std::string rule_store_key = get_rule_key(id);
     bool deleted = store->remove(rule_store_key);
     if(!deleted) {
@@ -157,7 +158,8 @@ bool RateLimitManager::delete_rule_by_id(const uint64_t id) {
 
 
 const std::vector<rate_limit_rule_t> RateLimitManager::get_all_rules() {
-    std::shared_lock<std::shared_mutex> lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
+
     // Get all rules in a vector
     std::vector<rate_limit_rule_t> rules;
     for(const auto &rule : rule_store) {
@@ -167,7 +169,8 @@ const std::vector<rate_limit_rule_t> RateLimitManager::get_all_rules() {
 }
 
 const std::vector<rate_limit_status_t> RateLimitManager::get_banned_entities(const RateLimitedEntityType entity_type) {
-    std::shared_lock<std::shared_mutex> lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
+
     std::vector <rate_limit_status_t> banned_entities;
     for (auto& element: throttled_entities) {
         if (element.second.entity_type == entity_type) {
@@ -186,7 +189,7 @@ const std::vector<rate_limit_status_t> RateLimitManager::get_banned_entities(con
 }
 
 void RateLimitManager::clear_all() {
-    std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
     rate_limit_request_counts.clear();
     rate_limit_entities.clear();
     throttled_entities.clear();
@@ -220,7 +223,8 @@ void RateLimitManager::temp_ban_entity_unsecure(const rate_limit_entity_t& entit
 }
 
 const nlohmann::json RateLimitManager::get_all_rules_json() {
-    std::shared_lock<std::shared_mutex> lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
+
     nlohmann::json rules_json = nlohmann::json::array();
     for(const auto &rule : rule_store) {
         rules_json.push_back(rule.second.to_json());
@@ -264,6 +268,7 @@ const nlohmann::json rate_limit_status_t::to_json() const {
 }
 
 void rate_limit_status_t::parse_json(const nlohmann::json &json) {
+
     throttling_from = json["throttling_from"];
     throttling_to = json["throttling_to"];
     value = json["value"];
@@ -273,7 +278,7 @@ void rate_limit_status_t::parse_json(const nlohmann::json &json) {
 
 
 Option<nlohmann::json> RateLimitManager::add_rule(const nlohmann::json &rule_json) {
-    std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
     auto rule_validation_result = is_valid_rule(rule_json);
     if(!rule_validation_result.ok()) {
         return Option<nlohmann::json>(rule_validation_result.code(), rule_validation_result.error());
@@ -299,6 +304,8 @@ Option<nlohmann::json> RateLimitManager::add_rule(const nlohmann::json &rule_jso
 }
 
 Option<nlohmann::json> RateLimitManager::edit_rule(const uint64_t id, const nlohmann::json &rule_json) {
+    std::shared_lock lock(rate_limit_mutex);
+
     const auto& rule_option = find_rule_by_id(id);
     if(!rule_option.ok()) {
         return Option<nlohmann::json>(rule_option.code(), rule_option.error());
@@ -385,6 +392,8 @@ Option<bool> RateLimitManager::is_valid_rule(const nlohmann::json &rule_json) {
 
 Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rule_json, bool alert_if_exists)
 {
+    std::shared_lock lock(rate_limit_mutex);
+
     rate_limit_rule_t new_rule;
     new_rule.action = magic_enum::enum_cast<RateLimitAction>(rule_json["action"].get<std::string>()).value();
     if(rule_json.count("ip_addresses") > 0) {
@@ -422,6 +431,8 @@ Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rul
 
 
 void RateLimitManager::insert_rule(const rate_limit_rule_t &rule) {
+    std::shared_lock lock(rate_limit_mutex);
+
     rule_store[rule.id] = rule;
     for(const auto &entity : rule.entity_ids) {
         rate_limit_entities.insert({rate_limit_entity_t{rule.entity_type,entity}, &rule_store.at(rule.id)});
@@ -429,8 +440,16 @@ void RateLimitManager::insert_rule(const rate_limit_rule_t &rule) {
 }
 
 
-Option<bool> RateLimitManager::init() {
-    std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
+Option<bool> RateLimitManager::init(Store* store) {
+    std::shared_lock lock(rate_limit_mutex);
+
+    if (store == nullptr) {
+        return Option<bool>(500, "Store is null");
+    }
+
+    // Set store
+    this->store = store;
+
     // Load rules from database
     std::string last_rule_id_str;
     StoreStatus last_rule_id_status = store->get(std::string(RULES_NEXT_ID), last_rule_id_str);
@@ -505,6 +524,8 @@ void RateLimitManager::_set_base_timestamp(const time_t& timestamp) {
 
 
 const nlohmann::json RateLimitManager::get_all_throttled_entities_json() {
+    std::shared_lock lock(rate_limit_mutex);
+
     nlohmann::json throttled_entities_array = nlohmann::json::object();
 
     for(const auto& entity : throttled_entities) {
@@ -530,7 +551,7 @@ const nlohmann::json RateLimitManager::get_all_throttled_entities_json() {
 }
 
 const Option<nlohmann::json> RateLimitManager::delete_throttle_by_id(const uint64_t id) {
-    std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
+    std::shared_lock lock(rate_limit_mutex);
     std::string ban_json_str;
 
     const auto found = store->get(get_ban_key(id), ban_json_str);

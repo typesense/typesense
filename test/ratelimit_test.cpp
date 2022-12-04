@@ -37,8 +37,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        manager->set_store(store);
-        manager->init();
+        manager->init(store);
     }
 
     virtual void TearDown() {
@@ -485,7 +484,7 @@ TEST_F(RateLimitManagerTest, TestMultiSearchRateLimit) {
     search["q"] = "bmw";
     body["searches"] = nlohmann::json::array({search, search, search, search, search, search});
     req->embedded_params_vec.resize(6);
-    req->metadata = "test 0.0.0.0";
+    req->metadata = "4:test0.0.0.0";
     req->body = body.dump();
 
     post_multi_search(req, res);

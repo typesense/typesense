@@ -165,14 +165,9 @@ class RateLimitManager
         void _set_base_timestamp(const time_t& base_time);
 
         // Init
-        Option<bool> init();
+        Option<bool> init(Store* store);
 
-        // Set store
-        inline void set_store(Store* store) {
-            this->store = store;
-        }
-
-    private:    
+    private:   
 
         RateLimitManager() {
             rate_limit_request_counts.capacity(10000);

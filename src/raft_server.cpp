@@ -500,14 +500,6 @@ int ReplicationState::init_db() {
         return 1;
     }
 
-    RateLimitManager *rateLimitManager = RateLimitManager::getInstance();
-    auto rate_limit_manager_init = rateLimitManager->init();
-
-    if(!rate_limit_manager_init.ok()) {
-        LOG(ERROR) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
-        return 1;
-    }
-
     return 0;
 }
 
