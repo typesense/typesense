@@ -51,7 +51,7 @@ TEST_F(RateLimitManagerTest, TestAddRateLimitApiKey) {
     auto res = manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 10},
+        {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
         {"auto_ban_num_days", 1}
@@ -65,7 +65,7 @@ TEST_F(RateLimitManagerTest, TestAddRateLimitIp) {
     auto res = manager->add_rule({
         {"action", "throttle"},
         {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
-        {"max_requests_60s", 10},
+        {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
         {"auto_ban_num_days", 1}
@@ -78,7 +78,7 @@ TEST_F(RateLimitManagerTest, TestRemoveRateLimitApiKey) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 10},
+        {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
         {"auto_ban_num_days", 1}
@@ -92,7 +92,7 @@ TEST_F(RateLimitManagerTest, TestRemoveRateLimitIp) {
     manager->add_rule({
         {"action", "throttle"},
         {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
-        {"max_requests_60s", 10},
+        {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
         {"auto_ban_num_days", 1}
@@ -114,7 +114,7 @@ TEST_F(RateLimitManagerTest, TestGetTrackedIps) {
     manager->add_rule({
         {"action", "throttle"},
         {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
-        {"max_requests_60s", 10},
+        {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
         {"auto_ban_num_days", 1}
@@ -129,7 +129,7 @@ TEST_F(RateLimitManagerTest, TestGetTrackedApiKeys) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 10},
+        {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
         {"auto_ban_num_days", 1}
@@ -177,7 +177,7 @@ TEST_F(RateLimitManagerTest, TestIsBannedIpTemp) {
     manager->add_rule({
         {"action", "throttle"},
         {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
-        {"max_requests_60s", 1},
+        {"max_requests_1m", 1},
         {"max_requests_1h", 1}
     });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
@@ -200,7 +200,7 @@ TEST_F(RateLimitManagerTest, TestIsBannedAPIKeyTemp) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 1},
+        {"max_requests_1m", 1},
         {"max_requests_1h", 1}
     });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
@@ -230,7 +230,7 @@ TEST_F(RateLimitManagerTest, TestThrottleAPIKey) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 1},
+        {"max_requests_1m", 1},
         {"max_requests_1h", 1}
     });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
@@ -242,7 +242,7 @@ TEST_F(RateLimitManagerTest, TestDeleteRuleByID) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 1},
+        {"max_requests_1m", 1},
         {"max_requests_1h", 1}
     });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
@@ -255,7 +255,7 @@ TEST_F(RateLimitManagerTest, TestMinuteRateLimitAPIKey) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 5},
+        {"max_requests_1m", 5},
         {"max_requests_1h", -1}
     });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
@@ -271,7 +271,7 @@ TEST_F(RateLimitManagerTest, TestHourRateLimitAPIKey) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", -1},
+        {"max_requests_1m", -1},
         {"max_requests_1h", 5}
     });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
@@ -287,7 +287,7 @@ TEST_F(RateLimitManagerTest, TestMinuteRateLimitIp) {
     manager->add_rule({
         {"action", "throttle"},
         {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
-        {"max_requests_60s", 5},
+        {"max_requests_1m", 5},
         {"max_requests_1h", -1}
     });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
@@ -303,7 +303,7 @@ TEST_F(RateLimitManagerTest, TestHourRateLimitIp) {
     manager->add_rule({
         {"action", "throttle"},
         {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
-        {"max_requests_60s", -1},
+        {"max_requests_1m", -1},
         {"max_requests_1h", 5}
     });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
@@ -319,13 +319,13 @@ TEST_F(RateLimitManagerTest, TestGetAllRules) {
     manager->add_rule({
         {"action", "throttle"},
         {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
-        {"max_requests_60s", -1},
+        {"max_requests_1m", -1},
         {"max_requests_1h", 5}
     });
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 5},
+        {"max_requests_1m", 5},
         {"max_requests_1h", -1}
     });
     EXPECT_TRUE(manager->get_all_rules().size() == 2);
@@ -340,7 +340,7 @@ TEST_F(RateLimitManagerTest, TestGetAllRulesJSON) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 5},
+        {"max_requests_1m", 5},
         {"max_requests_1h", -1}
     });
     nlohmann::json rules = manager->get_all_rules_json();
@@ -356,7 +356,7 @@ TEST_F(RateLimitManagerTest, TestAutoBan) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 5},
+        {"max_requests_1m", 5},
         {"max_requests_1h", -1},
         {"auto_ban_threshold_num", 2},
         {"auto_ban_num_days", 1}
@@ -383,7 +383,7 @@ TEST_F(RateLimitManagerTest, TestWildcard) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({".*"})},
-        {"max_requests_60s", 5},
+        {"max_requests_1m", 5},
         {"max_requests_1h", -1}
     });
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
@@ -404,13 +404,13 @@ TEST_F(RateLimitManagerTest, TestCorrectOrderofRules) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({".*"})},
-        {"max_requests_60s", 2},
+        {"max_requests_1m", 2},
         {"max_requests_1h", -1}
     });
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 5},
+        {"max_requests_1m", 5},
         {"max_requests_1h", -1}
     });
     manager->add_rule({
@@ -443,7 +443,7 @@ TEST_F(RateLimitManagerTest, TestAutoBannedEntitiesList) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({"test"})},
-        {"max_requests_60s", 5},
+        {"max_requests_1m", 5},
         {"max_requests_1h", -1},
         {"auto_ban_threshold_num", 1},
         {"auto_ban_num_days", 3}
@@ -471,7 +471,7 @@ TEST_F(RateLimitManagerTest, TestMultiSearchRateLimit) {
     manager->add_rule({
         {"action", "throttle"},
         {"api_keys", nlohmann::json::array({".*"})},
-        {"max_requests_60s", 3},
+        {"max_requests_1m", 3},
         {"max_requests_1h", -1}
     });
     std::shared_ptr<http_req> req = std::make_shared<http_req>();

@@ -243,7 +243,7 @@ const nlohmann::json rate_limit_rule_t::to_json() const {
             rule["api_keys"] = entity_ids;
         }
         if(max_requests.minute_threshold >= 0) {
-            rule["max_requests_60s"] = max_requests.minute_threshold;
+            rule["max_requests_1m"] = max_requests.minute_threshold;
         }
         if(max_requests.hour_threshold >= 0) {
             rule["max_requests_1h"] = max_requests.hour_threshold;
@@ -353,11 +353,11 @@ Option<bool> RateLimitManager::is_valid_rule(const nlohmann::json &rule_json) {
         }
         return Option<bool>(true);
     } else if (rule_json["action"] == "throttle") {
-        if (rule_json.count("max_requests_60s") == 0 && rule_json.count("max_requests_1h") == 0) {
-            return Option<bool>(400, "At least  one of `max_requests_60s` or `max_requests_1h` is required.");
+        if (rule_json.count("max_requests_1m") == 0 && rule_json.count("max_requests_1h") == 0) {
+            return Option<bool>(400, "At least  one of `max_requests_1m` or `max_requests_1h` is required.");
         }
-        if (rule_json.count("max_requests_60s") > 0 && rule_json["max_requests_60s"].is_number_integer() == false) {
-            return Option<bool>(400, "Parameter `max_requests_60s` must be an integer.");
+        if (rule_json.count("max_requests_1m") > 0 && rule_json["max_requests_1m"].is_number_integer() == false) {
+            return Option<bool>(400, "Parameter `max_requests_1m` must be an integer.");
         }
         if (rule_json.count("max_requests_1h") > 0 && rule_json["max_requests_1h"].is_number_integer() == false) {
             return Option<bool>(400, "Parameter `max_requests_1h` must be an integer.");
@@ -416,8 +416,8 @@ Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rul
             new_rule.entity_ids.push_back(api_key);
         }
     }
-    if(rule_json.count("max_requests_60s") > 0) {
-        new_rule.max_requests.minute_threshold = rule_json["max_requests_60s"];
+    if(rule_json.count("max_requests_1m") > 0) {
+        new_rule.max_requests.minute_threshold = rule_json["max_requests_1m"];
     }
     if(rule_json.count("max_requests_1h") > 0) {
         new_rule.max_requests.hour_threshold = rule_json["max_requests_1h"];
