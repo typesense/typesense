@@ -40,7 +40,7 @@ struct rate_limit_rule_t {
     std::vector<std::string> entity_ids;
     rate_limit_max_requests_t max_requests;
     int64_t auto_ban_threshold_num = -1;
-    int64_t auto_ban_num_days = -1;
+    int64_t auto_ban_num_hours = -1;
 
     const nlohmann::json to_json() const;
 
@@ -211,15 +211,15 @@ class RateLimitManager
         std::shared_mutex rate_limit_mutex;
 
         // Helper function to ban an entity temporarily
-        void temp_ban_entity(const rate_limit_entity_t& entity, const int64_t number_of_days);
+        void temp_ban_entity(const rate_limit_entity_t& entity, const int64_t number_of_hours);
         // Helper function to ban an entity temporarily without locking mutex
-        void temp_ban_entity_unsecure(const rate_limit_entity_t& entity, const int64_t number_of_days);
+        void temp_ban_entity_unsecure(const rate_limit_entity_t& entity, const int64_t number_of_hours);
 
         // Helper function to check if JSON rule is valid
         Option<bool> is_valid_rule(const nlohmann::json &rule_json);
 
         // Parse JSON rule to rate_limit_rule_t
-        Option<rate_limit_rule_t> parse_rule(const nlohmann::json &rule_json, bool alert_if_exists = true);
+        static rate_limit_rule_t parse_rule(const nlohmann::json &rule_json);
 
         // Helper function to insert rule in store
         void insert_rule(const rate_limit_rule_t &rule);

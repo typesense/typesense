@@ -28,10 +28,10 @@ bool RateLimitManager::remove_rule_entity(const RateLimitedEntityType entity_typ
 
 }
 
-void RateLimitManager::temp_ban_entity(const rate_limit_entity_t& entity, const int64_t number_of_days) {
+void RateLimitManager::temp_ban_entity(const rate_limit_entity_t& entity, const int64_t number_of_hours) {
     // lock mutex
     std::shared_lock lock(rate_limit_mutex);
-    temp_ban_entity_unsecure(entity, number_of_days);
+    temp_ban_entity_unsecure(entity, number_of_hours);
 }
 
 bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &entities) {
@@ -101,14 +101,14 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
             auto current_rate_for_minute = (60 - (get_current_time() - request_counts.last_reset_time_minute)) / 60  * request_counts.previous_requests_count_minute;
             current_rate_for_minute += request_counts.current_requests_count_minute;
             if(rule.max_requests.minute_threshold >= 0 && current_rate_for_minute >= rule.max_requests.minute_threshold) {
-                bool auto_ban_is_enabled = (rule.auto_ban_threshold_num > 0 && rule.auto_ban_num_days > 0);
+                bool auto_ban_is_enabled = (rule.auto_ban_threshold_num > 0 && rule.auto_ban_num_hours > 0);
                 if(auto_ban_is_enabled) {
                     if(get_current_time() - request_counts.last_threshold_exceed_time >= 60) {
                         request_counts.threshold_exceed_count_minute++;
                         request_counts.last_threshold_exceed_time = get_current_time();
                     }
                     if(request_counts.threshold_exceed_count_minute > rule.auto_ban_threshold_num) {
-                        temp_ban_entity_unsecure(entity, rule.auto_ban_num_days);
+                        temp_ban_entity_unsecure(entity, rule.auto_ban_num_hours);
                     }
                 } 
                 return true;
@@ -199,20 +199,20 @@ void RateLimitManager::clear_all() {
     base_timestamp = 0;
 }
 
-void RateLimitManager::temp_ban_entity_unsecure(const rate_limit_entity_t& entity, const int64_t number_of_days) {
+void RateLimitManager::temp_ban_entity_unsecure(const rate_limit_entity_t& entity, const int64_t number_of_hours) {
     // Check if entity is already banned
     if (throttled_entities.count(entity) > 0) {
         return;
     }
     auto now = get_current_time();
     // Add entity to throttled_entities for the given number of days
-    rate_limit_status_t status{last_ban_id, now, now + (number_of_days * 24 * 60 * 60), entity.entity_id, entity.entity_type};
+    rate_limit_status_t status{last_ban_id, now, now + (number_of_hours * 60 * 60), entity.entity_id, entity.entity_type};
     std::string ban_key = get_ban_key(last_ban_id);
     bool inserted = store->insert(ban_key, status.to_json().dump());
     if(!inserted) {
         LOG(INFO) << "Failed to insert ban for entity " << entity.entity_id;
     }
-    throttled_entities.insert({entity, rate_limit_status_t{last_ban_id, now, now + (number_of_days * 24 * 60 * 60), entity.entity_id, entity.entity_type}});
+    throttled_entities.insert({entity, rate_limit_status_t{last_ban_id, now, now + (number_of_hours * 60 * 60), entity.entity_id, entity.entity_type}});
     last_ban_id++;
     store->increment(std::string(BANS_NEXT_ID), 1);
     if(rate_limit_request_counts.contains(entity)){
@@ -251,8 +251,8 @@ const nlohmann::json rate_limit_rule_t::to_json() const {
         if(auto_ban_threshold_num >= 0) {
             rule["auto_ban_threshold_num"] = auto_ban_threshold_num;
         }
-        if(auto_ban_num_days >= 0) {
-            rule["auto_ban_num_days"] = auto_ban_num_days;
+        if(auto_ban_num_hours >= 0) {
+            rule["auto_ban_num_hours"] = auto_ban_num_hours;
         }
         return rule;
 }
@@ -276,18 +276,32 @@ void rate_limit_status_t::parse_json(const nlohmann::json &json) {
     status_id = json["id"];
 }
 
-
 Option<nlohmann::json> RateLimitManager::add_rule(const nlohmann::json &rule_json) {
     std::shared_lock lock(rate_limit_mutex);
     auto rule_validation_result = is_valid_rule(rule_json);
     if(!rule_validation_result.ok()) {
         return Option<nlohmann::json>(rule_validation_result.code(), rule_validation_result.error());
     }
-    auto parsed_rule_option = parse_rule(rule_json);
-    if(!parsed_rule_option.ok()) {
-        return Option<nlohmann::json>(parsed_rule_option.code(), parsed_rule_option.error());
+
+    if(rule_json["ip_addresses"].is_array()) {
+        for(const auto& ip: rule_json["ip_addresses"]) {
+            // Check if a rule exists for the entity
+            if (rate_limit_entities.count(rate_limit_entity_t{RateLimitedEntityType::ip, ip}) > 0) {
+                return Option<nlohmann::json>(400, "A rule already exists for one of the entities");
+            }
+        }
     }
-    rate_limit_rule_t parsed_rule = parsed_rule_option.get();
+
+    if(rule_json["api_keys"].is_array()) {
+        for(const auto& api_key: rule_json["api_keys"]) {
+            // Check if a rule exists for the entity
+            if (rate_limit_entities.count(rate_limit_entity_t{RateLimitedEntityType::api_key, api_key}) > 0) {
+                return Option<nlohmann::json>(400, "A rule already exists for one of the entities");
+            }
+        }
+    }
+
+    rate_limit_rule_t parsed_rule = parse_rule(rule_json);
     parsed_rule.id = last_rule_id++;
     const std::string rule_store_key = get_rule_key(parsed_rule.id);
     bool inserted = store->insert(rule_store_key, parsed_rule.to_json().dump());
@@ -314,11 +328,8 @@ Option<nlohmann::json> RateLimitManager::edit_rule(const uint64_t id, const nloh
     if(!rule_validation_result.ok()) {
         return Option<nlohmann::json>(rule_validation_result.code(), rule_validation_result.error());
     }
-    auto parsed_rule_option = parse_rule(rule_json, false);
-    if(!parsed_rule_option.ok()) {
-        return Option<nlohmann::json>(parsed_rule_option.code(), parsed_rule_option.error());
-    }
-    rate_limit_rule_t parsed_rule = parsed_rule_option.get();
+
+    rate_limit_rule_t parsed_rule = parse_rule(rule_json);
     parsed_rule.id = id;
     const std::string rule_store_key = get_rule_key(parsed_rule.id);
     bool inserted = store->insert(rule_store_key, parsed_rule.to_json().dump());
@@ -371,16 +382,16 @@ Option<bool> RateLimitManager::is_valid_rule(const nlohmann::json &rule_json) {
         if(rule_json.count("api_keys") > 0 && !rule_json["api_keys"].is_array() && !rule_json["api_keys"][0].is_string()) {
             return Option<bool>(400, "Parameter `api_keys` must be an array of strings.");
         }
-        if((rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_days") == 0) || (rule_json.count("auto_ban_threshold_num") == 0 && rule_json.count("auto_ban_num_days") > 0)) {
-            return Option<bool>(400, "Both `auto_ban_threshold_num` and `auto_ban_num_days` are required if either is specified.");
+        if((rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_hours") == 0) || (rule_json.count("auto_ban_threshold_num") == 0 && rule_json.count("auto_ban_num_hours") > 0)) {
+            return Option<bool>(400, "Both `auto_ban_threshold_num` and `auto_ban_num_hours` are required if either is specified.");
 
         }
-        if(rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_days") > 0) {
-            if(!rule_json["auto_ban_threshold_num"].is_number_integer() || !rule_json["auto_ban_num_days"].is_number_integer()) {
-                return Option<bool>(400, "Parameters `auto_ban_threshold_num` and `auto_ban_num_days` must be integers.");
+        if(rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_hours") > 0) {
+            if(!rule_json["auto_ban_threshold_num"].is_number_integer() || !rule_json["auto_ban_num_hours"].is_number_integer()) {
+                return Option<bool>(400, "Parameters `auto_ban_threshold_num` and `auto_ban_num_hours` must be integers.");
             }
-            if(rule_json["auto_ban_threshold_num"].get<int>() < 0 || rule_json["auto_ban_num_days"].get<int>() < 0) {
-                return Option<bool>(400, "Both `auto_ban_threshold_num` and `auto_ban_num_days` must be greater than 0.");
+            if(rule_json["auto_ban_threshold_num"].get<int>() < 0 || rule_json["auto_ban_num_hours"].get<int>() < 0) {
+                return Option<bool>(400, "Both `auto_ban_threshold_num` and `auto_ban_num_hours` must be greater than 0.");
             }
         }
     } else {
@@ -390,29 +401,19 @@ Option<bool> RateLimitManager::is_valid_rule(const nlohmann::json &rule_json) {
 }
 
 
-Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rule_json, bool alert_if_exists)
+rate_limit_rule_t RateLimitManager::parse_rule(const nlohmann::json &rule_json)
 {
-    std::shared_lock lock(rate_limit_mutex);
-
     rate_limit_rule_t new_rule;
     new_rule.action = magic_enum::enum_cast<RateLimitAction>(rule_json["action"].get<std::string>()).value();
     if(rule_json.count("ip_addresses") > 0) {
         new_rule.entity_type = RateLimitedEntityType::ip;
         for(const auto& ip: rule_json["ip_addresses"]) {
-            // Check if a rule exists for the entity
-            if (rate_limit_entities.count(rate_limit_entity_t{new_rule.entity_type, ip}) > 0 && alert_if_exists) {
-                return Option<rate_limit_rule_t>(400, "A rule already exists for one of the entities");
-            }
             new_rule.entity_ids.push_back(ip);
         }
     }
     if(rule_json.count("api_keys") > 0) {
         new_rule.entity_type = RateLimitedEntityType::api_key;
         for(const auto& api_key: rule_json["api_keys"]) {
-            // Check if a rule exists for the entity
-            if (rate_limit_entities.count(rate_limit_entity_t{new_rule.entity_type, api_key}) > 0 && alert_if_exists) {
-                return Option<rate_limit_rule_t>(400, "A rule already exists for one of the entities");
-            }
             new_rule.entity_ids.push_back(api_key);
         }
     }
@@ -422,11 +423,12 @@ Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rul
     if(rule_json.count("max_requests_1h") > 0) {
         new_rule.max_requests.hour_threshold = rule_json["max_requests_1h"];
     }
-    if(rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_days") > 0) {
+    if(rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_hours") > 0) {
         new_rule.auto_ban_threshold_num = rule_json["auto_ban_threshold_num"];
-        new_rule.auto_ban_num_days = rule_json["auto_ban_num_days"];
+        new_rule.auto_ban_num_hours = rule_json["auto_ban_num_hours"];
     }
-    return Option<rate_limit_rule_t>(new_rule);
+
+    return std::move(new_rule);
 }
 
 
@@ -468,11 +470,20 @@ Option<bool> RateLimitManager::init(Store* store) {
 
     for(const auto& rule_json_str: rule_json_strs) {
         nlohmann::json rule_json = nlohmann::json::parse(rule_json_str);
-        Option<rate_limit_rule_t> rule_option = parse_rule(rule_json);
-        if(!rule_option.ok()) {
-            return Option<bool>(rule_option.code(), rule_option.error());
+        for(const auto& ip: rule_json["ip_addresses"]) {
+        // Check if a rule exists for the entity
+        if (rate_limit_entities.count(rate_limit_entity_t{RateLimitedEntityType::ip, ip}) > 0) {
+            return Option<bool>(400, "A rule already exists for one of the entities");
         }
-        auto rule = rule_option.get();
+        }
+        for(const auto& api_key: rule_json["api_keys"]) {
+            // Check if a rule exists for the entity
+            if (rate_limit_entities.count(rate_limit_entity_t{RateLimitedEntityType::api_key, api_key}) > 0) {
+                return Option<bool>(400, "A rule already exists for one of the entities");
+            }
+        }
+
+        auto rule = parse_rule(rule_json);
         rule.id = rule_json["id"];
         insert_rule(rule);
     }

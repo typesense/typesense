@@ -54,8 +54,10 @@ TEST_F(RateLimitManagerTest, TestAddRateLimitApiKey) {
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_days", 1}
+        {"auto_ban_num_hours", 1}
     });
+
+    LOG(INFO) << res.error();
 
 
     EXPECT_EQ(manager->get_all_rules().size(), 1);
@@ -68,7 +70,7 @@ TEST_F(RateLimitManagerTest, TestAddRateLimitIp) {
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_days", 1}
+        {"auto_ban_num_hours", 1}
     });
 
     EXPECT_EQ(manager->get_all_rules().size(), 1);
@@ -81,7 +83,7 @@ TEST_F(RateLimitManagerTest, TestRemoveRateLimitApiKey) {
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_days", 1}
+        {"auto_ban_num_hours", 1}
     });
     EXPECT_EQ(manager->get_all_rules().size(), 1);
     manager->remove_rule_entity(RateLimitedEntityType::api_key, "test");
@@ -95,7 +97,7 @@ TEST_F(RateLimitManagerTest, TestRemoveRateLimitIp) {
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_days", 1}
+        {"auto_ban_num_hours", 1}
     });
     EXPECT_EQ(manager->get_all_rules().size(), 1);
     manager->remove_rule_entity(RateLimitedEntityType::ip, "0.0.0.1");
@@ -117,7 +119,7 @@ TEST_F(RateLimitManagerTest, TestGetTrackedIps) {
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_days", 1}
+        {"auto_ban_num_hours", 1}
     });
     auto entities = manager->get_all_rules();
     bool found = entities[0].action == RateLimitAction::throttle && entities[0].max_requests.minute_threshold == 10 && entities[0].max_requests.hour_threshold == 100;
@@ -132,7 +134,7 @@ TEST_F(RateLimitManagerTest, TestGetTrackedApiKeys) {
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
         {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_days", 1}
+        {"auto_ban_num_hours", 1}
     });
     auto entities = manager->get_all_rules();
     bool found = entities[0].action == RateLimitAction::throttle && entities[0].max_requests.minute_threshold == 10 && entities[0].max_requests.hour_threshold == 100;
@@ -359,7 +361,7 @@ TEST_F(RateLimitManagerTest, TestAutoBan) {
         {"max_requests_1m", 5},
         {"max_requests_1h", -1},
         {"auto_ban_threshold_num", 2},
-        {"auto_ban_num_days", 1}
+        {"auto_ban_num_hours", 1}
     });
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
@@ -374,7 +376,7 @@ TEST_F(RateLimitManagerTest, TestAutoBan) {
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
     EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
-    this->changeBaseTimestamp(60*60*24);
+    this->changeBaseTimestamp(60*60);
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}})); 
 }
 
@@ -446,7 +448,7 @@ TEST_F(RateLimitManagerTest, TestAutoBannedEntitiesList) {
         {"max_requests_1m", 5},
         {"max_requests_1h", -1},
         {"auto_ban_threshold_num", 1},
-        {"auto_ban_num_days", 3}
+        {"auto_ban_num_hours", 3}
     });
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
