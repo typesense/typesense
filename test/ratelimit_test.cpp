@@ -467,6 +467,11 @@ TEST_F(RateLimitManagerTest, TestAutoBannedEntitiesList) {
     auto throttled_entities = manager->get_all_throttled_entities_json();
     EXPECT_EQ(throttled_entities.size(), 1);
     EXPECT_EQ(throttled_entities["active"][0]["api_key"], "test");
+
+    manager->delete_throttle_by_id(throttled_entities["active"][0]["id"]);
+
+    throttled_entities = manager->get_all_throttled_entities_json();
+    EXPECT_EQ(throttled_entities.size(), 0);
 }
 
 TEST_F(RateLimitManagerTest, TestMultiSearchRateLimit) {
