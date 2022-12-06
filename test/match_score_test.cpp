@@ -187,7 +187,13 @@ TEST(MatchTest, MatchScoreWithOffsetWrapAround) {
 
     infile.close();
 
+    ASSERT_FALSE(posting_list_t::has_phrase_match(token_offsets));
+
     auto match = Match(100, token_offsets, true, true);
     ASSERT_EQ(2, match.words_present);
-    //ASSERT_EQ(2, match.distance);
+    ASSERT_EQ(2, match.distance);
+
+    ASSERT_EQ(2, match.offsets.size());
+    ASSERT_EQ(4062, match.offsets[0].offset);
+    ASSERT_EQ(4060, match.offsets[1].offset);
 }

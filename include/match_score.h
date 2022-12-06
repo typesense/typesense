@@ -143,6 +143,8 @@ struct Match {
         size_t best_num_match = 1;
         size_t best_displacement = MAX_DISPLACEMENT;
 
+        int prev_min_offset = -1;
+
         while (window.size() > 1) {
             switch(window.size()) {
                 case 2:
@@ -157,6 +159,13 @@ struct Match {
             }
 
             size_t min_offset = window.back().offset;
+
+            if(int(min_offset) < prev_min_offset) {
+                // indicates that one of the offsets are wrapping around (e.g. long document)
+                break;
+            }
+
+            prev_min_offset = min_offset;
 
             size_t this_displacement = 0;
             size_t this_num_match = 0;

@@ -1233,8 +1233,25 @@ bool posting_list_t::found_token_sequence(const std::vector<token_positions_t>& 
 
     // iterate through the positions and see if `target_pos` is found in token positions
     const auto& tok_positions = token_positions[token_index].positions;
-    auto pos_it = std::find(tok_positions.begin(), tok_positions.end(), target_pos);
-    if(pos_it == tok_positions.end()) {
+    bool found_pos = false;
+    int prev_pos = -1;
+
+    for(auto tok_pos: tok_positions) {
+        if(tok_pos < prev_pos) {
+            // indicates that the positions are wrapping around
+            found_pos = false;
+            break;
+        }
+
+        if(tok_pos == target_pos) {
+            found_pos = true;
+            break;
+        }
+
+        prev_pos = tok_pos;
+    }
+
+    if(!found_pos) {
         return false;
     }
 
@@ -1243,11 +1260,19 @@ bool posting_list_t::found_token_sequence(const std::vector<token_positions_t>& 
 
 bool posting_list_t::has_phrase_match(const std::vector<token_positions_t>& token_positions) {
     const auto& positions = token_positions[0].positions;
+    int prev_pos = -1;
 
     for(auto pos: positions) {
+        if(pos < prev_pos) {
+            // indicates that the positions are wrapping around
+            return false;
+        }
+
         if(found_token_sequence(token_positions, 1, pos + 1)) {
             return true;
         }
+
+        prev_pos = pos;
     }
 
     return false;
