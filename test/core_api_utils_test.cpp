@@ -536,3 +536,18 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     ASSERT_TRUE(done);
     ASSERT_EQ('}', export_state.res_body->back());
 }
+
+TEST_F(CoreAPIUtilsTest, TestGetEntitiesValid) {
+    auto parsed_metadata_op = get_entities("4:test0.0.0.0");
+
+    ASSERT_TRUE(parsed_metadata_op.ok());
+    ASSERT_EQ("test", parsed_metadata_op.get().first);
+    ASSERT_EQ("0.0.0.0", parsed_metadata_op.get().second);
+}
+
+TEST_F(CoreAPIUtilsTest, TestGetEntitiesInvalid) {
+    auto parsed_metadata_op = get_entities("4:test");
+
+    ASSERT_FALSE(parsed_metadata_op.ok());
+    ASSERT_EQ("Invalid metadata", parsed_metadata_op.error());
+}

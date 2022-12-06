@@ -562,7 +562,7 @@ const nlohmann::json RateLimitManager::get_all_throttled_entities_json() {
 }
 
 const Option<nlohmann::json> RateLimitManager::delete_throttle_by_id(const uint64_t id) {
-    std::shared_lock lock(rate_limit_mutex);
+    std::unique_lock lock(rate_limit_mutex);
     std::string ban_json_str;
 
     const auto found = store->get(get_ban_key(id), ban_json_str);

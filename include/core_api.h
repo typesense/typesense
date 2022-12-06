@@ -143,3 +143,5 @@ bool is_doc_import_route(uint64_t route_hash);
 bool is_doc_write_route(uint64_t route_hash);
 
 bool is_doc_del_route(uint64_t route_hash);
+
+Option<std::pair<std::string, std::string>> get_entities(const std::string& metadata);

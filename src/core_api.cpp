@@ -497,9 +497,13 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     if(req->metadata.length() > 0) {
-        size_t client_api_key_length = std::stoi(req->metadata.substr(0, req->metadata.find(":")));
-        client_api_key = req->metadata.substr(req->metadata.find(":") + 1, client_api_key_length);
-        client_ip = req->metadata.substr(req->metadata.find(":") + 1 + client_api_key_length);
+        auto parsed_metadata = get_entities(req->metadata);
+        if(!parsed_metadata.ok()) {
+            res->set(parsed_metadata.code(), parsed_metadata.error());
+            return false;
+        }
+        client_api_key = parsed_metadata.get().first;
+        client_ip = parsed_metadata.get().second;
     }
 
     auto* rate_limit_manager = RateLimitManager::getInstance();
@@ -1842,4 +1846,37 @@ bool del_rate_limit_ban(const std::shared_ptr<http_req>& req, const std::shared_
 
     res->set_200(delete_res.get().dump());
     return true;
-  }
+}
+
+Option<std::pair<std::string, std::string>> get_entities(const std::string& metadata) {
+    // <client_api_key_length>:<client_api_key><client_ip>
+    if(metadata.length() < 2) {
+        return Option<std::pair<std::string, std::string>>(400, "Invalid metadata");
+    }
+    if(metadata.find(":") == std::string::npos) {
+        return Option<std::pair<std::string, std::string>>(400, "Invalid metadata");
+    }
+    if(metadata.find(":") == metadata.length() - 1) {
+        return Option<std::pair<std::string, std::string>>(400, "Invalid metadata");
+    }
+    if(metadata.find(":") == 0) {
+        return Option<std::pair<std::string, std::string>>(400, "Invalid metadata");
+    }
+
+    // Get client_api_key_length
+    int client_api_key_length = std::stoi(metadata.substr(0, metadata.find(":")));
+
+    if(metadata.length() <= metadata.find(":") + 1) {
+        return Option<std::pair<std::string, std::string>>(400, "Invalid metadata");
+    }
+
+    // Get client_api_key
+    std::string client_api_key = metadata.substr(metadata.find(":") + 1, client_api_key_length);
+
+    if(metadata.length() <= metadata.find(":") + 1 + client_api_key_length) {
+        return Option<std::pair<std::string, std::string>>(400, "Invalid metadata");
+    }
+    // Get client_ip
+    std::string client_ip = metadata.substr(metadata.find(":") + 1 + client_api_key_length);
+    return Option<std::pair<std::string, std::string>>(std::make_pair(client_api_key, client_ip));
+}
