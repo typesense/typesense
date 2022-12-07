@@ -1234,12 +1234,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     for(size_t i = 0; i < sort_fields_std.size(); i++) {
         if(sort_fields_std[i].name == sort_field_const::text_match && sort_fields_std[i].text_match_buckets != 0) {
             match_score_index = i;
-
-            if(sort_fields_std[i].text_match_buckets > 1) {
-                // we will disable prioritize exact match because it's incompatible with bucketing
-                prioritize_exact_match = false;
-            }
-
             break;
         }
     }
@@ -1337,31 +1331,33 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 1) {
         size_t num_buckets = sort_fields_std[match_score_index].text_match_buckets;
-
         const size_t max_kvs_bucketed = std::min<size_t>(DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
-        std::vector<int64_t> result_scores(max_kvs_bucketed);
 
-        // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
-        size_t block_len = (max_kvs_bucketed < num_buckets) ? max_kvs_bucketed : (max_kvs_bucketed / num_buckets) + 1;
-        size_t i = 0;
-        while(i < max_kvs_bucketed) {
-            int64_t anchor_score = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
-            size_t j = 0;
-            while(j < block_len && i+j < max_kvs_bucketed) {
-                result_scores[i+j] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
-                raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = anchor_score;
-                j++;
+        if(max_kvs_bucketed >= num_buckets) {
+            std::vector<int64_t> result_scores(max_kvs_bucketed);
+
+            // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
+            size_t block_len = (max_kvs_bucketed / num_buckets);
+            size_t i = 0;
+            while(i < max_kvs_bucketed) {
+                int64_t anchor_score = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
+                size_t j = 0;
+                while(j < block_len && i+j < max_kvs_bucketed) {
+                    result_scores[i+j] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
+                    raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = anchor_score;
+                    j++;
+                }
+
+                i += j;
             }
 
-            i += j;
-        }
+            // sort again based on bucketed match score
+            std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv_group);
 
-        // sort again based on bucketed match score
-        std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv_group);
-
-        // restore original scores
-        for(i = 0; i < max_kvs_bucketed; i++) {
-            raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index] = result_scores[i];
+            // restore original scores
+            for(i = 0; i < max_kvs_bucketed; i++) {
+                raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index] = result_scores[i];
+            }
         }
     }
 

@@ -1646,14 +1646,15 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {3, 1}, 1000, true).get();
 
+    // when there are more buckets than results, no bucketing will happen
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
     // bucketing by 1 produces original text match
     sort_fields = {
-            sort_by("_text_match(buckets: 1)", "DESC"),
-            sort_by("points", "DESC"),
+        sort_by("_text_match(buckets: 1)", "DESC"),
+        sort_by("points", "DESC"),
     };
 
     results = coll1->search("mark", {"title", "description"},
@@ -1768,8 +1769,8 @@ TEST_F(CollectionSortingTest, TextMatchMoreDocsThanBuckets) {
 
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
