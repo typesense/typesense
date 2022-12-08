@@ -1476,6 +1476,23 @@ bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
+bool post_compact_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager& collectionManager = CollectionManager::get_instance();
+    rocksdb::Status status = collectionManager.get_store()->compact_all();
+
+    nlohmann::json response;
+    response["success"] = status.ok();
+
+    if(!status.ok()) {
+        response["error"] = "Error code: " + std::to_string(status.code());
+        res->set_500(response.dump());
+    } else {
+        res->set_200(response.dump());
+    }
+
+    return true;
+}
+
 bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);

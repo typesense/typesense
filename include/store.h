@@ -327,6 +327,11 @@ public:
         db->Flush(options);
     }
 
+    rocksdb::Status compact_all() {
+        std::shared_lock lock(mutex);
+        return db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
+    }
+
     rocksdb::Status create_check_point(rocksdb::Checkpoint** checkpoint_ptr, const std::string& db_snapshot_path) {
         std::shared_lock lock(mutex);
         rocksdb::Status status = rocksdb::Checkpoint::Create(db, checkpoint_ptr);
