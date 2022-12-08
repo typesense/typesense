@@ -23,8 +23,9 @@ struct StringUtils {
 
     // Adapted from: http://stackoverflow.com/a/236180/131050
     static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,
-                        const bool keep_empty = false, const size_t start_index = 0,
-                        const size_t max_values = (std::numeric_limits<size_t>::max()-1)) {
+                        const bool keep_empty = false, const bool trim_space = true,
+                        const size_t start_index = 0,
+                        const size_t max_values = std::numeric_limits<size_t>::max()) {
         if (delim.empty()) {
             result.push_back(s);
             return s.size();
@@ -38,7 +39,9 @@ struct StringUtils {
             std::string temp(substart, subend);
 
             end_index += temp.size() + delim.size();
-            temp = trim(temp);
+            if(trim_space) {
+                temp = trim(temp);
+            }
 
             if (keep_empty || !temp.empty()) {
                 result.push_back(temp);

@@ -788,7 +788,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     //LOG(INFO) << "req body %: " << (float(req->body_index)/req->body.size())*100;
 
     std::vector<std::string> json_lines;
-    StringUtils::split(req->body, json_lines, "\n", false);
+    StringUtils::split(req->body, json_lines, "\n", false, false);
 
     //LOG(INFO) << "json_lines.size before: " << json_lines.size() << ", req->body_index: " << req->body_index;
 

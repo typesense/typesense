@@ -51,13 +51,13 @@ TEST(StringUtilsTest, ShouldSplitString) {
 
     // restrict list of max_values
     std::vector<std::string> lines_limited;
-    size_t end_index = StringUtils::split("a b c d e f", lines_limited, " ", false, 0, 3);
+    size_t end_index = StringUtils::split("a b c d e f", lines_limited, " ", false, true, 0, 3);
     ASSERT_EQ(3, lines_limited.size());
     ASSERT_EQ(6, end_index);
 
     // start from an arbitrary position in string
     std::vector<std::string> lines_custom_start;
-    end_index = StringUtils::split("a b c d e f", lines_custom_start, " ", false, 2, 100);
+    end_index = StringUtils::split("a b c d e f", lines_custom_start, " ", false, true, 2, 100);
     ASSERT_EQ(5, lines_custom_start.size());
     ASSERT_EQ(11, end_index);
 
@@ -66,6 +66,14 @@ TEST(StringUtilsTest, ShouldSplitString) {
     StringUtils::split(comma_and_space, comma_space_parts, ",");
     ASSERT_STREQ("foo", comma_space_parts[0].c_str());
     ASSERT_STREQ("bar", comma_space_parts[1].c_str());
+
+    // preserve trailing space
+    std::string str_trailing_space = "foo\nbar ";
+    std::vector<std::string> trailing_space_parts;
+    StringUtils::split(str_trailing_space, trailing_space_parts, "\n", false, false);
+    ASSERT_EQ(2, trailing_space_parts.size());
+    ASSERT_EQ("foo", trailing_space_parts[0]);
+    ASSERT_EQ("bar ", trailing_space_parts[1]);
 }
 
 TEST(StringUtilsTest, ShouldTrimString) {
