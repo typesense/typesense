@@ -216,7 +216,7 @@ class RateLimitManager
         void temp_ban_entity_unsecure(const rate_limit_entity_t& entity, const int64_t number_of_hours);
 
         // Helper function to check if JSON rule is valid
-        Option<bool> is_valid_rule(const nlohmann::json &rule_json);
+        static Option<bool> is_valid_rule(const nlohmann::json &rule_json);
 
         // Parse JSON rule to rate_limit_rule_t
         static rate_limit_rule_t parse_rule(const nlohmann::json &rule_json);

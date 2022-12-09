@@ -277,12 +277,12 @@ void rate_limit_status_t::parse_json(const nlohmann::json &json) {
 }
 
 Option<nlohmann::json> RateLimitManager::add_rule(const nlohmann::json &rule_json) {
-    std::shared_lock lock(rate_limit_mutex);
     auto rule_validation_result = is_valid_rule(rule_json);
     if(!rule_validation_result.ok()) {
         return Option<nlohmann::json>(rule_validation_result.code(), rule_validation_result.error());
     }
 
+    std::shared_lock lock(rate_limit_mutex);
     if(rule_json["ip_addresses"].is_array()) {
         for(const auto& ip: rule_json["ip_addresses"]) {
             // Check if a rule exists for the entity
@@ -303,12 +303,15 @@ Option<nlohmann::json> RateLimitManager::add_rule(const nlohmann::json &rule_jso
 
     rate_limit_rule_t parsed_rule = parse_rule(rule_json);
     parsed_rule.id = last_rule_id++;
+
     const std::string rule_store_key = get_rule_key(parsed_rule.id);
     bool inserted = store->insert(rule_store_key, parsed_rule.to_json().dump());
     if(!inserted) {
         return Option<nlohmann::json>(500, "Failed to insert rule into the DB store");
     }
     store->increment(std::string(RULES_NEXT_ID), 1);
+    // unlock mutex before inserting rule to rule store
+    lock.unlock();
     // Insert rule to rule store
     insert_rule(parsed_rule);
     nlohmann::json response;
@@ -341,6 +344,8 @@ Option<nlohmann::json> RateLimitManager::edit_rule(const uint64_t id, const nloh
     for(const auto &entity : old_rule.entity_ids) {
         rate_limit_entities.erase(rate_limit_entity_t{old_rule.entity_type,entity});
     }
+    // unlock mutex before inserting rule to rule store
+    lock.unlock();
     // Insert new rule to rule store
     insert_rule(parsed_rule);
     nlohmann::json response;
@@ -350,7 +355,7 @@ Option<nlohmann::json> RateLimitManager::edit_rule(const uint64_t id, const nloh
 }
 
 Option<bool> RateLimitManager::is_valid_rule(const nlohmann::json &rule_json) {
-        if (rule_json.count("action") == 0) {
+    if (rule_json.count("action") == 0) {
         return Option<bool>(400, "Parameter `action` is required.");
     }
     if (rule_json["action"] == "allow") {
@@ -433,7 +438,7 @@ rate_limit_rule_t RateLimitManager::parse_rule(const nlohmann::json &rule_json)
 
 
 void RateLimitManager::insert_rule(const rate_limit_rule_t &rule) {
-    std::shared_lock lock(rate_limit_mutex);
+    std::unique_lock lock(rate_limit_mutex);
 
     rule_store[rule.id] = rule;
     for(const auto &entity : rule.entity_ids) {
@@ -485,7 +490,11 @@ Option<bool> RateLimitManager::init(Store* store) {
 
         auto rule = parse_rule(rule_json);
         rule.id = rule_json["id"];
+
+        // unlock mutex before inserting rule
+        lock.unlock();
         insert_rule(rule);
+        lock.lock();
     }
     // Load bans from database
     std::string last_ban_id_str;
