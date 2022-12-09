@@ -94,6 +94,9 @@ public:
         options.merge_operator.reset(new UInt64AddOperator);
         options.compression = rocksdb::CompressionType::kSnappyCompression;
 
+        options.max_log_file_size = 4*1048576;
+        options.keep_log_file_num = 5;
+
         /*options.table_properties_collector_factories.emplace_back(
                 rocksdb::NewCompactOnDeletionCollectorFactory(10000, 7500, 0.5));*/
 
