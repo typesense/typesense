@@ -439,7 +439,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     bool ssl_enabled = (!config.get_ssl_cert().empty() && !config.get_ssl_cert_key().empty());
 
     BatchedIndexer* batch_indexer = new BatchedIndexer(server, &store, &meta_store, num_threads,
-                                                       config.get_skip_writes());
+                                                       config, config.get_skip_writes());
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),

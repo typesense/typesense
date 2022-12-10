@@ -186,9 +186,10 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     }
 
     // reject write if disk space is running out
-    auto resource_check = cached_disk_stat.has_enough_resources(raft_dir_path, config->get_disk_used_max_percentage(),
-                                                                config->get_memory_used_max_percentage());
-    if (resource_check != cached_resource_stat_t::OK) {
+    auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(raft_dir_path,
+                                  config->get_disk_used_max_percentage(), config->get_memory_used_max_percentage());
+
+    if (resource_check != cached_resource_stat_t::OK && request->http_method != "DELETE") {
         response->set_422("Rejecting write: running out of resource type: " +
                           std::string(magic_enum::enum_name(resource_check)));
         response->final = true;

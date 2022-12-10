@@ -71,7 +71,7 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
         return cached_resource_stat_t::OK;
     }
 
-    LOG(INFO) << "memory_total_bytes: " << memory_total_bytes << ", memory_available_bytes: " << memory_available_bytes;
+    //LOG(INFO) << "memory_total_bytes: " << memory_total_bytes << ", memory_available_bytes: " << memory_available_bytes;
 
     // Calculate sum of RAM + SWAP used as all_memory_used
     uint64_t all_memory_used = (memory_total_bytes - memory_available_bytes) + (swap_total_bytes - swap_free_bytes);
@@ -85,7 +85,7 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
                                                         ((100ULL - memory_used_max_percentage) * memory_total_bytes) / 100);
     uint64_t free_mem = (memory_total_bytes - all_memory_used);
 
-    LOG(INFO) << "free_mem: " << free_mem << ", memory_free_min_bytes: " << memory_free_min_bytes;
+    //LOG(INFO) << "free_mem: " << free_mem << ", memory_free_min_bytes: " << memory_free_min_bytes;
 
     if(free_mem < memory_free_min_bytes) {
         return cached_resource_stat_t::OUT_OF_MEMORY;

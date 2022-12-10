@@ -136,8 +136,6 @@ private:
     std::atomic<bool> shutting_down;
     std::atomic<size_t> pending_writes;
 
-    cached_resource_stat_t cached_disk_stat;
-
     const uint64_t snapshot_interval_s;     // frequency of actual snapshotting
     uint64_t last_snapshot_ts;              // when last snapshot ran
 

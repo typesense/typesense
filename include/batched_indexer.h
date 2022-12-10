@@ -6,6 +6,7 @@
 #include "http_data.h"
 #include "threadpool.h"
 #include "http_server.h"
+#include "config.h"
 
 class BatchedIndexer {
 private:
@@ -73,6 +74,8 @@ private:
     // When set, all writes (both live and log serialized) are skipped with 422 response
     const std::atomic<bool>& skip_writes;
 
+    const Config& config;
+
     static const size_t GC_INTERVAL_SECONDS = 60;
     static const size_t GC_PRUNE_MAX_SECONDS = 3600;
 
@@ -85,7 +88,7 @@ public:
     static const constexpr char* RAFT_REQ_LOG_PREFIX = "$RL_";
 
     BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, size_t num_threads,
-                   const std::atomic<bool>& skip_writes);
+                   const Config& config, const std::atomic<bool>& skip_writes);
 
     ~BatchedIndexer();
 

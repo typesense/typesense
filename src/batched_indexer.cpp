@@ -1,12 +1,13 @@
 #include "batched_indexer.h"
 #include "core_api.h"
 #include "thread_local_vars.h"
+#include "cached_resource_stat.h"
 
 BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, const size_t num_threads,
-                               const std::atomic<bool>& skip_writes):
+                               const Config& config, const std::atomic<bool>& skip_writes):
                                server(server), store(store), meta_store(meta_store), num_threads(num_threads),
                                last_gc_run(std::chrono::high_resolution_clock::now()), quit(false),
-                               skip_writes(skip_writes) {
+                               config(config), skip_writes(skip_writes) {
     queues.resize(num_threads);
     qmutuxes = new await_t[num_threads];
     skip_index_iter_upper_bound = new rocksdb::Slice(skip_index_upper_bound_key);
@@ -194,8 +195,19 @@ void BatchedIndexer::run() {
 
                     else {
                         //LOG(INFO) << "index req " << req_id << ", chunk index: " << orig_req_res.next_chunk_index;
+                        auto resource_check = cached_resource_stat_t::get_instance()
+                                              .has_enough_resources(config.get_data_dir(),
+                                                                    config.get_disk_used_max_percentage(),
+                                                                    config.get_memory_used_max_percentage());
 
-                        if(route_found) {
+                        if (resource_check != cached_resource_stat_t::OK && orig_req->http_method != "DELETE") {
+                            orig_res->set_422("Rejecting write: running out of resource type: " +
+                                              std::string(magic_enum::enum_name(resource_check)));
+                            orig_res->final = true;
+                            async_res = false;
+                        }
+
+                        else if(route_found) {
                             if(skip_writes && found_rpath->handler != post_config) {
                                 orig_res->set(422, "Skipping write.");
                                 async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
