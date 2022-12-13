@@ -61,7 +61,7 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
         last_checked_ts = now;
     }
 
-    int disk_used_percentage = (double(disk_used_bytes)/double(disk_total_bytes)) * 100;
+    double disk_used_percentage = (double(disk_used_bytes)/double(disk_total_bytes)) * 100;
     if(disk_used_percentage > disk_used_max_percentage) {
         LOG(INFO) << "disk_total_bytes: " << disk_total_bytes << ", disk_used_bytes: " << disk_used_bytes
                   << ", disk_used_percentage: " << disk_used_percentage;
@@ -87,7 +87,7 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
 
     if(free_mem < memory_free_min_bytes) {
         LOG(INFO) << "memory_total: " << memory_total_bytes << ", memory_available: " << memory_available_bytes
-                  << ", all_memory_used: " << all_memory_used << "free_mem: " << free_mem
+                  << ", all_memory_used: " << all_memory_used << ", free_mem: " << free_mem
                   << ", memory_free_min: " << memory_free_min_bytes;
         return cached_resource_stat_t::OUT_OF_MEMORY;
     }
