@@ -19,6 +19,7 @@
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
 
+
 struct sort_fields_guard_t {
     std::vector<sort_by> sort_fields_std;
 
@@ -1066,12 +1067,12 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     }
 
     // validate facet fields
-    for(const std::string & field_name: facet_fields) {
-        if(search_schema.count(field_name) == 0 || !search_schema.at(field_name).facet) {
-            std::string error = "Could not find a facet field named `" + field_name + "` in the schema.";
-            return Option<nlohmann::json>(404, error);
+    for(const std::string & facet_field: facet_fields) {
+        
+        const auto& res = parse_facet(facet_field, facets);
+        if(!res.ok()){
+            return Option<nlohmann::json>(res.code(), res.error());
         }
-        facets.emplace_back(field_name);
     }
 
     // parse facet query
@@ -1651,52 +1652,64 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     }
 
     result["facet_counts"] = nlohmann::json::array();
-
+    
     // populate facets
     for(facet & a_facet: facets) {
         nlohmann::json facet_result = nlohmann::json::object();
         facet_result["field_name"] = a_facet.field_name;
         facet_result["counts"] = nlohmann::json::array();
 
+        std::vector<facet_value_t> facet_values;
         std::vector<std::pair<int64_t, facet_count_t>> facet_hash_counts;
+            
         for (const auto & kv : a_facet.result_map) {
             facet_hash_counts.emplace_back(kv);
         }
 
-        auto the_field = search_schema.at(a_facet.field_name);
+        if(a_facet.is_range_query){
+            for(auto kv : a_facet.result_map){
 
+                auto facet_range_iter = a_facet.facet_range_map.find(kv.first);
+                if(facet_range_iter != a_facet.facet_range_map.end()){
+                    auto & facet_count = kv.second;
+                    facet_value_t facet_value = {facet_range_iter->second, std::string(), facet_count.count};
+                    facet_values.emplace_back(facet_value);
+                }
+                else{
+                    LOG (ERROR) << "range_id not found in result map.";
+                }
+            }
+        }
+        
+        auto the_field = search_schema.at(a_facet.field_name);
         // keep only top K facets
         auto max_facets = std::min(max_facet_values, facet_hash_counts.size());
         std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + max_facets,
                          facet_hash_counts.end(), Collection::facet_count_compare);
-
-        std::vector<facet_value_t> facet_values;
-
         for(size_t fi = 0; fi < max_facets; fi++) {
+
+            if(a_facet.is_range_query){
+                break;
+            }
+
             // remap facet value hash with actual string
             auto & kv = facet_hash_counts[fi];
             auto & facet_count = kv.second;
-
             // fetch actual facet value from representative doc id
             const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
             nlohmann::json document;
             const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
-
             if(!document_op.ok()) {
                 LOG(ERROR) << "Facet fetch error. " << document_op.error();
                 continue;
             }
-
             std::string value;
             bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
-
             if(!facet_found) {
                 continue;
             }
-
             std::unordered_map<std::string, size_t> ftoken_pos;
             std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
-
             for(size_t ti = 0; ti < ftokens.size(); ti++) {
                 if(the_field.is_bool()) {
                     if(ftokens[ti] == "1") {
@@ -1705,36 +1718,26 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                         ftokens[ti] = "false";
                     }
                 }
-
                 const std::string& resolved_token = ftokens[ti];
                 ftoken_pos[resolved_token] = ti;
             }
-
             const std::string& last_full_q_token = ftokens.empty() ? "" : ftokens.back();
-
             // 2 passes: first identify tokens that need to be highlighted and then construct highlighted text
-
             bool is_cyrillic = Tokenizer::is_cyrillic(the_field.locale);
             bool normalise = is_cyrillic ? false : true;
-
             Tokenizer tokenizer(value, normalise, !the_field.is_string(), the_field.locale, symbols_to_index, token_separators);
-
             // secondary tokenizer used for specific languages that requires transliteration
             // we use 2 tokenizers so that the original text offsets are available for highlighting
             Tokenizer word_tokenizer("", true, false, the_field.locale, symbols_to_index, token_separators);
-
             std::string raw_token;
             size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
-
             // need an ordered map here to ensure that it is ordered by the key (start offset)
             std::map<size_t, size_t> token_offsets;
             size_t prefix_token_start_index = 0;
-
             while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
                 if(is_cyrillic) {
                     word_tokenizer.tokenize(raw_token);
                 }
-
                 auto token_pos_it = ftoken_pos.find(raw_token);
                 if(token_pos_it != ftoken_pos.end()) {
                     token_offsets[tok_start] = tok_end;
@@ -1743,47 +1746,39 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                     }
                 }
             }
-
             auto offset_it = token_offsets.begin();
             size_t i = 0;
             std::stringstream highlightedss;
-
             // loop until end index, accumulate token and complete highlighting
             while(i < value.size()) {
                 if(offset_it != token_offsets.end()) {
                     if (i == offset_it->first) {
                         highlightedss << highlight_start_tag;
-
                         // do prefix highlighting for non-dropped last token
                         size_t token_len = (i == prefix_token_start_index && token_offsets.size() == facet_query_num_tokens) ?
                                            facet_query_last_token.size() :
                                            (offset_it->second - i + 1);
-
                         if(i == prefix_token_start_index && token_offsets.size() == facet_query_num_tokens) {
                             token_len = std::min((offset_it->second - i + 1), facet_query_last_token.size());
                         } else {
                             token_len = (offset_it->second - i + 1);
                         }
-
                         for(size_t j = 0; j < token_len; j++) {
                             highlightedss << value[i + j];
                         }
-
                         highlightedss << highlight_end_tag;
                         offset_it++;
                         i += token_len;
                         continue;
                     }
                 }
-
                 highlightedss << value[i];
                 i++;
             }
-
             facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
             facet_values.emplace_back(facet_value);
         }
-
+        
         std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
 
         for(const auto & facet_count: facet_values) {
@@ -4065,3 +4060,126 @@ std::string Collection::get_fallback_field_type() {
 bool Collection::get_enable_nested_fields() {
     return enable_nested_fields;
 };
+
+Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const{
+   const std::regex base_pattern("[a-z]+\\(.*\\)");
+   const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\, ([0-9]+)\\]");
+   
+   if(facet_field.find(":") != std::string::npos){ //range based facet
+
+        if(!std::regex_match(facet_field, base_pattern)){
+            std::string error = "Range string base pattern not matched.";
+            return Option<bool>(400, error);
+        }
+
+        auto startpos = facet_field.find("(");
+        auto field_name = facet_field.substr(0, startpos);
+
+        const field& a_field = search_schema.at(field_name);
+        if(!a_field.is_int32() && !a_field.is_int64()){
+            std::string error = "Range facet is restricted to Numeric fields only.";
+            return Option<bool>(400, error);
+        }
+
+        facet a_facet(field_name);
+
+        //starting after "(" and excluding ")" 
+        auto range_string = std::string(facet_field.begin() + startpos + 1, facet_field.end() - 1);
+
+        //split the ranges
+        std::vector<std::string> result;
+        startpos = 0;
+        int index=0;
+        int commaFound = 0, rangeFound = 0;
+        bool range_open=false;
+        while(index < range_string.size()){
+            if(range_string[index] == ']'){
+                if(range_open == true){
+                    std::string range = range_string.substr(startpos, index + 1 - startpos);
+                    range=StringUtils::trim(range);
+                    result.emplace_back(range);
+                    rangeFound++;
+                    range_open=false;
+                }
+                else{
+                    result.clear();
+                    break;
+                }
+            }
+            else if(range_string[index] == ',' && range_open == false){
+                startpos = index+1;
+                commaFound++;
+            }
+            else if(range_string[index] == '['){
+                if((commaFound == rangeFound) && range_open==false){
+                    range_open=true;
+                }
+                else{
+                    result.clear();
+                    break;
+                }
+            }
+
+            index++;
+        }   
+
+        if((result.empty()) || (range_open==true)){
+            std::string error = "Error splitting the range string.";
+            return Option<bool>(400, error);
+        }
+
+        std::vector<std::tuple<int64_t, int64_t, std::string>> tupVec;
+
+        auto& range_map = a_facet.facet_range_map;
+        for(const auto& range : result){
+            //validate each range syntax
+            if(!std::regex_match(range, range_pattern)){
+                std::string error = "Range String range pattern not matched.";
+                return Option<bool>(400, error);
+            }
+    
+            auto pos1 = range.find(":");
+            std::string range_val = range.substr(0, pos1);
+    
+            auto pos2 = range.find(",");
+            auto pos3 = range.find("]");
+    
+            int64_t lower_range = std::stoll(range.substr(pos1 + 2, pos2));
+            int64_t upper_range = std::stoll(range.substr(pos2 + 1, pos3));
+
+            tupVec.emplace_back(std::make_tuple(lower_range, upper_range, range_val));
+        }
+
+        //sort the range values so that we can check continuity
+        sort(tupVec.begin(), tupVec.end());
+
+        for(const auto& tup : tupVec){
+
+            int64_t lower_range = std::get<0>(tup);
+            int64_t upper_range = std::get<1>(tup);
+            std::string range_val = std::get<2>(tup);
+            //check if ranges are continous or not
+            if((!range_map.empty()) && (range_map.find(lower_range)== range_map.end())){
+                std::string error = "Ranges in range facet syntax should be continous.";
+                return Option<bool>(400, error);
+            }
+            
+            range_map[upper_range] =  range_val;
+        }
+        
+        a_facet.is_range_query = true;
+
+        facets.emplace_back(std::move(a_facet));
+    }
+    else{//normal facet
+        facets.emplace_back(facet(facet_field));
+    }
+
+    if(search_schema.count(facets.back().field_name) == 0 || !search_schema.at(facets.back().field_name).facet) {
+            std::string error = "Could not find a facet field named `" + facets.back().field_name + "` in the schema.";
+            facets.pop_back();
+            return Option<bool>(400, error);
+        }
+
+    return Option<bool>(true);
+}

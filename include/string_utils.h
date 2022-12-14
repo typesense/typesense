@@ -21,6 +21,57 @@ struct StringUtils {
 
     ~StringUtils();
 
+    static size_t split_facet(const std::string& s, std::vector<std::string> & result,
+                      const bool keep_empty = false, const size_t start_index = 0,
+                      const size_t max_values = (std::numeric_limits<size_t>::max()-1)) {
+       
+
+        std::string::const_iterator substart = s.begin()+start_index, subend;
+        size_t end_index = start_index;
+        std::string delim(""), temp("");
+	    std::string current_str=s;
+        while (true) {
+            auto range_pos = current_str.find("(");
+            auto normal_pos = current_str.find(",");
+
+            if(range_pos == std::string::npos && normal_pos == std::string::npos){
+                if(!current_str.empty()){
+                    result.push_back(trim(current_str));
+                }
+		        break;
+            }
+            else if(range_pos < normal_pos){
+                delim="),";
+                subend = std::search(substart, s.end(), delim.begin(), delim.end());
+		        temp = std::string(substart, subend + 1);
+            }
+            else{
+                delim=",";
+                subend = std::search(substart, s.end(), delim.begin(), delim.end());
+		        temp = std::string(substart, subend);
+            }
+            
+            end_index += temp.size() + delim.size();
+            temp = trim(temp);
+
+            if (keep_empty || !temp.empty()) {
+                result.push_back(temp);
+            }
+
+            if(result.size() == max_values) {
+                break;
+            }
+
+            if (subend == s.end()) {
+                break;
+            }
+            substart = subend + delim.size();
+	        current_str = std::string(substart, s.end());
+        }
+
+        return std::min(end_index, s.size());
+    }
+
     // Adapted from: http://stackoverflow.com/a/236180/131050
     static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,
                         const bool keep_empty = false, const bool trim_space = true,

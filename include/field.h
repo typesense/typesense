@@ -677,8 +677,34 @@ struct facet {
 
     facet_stats_t stats;
 
-    explicit facet(const std::string& field_name): field_name(field_name) {
+    //dictionary of key=>pair(range_id, range_val)
+    std::map<int64_t, std::string> facet_range_map;
 
+    bool is_range_query;
+
+    bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair)
+    {
+        if(facet_range_map.empty())
+        {
+            LOG (ERROR) << "Facet range is not defined!!!";
+        }
+        auto it = facet_range_map.lower_bound(key);
+
+        if(it != facet_range_map.end())
+        {
+            range_pair.first = it->first;
+            range_pair.second = it->second;
+            return true;
+        }
+
+        return false;
+    }
+
+    explicit facet(const std::string& field_name, 
+        std::map<int64_t, std::string> facet_range = {}, bool is_range_q = false)
+        :field_name(field_name){
+            facet_range_map = facet_range;
+            is_range_query = is_range_q;
     }
 };
 

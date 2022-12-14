@@ -979,3 +979,68 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
     ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
     ASSERT_EQ("2000", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 }
+
+TEST_F(CollectionFacetingTest, FacetParseTest){
+
+    std::vector<field> fields = {
+        field("score", field_types::INT32, true),
+        field("grade", field_types::INT32, true),
+        field("rank", field_types::INT32, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::string> range_facet_fields {
+        "score(fail:[0, 40], pass:[40, 100])",
+        "grade(A:[80, 100], B:[60, 80], C:[40, 60])"
+    };
+    std::vector<facet> range_facets;
+    for(const std::string & facet_field: range_facet_fields) {
+        coll1->parse_facet(facet_field, range_facets);
+    }
+    ASSERT_EQ(2, range_facets.size());
+    
+    ASSERT_STREQ("score", range_facets[0].field_name.c_str());
+    ASSERT_TRUE(range_facets[0].is_range_query);
+    ASSERT_GT(range_facets[0].facet_range_map.size(), 0);
+
+    ASSERT_STREQ("grade", range_facets[1].field_name.c_str());
+    ASSERT_TRUE(range_facets[1].is_range_query);
+    ASSERT_GT(range_facets[1].facet_range_map.size(), 0);
+
+    
+    
+    std::vector<std::string> normal_facet_fields {
+        "score",
+        "grade"
+    };
+    std::vector<facet> normal_facets;
+    for(const std::string & facet_field: normal_facet_fields) {
+        coll1->parse_facet(facet_field, normal_facets);
+    }
+    ASSERT_EQ(2, normal_facets.size());
+
+    ASSERT_STREQ("score", normal_facets[0].field_name.c_str());
+    ASSERT_STREQ("grade", normal_facets[1].field_name.c_str());
+    
+
+    
+    std::vector<std::string> mixed_facet_fields {
+        "score", 
+        "grade(A:[80, 100], B:[60, 80], C:[40, 60])", 
+        "rank"
+    };
+    std::vector<facet> mixed_facets;
+    for(const std::string & facet_field: mixed_facet_fields) {
+        coll1->parse_facet(facet_field, mixed_facets);
+    }
+    ASSERT_EQ(3, mixed_facets.size());
+    
+    ASSERT_STREQ("score", mixed_facets[0].field_name.c_str());
+    
+    ASSERT_STREQ("grade", mixed_facets[1].field_name.c_str());
+    ASSERT_TRUE(mixed_facets[1].is_range_query);
+    ASSERT_GT(mixed_facets[1].facet_range_map.size(), 0);
+
+    ASSERT_STREQ("rank", mixed_facets[2].field_name.c_str());
+}

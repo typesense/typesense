@@ -880,7 +880,13 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
             auto find_str_list_it = str_list_values.find(key);
             if(find_str_list_it != str_list_values.end()) {
-                StringUtils::split(val, *find_str_list_it->second, ",");
+
+                if(key == FACET_BY){
+                    StringUtils::split_facet(val, *find_str_list_it->second);
+                }
+                else{
+                    StringUtils::split(val, *find_str_list_it->second, ",");
+                }
                 continue;
             }
 
