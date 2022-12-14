@@ -30,10 +30,11 @@ struct highlight_field_t {
     std::string name;
     bool fully_highlighted;
     bool infix;
+    bool is_string;
     tsl::htrie_map<char, token_leaf> qtoken_leaves;
 
-    highlight_field_t(const std::string& name, bool fully_highlighted, bool infix):
-            name(name), fully_highlighted(fully_highlighted), infix(infix) {
+    highlight_field_t(const std::string& name, bool fully_highlighted, bool infix, bool is_string):
+            name(name), fully_highlighted(fully_highlighted), infix(infix), is_string(is_string) {
 
     }
 };
@@ -134,8 +135,6 @@ private:
                           const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
                           const KV* field_order_kv, const nlohmann::json &document,
                           nlohmann::json& highlight_doc,
-                          nlohmann::json& highlight_full_doc,
-                          nlohmann::json& highlight_meta,
                           StringUtils & string_utils,
                           const size_t snippet_threshold,
                           const size_t highlight_affix_num_tokens,
@@ -162,10 +161,10 @@ private:
                                           const DIRTY_VALUES& dirty_values,
                                           const tsl::htrie_map<char, field>& schema,
                                           const std::unordered_map<std::string, field>& dyn_fields,
-                                          const tsl::htrie_map<char, field>& nested_fields,
+                                          tsl::htrie_map<char, field>& nested_fields,
                                           const std::string& fallback_field_type,
+                                          bool is_update,
                                           std::vector<field>& new_fields,
-                                          std::vector<field>& nested_fields_found,
                                           bool enable_nested_fields);
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
@@ -199,20 +198,18 @@ private:
 
     Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
                                   const std::vector<field>& del_fields,
-                                  const std::string& this_fallback_field_type,
-                                  const tsl::htrie_map<char, field>& alter_nested_fields);
+                                  const std::string& this_fallback_field_type);
 
     Option<bool> validate_alter_payload(nlohmann::json& schema_changes,
                                         std::vector<field>& addition_fields,
                                         std::vector<field>& reindex_fields,
-                                        tsl::htrie_map<char, field>& new_nested_fields,
                                         std::vector<field>& del_fields,
                                         std::string& fallback_field_type);
 
     void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
-                                  std::vector<filter>& filters,
+                                  filter_node_t*& filter_tree_root,
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids) const;
 
@@ -224,8 +221,7 @@ private:
                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
                                const size_t highlight_affix_num_tokens,
-                               const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
-                               int last_valid_offset_index, const Match& match,
+                               const tsl::htrie_map<char, token_leaf>& qtoken_leaves, int last_valid_offset_index,
                                const size_t prefix_token_num_chars, bool highlight_fully, const size_t snippet_threshold,
                                bool is_infix_search, std::vector<std::string>& raw_query_tokens, size_t last_valid_offset,
                                const std::string& highlight_start_tag, const std::string& highlight_end_tag,
@@ -237,16 +233,12 @@ private:
                                            bool extract_only_string_fields,
                                            bool enable_nested_fields);
 
-    static Option<bool> flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields_found,
-                                                         const tsl::htrie_map<char, field>& schema,
-                                                         std::vector<field>& new_fields);
-
     bool is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const;
 
     template<class T>
     static bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
-                                       const nlohmann::json& fdoc, nlohmann::json& fobj,
-                                       std::vector<std::string>& path_parts, size_t path_index, T func);
+                                       std::vector<std::string>& path_parts, size_t path_index,
+                                       bool is_arr_obj_ele, int array_index, T func);
 
     static Option<bool> resolve_field_type(field& new_field,
                                            nlohmann::detail::iter_impl<nlohmann::basic_json<>>& kv,
@@ -254,8 +246,8 @@ private:
                                            const DIRTY_VALUES& dirty_values,
                                            const bool found_dynamic_field,
                                            const std::string& fallback_field_type,
-                                           std::vector<field>& new_fields,
-                                           std::vector<field>& nested_fields_found);
+                                           bool enable_nested_fields,
+                                           std::vector<field>& new_fields);
 
 public:
 
@@ -344,7 +336,7 @@ public:
                                      const index_operation_t op, const DIRTY_VALUES& dirty_values);
 
     static void prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
-                          const tsl::htrie_set<char>& exclude_names, std::string parent_name = "", size_t depth = 0);
+                          const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0);
 
     const Index* _get_index() const;
 
@@ -379,7 +371,7 @@ public:
                             const bool& return_doc=false, const bool& return_id=false);
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
-                                  const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
+                                  const std::string & filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   size_t per_page = 10, size_t page = 1,
                                   token_ordering token_order = FREQUENCY, const std::vector<bool>& prefixes = {true},
@@ -398,7 +390,7 @@ public:
                                   size_t group_limit = 3,
                                   const std::string& highlight_start_tag="<mark>",
                                   const std::string& highlight_end_tag="</mark>",
-                                  std::vector<uint32_t> query_by_weights={},
+                                  std::vector<uint32_t> raw_query_by_weights={},
                                   size_t limit_hits=UINT32_MAX,
                                   bool prioritize_exact_match=true,
                                   bool pre_segmented_query=false,
@@ -478,6 +470,7 @@ public:
                    size_t snippet_start_offset) ;
 
     void process_highlight_fields(const std::vector<search_field_t>& search_fields,
+                                  const std::vector<std::string>& raw_search_fields,
                                   const tsl::htrie_set<char>& exclude_fields,
                                   const tsl::htrie_set<char>& include_fields,
                                   const std::vector<std::string>& highlight_field_names,
@@ -501,15 +494,11 @@ public:
 
 template<class T>
 bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
-                            const nlohmann::json& fdoc, nlohmann::json& fobj,
-                            std::vector<std::string>& path_parts, size_t path_index, T func) {
+                                        std::vector<std::string>& path_parts, size_t path_index,
+                                        bool is_arr_obj_ele, int array_index, T func) {
     if(path_index == path_parts.size()) {
-        // end of path: guaranteed to be a string
-        if(!hobj.is_string()) {
-            return false;
-        }
-
-        func(hobj, fobj);
+        func(hobj, is_arr_obj_ele, array_index);
+        return true;
     }
 
     const std::string& fragment = path_parts[path_index];
@@ -520,13 +509,13 @@ bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::js
             bool resolved = false;
             for(size_t i = 0; i < it.value().size(); i++) {
                 auto& h_ele = it.value().at(i);
-                auto& f_ele = fobj.empty() ? fobj : fobj[fragment][i];
-                resolved |= highlight_nested_field(hdoc, h_ele, fdoc, f_ele, path_parts, path_index + 1, func);
+                is_arr_obj_ele = is_arr_obj_ele || h_ele.is_object();
+                resolved = highlight_nested_field(hdoc, h_ele, path_parts, path_index + 1,
+                                                  is_arr_obj_ele, i, func) || resolved;
             }
             return resolved;
         } else {
-            auto& f_ele = fobj.empty() ? fobj : fobj[fragment];
-            return highlight_nested_field(hdoc, it.value(), fdoc, f_ele, path_parts, path_index + 1, func);
+            return highlight_nested_field(hdoc, it.value(), path_parts, path_index + 1, is_arr_obj_ele, 0, func);
         }
     } {
         return false;

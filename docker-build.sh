@@ -32,30 +32,30 @@ fi
 TYPESENSE_DEV_IMAGE="typesense-development:27-JUN-2022-1"
 ARCH_NAME="amd64"
 
-if [[ "$@" == *"--graviton2"* ]]; then
+if [[ "$@" == *"--graviton2"* ]] || [[ "$@" == *"--arm"* ]]; then
   TYPESENSE_DEV_IMAGE="typesense-development-arm:27-JUN-2022-1"
   ARCH_NAME="arm64"
 fi
 
 echo "Building Typesense $TYPESENSE_VERSION..."
-docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
+docker run -it --platform linux/${ARCH_NAME} -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
  -DCMAKE_BUILD_TYPE=Release -H/typesense -B/typesense/$BUILD_DIR
-docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE make typesense-server -C/typesense/$BUILD_DIR
+docker run -it --platform linux/${ARCH_NAME} -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE make typesense-server -C/typesense/$BUILD_DIR
 
 if [[ "$@" == *"--test"* ]]; then
     echo "Running tests"
-    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cp /typesense/$BUILD_DIR/Makefile /typesense/$TEST_BUILD_DIR
-    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cp -R /typesense/$BUILD_DIR/CMakeFiles /typesense/$TEST_BUILD_DIR/
-    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE make typesense-test -C/typesense/$TEST_BUILD_DIR
-    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE chmod +x /typesense/$TEST_BUILD_DIR/typesense-test
-    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE /typesense/$TEST_BUILD_DIR/typesense-test
+    docker run -it --platform linux/${ARCH_NAME} -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cp /typesense/$BUILD_DIR/Makefile /typesense/$TEST_BUILD_DIR
+    docker run -it --platform linux/${ARCH_NAME} -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cp -R /typesense/$BUILD_DIR/CMakeFiles /typesense/$TEST_BUILD_DIR/
+    docker run -it --platform linux/${ARCH_NAME} -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE make typesense-test -C/typesense/$TEST_BUILD_DIR
+    docker run -it --platform linux/${ARCH_NAME} -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE chmod +x /typesense/$TEST_BUILD_DIR/typesense-test
+    docker run -it --platform linux/${ARCH_NAME} -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE /typesense/$TEST_BUILD_DIR/typesense-test
 fi
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
     echo "Creating deployment image for Typesense $TYPESENSE_VERSION server ..."
 
     cp $PROJECT_DIR/docker/deployment.Dockerfile $PROJECT_DIR/$BUILD_DIR
-    docker build --file $PROJECT_DIR/$BUILD_DIR/deployment.Dockerfile --tag typesense/typesense:$TYPESENSE_VERSION \
+    docker build --platform linux/${ARCH_NAME} --file $PROJECT_DIR/$BUILD_DIR/deployment.Dockerfile --tag typesense/typesense:$TYPESENSE_VERSION \
                         $PROJECT_DIR/$BUILD_DIR
 fi
 
@@ -69,7 +69,7 @@ fi
 
 #
 #if [[ "$@" == *"--create-deb-upload"* ]]; then
-#    docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development:09-AUG-2021-1 cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
+#    docker run -it --platform linux/${ARCH_NAME} -v $PROJECT_DIR:/typesense typesense/typesense-development:09-AUG-2021-1 cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
 #    -DCMAKE_BUILD_TYPE=Debug -H/typesense -B/typesense/$BUILD_DIR
 #fi
 

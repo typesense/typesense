@@ -114,6 +114,59 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnSingleField) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnMultiField) {
+    Collection *coll1;
+    std::vector<field> fields = {field("location", field_types::STRING, false),
+                                 field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::string> names = {
+        "John Stewart", "John Smith", "John Scott", "John Stone", "John Romero", "John Oliver", "John Adams"
+    };
+
+    std::vector<std::string> locations = {
+        "Switzerland", "Seoul", "Sydney", "Surat", "Stockholm", "Salem", "Sevilla"
+    };
+
+    for(size_t i = 0; i < names.size(); i++) {
+        nlohmann::json doc;
+        doc["location"] = locations[i];
+        doc["name"] = names[i];
+        doc["points"] = i;
+        coll1->add(doc.dump());
+    }
+
+    auto results = coll1->search("john s", {"location", "name"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                                 0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "",
+                                 30, 4, "title", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false,
+                                 true, "", false, 6000*1000, 4, 7, off, 4).get();
+
+    // tokens are ordered by max_score and prefix continuation on the same field is prioritized
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // when more than 4 candidates are requested, "s" matches with other fields are returned
+    results = coll1->search("john s", {"location", "name"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "",
+                            30, 4, "title", 20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false,
+                            true, "", false, 6000*1000, 4, 7, off, 10).get();
+
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("6", results["hits"][4]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, ArrayElementMatchShouldBeMoreImportantThanTotalMatch) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("author", field_types::STRING, false),
@@ -608,6 +661,55 @@ TEST_F(CollectionSpecificMoreTest, ExactFilteringOnArray) {
                                  false, false).get();
 
     ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("*", {"tags"}, "tags:=§ 23", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("*", {"tags"}, "tags:=§ 23 Satz", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, false).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, ExactFilteringOnArray2) {
+    auto schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "capability", "type": "string[]", "facet": true}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["capability"] = {"Encoding capabilities for network communications",
+                            "Obfuscation capabilities"};
+    coll1->add(doc1.dump());
+
+    auto results = coll1->search("*", {}, "capability:=Encoding capabilities", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                                 Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, false).get();
+
+    ASSERT_EQ(0, results["hits"].size());
 }
 
 TEST_F(CollectionSpecificMoreTest, SplitTokensCrossFieldMatching) {
@@ -860,26 +962,25 @@ TEST_F(CollectionSpecificMoreTest, HighlightWithAccentedChars) {
     ASSERT_EQ("<mark>Rāp</mark>eti Early Learning Centre", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     auto highlight_doc = R"({
-      "companies":[
+      "companies": [
         {
-          "title":"<mark>Rāp</mark>eti Early Learning Centre"
+          "title": {
+            "matched_tokens": [
+              "Rāp"
+            ],
+            "snippet": "<mark>Rāp</mark>eti Early Learning Centre"
+          }
         }
       ],
-      "title":"<mark>Rāp</mark>eti Early Learning Centre"
+      "title": {
+        "matched_tokens": [
+          "Rāp"
+        ],
+        "snippet": "<mark>Rāp</mark>eti Early Learning Centre"
+      }
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"].size());
-
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["title"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"].size());
-    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"][0]);
-
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies.title"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies.title"]["matched_tokens"].size());
-    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["companies.title"]["matched_tokens"][0]);
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 }
 
 TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
@@ -1219,9 +1320,9 @@ TEST_F(CollectionSpecificMoreTest, HandleStringFieldWithObjectValueEarlier) {
 
 TEST_F(CollectionSpecificMoreTest, CopyDocHelper) {
     std::vector<highlight_field_t> hightlight_items = {
-        highlight_field_t("foo.bar", false, false),
-        highlight_field_t("baz", false, false),
-        highlight_field_t("not-found", false, false),
+        highlight_field_t("foo.bar", false, false, true),
+        highlight_field_t("baz", false, false, true),
+        highlight_field_t("not-found", false, false, true),
     };
 
     nlohmann::json src = R"({
@@ -1380,4 +1481,288 @@ TEST_F(CollectionSpecificMoreTest, VerifyDeletionOfFacetStringIndex) {
     for(const auto& kv: search_index) {
         ASSERT_EQ(0, kv.second->size);
     }
+}
+
+TEST_F(CollectionSpecificMoreTest, MustExcludeOutOf) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Sample Title 1";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    spp::sparse_hash_set<std::string> include_fields;
+    auto res_op = coll1->search("*", {}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true}, 0, include_fields, {"out_of"});
+
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(0, res.count("out_of"));
+}
+
+TEST_F(CollectionSpecificMoreTest, ValidateQueryById) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "doc-1";
+    doc["title"] = "Sample Title 1";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("doc-1", {"id"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Cannot use `id` as a query by field.", res_op.error());
+}
+
+TEST_F(CollectionSpecificMoreTest, NonNestedFieldNameWithDot) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "category", "type": "string"},
+            {"name": "category.lvl0", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["category"] = "Shoes";
+    doc["category.lvl0"] = "Shoes";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["category"] = "Mens";
+    doc["category.lvl0"] = "Shoes";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("shoes", {"category"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "category", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {1}).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, IncludeExcludeUnIndexedField) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["src"] = "Internet";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("sample", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0,
+                             {"src"}).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(1, res["hits"][0]["document"].size());
+    ASSERT_EQ("Internet", res["hits"][0]["document"]["src"].get<std::string>());
+
+    // check for exclude field of indexed field
+
+    spp::sparse_hash_set<std::string> include_fields;
+    res = coll1->search("sample", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0,
+                        include_fields, {"src"}).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(2, res["hits"][0]["document"].size());
+    ASSERT_EQ("Sample Title 1", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, PhraseMatchRepeatingTokens) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Super easy super fast product";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "The really easy really fast product really";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search(R"("super easy super fast")", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll1->search(R"("super easy super")", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll1->search(R"("the really easy really fast product really")", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // these should not match
+    res = coll1->search(R"("the easy really really product fast really")", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll1->search(R"("really the easy really fast product really")", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll1->search(R"("super super easy fast")", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll1->search(R"("super super easy")", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll1->search(R"("product fast")", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, res["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, PhraseMatchMultipleFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "author", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "A Walk to the Tide Pools";
+    doc["author"] = "Nok Nok";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "Random Title";
+    doc["author"] = "Tide Pools";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search(R"("tide pools")", {"title", "author"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, HighlightOnFieldNameWithDot) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "org.title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["org.title"] = "Infinity Inc.";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("infinity", {"org.title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(1, res["hits"][0]["highlights"].size());
+    ASSERT_EQ("<mark>Infinity</mark> Inc.", res["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    nlohmann::json highlight = R"({"org.title":{"matched_tokens":["Infinity"],"snippet":"<mark>Infinity</mark> Inc."}})"_json;
+    ASSERT_EQ(highlight.dump(), res["hits"][0]["highlight"].dump());
+
+    // even if nested fields enabled, plain field names with dots should work fine
+
+    schema = R"({
+        "name": "coll2",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "org.title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll2 = collectionManager.create_collection(schema).get();
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    res = coll2->search("infinity", {"org.title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(0, res["hits"][0]["highlights"].size());
+
+    highlight = R"({"org.title":{"matched_tokens":["Infinity"],"snippet":"<mark>Infinity</mark> Inc."}})"_json;
+    ASSERT_EQ(highlight.dump(), res["hits"][0]["highlight"].dump());
+}
+
+TEST_F(CollectionSpecificMoreTest, SearchCutoffTest) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    for(size_t i = 0; i < 70000; i++) {
+        nlohmann::json doc;
+        doc["title"] = "1 2";
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto res = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1).get();
+
+    ASSERT_TRUE(res["search_cutoff"].get<bool>());
+}
+
+TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "color", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Cool trousers";
+    doc["color"] = "blue";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("trouzers", {"title", "color"}, "", {}, {}, {2, 0}, 10, 1, FREQUENCY, {true}, 0,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {2, 3}).get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    res = coll1->search("trou", {"title", "color"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true, false}, 0,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {2, 3}).get();
+    ASSERT_EQ(1, res["hits"].size());
 }

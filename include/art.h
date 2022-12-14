@@ -157,6 +157,11 @@ enum NUM_COMPARATOR {
     RANGE_INCLUSIVE
 };
 
+enum FILTER_OPERATOR {
+    AND,
+    OR
+};
+
 /**
  * Initializes an ART tree
  * @return 0 on success.

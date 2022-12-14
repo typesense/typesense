@@ -626,6 +626,16 @@ bool id_list_t::take_id(result_iter_state_t& istate, uint32_t id) {
     return true;
 }
 
+void id_list_t::uncompress(std::vector<uint32_t>& data) {
+    auto it = new_iterator();
+    data.reserve(data.size() + ids_length);
+
+    while(it.valid()) {
+        data.push_back(it.id());
+        it.next();
+    }
+}
+
 uint32_t* id_list_t::uncompress() {
     uint32_t* arr = new uint32_t[ids_length];
     auto it = new_iterator();

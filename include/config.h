@@ -55,6 +55,7 @@ private:
     bool enable_access_logging;
 
     int disk_used_max_percentage;
+    int memory_used_max_percentage;
 
     std::atomic<bool> skip_writes;
 
@@ -77,6 +78,7 @@ protected:
         this->ssl_refresh_interval_seconds = 8 * 60 * 60;
         this->enable_access_logging = false;
         this->disk_used_max_percentage = 100;
+        this->memory_used_max_percentage = 100;
         this->skip_writes = false;
     }
 
@@ -267,6 +269,10 @@ public:
         return this->disk_used_max_percentage;
     }
 
+    int get_memory_used_max_percentage() const {
+        return this->memory_used_max_percentage;
+    }
+
     std::string get_access_log_path() const {
         if(this->log_dir.empty()) {
             return "";
@@ -382,6 +388,10 @@ public:
 
         if(!get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE").empty()) {
             this->disk_used_max_percentage = std::stoi(get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE"));
+        }
+
+        if(!get_env("TYPESENSE_MEMORY_USED_MAX_PERCENTAGE").empty()) {
+            this->memory_used_max_percentage = std::stoi(get_env("TYPESENSE_MEMORY_USED_MAX_PERCENTAGE"));
         }
 
         this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
@@ -528,6 +538,10 @@ public:
             this->disk_used_max_percentage = (int) reader.GetInteger("server", "disk-used-max-percentage", 100);
         }
 
+        if(reader.Exists("server", "memory-used-max-percentage")) {
+            this->memory_used_max_percentage = (int) reader.GetInteger("server", "memory-used-max-percentage", 100);
+        }
+
         if(reader.Exists("server", "skip-writes")) {
             auto skip_writes_str = reader.Get("server", "skip-writes", "false");
             this->skip_writes = (skip_writes_str == "true");
@@ -651,6 +665,10 @@ public:
 
         if(options.exist("disk-used-max-percentage")) {
             this->disk_used_max_percentage = options.get<int>("disk-used-max-percentage");
+        }
+
+        if(options.exist("memory-used-max-percentage")) {
+            this->memory_used_max_percentage = options.get<int>("memory-used-max-percentage");
         }
 
         if(options.exist("skip-writes")) {

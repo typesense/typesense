@@ -547,7 +547,7 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_EQ("year: 1922&&points: 200", req_params["filter_by"]);
+    ASSERT_EQ("(year: 1922) && (points: 200)", req_params["filter_by"]);
 
     collectionManager.drop_collection("coll1");
 }
@@ -656,6 +656,77 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     results = restored_coll->search("*", {"title"}, "", {}, {sort_fields}, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(7, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+    collectionManager2.drop_collection("coll1");
+}
+
+TEST_F(CollectionManagerTest, RestoreNestedDocsOnRestart) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "details", "type": "object[]" },
+          {"name": "company.name", "type": "string" },
+          {"name": "person", "type": "object"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "details": [{"tags": ["foobar"]}],
+        "company": {"name": "Foobar Corp"},
+        "person": {"first_name": "Foobar"}
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto res_op = coll1->search("foobar", {"details"}, "", {}, {}, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    res_op = coll1->search("foobar", {"company.name"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    res_op = coll1->search("foobar", {"person"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    // create a new collection manager to ensure that it restores the records from the disk backed store
+    CollectionManager& collectionManager2 = CollectionManager::get_instance();
+    collectionManager2.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager2.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+
+    ASSERT_TRUE(load_op.ok());
+
+    auto restored_coll = collectionManager2.get_collection("coll1").get();
+    ASSERT_NE(nullptr, restored_coll);
+
+    res_op = restored_coll->search("foobar", {"details"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    res_op = restored_coll->search("foobar", {"company.name"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    res_op = restored_coll->search("foobar", {"person"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
     collectionManager2.drop_collection("coll1");

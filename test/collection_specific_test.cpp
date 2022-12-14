@@ -663,11 +663,13 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
 
     // overrides should have been deleted from the store
     std::vector<std::string> stored_values;
-    store->scan_fill(Collection::COLLECTION_OVERRIDE_PREFIX, stored_values);
+    store->scan_fill(Collection::COLLECTION_OVERRIDE_PREFIX, std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "`",
+                     stored_values);
     ASSERT_TRUE(stored_values.empty());
 
     // synonyms should also have been deleted from the store
-    store->scan_fill(SynonymIndex::COLLECTION_SYNONYM_PREFIX, stored_values);
+    store->scan_fill(SynonymIndex::COLLECTION_SYNONYM_PREFIX, std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "`",
+                     stored_values);
     ASSERT_TRUE(stored_values.empty());
 }
 

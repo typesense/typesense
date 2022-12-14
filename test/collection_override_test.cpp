@@ -975,6 +975,13 @@ TEST_F(CollectionOverrideTest, FilterRule) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
+    // empty query should not trigger override even though it will be deemed as wildcard search
+    results = coll1->search("", {"name"}, "points: 50",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
     // check to_json
     nlohmann::json override_json_ser = override_rule.to_json();
     ASSERT_EQ("points: 50", override_json_ser["rule"]["filter_by"]);

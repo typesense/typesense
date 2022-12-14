@@ -7,8 +7,10 @@
 #include <vector>
 #include <random>
 #include <map>
+#include <queue>
 #include "wyhash_v5.h"
 #include <unicode/normalizer2.h>
+#include "option.h"
 
 struct StringUtils {
 
@@ -72,8 +74,9 @@ struct StringUtils {
 
     // Adapted from: http://stackoverflow.com/a/236180/131050
     static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,
-                      const bool keep_empty = false, const size_t start_index = 0,
-                      const size_t max_values = (std::numeric_limits<size_t>::max()-1)) {
+                        const bool keep_empty = false, const bool trim_space = true,
+                        const size_t start_index = 0,
+                        const size_t max_values = std::numeric_limits<size_t>::max()) {
         if (delim.empty()) {
             result.push_back(s);
             return s.size();
@@ -87,7 +90,9 @@ struct StringUtils {
             std::string temp(substart, subend);
 
             end_index += temp.size() + delim.size();
-            temp = trim(temp);
+            if(trim_space) {
+                temp = trim(temp);
+            }
 
             if (keep_empty || !temp.empty()) {
                 result.push_back(temp);
@@ -168,26 +173,14 @@ struct StringUtils {
         return escaped.str();
     }
 
-    // See: https://stackoverflow.com/a/19751887/131050
     static bool is_float(const std::string &s) {
-        std::string::const_iterator it = s.begin();
-        bool decimalPoint = false;
-        size_t minSize = 0;
-        if(s.size() > 0 && (s[0] == '-' || s[0] == '+')) {
-            it++;
-            minSize++;
+        try {
+            size_t num_chars_processed = 0;
+            std::stof(s, &num_chars_processed);
+            return num_chars_processed == s.size();
+        } catch(...) {
+            return false;
         }
-
-        while(it != s.end()){
-            if(*it == '.') {
-                if(!decimalPoint) decimalPoint = true;
-                else break;
-            } else if(!std::isdigit(*it) && ((*it!='f') || it+1 != s.end() || !decimalPoint)) {
-                break;
-            }
-            ++it;
-        }
-        return s.size() > minSize && it == s.end();
     }
 
     // Adapted from: http://stackoverflow.com/a/2845275/131050
@@ -382,4 +375,6 @@ struct StringUtils {
     static char* get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen);
 
     static size_t get_num_chars(const std::string& text);
+
+    static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
 };

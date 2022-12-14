@@ -84,6 +84,10 @@ struct field {
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist) {
 
+        set_computed_defaults(sort, infix);
+    }
+
+    void set_computed_defaults(int sort, int infix) {
         if(sort != -1) {
             this->sort = bool(sort);
         } else {
@@ -123,7 +127,7 @@ struct field {
 
     bool is_integer() const {
         return (type == field_types::INT32 || type == field_types::INT32_ARRAY ||
-               type == field_types::INT64 || type == field_types::INT64_ARRAY);
+                type == field_types::INT64 || type == field_types::INT64_ARRAY);
     }
 
     bool is_int32() const {
@@ -175,7 +179,7 @@ struct field {
 
     static bool is_dynamic(const std::string& name, const std::string& type) {
         return type == "string*" || (name != ".*" && type == field_types::AUTO) ||
-                (name != ".*" && name.find(".*") != std::string::npos);
+               (name != ".*" && name.find(".*") != std::string::npos);
     }
 
     bool is_dynamic() const {
@@ -307,19 +311,19 @@ struct field {
 
             if(!field.has_valid_type()) {
                 return Option<bool>(400, "Field `" + field.name +
-                                                "` has an invalid data type `" + field.type +
-                                                "`, see docs for supported data types.");
+                                         "` has an invalid data type `" + field.type +
+                                         "`, see docs for supported data types.");
             }
 
             if(field.name == default_sorting_field && !field.is_sortable()) {
                 return Option<bool>(400, "Default sorting field `" + default_sorting_field +
-                                                "` is not a sortable type.");
+                                         "` is not a sortable type.");
             }
 
             if(field.name == default_sorting_field) {
                 if(field.optional) {
                     return Option<bool>(400, "Default sorting field `" + default_sorting_field +
-                                                    "` cannot be an optional field.");
+                                             "` cannot be an optional field.");
                 }
 
                 if(field.is_geopoint()) {
@@ -353,7 +357,7 @@ struct field {
 
         if(!default_sorting_field.empty() && !found_default_sorting_field && !fields.empty()) {
             return Option<bool>(400, "Default sorting field is defined as `" + default_sorting_field +
-                                            "` but is not found in the schema.");
+                                     "` but is not found in the schema.");
         }
 
         // check for duplicate field names in schema
@@ -386,17 +390,20 @@ struct field {
         return Option<bool>(true);
     }
 
-    static Option<bool> json_field_to_field(nlohmann::json& field_json, std::vector<field>& the_fields,
+    static Option<bool> json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
+                                            std::vector<field>& the_fields,
                                             string& fallback_field_type, size_t& num_auto_detect_fields);
 
-    static Option<bool> json_fields_to_fields(nlohmann::json& fields_json,
+    static Option<bool> json_fields_to_fields(bool enable_nested_fields,
+                                              nlohmann::json& fields_json,
                                               std::string& fallback_field_type,
                                               std::vector<field>& the_fields) {
 
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
-            auto op = json_field_to_field(field_json, the_fields, fallback_field_type, num_auto_detect_fields);
+            auto op = json_field_to_field(enable_nested_fields,
+                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields);
             if(!op.ok()) {
                 return op;
             }
@@ -410,17 +417,20 @@ struct field {
     }
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
-                            const std::string& flat_name, std::unordered_map<std::string, field>& flattened_fields);
+                            const field& the_field, const std::string& flat_name,
+                            std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                       std::vector<std::string>& path_parts, size_t path_index, bool has_array,
                                       bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields);
 
-    static Option<bool> flatten_doc(nlohmann::json& document, const std::vector<field>& nested_fields,
-                                    std::vector<field>& flattened_fields);
+    static Option<bool> flatten_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields,
+                                    bool missing_is_ok, std::vector<field>& flattened_fields);
 
-    static Option<bool> flatten_stored_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields);
+    static void compact_nested_fields(tsl::htrie_map<char, field>& nested_fields);
 };
+
+struct filter_node_t;
 
 struct filter {
     std::string field_name;
@@ -454,7 +464,7 @@ struct filter {
             num_comparator = EQUALS;
         }
 
-        // the ordering is important - we have to compare 2-letter operators first
+            // the ordering is important - we have to compare 2-letter operators first
         else if(comp_and_value.compare(0, 2, "<=") == 0) {
             num_comparator = LESS_THAN_EQUALS;
         }
@@ -499,7 +509,34 @@ struct filter {
                                            const tsl::htrie_map<char, field>& search_schema,
                                            const Store* store,
                                            const std::string& doc_id_prefix,
-                                           std::vector<filter>& filters);
+                                           filter_node_t*& root);
+};
+
+struct filter_node_t {
+    filter filter_exp;
+    FILTER_OPERATOR filter_operator;
+    bool isOperator;
+    filter_node_t* left;
+    filter_node_t* right;
+
+    filter_node_t(filter filter_exp)
+            : filter_exp(std::move(filter_exp)),
+              isOperator(false),
+              left(nullptr),
+              right(nullptr) {}
+
+    filter_node_t(FILTER_OPERATOR filter_operator,
+                  filter_node_t* left,
+                  filter_node_t* right)
+            : filter_operator(filter_operator),
+              isOperator(true),
+              left(left),
+              right(right) {}
+
+    ~filter_node_t() {
+        delete left;
+        delete right;
+    }
 };
 
 namespace sort_field_const {
@@ -526,7 +563,7 @@ struct sort_by {
     };
 
     struct eval_t {
-        std::vector<filter> filters;
+        filter_node_t* filter_tree_root;
         uint32_t* ids = nullptr;
         uint32_t  size = 0;
     };
@@ -546,8 +583,8 @@ struct sort_by {
     eval_t eval;
 
     sort_by(const std::string & name, const std::string & order):
-        name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
-        missing_values(normal) {
+            name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
+            missing_values(normal) {
 
     }
 
@@ -575,6 +612,7 @@ struct sort_by {
 struct vector_query_t {
     std::string field_name;
     size_t k = 0;
+    size_t flat_search_cutoff = 0;
     std::vector<float> values;
 
     void _reset() {

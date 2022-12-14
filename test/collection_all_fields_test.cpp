@@ -621,7 +621,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     std::string fallback_field_type;
     std::vector<field> fields;
 
-    auto parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    auto parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
 
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ(1, fields.size());
@@ -639,7 +639,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     fields_json.emplace_back(string_star_field);
     fields.clear();
 
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ(true, fields[0].optional);
 
@@ -648,14 +648,14 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
 
     // reject when you try to set optional to false or facet to true
     fields_json[0][fields::optional] = false;
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
     ASSERT_EQ("Field `.*` must be an optional field.", parse_op.error());
 
     fields_json[0][fields::optional] = true;
     fields_json[0][fields::facet] = true;
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
     ASSERT_EQ("Field `.*` cannot be a facet field.", parse_op.error());
@@ -665,7 +665,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     // can have only one ".*" field
     fields_json.emplace_back(all_field);
 
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
     ASSERT_EQ("There can be only one field named `.*`.", parse_op.error());
@@ -676,7 +676,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     all_field[fields::type] = "auto";
     fields_json.emplace_back(all_field);
 
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ("auto", fields[0].type);
 
@@ -688,7 +688,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     all_field[fields::locale] = "ja";
     fields_json.emplace_back(all_field);
 
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ("ja", fields[0].locale);
 
@@ -700,7 +700,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     all_field[fields::locale] = "ko";
     fields_json.emplace_back(all_field);
 
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    parse_op = field::json_fields_to_fields(false, fields_json, fallback_field_type, fields);
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ("ko", fields[0].locale);
 }
@@ -1109,11 +1109,12 @@ TEST_F(CollectionAllFieldsTest, WildcardFieldAndDictionaryField) {
     ASSERT_EQ(1, results["hits"].size());
 
     auto schema = coll1->get_fields();
-    ASSERT_EQ(4, schema.size());
+    ASSERT_EQ(5, schema.size());
     ASSERT_EQ(".*", schema[0].name);
-    ASSERT_EQ("year", schema[1].name);
-    ASSERT_EQ("kinds.ZBXX", schema[2].name);
-    ASSERT_EQ("kinds.CGXX", schema[3].name);
+    ASSERT_EQ("kinds", schema[1].name);
+    ASSERT_EQ("year", schema[2].name);
+    ASSERT_EQ("kinds.ZBXX", schema[3].name);
+    ASSERT_EQ("kinds.CGXX", schema[4].name);
 
     // filter on object key
     results = coll1->search("*", {}, "kinds.CGXX: 13", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();

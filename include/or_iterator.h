@@ -56,6 +56,7 @@ template<class T>
 bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state_t& istate, T func) {
     size_t it_size = its.size();
     bool is_excluded;
+    size_t num_processed = 0;
 
     switch (its.size()) {
         case 0:
@@ -66,6 +67,14 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
             }
 
             while(its.size() == it_size && its[0].valid()) {
+                num_processed++;
+                if (num_processed % 65536 == 0 &&
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::high_resolution_clock::now() - search_begin).count() > search_stop_ms) {
+                    search_cutoff = true;
+                    break;
+                }
+
                 auto id = its[0].id();
                 if(take_id(istate, id, is_excluded)) {
                     func(id, its);
@@ -90,6 +99,14 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
             }
 
             while(its.size() == it_size && !at_end2(its)) {
+                num_processed++;
+                if (num_processed % 65536 == 0 &&
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::high_resolution_clock::now() - search_begin).count() > search_stop_ms) {
+                    search_cutoff = true;
+                    break;
+                }
+
                 if(equals2(its)) {
                     auto id = its[0].id();
                     if(take_id(istate, id, is_excluded)) {
@@ -120,6 +137,14 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
             }
 
             while(its.size() == it_size && !at_end(its)) {
+                num_processed++;
+                if (num_processed % 65536 == 0 &&
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::high_resolution_clock::now() - search_begin).count() > search_stop_ms) {
+                    search_cutoff = true;
+                    break;
+                }
+
                 if(equals(its)) {
                     auto id = its[0].id();
                     if(take_id(istate, id, is_excluded)) {

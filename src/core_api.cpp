@@ -496,6 +496,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
+    //LOG(INFO) << "REQ: " << req_json.dump(-1);
+
     for(size_t i = 0; i < searches.size(); i++) {
         auto& search_params = searches[i];
 
@@ -616,7 +618,9 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         }
 
         if(simple_filter_query.empty()) {
-            export_state->it = collectionManager.get_store()->scan(seq_id_prefix);
+            export_state->iter_upper_bound_key = collection->get_seq_id_collection_prefix() + "`";  // cannot inline this
+            export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
+            export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
             auto filter_ids_op = collection->get_filter_ids(simple_filter_query, export_state->index_ids);
 
@@ -784,7 +788,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     //LOG(INFO) << "req body %: " << (float(req->body_index)/req->body.size())*100;
 
     std::vector<std::string> json_lines;
-    StringUtils::split(req->body, json_lines, "\n", false);
+    StringUtils::split(req->body, json_lines, "\n", false, false);
 
     //LOG(INFO) << "json_lines.size before: " << json_lines.size() << ", req->body_index: " << req->body_index;
 
@@ -1468,6 +1472,23 @@ bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_pt
     nlohmann::json response;
     response["success"] = true;
     res->set_200(response.dump());
+
+    return true;
+}
+
+bool post_compact_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager& collectionManager = CollectionManager::get_instance();
+    rocksdb::Status status = collectionManager.get_store()->compact_all();
+
+    nlohmann::json response;
+    response["success"] = status.ok();
+
+    if(!status.ok()) {
+        response["error"] = "Error code: " + std::to_string(status.code());
+        res->set_500(response.dump());
+    } else {
+        res->set_200(response.dump());
+    }
 
     return true;
 }

@@ -35,6 +35,15 @@ protected:
     }
 };
 
+tsl::htrie_map<char, field> get_nested_map(const std::vector<field>& nested_fields) {
+    tsl::htrie_map<char, field> map;
+    for(const auto& f: nested_fields) {
+        map.emplace(f.name, f);
+    }
+
+    return map;
+}
+
 TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
     auto json_str = R"({
         "company": {"name": "nike"},
@@ -56,7 +65,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
     // array of objects
     std::vector<field> flattened_fields;
     nlohmann::json doc = nlohmann::json::parse(json_str);
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
     ASSERT_EQ(5, flattened_fields.size());
 
     for(const auto& f: flattened_fields) {
@@ -99,7 +108,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         field("company", field_types::OBJECT, false)
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
 
     expected_json = R"(
         {
@@ -126,14 +135,14 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         field("locations.address", field_types::OBJECT, false)
     };
 
-    ASSERT_FALSE(field::flatten_doc(doc, nested_fields, flattened_fields).ok()); // must be of type object_array
+    ASSERT_FALSE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok()); // must be of type object_array
 
     nested_fields = {
         field("locations.address", field_types::OBJECT_ARRAY, false)
     };
 
     flattened_fields.clear();
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
 
     expected_json = R"(
         {
@@ -165,7 +174,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         field("company.name", field_types::STRING, false)
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
 
     expected_json = R"(
         {
@@ -216,7 +225,7 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
     // array of objects
     std::vector<field> flattened_fields;
     nlohmann::json doc = nlohmann::json::parse(json_str);
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
     ASSERT_EQ(5, flattened_fields.size());
 
     for(const auto& f: flattened_fields) {
@@ -232,7 +241,7 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
         field("employees", field_types::OBJECT, false)
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
     ASSERT_EQ(5, flattened_fields.size());
 
     for(const auto& f: flattened_fields) {
@@ -252,16 +261,20 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
         field("employees.detail.tags", field_types::STRING_ARRAY, false),
     };
 
-    ASSERT_TRUE(field::flatten_doc(doc, nested_fields, flattened_fields).ok());
+    ASSERT_TRUE(field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields).ok());
     ASSERT_EQ(3, flattened_fields.size());
+
+    std::sort(flattened_fields.begin(), flattened_fields.end(), [](field& a, field& b) {
+        return a.name < b.name;
+    });
 
     ASSERT_EQ("employees.detail.tags",flattened_fields[0].name);
     ASSERT_FALSE(flattened_fields[0].nested_array);
 
-    ASSERT_EQ("employees.details.tags",flattened_fields[1].name);
+    ASSERT_EQ("employees.details.num_tags",flattened_fields[1].name);
     ASSERT_TRUE(flattened_fields[1].nested_array);
 
-    ASSERT_EQ("employees.details.num_tags",flattened_fields[2].name);
+    ASSERT_EQ("employees.details.tags",flattened_fields[2].name);
     ASSERT_TRUE(flattened_fields[2].nested_array);
 }
 
@@ -277,7 +290,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
     std::vector<field> flattened_fields;
 
     nlohmann::json doc = nlohmann::json::parse(json_str);
-    auto flatten_op = field::flatten_doc(doc, nested_fields, flattened_fields);
+    auto flatten_op = field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields);
     ASSERT_FALSE(flatten_op.ok());
     ASSERT_EQ("Field `locations` not found.", flatten_op.error());
 
@@ -286,7 +299,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
     };
 
     flattened_fields.clear();
-    flatten_op = field::flatten_doc(doc, nested_fields, flattened_fields);
+    flatten_op = field::flatten_doc(doc, get_nested_map(nested_fields), false, flattened_fields);
     ASSERT_FALSE(flatten_op.ok());
     ASSERT_EQ("Field `company` has an incorrect type.", flatten_op.error());
 }
@@ -303,7 +316,8 @@ TEST_F(CollectionNestedFieldsTest, FlattenStoredDoc) {
     schema.emplace("details.name", field("details.name", field_types::STRING_ARRAY, false));
     schema.emplace("details.year", field("details.year", field_types::INT32_ARRAY, false));
 
-    field::flatten_stored_doc(stored_doc, schema);
+    std::vector<field> flattened_fields;
+    field::flatten_doc(stored_doc, schema, true, flattened_fields);
 
     ASSERT_EQ(3, stored_doc[".flat"].size());
     ASSERT_EQ(7, stored_doc.size());
@@ -311,6 +325,51 @@ TEST_F(CollectionNestedFieldsTest, FlattenStoredDoc) {
     ASSERT_EQ(1, stored_doc.count("employees.num"));
     ASSERT_EQ(1, stored_doc.count("details.name"));
     ASSERT_EQ(1, stored_doc.count("details.year"));
+}
+
+TEST_F(CollectionNestedFieldsTest, CompactNestedFields) {
+    auto stored_doc = R"({
+      "company_name": "Acme Corp",
+      "display_address": {
+        "city": "LA",
+        "street": "Lumbard St"
+      },
+      "id": "314",
+      "location_addresses": [
+        {
+          "city": "Columbus",
+          "street": "Yale St"
+        },
+        {
+          "city": "Soda Springs",
+          "street": "5th St"
+        }
+      ],
+      "num_employees": 10,
+      "primary_address": {
+        "city": "Los Angeles",
+        "street": "123 Lumbard St"
+      }
+    })"_json;
+
+    tsl::htrie_map<char, field> schema;
+    schema.emplace("location_addresses.city", field("location_addresses.city", field_types::STRING_ARRAY, true));
+    schema.emplace("location_addresses", field("location_addresses", field_types::OBJECT_ARRAY, true));
+    schema.emplace("primary_address", field("primary_address", field_types::OBJECT, true));
+    schema.emplace("primary_address.city", field("primary_address.city", field_types::STRING, true));
+    schema.emplace("location_addresses.street", field("location_addresses.street", field_types::STRING_ARRAY, true));
+    schema.emplace("primary_address.street", field("primary_address.street", field_types::STRING, true));
+
+    field::compact_nested_fields(schema);
+    ASSERT_EQ(2, schema.size());
+    ASSERT_EQ(1, schema.count("primary_address"));
+    ASSERT_EQ(1, schema.count("location_addresses"));
+
+    std::vector<field> flattened_fields;
+    field::flatten_doc(stored_doc, schema, true, flattened_fields);
+
+    ASSERT_EQ(2, stored_doc["location_addresses.city"].size());
+    ASSERT_EQ(2, stored_doc["location_addresses.street"].size());
 }
 
 TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
@@ -342,28 +401,119 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
     nlohmann::json create_res = add_op.get();
     ASSERT_EQ(doc.dump(), create_res.dump());
 
+    auto results = coll1->search("electrician", {"employees"}, "", {}, sort_fields,
+                                  {0}, 10, 1, FREQUENCY, {true}).get();
+
+    auto highlight_doc = R"({
+        "employees": {
+          "num": {
+            "matched_tokens": [],
+            "snippet": "1200"
+          },
+          "tags": [
+            {
+              "matched_tokens": [],
+              "snippet": "senior plumber"
+            },
+            {
+              "matched_tokens": [
+                "electrician"
+              ],
+              "snippet": "<mark>electrician</mark>"
+            }
+          ]
+        }
+      })"_json;
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
+
     // search both simply nested and deeply nested array-of-objects
-    auto results = coll1->search("electrician commerce", {"employees", "locations"}, "", {}, sort_fields,
+    results = coll1->search("electrician commerce", {"employees", "locations"}, "", {}, sort_fields,
                                  {0}, 10, 1, FREQUENCY, {true}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(doc, results["hits"][0]["document"]);
 
-    auto highlight_doc = R"({
-      "employees":{
-        "tags":[
-          "senior plumber",
-          "<mark>electrician</mark>"
+    highlight_doc = R"({
+      "employees": {
+        "num": {
+          "matched_tokens": [],
+          "snippet": "1200"
+        },
+        "tags": [
+          {
+            "matched_tokens": [],
+            "snippet": "senior plumber"
+          },
+          {
+            "matched_tokens": [
+              "electrician"
+            ],
+            "snippet": "<mark>electrician</mark>"
+          }
         ]
       },
-      "locations":[
+      "locations": [
         {
-          "address":{
-            "street":"One Bowerman Drive"
+          "address": {
+            "city": {
+              "matched_tokens": [],
+              "snippet": "Beaverton"
+            },
+            "products": [
+              {
+                "matched_tokens": [],
+                "snippet": "shoes"
+              },
+              {
+                "matched_tokens": [],
+                "snippet": "tshirts"
+              }
+            ],
+            "street": {
+              "matched_tokens": [],
+              "snippet": "One Bowerman Drive"
+            }
+          },
+          "country": {
+            "matched_tokens": [],
+            "snippet": "USA"
+          },
+          "pincode": {
+            "matched_tokens": [],
+            "snippet": "100"
           }
         },
         {
-          "address":{
-            "street":"175 <mark>Commerce</mark> Valley"
+          "address": {
+            "city": {
+              "matched_tokens": [],
+              "snippet": "Thornhill"
+            },
+            "products": [
+              {
+                "matched_tokens": [],
+                "snippet": "sneakers"
+              },
+              {
+                "matched_tokens": [],
+                "snippet": "shoes"
+              }
+            ],
+            "street": {
+              "matched_tokens": [
+                "Commerce"
+              ],
+              "snippet": "175 <mark>Commerce</mark> Valley"
+            }
+          },
+          "country": {
+            "matched_tokens": [],
+            "snippet": "Canada"
+          },
+          "pincode": {
+            "matched_tokens": [],
+            "snippet": "200"
           }
         }
       ]
@@ -380,7 +530,7 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
     ASSERT_EQ(0, raw_doc.count("employees.tags"));
     ASSERT_EQ(4, raw_doc.size());
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
     // after update also the flat fields or meta should not be present on disk
@@ -404,18 +554,26 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
       "locations":[
         {
           "address":{
-            "street":"<mark>One</mark> Bowerman Drive"
+            "street":{
+              "matched_tokens":[
+                "One"
+              ],
+              "snippet":"<mark>One</mark> Bowerman Drive"
+            }
           }
         },
         {
           "address":{
-            "street":"175 Commerce Valley"
+            "street":{
+              "matched_tokens":[],
+              "snippet":"175 Commerce Valley"
+            }
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
     // try to search nested fields that don't exist
@@ -510,7 +668,6 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    // search both simply nested and deeply nested array-of-objects
     auto results = coll1->search("One", {"locations.address"}, "", {}, sort_fields, {0}, 10, 1,
                                  token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
@@ -521,44 +678,76 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
       "locations":[
         {
           "address":{
-            "street":"<mark>One</mark> Bowerman Drive"
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Beaverton",
+              "value":"Beaverton"
+            },
+            "products":[
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"shoes",
+                "value":"shoes"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"tshirts",
+                "value":"tshirts"
+              }
+            ],
+            "street":{
+              "matched_tokens":[
+                "One"
+              ],
+              "snippet":"<mark>One</mark> Bowerman Drive",
+              "value":"<mark>One</mark> Bowerman Drive"
+            }
           }
         },
         {
           "address":{
-            "street":"175 Commerce Drive"
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Thornhill",
+              "value":"Thornhill"
+            },
+            "products":[
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"sneakers",
+                "value":"sneakers"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"shoes",
+                "value":"shoes"
+              }
+            ],
+            "street":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"175 Commerce Drive",
+              "value":"175 Commerce Drive"
+            }
           }
         }
       ]
     })"_json;
 
-    auto highlight_full_doc = R"({
-        "locations":[
-          {
-            "address":{
-              "city":"Beaverton",
-              "products":[
-                "shoes",
-                "tshirts"
-              ],
-              "street":"<mark>One</mark> Bowerman Drive"
-            }
-          },
-          {
-            "address":{
-              "city":"Thornhill",
-              "products":[
-                "sneakers",
-                "shoes"
-              ],
-              "street":"175 Commerce Drive"
-            }
-          }
-        ]
-    })"_json;
-
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
     // repeating token
@@ -573,18 +762,76 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
       "locations":[
         {
           "address":{
-            "street":"One Bowerman <mark>Drive</mark>"
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Beaverton",
+              "value":"Beaverton"
+            },
+            "products":[
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"shoes",
+                "value":"shoes"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"tshirts",
+                "value":"tshirts"
+              }
+            ],
+            "street":{
+              "matched_tokens":[
+                "Drive"
+              ],
+              "snippet":"One Bowerman <mark>Drive</mark>",
+              "value":"One Bowerman <mark>Drive</mark>"
+            }
           }
         },
         {
           "address":{
-            "street":"175 Commerce <mark>Drive</mark>"
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Thornhill",
+              "value":"Thornhill"
+            },
+            "products":[
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"sneakers",
+                "value":"sneakers"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"shoes",
+                "value":"shoes"
+              }
+            ],
+            "street":{
+              "matched_tokens":[
+                "Drive"
+              ],
+              "snippet":"175 Commerce <mark>Drive</mark>",
+              "value":"175 Commerce <mark>Drive</mark>"
+            }
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
     // nested array of array, highlighting parent of searched nested field
@@ -595,33 +842,81 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             "locations.address").get();
 
     ASSERT_EQ(1, results["hits"].size());
-    highlight_full_doc = R"({
+
+    highlight_doc = R"({
       "locations":[
         {
           "address":{
-            "city":"Beaverton",
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Beaverton",
+              "value":"Beaverton"
+            },
             "products":[
-              "<mark>shoes</mark>",
-              "tshirts"
+              {
+                "matched_tokens":[
+                  "shoes"
+                ],
+                "snippet":"<mark>shoes</mark>",
+                "value":"<mark>shoes</mark>"
+              },
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"tshirts",
+                "value":"tshirts"
+              }
             ],
-            "street":"One Bowerman Drive"
+            "street":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"One Bowerman Drive",
+              "value":"One Bowerman Drive"
+            }
           }
         },
         {
           "address":{
-            "city":"Thornhill",
+            "city":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"Thornhill",
+              "value":"Thornhill"
+            },
             "products":[
-              "sneakers",
-              "<mark>shoes</mark>"
+              {
+                "matched_tokens":[
+
+                ],
+                "snippet":"sneakers",
+                "value":"sneakers"
+              },
+              {
+                "matched_tokens":[
+                  "shoes"
+                ],
+                "snippet":"<mark>shoes</mark>",
+                "value":"<mark>shoes</mark>"
+              }
             ],
-            "street":"175 Commerce Drive"
+            "street":{
+              "matched_tokens":[
+
+              ],
+              "snippet":"175 Commerce Drive",
+              "value":"175 Commerce Drive"
+            }
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // full highlighting only one of the 3 highlight fields
     results = coll1->search("drive", {"company.names", "company_names", "locations.address"}, "", {}, sort_fields, {0}, 10, 1,
@@ -630,62 +925,94 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
                             "company.names,company_names,locations.address").get();
 
-    highlight_full_doc = R"({
-        "locations":[
-          {
-            "address":{
-              "city":"Beaverton",
-              "products":[
-                "shoes",
-                "tshirts"
-              ],
-              "street":"One Bowerman <mark>Drive</mark>"
-            }
-          },
-          {
-            "address":{
-              "city":"Thornhill",
-              "products":[
-                "sneakers",
-                "shoes"
-              ],
-              "street":"175 Commerce <mark>Drive</mark>"
-            }
-          }
-        ]
-    })"_json;
-
     highlight_doc = R"({
-        "company":{
-          "names": ["Space Corp. LLC", "<mark>Drive</mark> One Inc."]
-        },
-        "company_names": ["Space Corp. LLC", "<mark>Drive</mark> One Inc."],
-        "locations":[
+      "company": {
+        "names": [
           {
-            "address":{
-              "city":"Beaverton",
-              "products":[
-                "shoes",
-                "tshirts"
-              ],
-              "street":"One Bowerman <mark>Drive</mark>"
-            }
+            "matched_tokens": [],
+            "snippet": "Space Corp. LLC"
           },
           {
-            "address":{
-              "city":"Thornhill",
-              "products":[
-                "sneakers",
-                "shoes"
-              ],
-              "street":"175 Commerce <mark>Drive</mark>"
-            }
+            "matched_tokens": [
+              "Drive"
+            ],
+            "snippet": "<mark>Drive</mark> One Inc."
           }
         ]
+      },
+      "company_names": [
+        {
+          "matched_tokens": [],
+          "snippet": "Space Corp. LLC"
+        },
+        {
+          "matched_tokens": [
+            "Drive"
+          ],
+          "snippet": "<mark>Drive</mark> One Inc."
+        }
+      ],
+      "locations": [
+        {
+          "address": {
+            "city": {
+              "matched_tokens": [],
+              "snippet": "Beaverton",
+              "value": "Beaverton"
+            },
+            "products": [
+              {
+                "matched_tokens": [],
+                "snippet": "shoes",
+                "value": "shoes"
+              },
+              {
+                "matched_tokens": [],
+                "snippet": "tshirts",
+                "value": "tshirts"
+              }
+            ],
+            "street": {
+              "matched_tokens": [
+                "Drive"
+              ],
+              "snippet": "One Bowerman <mark>Drive</mark>",
+              "value": "One Bowerman <mark>Drive</mark>"
+            }
+          }
+        },
+        {
+          "address": {
+            "city": {
+              "matched_tokens": [],
+              "snippet": "Thornhill",
+              "value": "Thornhill"
+            },
+            "products": [
+              {
+                "matched_tokens": [],
+                "snippet": "sneakers",
+                "value": "sneakers"
+              },
+              {
+                "matched_tokens": [],
+                "snippet": "shoes",
+                "value": "shoes"
+              }
+            ],
+            "street": {
+              "matched_tokens": [
+                "Drive"
+              ],
+              "snippet": "175 Commerce <mark>Drive</mark>",
+              "value": "175 Commerce <mark>Drive</mark>"
+            }
+          }
+        }
+      ]
     })"_json;
 
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // if highlight fields not provided, only matching sub-fields should appear in highlight
 
@@ -694,14 +1021,35 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
 
     highlight_doc = R"({
-        "company":{
-          "names": ["<mark>Space</mark> Corp. LLC", "Drive One Inc."]
+      "company":{
+        "names":[
+          {
+            "matched_tokens":[
+              "Space"
+            ],
+            "snippet":"<mark>Space</mark> Corp. LLC"
+          },
+          {
+            "matched_tokens":[],
+            "snippet":"Drive One Inc."
+          }
+        ]
+      },
+      "company_names":[
+        {
+          "matched_tokens":[
+            "Space"
+          ],
+          "snippet":"<mark>Space</mark> Corp. LLC"
         },
-        "company_names": ["<mark>Space</mark> Corp. LLC", "Drive One Inc."]
+        {
+          "matched_tokens":[],
+          "snippet":"Drive One Inc."
+        }
+      ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // only a single highlight full field provided
 
@@ -709,30 +1057,38 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "company.names").get();
 
-    highlight_full_doc = R"({
-      "company":{
-        "names":[
-          "<mark>Space</mark> Corp. LLC",
-          "Drive One Inc."
-        ]
-      }
-    })"_json;
-
     highlight_doc = R"({
-      "company":{
-        "names":[
-          "<mark>Space</mark> Corp. LLC",
-          "Drive One Inc."
+      "company": {
+        "names": [
+          {
+            "matched_tokens": [
+              "Space"
+            ],
+            "snippet": "<mark>Space</mark> Corp. LLC",
+            "value": "<mark>Space</mark> Corp. LLC"
+          },
+          {
+            "matched_tokens": [],
+            "snippet": "Drive One Inc.",
+            "value": "Drive One Inc."
+          }
         ]
       },
-      "company_names":[
-        "<mark>Space</mark> Corp. LLC",
-        "Drive One Inc."
+      "company_names": [
+        {
+          "matched_tokens": [
+            "Space"
+          ],
+          "snippet": "<mark>Space</mark> Corp. LLC"
+        },
+        {
+          "matched_tokens": [],
+          "snippet": "Drive One Inc."
+        }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // try to highlight `id` field
     results = coll1->search("shoes", {"locations.address.products"}, "", {}, sort_fields, {0}, 10, 1,
@@ -741,72 +1097,7 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
                             20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
                             "id").get();
 
-    ASSERT_TRUE(results["hits"][0]["highlight"]["snippet"].empty());
-    ASSERT_TRUE(results["hits"][0]["highlight"]["full"].empty());
-}
-
-TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
-    std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
-
-    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO, {}, {}, true);
-    ASSERT_TRUE(op.ok());
-    Collection* coll1 = op.get();
-
-    auto doc = R"({
-        "company_names": ["Quick brown fox jumped.", "The red fox was not fast."],
-        "details": {
-            "description": "Quick set, go.",
-            "names": ["Quick brown fox jumped.", "The red fox was not fast."]
-        },
-        "locations": [
-            {
-              "address": { "street": "Brown Shade Avenue" }
-            },
-            {
-                "address": { "street": "Graywolf Lane" }
-            }
-        ]
-    })"_json;
-
-    auto add_op = coll1->add(doc.dump(), CREATE);
-    ASSERT_TRUE(add_op.ok());
-
-    // search both simply nested and deeply nested array-of-objects
-    auto results = coll1->search("brown fox", {"company_names", "details", "locations"},
-                                 "", {}, sort_fields, {0}, 10, 1,
-                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
-                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
-
-    ASSERT_EQ(3, results["hits"][0]["highlight"]["meta"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["company_names"].size());
-
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"].size());
-    std::vector<std::string> matched_tokens = results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"].get<std::vector<std::string>>();
-    std::sort(matched_tokens.begin(), matched_tokens.end());
-    ASSERT_EQ("brown", matched_tokens[0]);
-    ASSERT_EQ("fox", matched_tokens[1]);
-
-    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"].size());
-    matched_tokens = results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"].get<std::vector<std::string>>();
-    std::sort(matched_tokens.begin(), matched_tokens.end());
-    ASSERT_EQ("brown", matched_tokens[0]);
-    ASSERT_EQ("fox", matched_tokens[1]);
-
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"].size());
-    matched_tokens = results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"].get<std::vector<std::string>>();
-    std::sort(matched_tokens.begin(), matched_tokens.end());
-    ASSERT_EQ("Brown", matched_tokens[0]);
-
-    // when no highlighting is enabled by setting unknown field for highlighting
-    results = coll1->search("brown fox", {"company_names", "details", "locations"}, "", {}, sort_fields, {0}, 10, 1,
-                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "x",
-                            20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
-                            "x").get();
-
-    ASSERT_EQ(2, results["hits"][0]["highlight"].size());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["snippet"].size());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
+    ASSERT_TRUE(results["hits"][0]["highlight"].empty());
 }
 
 TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
@@ -815,7 +1106,7 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
         "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": false },
-          {"name": "company.name", "type": "string", "optional": false },
+          {"name": "company.name", "type": "string", "optional": false, "facet": true },
           {"name": "locations", "type": "object[]", "optional": false }
         ]
     })"_json;
@@ -847,6 +1138,9 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
+    ASSERT_TRUE(coll1->get_schema()["company.name"].facet);
+    ASSERT_FALSE(coll1->get_schema()["company.name"].optional);
+
     // search both simply nested and deeply nested array-of-objects
     auto results = coll1->search("brown fox", {"details", "locations"},
                                  "", {}, sort_fields, {0}, 10, 1,
@@ -854,28 +1148,51 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
 
     auto snippet_doc = R"({
-          "details":{
-            "names":[
-              "Quick <mark>brown</mark> <mark>fox</mark> jumped.",
-              "The red <mark>fox</mark> was not fast."
-            ]
+      "details": {
+        "description": {
+          "matched_tokens": [],
+          "snippet": "Quick set, go."
+        },
+        "names": [
+          {
+            "matched_tokens": [
+              "brown",
+              "fox"
+            ],
+            "snippet": "Quick <mark>brown</mark> <mark>fox</mark> jumped."
           },
-          "locations":[
-            {
-              "address":{
-                "street":"<mark>Brown</mark> Shade Avenue"
-              }
-            },
-            {
-              "address":{
-                "street":"Graywolf Lane"
-              }
+          {
+            "matched_tokens": [
+              "fox"
+            ],
+            "snippet": "The red <mark>fox</mark> was not fast."
+          }
+        ]
+      },
+      "locations": [
+        {
+          "address": {
+            "street": {
+              "matched_tokens": [
+                "Brown"
+              ],
+              "snippet": "<mark>Brown</mark> Shade Avenue"
             }
-          ]
+          }
+        },
+        {
+          "address": {
+            "street": {
+              "matched_tokens": [],
+              "snippet": "Graywolf Lane"
+            }
+          }
+        }
+      ]
     })"_json;
 
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"].dump());
 
     results = coll1->search("fix", {"company.name"},
                             "", {}, sort_fields, {0}, 10, 1,
@@ -910,21 +1227,29 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     ASSERT_EQ(1, results["hits"].size());
 
     snippet_doc = R"({
-      "locations":[
+      "locations": [
         {
-          "address":{
-            "street":"<mark>Brown</mark> Shade Avenue"
+          "address": {
+            "street": {
+              "matched_tokens": [
+                "Brown"
+              ],
+              "snippet": "<mark>Brown</mark> Shade Avenue"
+            }
           }
         },
         {
-          "address":{
-            "street":"Graywolf Lane"
+          "address": {
+            "street": {
+              "matched_tokens": [],
+              "snippet": "Graywolf Lane"
+            }
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // explicit partial array object field in the schema
     schema = R"({
@@ -952,21 +1277,29 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     ASSERT_EQ(1, results["hits"].size());
 
     snippet_doc = R"({
-      "locations":[
+      "locations": [
         {
-          "address":{
-            "street":"<mark>Brown</mark> Shade Avenue"
+          "address": {
+            "street": {
+              "matched_tokens": [
+                "Brown"
+              ],
+              "snippet": "<mark>Brown</mark> Shade Avenue"
+            }
           }
         },
         {
-          "address":{
-            "street":"Graywolf Lane"
+          "address": {
+            "street": {
+              "matched_tokens": [],
+              "snippet": "Graywolf Lane"
+            }
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"].dump());
 
     // non-optional object field validation (details)
     auto doc2 = R"({
@@ -1218,7 +1551,7 @@ TEST_F(CollectionNestedFieldsTest, ExplicitDotSeparatedFieldsShouldHavePrecenden
 
     ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
     auto fs = coll1->get_fields();
-    ASSERT_EQ(4, coll1->get_fields().size());
+    ASSERT_EQ(6, coll1->get_fields().size());
 
     // simple nested object
     auto results = coll1->search("*", {}, "company.num_employees: 2000", {}, sort_fields, {0}, 10, 1,
@@ -1299,7 +1632,34 @@ TEST_F(CollectionNestedFieldsTest, ExplicitDotSeparatedFieldsShouldHavePrecenden
     results = coll2->search("*", {}, "company.ids: 1", {}, sort_fields, {0}, 10, 1,
                             token_ordering::FREQUENCY, {true}).get();
     ASSERT_EQ(0, results["found"].get<size_t>());
+}
 
+TEST_F(CollectionNestedFieldsTest, NestedFieldWithExplicitWeight) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "company": {"num_employees": 2000, "founded": 1976},
+        "studies": [{"name": "College 1", "location": "USA"}]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto results = coll1->search("college", {"studies"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "category", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
@@ -1545,4 +1905,325 @@ TEST_F(CollectionNestedFieldsTest, NestedSchemaWithSingularType) {
 
     add_op = coll2->add(doc1.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionNestedFieldsTest, NestedSchemaAutoAndFacet) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "person.*", "type": "auto", "facet": true},
+          {"name": "schools.*", "type": "auto", "facet": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "person": {"name": "Tony Stark"},
+        "schools": [{"name": "Primary School"}]
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto fields = coll1->get_fields();
+    for(const auto&f : fields) {
+        ASSERT_TRUE(f.facet);
+    }
+
+    ASSERT_TRUE(coll1->get_schema()["schools.name"].optional);
+}
+
+TEST_F(CollectionNestedFieldsTest, ArrayOfObjectsFaceting) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "location_addresses", "type": "object[]", "facet": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "company_name": "Acme Corp",
+        "display_address": {
+            "city": "LA",
+            "street": "Lumbard St"
+        },
+        "location_addresses": [
+            {
+                "city": "Columbus",
+                "street": "Yale St"
+            },
+            {
+                "city": "Soda Springs",
+                "street": "5th St"
+            }
+        ],
+        "num_employees": 10,
+        "primary_address": {
+            "city": "Los Angeles",
+            "street": "123 Lumbard St"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "", {"location_addresses.city"}, {},
+                                 {0}, 10, 1, FREQUENCY, {false}).get();
+
+    // add same doc again
+    doc1["id"] = "1";
+    add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {"location_addresses.city"}, {},
+                            {0}, 10, 1, FREQUENCY, {false}).get();
+
+    // facet count should be 2
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_EQ("Columbus", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+
+    ASSERT_EQ("Soda Springs", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][1]["count"].get<size_t>());
+}
+
+TEST_F(CollectionNestedFieldsTest, HighlightArrayInsideArrayOfObj) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "studies", "type": "auto"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "studies": [
+            {"name": "College 1", "tags": ["foo", "bar"]},
+            {"name": "College 1", "tags": ["alpha", "beta"]}
+        ]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto results = coll1->search("beta", {"studies"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    nlohmann::json highlight_meta_doc = R"({
+      "studies": [
+        {
+          "name": {
+            "matched_tokens": [],
+            "snippet": "College 1"
+          },
+          "tags": [
+            {
+              "matched_tokens": [],
+              "snippet": "foo"
+            },
+            {
+              "matched_tokens": [],
+              "snippet": "bar"
+            }
+          ]
+        },
+        {
+          "name": {
+            "matched_tokens": [],
+            "snippet": "College 1"
+          },
+          "tags": [
+            {
+              "matched_tokens": [],
+              "snippet": "alpha"
+            },
+            {
+              "matched_tokens": [
+                "beta"
+              ],
+              "snippet": "<mark>beta</mark>"
+            }
+          ]
+        }
+      ]
+    })"_json;
+
+    ASSERT_EQ(highlight_meta_doc.dump(), results["hits"][0]["highlight"].dump());
+}
+
+TEST_F(CollectionNestedFieldsTest, ErrorWhenObjectTypeUsedWithoutEnablingNestedFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "details", "type": "object", "optional": false }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Type `object` or `object[]` can be used only when nested fields are enabled by setting` "
+              "enable_nested_fields` to true.", op.error());
+
+    schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "details", "type": "object[]", "optional": false }
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Type `object` or `object[]` can be used only when nested fields are enabled by setting` "
+              "enable_nested_fields` to true.", op.error());
+}
+
+TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "contributors", "type": "object", "optional": false},
+          {"name": "title", "type": "string", "optional": false}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "title": "Title Alpha",
+        "contributors": {"first_name": "John", "last_name": "Galt"}
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // update document partially
+
+    doc1 = R"({
+        "id": "0",
+        "title": "Title Beta"
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("beta", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // emplace document partially
+
+    doc1 = R"({
+        "id": "0",
+        "title": "Title Gamma"
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("gamma", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // update a sub-field of an object
+    doc1 = R"({
+        "id": "0",
+        "contributors": {"last_name": "Shaw"}
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("shaw", {"contributors"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // should not be able to find the old name
+
+    results = coll1->search("galt", {"contributors"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionNestedFieldsTest, HighlightOnFlatFieldWithSnippeting) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("body", field_types::STRING, false)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "pimples keep popping up on chin";
+    doc1["body"] = "on left side of chin under the corner of my mouth i keep getting huge pimples. they’ll go away for "
+                   "a few days but come back every time and i don’t quit it. I have oily skin and acne prone. i "
+                   "also just started using twice a week";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("pimples", {"title", "body"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    auto highlight_doc = R"({
+        "body": {
+          "matched_tokens": [
+            "pimples"
+          ],
+          "snippet": "i keep getting huge <mark>pimples</mark>. they’ll go away for"
+        },
+        "title": {
+          "matched_tokens": [
+            "pimples"
+          ],
+          "snippet": "<mark>pimples</mark> keep popping up on chin"
+        }
+    })"_json;
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
+
+    // with full highlighting
+
+    highlight_doc = R"({
+        "body": {
+          "matched_tokens": [
+            "pimples"
+          ],
+          "snippet": "i keep getting huge <mark>pimples</mark>. they’ll go away for",
+          "value": ""
+        },
+        "title": {
+          "matched_tokens": [
+            "pimples"
+          ],
+          "snippet": "<mark>pimples</mark> keep popping up on chin",
+          "value": "<mark>pimples</mark> keep popping up on chin"
+        }
+    })"_json;
+
+    highlight_doc["body"]["value"] = "on left side of chin under the corner of my mouth i keep getting huge "
+                                     "<mark>pimples</mark>. they’ll go away for a few days but come back every time "
+                                     "and i don’t quit it. I have oily skin and acne prone. i also just started "
+                                     "using twice a week";
+
+    results = coll1->search("pimples", {"title", "body"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title,body").get();
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 }

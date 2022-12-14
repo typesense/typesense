@@ -1,14 +1,16 @@
 #include "batched_indexer.h"
 #include "core_api.h"
 #include "thread_local_vars.h"
+#include "cached_resource_stat.h"
 
 BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, const size_t num_threads,
-                               const std::atomic<bool>& skip_writes):
+                               const Config& config, const std::atomic<bool>& skip_writes):
                                server(server), store(store), meta_store(meta_store), num_threads(num_threads),
                                last_gc_run(std::chrono::high_resolution_clock::now()), quit(false),
-                               skip_writes(skip_writes) {
+                               config(config), skip_writes(skip_writes) {
     queues.resize(num_threads);
     qmutuxes = new await_t[num_threads];
+    skip_index_iter_upper_bound = new rocksdb::Slice(skip_index_upper_bound_key);
 }
 
 void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -121,8 +123,7 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
 void BatchedIndexer::run() {
     LOG(INFO) << "Starting batch indexer with " << num_threads << " threads.";
     ThreadPool* thread_pool = new ThreadPool(num_threads);
-
-    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX);
+    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX, skip_index_iter_upper_bound);
     populate_skip_index();
 
     LOG(INFO) << "BatchedIndexer skip_index: " << skip_index;
@@ -163,8 +164,8 @@ void BatchedIndexer::run() {
                 const std::string& req_key_start_prefix = req_key_prefix + StringUtils::serialize_uint32_t(
                                                                   orig_req_res.next_chunk_index);
 
-                const std::string& req_key_upper_bound = get_req_suffix_key(req_id);
-                rocksdb::Slice upper_bound(req_key_upper_bound); // cannot inline req_key_upper_bound
+                const std::string& req_key_upper_bound = get_req_suffix_key(req_id);  // cannot inline this
+                rocksdb::Slice upper_bound(req_key_upper_bound);
                 rocksdb::Iterator* iter = store->scan(req_key_start_prefix, &upper_bound);
 
                 // used to handle partial JSON documents caused by chunking
@@ -194,8 +195,19 @@ void BatchedIndexer::run() {
 
                     else {
                         //LOG(INFO) << "index req " << req_id << ", chunk index: " << orig_req_res.next_chunk_index;
+                        auto resource_check = cached_resource_stat_t::get_instance()
+                                              .has_enough_resources(config.get_data_dir(),
+                                                                    config.get_disk_used_max_percentage(),
+                                                                    config.get_memory_used_max_percentage());
 
-                        if(route_found) {
+                        if (resource_check != cached_resource_stat_t::OK && orig_req->http_method != "DELETE") {
+                            orig_res->set_422("Rejecting write: running out of resource type: " +
+                                              std::string(magic_enum::enum_name(resource_check)));
+                            orig_res->final = true;
+                            async_res = false;
+                        }
+
+                        else if(route_found) {
                             if(skip_writes && found_rpath->handler != post_config) {
                                 orig_res->set(422, "Skipping write.");
                                 async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
@@ -318,6 +330,7 @@ std::string BatchedIndexer::get_req_suffix_key(uint64_t req_id) {
 
 BatchedIndexer::~BatchedIndexer() {
     delete [] qmutuxes;
+    delete skip_index_iter_upper_bound;
     delete skip_index_iter;
 }
 
@@ -431,7 +444,7 @@ std::shared_mutex& BatchedIndexer::get_pause_mutex() {
 
 void BatchedIndexer::clear_skip_indices() {
     delete skip_index_iter;
-    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX);
+    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX, skip_index_iter_upper_bound);
 
     while(skip_index_iter->Valid() && skip_index_iter->key().starts_with(SKIP_INDICES_PREFIX)) {
         meta_store->remove(skip_index_iter->key().ToString());

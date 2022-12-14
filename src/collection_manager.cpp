@@ -180,7 +180,9 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
               << document_batch_size << " documents at a time.";
 
     std::vector<std::string> collection_meta_jsons;
-    store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
+    store->scan_fill(std::string(Collection::COLLECTION_META_PREFIX) + "_",
+                     std::string(Collection::COLLECTION_META_PREFIX) + "`",
+                     collection_meta_jsons);
 
     const size_t num_collections = collection_meta_jsons.size();
     LOG(INFO) << "Found " << num_collections << " collection(s) on disk.";
@@ -237,7 +239,10 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     // load aliases
 
     std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
-    rocksdb::Iterator* iter = store->scan(symlink_prefix_key);
+    std::string upper_bound_key = std::string(SYMLINK_PREFIX) + "`";  // cannot inline this
+    rocksdb::Slice upper_bound(upper_bound_key);
+
+    rocksdb::Iterator* iter = store->scan(symlink_prefix_key, &upper_bound);
     while(iter->Valid() && iter->key().starts_with(symlink_prefix_key)) {
         std::vector<std::string> parts;
         StringUtils::split(iter->key().ToString(), parts, symlink_prefix_key);
@@ -250,7 +255,10 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     // load presets
 
     std::string preset_prefix_key = std::string(PRESET_PREFIX) + "_";
-    iter = store->scan(preset_prefix_key);
+    std::string preset_upper_bound_key = std::string(PRESET_PREFIX) + "`"; // cannot inline this
+    rocksdb::Slice preset_upper_bound(preset_upper_bound_key);
+
+    iter = store->scan(preset_prefix_key, &preset_upper_bound);
     while(iter->Valid() && iter->key().starts_with(preset_prefix_key)) {
         std::vector<std::string> parts;
         StringUtils::split(iter->key().ToString(), parts, preset_prefix_key);
@@ -426,8 +434,7 @@ std::vector<Collection*> CollectionManager::get_collections() const {
 }
 
 Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
-    std::unique_lock lock(mutex);
-
+    std::shared_lock s_lock(mutex);
     auto collection = get_collection_unsafe(collection_name);
 
     if(collection == nullptr) {
@@ -448,7 +455,11 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         // delete overrides
         const std::string& del_override_prefix =
                 std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + actual_coll_name + "_";
-        rocksdb::Iterator* iter = store->scan(del_override_prefix);
+        std::string upper_bound_key = std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" +
+                                      actual_coll_name + "`";  // cannot inline this
+        rocksdb::Slice upper_bound(upper_bound_key);
+
+        rocksdb::Iterator* iter = store->scan(del_override_prefix, &upper_bound);
         while(iter->Valid() && iter->key().starts_with(del_override_prefix)) {
             store->remove(iter->key().ToString());
             iter->Next();
@@ -458,7 +469,12 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         // delete synonyms
         const std::string& del_synonym_prefix =
                 std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
-        iter = store->scan(del_synonym_prefix);
+
+        std::string syn_upper_bound_key = std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" +
+                                      actual_coll_name + "`";  // cannot inline this
+        rocksdb::Slice syn_upper_bound(syn_upper_bound_key);
+
+        iter = store->scan(del_synonym_prefix, &syn_upper_bound);
         while(iter->Valid() && iter->key().starts_with(del_synonym_prefix)) {
             store->remove(iter->key().ToString());
             iter->Next();
@@ -469,9 +485,14 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         store->remove(Collection::get_meta_key(actual_coll_name));
     }
 
+    s_lock.unlock();
+
+    std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
+    u_lock.unlock();
 
+    // don't hold any collection manager locks here, since this can take some time
     delete collection;
 
     return Option<nlohmann::json>(collection_json);
@@ -920,7 +941,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     if(!max_candidates) {
-        max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::MAX_CANDIDATES_DEFAULT;
+        max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT :
+                         (collection->get_num_documents() < 500000 ? Index::NUM_CANDIDATES_DEFAULT_MAX :
+                          Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
@@ -1094,7 +1117,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     std::string fallback_field_type;
     std::vector<field> fields;
-    auto parse_op = field::json_fields_to_fields(req_json["fields"], fallback_field_type, fields);
+    auto parse_op = field::json_fields_to_fields(req_json[ENABLE_NESTED_FIELDS].get<bool>(),
+                                                 req_json["fields"], fallback_field_type, fields);
 
     if(!parse_op.ok()) {
         return Option<Collection*>(parse_op.code(), parse_op.error());
@@ -1165,7 +1189,9 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // initialize overrides
     std::vector<std::string> collection_override_jsons;
-    cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""), collection_override_jsons);
+    cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""),
+                        std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "`",
+                        collection_override_jsons);
 
     for(const auto & collection_override_json: collection_override_jsons) {
         nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
@@ -1180,7 +1206,9 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // initialize synonyms
     std::vector<std::string> collection_synonym_jsons;
-    cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""), collection_synonym_jsons);
+    cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""),
+                        std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "`",
+                        collection_synonym_jsons);
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
@@ -1189,8 +1217,10 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // Fetch records from the store and re-create memory index
     const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+    std::string upper_bound_key = collection->get_seq_id_collection_prefix() + "`";  // cannot inline this
+    rocksdb::Slice upper_bound(upper_bound_key);
 
-    rocksdb::Iterator* iter = cm.store->scan(seq_id_prefix);
+    rocksdb::Iterator* iter = cm.store->scan(seq_id_prefix, &upper_bound);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
     std::vector<index_record> index_records;
@@ -1212,6 +1242,11 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         } catch(const std::exception& e) {
             LOG(ERROR) << "JSON error: " << e.what();
             return Option<bool>(400, "Bad JSON.");
+        }
+
+        if(collection->get_enable_nested_fields()) {
+            std::vector<field> flattened_fields;
+            field::flatten_doc(document, collection->get_nested_fields(), true, flattened_fields);
         }
 
         auto dirty_values = DIRTY_VALUES::DROP;
@@ -1387,6 +1422,8 @@ bool CollectionManager::parse_vector_query_str(std::string vector_query_str, vec
             // field name is done
             i++;
 
+            StringUtils::trim(vector_query.field_name);
+
             while(i < vector_query_str.size() && vector_query_str[i] != '(') {
                 i++;
             }
@@ -1459,6 +1496,14 @@ bool CollectionManager::parse_vector_query_str(std::string vector_query_str, vec
                     }
 
                     vector_query.k = std::stoul(param_kv[1]);
+                }
+
+                if(param_kv[0] == "flat_search_cutoff") {
+                    if(!StringUtils::is_uint32_t(param_kv[1])) {
+                        return false;
+                    }
+
+                    vector_query.flat_search_cutoff = std::stoi(param_kv[1]);
                 }
             }
 
