@@ -4065,7 +4065,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
    const std::regex base_pattern("[a-z]+\\(.*\\)");
    const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\, ([0-9]+)\\]");
    
-   if(facet_field.find(":") != std::string::npos){ //range based facet
+   if(facet_field.find(":") != std::string::npos) { //range based facet
 
         if(!std::regex_match(facet_field, base_pattern)){
             std::string error = "Range string base pattern not matched.";
@@ -4170,15 +4170,14 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         a_facet.is_range_query = true;
 
         facets.emplace_back(std::move(a_facet));
-    }
-    else{//normal facet
+    } else {//normal facet
         facets.emplace_back(facet(facet_field));
     }
 
     if(search_schema.count(facets.back().field_name) == 0 || !search_schema.at(facets.back().field_name).facet) {
             std::string error = "Could not find a facet field named `" + facets.back().field_name + "` in the schema.";
             facets.pop_back();
-            return Option<bool>(400, error);
+            return Option<bool>(404, error);
         }
 
     return Option<bool>(true);
