@@ -8,10 +8,10 @@
 #include <chrono>
 #include <posting.h>
 
-#define words_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/words.txt").c_str()
-#define uuid_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/uuid.txt").c_str()
-#define skus_file_path std::string(std::string(ROOT_DIR)+"/test/skus.txt").c_str()
-#define ill_file_path std::string(std::string(ROOT_DIR)+"/test/ill.txt").c_str()
+#define words_file_path std::string("external/libart/tests/words.txt").c_str()
+#define uuid_file_path std::string("external/libart/tests/uuid.txt").c_str()
+#define skus_file_path std::string("test/skus.txt").c_str()
+#define ill_file_path std::string("test/ill.txt").c_str()
 
 art_document get_document(uint32_t id) {
     art_document document(id, id, {0});

@@ -22,7 +22,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+        std::ifstream infile("test/multi_field_documents.jsonl");
         std::vector<field> fields = {
                 field("title", field_types::STRING, false),
                 field("starring", field_types::STRING, true),

@@ -35,7 +35,7 @@ protected:
             coll_group = collectionManager.create_collection("coll_group", 4, fields, "rating").get();
         }
 
-        std::ifstream infile(std::string(ROOT_DIR)+"test/group_documents.jsonl");
+        std::ifstream infile("test/group_documents.jsonl");
 
         std::string json_line;
 

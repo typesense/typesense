@@ -168,7 +168,7 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
 }
 
 TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
-    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::ifstream infile("test/multi_field_documents.jsonl");
     std::string json_line;
 
     while (std::getline(infile, json_line)) {
@@ -386,7 +386,7 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
 TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     Collection *coll1;
 
-    std::ifstream infile(std::string(ROOT_DIR)+"test/optional_fields.jsonl");
+    std::ifstream infile("test/optional_fields.jsonl");
     std::vector<field> fields = {
         field("max", field_types::INT32, false)
     };
@@ -493,7 +493,7 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
 }
 
 TEST_F(CollectionManagerTest, DropCollectionCleanly) {
-    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::ifstream infile("test/multi_field_documents.jsonl");
     std::string json_line;
 
     while (std::getline(infile, json_line)) {
