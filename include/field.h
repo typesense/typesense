@@ -682,6 +682,8 @@ struct facet {
 
     bool is_range_query;
 
+    bool sampled = false;
+
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair)
     {
         if(facet_range_map.empty())

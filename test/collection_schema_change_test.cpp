@@ -583,7 +583,7 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
     ASSERT_EQ(1, res["found"].get<size_t>());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ(1, res["facet_counts"].size());
-    ASSERT_EQ(3, res["facet_counts"][0].size());
+    ASSERT_EQ(4, res["facet_counts"][0].size());
     ASSERT_EQ("title", res["facet_counts"][0]["field_name"]);
     ASSERT_EQ(1, res["facet_counts"][0]["counts"].size());
     ASSERT_EQ("123", res["facet_counts"][0]["counts"][0]["value"].get<std::string>());

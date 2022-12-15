@@ -73,8 +73,9 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_EQ(5, results["hits"].size());
 
     ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(3, results["facet_counts"][0].size());
+    ASSERT_EQ(4, results["facet_counts"][0].size());
     ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(false, results["facet_counts"][0]["sampled"].get<bool>());
     ASSERT_EQ(4, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ(1, results["facet_counts"][0]["stats"].size());
     ASSERT_EQ(4, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
@@ -981,7 +982,6 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
 }
 
 TEST_F(CollectionFacetingTest, FacetParseTest){
-
     std::vector<field> fields = {
         field("score", field_types::INT32, true),
         field("grade", field_types::INT32, true),
@@ -1008,8 +1008,6 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_TRUE(range_facets[1].is_range_query);
     ASSERT_GT(range_facets[1].facet_range_map.size(), 0);
 
-    
-    
     std::vector<std::string> normal_facet_fields {
         "score",
         "grade"
@@ -1022,9 +1020,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
 
     ASSERT_STREQ("score", normal_facets[0].field_name.c_str());
     ASSERT_STREQ("grade", normal_facets[1].field_name.c_str());
-    
 
-    
     std::vector<std::string> mixed_facet_fields {
         "score", 
         "grade(A:[80, 100], B:[60, 80], C:[40, 60])", 
@@ -1043,4 +1039,305 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_GT(mixed_facets[1].facet_range_map.size(), 0);
 
     ASSERT_STREQ("rank", mixed_facets[2].field_name.c_str());
+}
+
+
+TEST_F(CollectionFacetingTest, RangeFacetTest) {
+    std::vector<field> fields = {field("place", field_types::STRING, false),
+                                 field("state", field_types::STRING, false),
+                                 field("visitors", field_types::INT32, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "", {}, {}
+    ).get();
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["place"] = "Mysore Palace";
+    doc1["state"] = "Karnataka";
+    doc1["visitors"] = 235486;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["place"] = "Hampi";
+    doc2["state"] = "Karnataka";
+    doc2["visitors"] = 187654;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["place"] = "Mahabalipuram";
+    doc3["state"] = "TamilNadu";
+    doc3["visitors"] = 174684;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["place"] = "Meenakshi Amman Temple";
+    doc4["state"] = "TamilNadu";
+    doc4["visitors"] = 246676;
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["place"] = "Staue of Unity";
+    doc5["state"] = "Gujarat";
+    doc5["visitors"] = 345878;
+
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    auto results = coll1->search("Karnataka", {"state"},
+                                 "", {"visitors(Busy:[0, 200000], VeryBusy:[200000, 500000])"},
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true).get();
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("Busy", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+
+    auto results2 = coll1->search("Gujarat", {"state"},
+                                  "", {"visitors(Busy:[0, 200000], VeryBusy:[200000, 500000])"},
+                                  {}, {2}, 10,
+                                  1, FREQUENCY, {true},
+                                  10, spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                  "<mark>", "</mark>", {}, 1000,
+                                  true, false, true, "", true).get();
+    ASSERT_EQ(1, results2["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(1, results2["facet_counts"][0]["counts"][0]["count"].get<std::size_t>());
+    ASSERT_STREQ("VeryBusy", results2["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_TRUE(results2["facet_counts"][0]["counts"][1]["value"] == nullptr);
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFacetingTest, RangeFacetContinuity) {
+    std::vector<field> fields = {field("place", field_types::STRING, false),
+                                 field("state", field_types::STRING, false),
+                                 field("visitors", field_types::INT32, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "", {}, {}
+    ).get();
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["place"] = "Mysore Palace";
+    doc1["state"] = "Karnataka";
+    doc1["visitors"] = 235486;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["place"] = "Hampi";
+    doc2["state"] = "Karnataka";
+    doc2["visitors"] = 187654;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["place"] = "Mahabalipuram";
+    doc3["state"] = "TamilNadu";
+    doc3["visitors"] = 174684;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["place"] = "Meenakshi Amman Temple";
+    doc4["state"] = "TamilNadu";
+    doc4["visitors"] = 246676;
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["place"] = "Staue of Unity";
+    doc5["state"] = "Gujarat";
+    doc5["visitors"] = 345878;
+
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    auto results = coll1->search("TamilNadu", {"state"},
+                                 "", {"visitors(Busy:[0, 200000], VeryBusy:[200001, 500000])"},
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true);
+    ASSERT_STREQ("Ranges in range facet syntax should be continous.", results.error().c_str());
+
+    auto results2 = coll1->search("TamilNadu", {"state"},
+                                  "", {"visitors(Busy:[0, 200000], VeryBusy:[199999, 500000])"},
+                                  {}, {2}, 10,
+                                  1, FREQUENCY, {true},
+                                  10, spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                  "<mark>", "</mark>", {}, 1000,
+                                  true, false, true, "", true);
+    ASSERT_STREQ("Ranges in range facet syntax should be continous.", results2.error().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFacetingTest, RangeFacetTypo) {
+    std::vector<field> fields = {field("place", field_types::STRING, false),
+                                 field("state", field_types::STRING, false),
+                                 field("visitors", field_types::INT32, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "", {}, {}
+    ).get();
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["place"] = "Mysore Palace";
+    doc1["state"] = "Karnataka";
+    doc1["visitors"] = 235486;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["place"] = "Hampi";
+    doc2["state"] = "Karnataka";
+    doc2["visitors"] = 187654;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["place"] = "Mahabalipuram";
+    doc3["state"] = "TamilNadu";
+    doc3["visitors"] = 174684;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["place"] = "Meenakshi Amman Temple";
+    doc4["state"] = "TamilNadu";
+    doc4["visitors"] = 246676;
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["place"] = "Staue of Unity";
+    doc5["state"] = "Gujarat";
+    doc5["visitors"] = 345878;
+
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    auto results = coll1->search("TamilNadu", {"state"},
+                                 "", {"visitors(Busy:[0, 200000], VeryBusy:[200000, 500000)"}, //missing ']' at end
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true);
+    ASSERT_STREQ("Error splitting the range string.", results.error().c_str());
+
+    auto results2 = coll1->search("TamilNadu", {"state"},
+                                  "", {"visitors(Busy:[0, 200000], VeryBusy:200000, 500000])"}, //missing '[' in second range
+                                  {}, {2}, 10,
+                                  1, FREQUENCY, {true},
+                                  10, spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                  "<mark>", "</mark>", {}, 1000,
+                                  true, false, true, "", true);
+    ASSERT_STREQ("Error splitting the range string.", results2.error().c_str());
+
+    auto results3 = coll1->search("TamilNadu", {"state"},
+                                  "", {"visitors(Busy:[0, 200000] VeryBusy:[200000, 500000])"}, //missing ',' between ranges
+                                  {}, {2}, 10,
+                                  1, FREQUENCY, {true},
+                                  10, spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                  "<mark>", "</mark>", {}, 1000,
+                                  true, false, true, "", true);
+    ASSERT_STREQ("Error splitting the range string.", results3.error().c_str());
+
+    auto results4 = coll1->search("TamilNadu", {"state"},
+                                  "", {"visitors(Busy:[0 200000], VeryBusy:[200000, 500000])"}, //missing ',' between first ranges values
+                                  {}, {2}, 10,
+                                  1, FREQUENCY, {true},
+                                  10, spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                  "<mark>", "</mark>", {}, 1000,
+                                  true, false, true, "", true);
+    ASSERT_STREQ("Range String range pattern not matched.", results4.error().c_str());
+
+    auto results5 = coll1->search("TamilNadu", {"state"},
+                                  "", {"visitors(Busy:[0, 200000 VeryBusy:200000, 500000])"}, //missing '],' and '['
+                                  {}, {2}, 10,
+                                  1, FREQUENCY, {true},
+                                  10, spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                  "<mark>", "</mark>", {}, 1000,
+                                  true, false, true, "", true);
+    ASSERT_STREQ("Range String range pattern not matched.", results5.error().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFacetingTest, SampleFacetCounts) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "color", "type": "string", "facet": true}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    for(size_t i = 0; i < 1000; i++) {
+        nlohmann::json doc;
+        if(i % 2 == 0) {
+            doc["color"] = "blue";
+        } else {
+            doc["color"] = "red";
+        }
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto res = coll1->search("*", {}, "", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 3, 3, 2, 2, false, "", 10, 0).get();
+
+    ASSERT_EQ(1000, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["facet_counts"].size());
+    ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
+
+    // verify approximate counts
+    ASSERT_GE(res["facet_counts"][0]["counts"][0]["count"].get<size_t>(), 250);
+    ASSERT_GE(res["facet_counts"][0]["counts"][1]["count"].get<size_t>(), 250);
+    ASSERT_TRUE(res["facet_counts"][0]["sampled"].get<bool>());
+
+    // when sample threshold is high, don't estimate
+    res = coll1->search("*", {}, "", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                        4, {off}, 3, 3, 2, 2, false, "", 10, 10000).get();
+
+    ASSERT_EQ(1000, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["facet_counts"].size());
+    ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
+
+    // verify approximate counts
+    ASSERT_EQ(500, res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ(500, res["facet_counts"][0]["counts"][1]["count"].get<size_t>());
+    ASSERT_FALSE(res["facet_counts"][0]["sampled"].get<bool>());
+
+    // test for sample percent > 100
+
+    auto res_op = coll1->search("*", {}, "", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                        4, {off}, 3, 3, 2, 2, false, "", 200, 0);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Value of `facet_sample_percent` must be less than 100.", res_op.error());
 }

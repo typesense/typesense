@@ -695,6 +695,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
     const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
 
+    const char *FACET_SAMPLE_PERCENT = "facet_sample_percent";
+    const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -719,7 +722,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     // end check for mandatory params
-
 
     const std::string& raw_query = req_params[QUERY];
     std::vector<uint32_t> num_typos = {2};
@@ -772,6 +774,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
 
+    size_t facet_sample_percent = 100;
+    size_t facet_sample_threshold = 0;
+
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
         {MIN_LEN_2TYPO, &min_len_2typo},
@@ -790,6 +795,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {MAX_CANDIDATES, &max_candidates},
         {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
         {FILTER_CURATED_HITS, &filter_curated_hits_option},
+        {FACET_SAMPLE_PERCENT, &facet_sample_percent},
+        {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -982,7 +989,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           facet_query_num_typos,
                                                           filter_curated_hits_option,
                                                           prioritize_token_position,
-                                                          vector_query
+                                                          vector_query,
+                                                          facet_sample_percent,
+                                                          facet_sample_threshold
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

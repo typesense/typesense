@@ -4,6 +4,7 @@
 #include <chrono>
 #include <set>
 #include <unordered_map>
+#include <random>
 #include <array_utils.h>
 #include <match_score.h>
 #include <string_utils.h>
@@ -1228,6 +1229,7 @@ void Index::compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::s
 }
 
 void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
+                      bool estimate_facets, size_t facet_sample_percent,
                       const std::vector<facet_info_t>& facet_infos,
                       const size_t group_limit, const std::vector<std::string>& group_by_fields,
                       const uint32_t* result_ids, size_t results_size) const {
@@ -1247,8 +1249,21 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
         const auto& field_facet_mapping = field_facet_mapping_it->second;
 
+        // used for sampling facets (if enabled)
+        std::mt19937 gen(137723); // use constant seed to make sure that counts don't jump around
+        std::uniform_int_distribution<> distr(1, 100); // 1 to 100 inclusive
+
         for(size_t i = 0; i < results_size; i++) {
             uint32_t doc_seq_id = result_ids[i];
+
+            // if sampling is enabled, we will skip a portion of the results to speed up things
+            if(estimate_facets) {
+                size_t num = distr(gen);
+                if(num > facet_sample_percent) {
+                    continue;
+                }
+            }
+
             const auto& facet_hashes_it = field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->find(doc_seq_id);
 
             if(facet_hashes_it == field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->end()) {
@@ -1265,7 +1280,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     compute_facet_stats(a_facet, fhash, facet_field.type);
                 }
 
-                if(a_facet.is_range_query){
+                if(a_facet.is_range_query) {
                     auto sort_index_it = sort_index.find(a_facet.field_name);
                     
                     if(sort_index_it != sort_index.end()){
@@ -1285,8 +1300,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                             }
                         }
                     }
-                }
-                else if(!use_facet_query || fquery_hashes.find(fhash) != fquery_hashes.end()) {
+                } else if(!use_facet_query || fquery_hashes.find(fhash) != fquery_hashes.end()) {
                     facet_count_t& facet_count = a_facet.result_map[fhash];
 
                     //LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id << ", hash: " <<  fhash;
@@ -1980,7 +1994,9 @@ void Index::run_search(search_args* search_params) {
            search_params->facet_query_num_typos,
            search_params->filter_curated_hits,
            search_params->split_join_tokens,
-           search_params->vector_query);
+           search_params->vector_query,
+           search_params->facet_sample_percent,
+           search_params->facet_sample_threshold);
 }
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
@@ -2430,7 +2446,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                    size_t max_candidates, const std::vector<enable_t>& infixes, const size_t max_extra_prefix,
                    const size_t max_extra_suffix, const size_t facet_query_num_typos,
                    const bool filter_curated_hits, const enable_t split_join_tokens,
-                   const vector_query_t& vector_query) const {
+                   const vector_query_t& vector_query,
+                   size_t facet_sample_percent, size_t facet_sample_threshold) const {
 
     // process the filters
 
@@ -2784,6 +2801,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
     delete [] exclude_token_ids;
     delete [] excluded_result_ids;
 
+    bool estimate_facets = (facet_sample_percent < 100 && all_result_ids_len > facet_sample_threshold);
+
     if(!facets.empty()) {
         const size_t num_threads = std::min(concurrency, all_result_ids_len);
         const size_t window_size = (num_threads == 0) ? 0 :
@@ -2820,9 +2839,11 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
             thread_pool->enqueue([this, thread_id, &facet_batches, &facet_query, group_limit, group_by_fields,
                                          batch_result_ids, batch_res_len, &facet_infos,
+                                         estimate_facets, facet_sample_percent,
                                          &num_processed, &m_process, &cv_process]() {
                 auto fq = facet_query;
-                do_facets(facet_batches[thread_id], fq, facet_infos, group_limit, group_by_fields,
+                do_facets(facet_batches[thread_id], fq, estimate_facets, facet_sample_percent,
+                          facet_infos, group_limit, group_by_fields,
                           batch_result_ids, batch_res_len);
                 std::unique_lock<std::mutex> lock(m_process);
                 num_processed++;
@@ -2844,8 +2865,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                     if(group_limit) {
                         // we have to add all group sets
                         acc_facet.hash_groups[facet_kv.first].insert(
-                                this_facet.hash_groups[facet_kv.first].begin(),
-                                this_facet.hash_groups[facet_kv.first].end()
+                            this_facet.hash_groups[facet_kv.first].begin(),
+                            this_facet.hash_groups[facet_kv.first].end()
                         );
                     } else {
                         size_t count = 0;
@@ -2872,6 +2893,22 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
             }
         }
 
+        for(auto & acc_facet: facets) {
+            for(auto& facet_kv: acc_facet.result_map) {
+                if(group_limit) {
+                    facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
+                }
+
+                if(estimate_facets) {
+                    facet_kv.second.count = size_t(double(facet_kv.second.count) * (100.0f / facet_sample_percent));
+                }
+            }
+
+            if(estimate_facets) {
+                acc_facet.sampled = true;
+            }
+        }
+
         /*long long int timeMillisF = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::high_resolution_clock::now() - beginF).count();
         LOG(INFO) << "Time for faceting: " << timeMillisF;*/
@@ -2880,7 +2917,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
     std::vector<facet_info_t> facet_infos(facets.size());
     compute_facet_infos(facets, facet_query, facet_query_num_typos,
                         &included_ids_vec[0], included_ids_vec.size(), group_by_fields, max_candidates, facet_infos);
-    do_facets(facets, facet_query, facet_infos, group_limit, group_by_fields, &included_ids_vec[0], included_ids_vec.size());
+    do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
+              facet_infos, group_limit, group_by_fields, &included_ids_vec[0], included_ids_vec.size());
 
     all_result_ids_len += curated_topster->size;
 

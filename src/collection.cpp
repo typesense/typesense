@@ -866,7 +866,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const size_t facet_query_num_typos,
                                   const size_t filter_curated_hits_option,
                                   const bool prioritize_token_position,
-                                  const std::string& vector_query_str) const {
+                                  const std::string& vector_query_str,
+                                  const size_t facet_sample_percent,
+                                  const size_t facet_sample_threshold) const {
 
     std::shared_lock lock(mutex);
 
@@ -909,6 +911,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             return Option<nlohmann::json>(400, "Number of infix values in `infix` does not match "
                                                "number of `query_by` fields.");
         }
+    }
+
+    if(facet_sample_percent > 100) {
+        return Option<nlohmann::json>(400, "Value of `facet_sample_percent` must be less than 100.");
     }
 
     if(raw_group_by_fields.empty()) {
@@ -1302,7 +1308,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                                  search_stop_millis,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
-                                                 filter_curated_hits, split_join_tokens, vector_query);
+                                                 filter_curated_hits, split_join_tokens, vector_query,
+                                                 facet_sample_percent, facet_sample_threshold);
 
     index->run_search(search_params);
 
@@ -1319,12 +1326,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
-        for(auto& acc_facet: facets) {
-            for(auto& facet_kv: acc_facet.result_map) {
-                facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
-            }
-        }
-
         total_found = search_params->groups_processed.size() + override_result_kvs.size();
     } else {
         total_found = search_params->all_result_ids_len;
@@ -1430,8 +1431,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     // handle which fields have to be highlighted
 
     std::vector<highlight_field_t> highlight_items;
-    bool has_atleast_one_fully_highlighted_field = false;
-
     std::vector<std::string> highlight_field_names;
     StringUtils::split(highlight_fields, highlight_field_names, ",");
 
@@ -1442,12 +1441,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         process_highlight_fields(weighted_search_fields, raw_search_fields, include_fields_full, exclude_fields_full,
                                  highlight_field_names, highlight_full_field_names, infixes, q_tokens,
                                  search_params->qtoken_set, highlight_items);
-
-        for(auto& highlight_item: highlight_items) {
-            if(highlight_item.fully_highlighted) {
-                has_atleast_one_fully_highlighted_field = true;
-            }
-        }
     }
 
     nlohmann::json result = nlohmann::json::object();
@@ -1657,6 +1650,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     for(facet & a_facet: facets) {
         nlohmann::json facet_result = nlohmann::json::object();
         facet_result["field_name"] = a_facet.field_name;
+        facet_result["sampled"] = a_facet.sampled;
         facet_result["counts"] = nlohmann::json::array();
 
         std::vector<facet_value_t> facet_values;
