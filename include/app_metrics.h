@@ -7,6 +7,7 @@
 #include <mutex>
 #include <string>
 #include <shared_mutex>
+#include <mutex>
 #include <fstream>
 
 class AppMetrics {

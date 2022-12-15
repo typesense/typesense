@@ -473,7 +473,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(11, results["found"].get<uint32_t>());
 
-    std::vector<std::string> ids = {"19", "6", "21", "22"};
+    std::vector<std::string> ids = {"19", "22", "6", "13"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -1040,7 +1040,7 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
                                                 FREQUENCY, {true}, 1000, empty, empty, 10).get();
 
     ASSERT_EQ(3, results["hits"].size());
-    ASSERT_EQ(7, results["found"].get<int>());
+    ASSERT_EQ(6, results["found"].get<int>());
 
     // cannot fetch more than in-built limit of 250
     auto res_op = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 251, 1,
@@ -1062,13 +1062,13 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
                                  FREQUENCY, {true}, 1000, empty, empty, 10).get();
 
     ASSERT_EQ(3, results["hits"].size());
-    ASSERT_EQ(7, results["found"].get<int>());
+    ASSERT_EQ(6, results["found"].get<int>());
 
     results = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 3, 2,
                                  FREQUENCY, {true}, 1000, empty, empty, 10).get();
 
     ASSERT_EQ(3, results["hits"].size());
-    ASSERT_EQ(7, results["found"].get<int>());
+    ASSERT_EQ(6, results["found"].get<int>());
 
     collectionManager.drop_collection("coll_mul_fields");
 }
@@ -2153,37 +2153,42 @@ TEST_F(CollectionTest, SearchLargeTextField) {
 
 TEST_F(CollectionTest, PruneFieldsFromDocument) {
     nlohmann::json document = get_prune_doc();
-    Collection::prune_document(document, {"one", "two"}, spp::sparse_hash_set<std::string>());
+    Collection::prune_doc(document, {"one", "two"}, tsl::htrie_set<char>());
     ASSERT_EQ(2, document.size());
     ASSERT_EQ(1, document["one"]);
     ASSERT_EQ(2, document["two"]);
 
     // exclude takes precedence
     document = get_prune_doc();
-    Collection::prune_document(document, {"one"}, {"one"});
+    Collection::prune_doc(document, {"one"}, {"one"});
     ASSERT_EQ(0, document.size());
 
     // when no inclusion is specified, should return all fields not mentioned by exclusion list
     document = get_prune_doc();
-    Collection::prune_document(document, spp::sparse_hash_set<std::string>(), {"three"});
+    Collection::prune_doc(document, tsl::htrie_set<char>(), tsl::htrie_set<char>({"three"}), "");
     ASSERT_EQ(3, document.size());
     ASSERT_EQ(1, document["one"]);
     ASSERT_EQ(2, document["two"]);
     ASSERT_EQ(4, document["four"]);
 
     document = get_prune_doc();
-    Collection::prune_document(document, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>());
+    Collection::prune_doc(document, tsl::htrie_set<char>(), tsl::htrie_set<char>(), "");
     ASSERT_EQ(4, document.size());
 
     // when included field does not exist
     document = get_prune_doc();
-    Collection::prune_document(document, {"notfound"}, spp::sparse_hash_set<std::string>());
+    Collection::prune_doc(document, {"notfound"}, tsl::htrie_set<char>(), "");
     ASSERT_EQ(0, document.size());
 
     // when excluded field does not exist
     document = get_prune_doc();
-    Collection::prune_document(document, spp::sparse_hash_set<std::string>(), {"notfound"});
+    Collection::prune_doc(document, tsl::htrie_set<char>(), {"notfound"}, "");
     ASSERT_EQ(4, document.size());
+
+    // included set is prefix of allowed fields
+    document = get_prune_doc();
+    Collection::prune_doc(document, {"ones"}, tsl::htrie_set<char>(), "");
+    ASSERT_EQ(0, document.size());
 }
 
 TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {
@@ -3273,8 +3278,8 @@ TEST_F(CollectionTest, MultiFieldRelevance3) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
@@ -3953,8 +3958,8 @@ TEST_F(CollectionTest, FieldSpecificNumTypos) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     results = coll1->search("tayylor",
                             {"title", "artist"}, "", {}, {}, {0, 1}, 10, 1, FREQUENCY,
@@ -4091,8 +4096,8 @@ TEST_F(CollectionTest, FieldLevelPrefixConfiguration) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

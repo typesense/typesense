@@ -166,7 +166,7 @@ TEST(TopsterTest, MaxFloatValues) {
     for(int i = 0; i < 12; i++) {
         int64_t scores[3];
         scores[0] = int64_t(data[i].match_score);
-        scores[1] = Index::float_to_in64_t(data[i].primary_attr);
+        scores[1] = Index::float_to_int64_t(data[i].primary_attr);
         scores[2] = data[i].secondary_attr;
 
         KV kv(data[i].field_id, data[i].query_index, data[i].token_bits, data[i].key, data[i].key, 0, scores);

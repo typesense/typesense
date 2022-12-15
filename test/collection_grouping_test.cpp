@@ -353,7 +353,8 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
                {"query", "shirt"},
                {"match", override_t::MATCH_EXACT}
             }
-        }
+        },
+        {"stop_processing", false}
     };
 
     override_json_include["includes"] = nlohmann::json::array();
@@ -372,7 +373,8 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
                  {"query", "shirt"},
                  {"match", override_t::MATCH_EXACT}
             }
-        }
+        },
+        {"stop_processing", false}
     };
     override_json_exclude["excludes"] = nlohmann::json::array();
     override_json_exclude["excludes"][0] = nlohmann::json::object();

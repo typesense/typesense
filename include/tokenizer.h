@@ -31,13 +31,19 @@ private:
     std::string locale;
     icu::BreakIterator* bi = nullptr;
     icu::UnicodeString unicode_text;
+
+    // tracks start of a text segment that can span multiple unicode tokens due to use of custom symbols
+    int32_t utf8_start_index = 0;
+
+    // tracks current unicode segment for text extraction
     int32_t start_pos = 0;
     int32_t end_pos = 0;
-    int32_t utf8_start_index = 0;
+
     char* normalized_text = nullptr;
 
-    // non-deletable singleton
-    const icu::Normalizer2* nfkd;
+    // non-deletable singletons
+    const icu::Normalizer2* nfkd = nullptr;
+    const icu::Normalizer2* nfkc = nullptr;
 
     icu::Transliterator* transliterator = nullptr;
 
@@ -77,4 +83,6 @@ public:
     static inline bool is_ascii_char(char c) {
         return (c & ~0x7f) == 0;
     }
+
+    void decr_token_counter();
 };

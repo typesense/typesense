@@ -18,7 +18,7 @@
 <p align="center">
   <a href="https://typesense.org">Website</a> | 
   <a href="https://typesense.org/docs/">Documentation</a> | 
-  <a href="https://github.com/typesense/typesense/projects/2">Roadmap</a> | 
+  <a href="https://github.com/orgs/typesense/projects/1">Roadmap</a> | 
   <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg">Slack Community</a> | 
   <a href="https://twitter.com/typesense">Twitter</a> | 
   <a href="https://calendly.com/jason-typesense/typesense-office-hours">Office Hours</a>
@@ -42,7 +42,7 @@
 🗣️ 🎥 If you prefer watching videos:
 
 - Here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
-- Here's our [roadmap](https://github.com/typesense/typesense/projects/2) call from Q1 2022: https://aviyel.com/events/297/typesense-community-call-q1-2022-roadmap-and-contributor-spotlight
+- Here's our [roadmap](https://github.com/orgs/typesense/projects/1) call from Q1 2022: https://aviyel.com/events/297/typesense-community-call-q1-2022-roadmap-and-contributor-spotlight
 - Check out Typesense's recent mention during Google I/O Developer Keynote: https://youtu.be/qBkyU1TJKDg?t=2399
 
 ## Quick Links
@@ -85,7 +85,7 @@
 
 ## Roadmap
 
-Here's Typesense's public roadmap: https://github.com/typesense/typesense/projects/2.
+Here's Typesense's public roadmap: [https://github.com/orgs/typesense/projects/1](https://github.com/orgs/typesense/projects/1).
 
 The first column also explains how we prioritize features, how you can influence prioritization and our release cadence. 
 

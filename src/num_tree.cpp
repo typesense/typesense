@@ -89,18 +89,11 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
 
         std::vector<uint32_t> consolidated_ids;
         while(iter_ge_value != int64map.end()) {
-            uint32_t* values = ids_t::uncompress(iter_ge_value->second);
-
-            for(size_t i = 0; i < ids_t::num_ids(iter_ge_value->second); i++) {
-                consolidated_ids.push_back(values[i]);
-            }
-
-            delete [] values;
+            ids_t::uncompress(iter_ge_value->second, consolidated_ids);
             iter_ge_value++;
         }
 
         gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
-
         consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
 
         uint32_t *out = nullptr;
@@ -118,23 +111,13 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
         auto it = int64map.begin();
 
         while(it != iter_ge_value) {
-            uint32_t* values = ids_t::uncompress(it->second);
-
-            for(size_t i = 0; i < ids_t::num_ids(it->second); i++) {
-                consolidated_ids.push_back(values[i]);
-            }
-
-            delete [] values;
+            ids_t::uncompress(it->second, consolidated_ids);
             it++;
         }
 
         // for LESS_THAN_EQUALS, check if last iter entry is equal to value
         if(it != int64map.end() && comparator == LESS_THAN_EQUALS && it->first == value) {
-            uint32_t* values = ids_t::uncompress(it->second);
-            for(size_t i = 0; i < ids_t::num_ids(it->second); i++) {
-                consolidated_ids.push_back(values[i]);
-            }
-            delete [] values;
+            ids_t::uncompress(it->second, consolidated_ids);
         }
 
         gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());

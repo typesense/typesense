@@ -19,7 +19,7 @@ struct token_positions_t {
 struct TokenOffset {
     uint8_t token_id;                            // token identifier
     uint16_t offset = MAX_DISPLACEMENT;          // token's offset in the text
-    uint16_t offset_index;                       // index of the offset in the offset vector
+    uint32_t offset_index;                       // index of the offset in the offset vector
 
     bool operator()(const TokenOffset &a, const TokenOffset &b) {
         return a.offset > b.offset;
@@ -35,21 +35,20 @@ struct TokenOffset {
 };
 
 struct Match {
-    uint8_t words_present;
-    uint8_t distance;
-    uint8_t max_offset;
-    uint8_t exact_match;
-    uint8_t phrase_match;
+    uint8_t words_present = 0;
+    uint8_t distance = 0;
+    uint8_t max_offset = 0;
+    uint8_t exact_match = 0;
 
     std::vector<TokenOffset> offsets;
 
-    Match() : words_present(0), distance(0), exact_match(0), max_offset(0) {
+    Match() : words_present(0), distance(0), max_offset(0), exact_match(0) {
 
     }
 
     Match(uint8_t words_present, uint8_t distance, uint8_t max_offset, uint8_t exact_match = 0) :
             words_present(words_present), distance(distance), max_offset(max_offset),
-            exact_match(exact_match), phrase_match(0) {
+            exact_match(exact_match) {
 
     }
 
@@ -144,6 +143,8 @@ struct Match {
         size_t best_num_match = 1;
         size_t best_displacement = MAX_DISPLACEMENT;
 
+        int prev_min_offset = -1;
+
         while (window.size() > 1) {
             switch(window.size()) {
                 case 2:
@@ -159,12 +160,19 @@ struct Match {
 
             size_t min_offset = window.back().offset;
 
+            if(int(min_offset) < prev_min_offset) {
+                // indicates that one of the offsets are wrapping around (e.g. long document)
+                break;
+            }
+
+            prev_min_offset = min_offset;
+
             size_t this_displacement = 0;
             size_t this_num_match = 0;
             std::vector<TokenOffset> this_window(tokens_size);
 
-            uint8_t prev_token_id = window[0].token_id;
-            phrase_match = 1;
+            uint16_t prev_offset = window[0].offset;
+            bool all_offsets_are_same = true;
 
             for (size_t i = 0; i < window.size(); i++) {
                 if(populate_window) {
@@ -182,15 +190,11 @@ struct Match {
                     }
                 }
 
-                if(window[i].token_id > prev_token_id) {
-                    phrase_match = 0;
-                }
-
-                prev_token_id = window[i].token_id;
+                all_offsets_are_same = all_offsets_are_same && (window[i].offset == prev_offset);
             }
 
-            if ( (this_num_match > best_num_match) ||
-                 (this_num_match == best_num_match && this_displacement < best_displacement)) {
+            if ( ((this_num_match > best_num_match) ||
+                 (this_num_match == best_num_match && this_displacement < best_displacement))) {
                 best_displacement = this_displacement;
                 best_num_match = this_num_match;
                 max_offset = std::min((uint16_t)255, window.front().offset);
@@ -217,7 +221,7 @@ struct Match {
             }
 
             // Push next offset of same token popped
-            uint16_t next_offset_index = (smallest_offset.offset_index + 1);
+            uint32_t next_offset_index = (smallest_offset.offset_index + 1);
             TokenOffset token_offset{token_id, this_token_offsets[next_offset_index], next_offset_index};
             window.emplace_back(token_offset);
         }
@@ -230,10 +234,6 @@ struct Match {
         distance = uint8_t(best_displacement);
         if(populate_window) {
             offsets = best_window;
-        }
-
-        if(best_num_match != tokens_size || distance != tokens_size-1) {
-            phrase_match = 0;
         }
 
         exact_match = 0;

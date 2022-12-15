@@ -1399,6 +1399,56 @@ TEST_F(CollectionFilteringTest, GeoPolygonFilteringSouthAmerica) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionFilteringTest, GeoPointFilteringWithNonSortableLocationField) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT, false),
+                                 field("points", field_types::INT32, false),};
+
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string", "sort": false},
+            {"name": "loc", "type": "geopoint", "sort": false},
+            {"name": "points", "type": "int32", "sort": false}
+        ]
+    })"_json;
+
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_op.ok());
+    Collection* coll1 = coll_op.get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"Palais Garnier", "48.872576479306765, 2.332291112241466"},
+        {"Sacre Coeur", "48.888286721920934, 2.342340862419206"},
+        {"Arc de Triomphe", "48.87538726829884, 2.296113163780903"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][1], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["loc"] = {lat, lng};
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // pick a location close to only the Sacre Coeur
+    auto results = coll1->search("*",
+                                 {}, "loc: (48.90615915923891, 2.3435897727061175, 3 km)",
+                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+}
+
 TEST_F(CollectionFilteringTest, FilteringWithPrefixSearch) {
     Collection *coll1;
 
@@ -1792,6 +1842,10 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     results = coll1->search("*", {"artist"}, "artist:!= [Michael Jackson, Taylor Swift]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // when no such value exists: should return all results
+    results = coll1->search("*", {"artist"}, "artist:!=Foobar", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(4, results["found"].get<size_t>());
 
     // empty value (bad filtering)
     auto res_op = coll1->search("*", {"artist"}, "artist:!=", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);

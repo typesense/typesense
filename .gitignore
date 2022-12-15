@@ -9,3 +9,4 @@ cmake-build-release
 *.pem
 .DS_Store
 /bazel-*
+typesense-server-data/

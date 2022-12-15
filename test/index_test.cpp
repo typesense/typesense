@@ -4,7 +4,7 @@
 #include <s2/s2loop.h>
 
 TEST(IndexTest, ScrubReindexDoc) {
-    std::unordered_map<std::string, field> search_schema;
+    tsl::htrie_map<char, field> search_schema;
     search_schema.emplace("title", field("title", field_types::STRING, false));
     search_schema.emplace("points", field("points", field_types::INT32, false));
     search_schema.emplace("cast", field("cast", field_types::STRING_ARRAY, false));

@@ -12,8 +12,8 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *collection1;
-    std::vector<field> search_fields;
     std::vector<sort_by> sort_fields;
+    nlohmann::json schema;
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
@@ -24,19 +24,27 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        search_fields = {
-            field("title", field_types::STRING, false, false, true, "en", false),
-            field("starring", field_types::STRING, false, false, true, "", false, true),
-            field("cast", field_types::STRING_ARRAY, true, true, true, "", false),
-            field(".*_year", field_types::INT32, true, true),
-            field("location", field_types::GEOPOINT, false, true, true),
-            field("not_stored", field_types::STRING, false, true, false),
-            field("points", field_types::INT32, false)
-        };
+        schema = R"({
+            "name": "collection1",
+            "enable_nested_fields": true,
+            "fields": [
+                {"name": "title", "type": "string", "locale": "en"},
+                {"name": "starring", "type": "string", "infix": true},
+                {"name": "cast", "type": "string[]", "facet": true, "optional": true},
+                {"name": ".*_year", "type": "int32", "facet": true, "optional": true},
+                {"name": "location", "type": "geopoint", "optional": true},
+                {"name": "not_stored", "type": "string", "optional": true, "index": false},
+                {"name": "points", "type": "int32"},
+                {"name": "person", "type": "object", "optional": true},
+                {"name": "vec", "type": "float[]", "num_dim": 128, "optional": true}
+            ],
+            "default_sorting_field": "points",
+            "symbols_to_index":["+"],
+            "token_separators":["-"]
+        })"_json;
 
         sort_fields = { sort_by("points", "DESC") };
-        collection1 = collectionManager.create_collection("collection1", 4, search_fields,
-                                                          "points", 12345, "", {"+"}, {"-"}).get();
+        collection1 = collectionManager.create_collection(schema).get();
     }
 
     virtual void SetUp() {
@@ -57,15 +65,15 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     collection1 = collectionManager2.get_collection("collection1").get();
     ASSERT_NE(nullptr, collection1);
 
-    std::unordered_map<std::string, field> schema = collection1->get_schema();
+    tsl::htrie_map<char, field> schema = collection1->get_schema();
     std::vector<std::string> facet_fields_expected = {"cast"};
 
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(0, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
     ASSERT_EQ(2, collection1->get_sort_fields().size());
-    ASSERT_EQ("points", collection1->get_sort_fields()[0].name);
-    ASSERT_EQ("location", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("location", collection1->get_sort_fields()[0].name);
+    ASSERT_EQ("points", collection1->get_sort_fields()[1].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
     ASSERT_EQ(false, schema.at("not_stored").index);
@@ -91,17 +99,165 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(3, num_keys);
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
-    ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\",\"fallback_field_type\":\"\","
-              "\"fields\":[{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":false,\"index\":true,\"infix\":true,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":true,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"sort\":false,\"type\":\"string[]\"},"
-              "{\"facet\":true,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"sort\":true,\"type\":\"int32\"},"
-              "{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"sort\":true,\"type\":\"geopoint\"},"
-              "{\"facet\":false,\"index\":false,\"infix\":false,\"locale\":\"\",\"name\":\"not_stored\",\"optional\":true,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"sort\":true,\"type\":\"int32\"}],\"id\":0,"
-              "\"name\":\"collection1\",\"num_memory_shards\":4,\"symbols_to_index\":[\"+\"],\"token_separators\":[\"-\"]}",
-              collection_meta_json);
+
+    LOG(INFO) << collection_meta_json;
+
+    nlohmann::json expected_meta_json = R"(
+        {
+          "created_at":1663234047,
+          "default_sorting_field":"points",
+          "enable_nested_fields":true,
+          "fallback_field_type":"",
+          "fields":[
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"en",
+              "name":"title",
+              "nested":false,
+              "optional":false,
+              "sort":false,
+              "type":"string"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":true,
+              "locale":"",
+              "name":"starring",
+              "nested":false,
+              "optional":false,
+              "sort":false,
+              "type":"string"
+            },
+            {
+              "facet":true,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"cast",
+              "nested":false,
+              "optional":true,
+              "sort":false,
+              "type":"string[]"
+            },
+            {
+              "facet":true,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":".*_year",
+              "nested":false,
+              "optional":true,
+              "sort":true,
+              "type":"int32"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"location",
+              "nested":false,
+              "optional":true,
+              "sort":true,
+              "type":"geopoint"
+            },
+            {
+              "facet":false,
+              "index":false,
+              "infix":false,
+              "locale":"",
+              "name":"not_stored",
+              "nested":false,
+              "optional":true,
+              "sort":false,
+              "type":"string"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"points",
+              "nested":false,
+              "optional":false,
+              "sort":true,
+              "type":"int32"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"person",
+              "nested":true,
+              "nested_array":2,
+              "optional":true,
+              "sort":false,
+              "type":"object"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"vec",
+              "nested":false,
+              "num_dim":128,
+              "optional":true,
+              "sort":false,
+              "type":"float[]",
+              "vec_dist":"cosine"
+            }
+          ],
+          "id":0,
+          "name":"collection1",
+          "num_memory_shards":4,
+          "symbols_to_index":[
+            "+"
+          ],
+          "token_separators":[
+            "-"
+          ]
+        }
+    )"_json;
+
+    auto actual_json = nlohmann::json::parse(collection_meta_json);
+    expected_meta_json["created_at"] = actual_json["created_at"];
+
+    ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
     ASSERT_EQ("1", next_collection_id);
+}
+
+TEST_F(CollectionManagerTest, ParallelCollectionCreation) {
+    std::vector<std::thread> threads;
+    for(size_t i = 0; i < 10; i++) {
+        threads.emplace_back([i, &collectionManager = collectionManager]() {
+            nlohmann::json coll_json = R"({
+                "name": "parcoll",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+            coll_json["name"] = coll_json["name"].get<std::string>() + std::to_string(i+1);
+            auto coll_op = collectionManager.create_collection(coll_json);
+            ASSERT_TRUE(coll_op.ok());
+        });
+    }
+
+    for(auto& thread : threads){
+        thread.join();
+    }
+
+    int64_t prev_id = INT32_MAX;
+
+    for(auto coll: collectionManager.get_collections()) {
+        // collections are sorted by ID, in descending order
+        ASSERT_TRUE(coll->get_collection_id() < prev_id);
+        prev_id = coll->get_collection_id();
+    }
 }
 
 TEST_F(CollectionManagerTest, ShouldInitCollection) {
@@ -156,7 +312,15 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
     ASSERT_STREQ("collection1", collection_vec[0]->get_name().c_str());
 
     // try creating one more collection
-    collectionManager.create_collection("collection2", 4, search_fields, "points");
+    auto new_schema = R"({
+        "name": "collection2",
+        "fields": [
+            {"name": "title", "type": "string", "locale": "en"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    collectionManager.create_collection(new_schema);
     collection_vec = collectionManager.get_collections();
     ASSERT_EQ(2, collection_vec.size());
 
@@ -246,9 +410,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     synonym_t synonym2("id2", {"mobile", "phone"}, {{"samsung", "phone"}});
     synonym_t synonym3("id3", {}, {{"football"}, {"foot", "ball"}});
 
-    collection1->add_synonym(synonym1);
-    collection1->add_synonym(synonym2);
-    collection1->add_synonym(synonym3);
+    ASSERT_TRUE(collection1->add_synonym(synonym1.to_view_json()).ok());
+    ASSERT_TRUE(collection1->add_synonym(synonym2.to_view_json()).ok());
+    ASSERT_TRUE(collection1->add_synonym(synonym3.to_view_json()).ok());
 
     collection1->remove_synonym("id2");
 
@@ -258,7 +422,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(4, results["hits"].size());
 
-    std::unordered_map<std::string, field> schema = collection1->get_schema();
+    tsl::htrie_map<char, field> schema = collection1->get_schema();
 
     // recreate collection manager to ensure that it restores the records from the disk backed store
     collectionManager.dispose();
@@ -283,8 +447,8 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(18, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
     ASSERT_EQ(2, collection1->get_sort_fields().size());
-    ASSERT_EQ("points", collection1->get_sort_fields()[0].name);
-    ASSERT_EQ("location", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("location", collection1->get_sort_fields()[0].name);
+    ASSERT_EQ("points", collection1->get_sort_fields()[1].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
 
@@ -294,6 +458,11 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(false, restored_schema.at("title").facet);
     ASSERT_EQ(false, restored_schema.at("title").optional);
     ASSERT_EQ(false, restored_schema.at("not_stored").index);
+    ASSERT_TRUE(restored_schema.at("person").nested);
+    ASSERT_EQ(2, restored_schema.at("person").nested_array);
+    ASSERT_EQ(128, restored_schema.at("vec").num_dim);
+
+    ASSERT_TRUE(collection1->get_enable_nested_fields());
 
     ASSERT_EQ(2, collection1->get_overrides().size());
     ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
@@ -378,7 +547,7 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_EQ("year: 1922&&points: 200", req_params["filter_by"]);
+    ASSERT_EQ("(year: 1922) && (points: 200)", req_params["filter_by"]);
 
     collectionManager.drop_collection("coll1");
 }
@@ -417,7 +586,7 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     Option<nlohmann::json> add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_TRUE(add_op.ok());
 
-    std::unordered_map<std::string, field> schema = collection1->get_schema();
+    tsl::htrie_map<char, field> schema = collection1->get_schema();
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
@@ -441,8 +610,8 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     ASSERT_EQ(7, restored_coll->get_num_documents());
     ASSERT_EQ(facet_fields_expected, restored_coll->get_facet_fields());
     ASSERT_EQ(3, restored_coll->get_sort_fields().size());
-    ASSERT_EQ("is_valid", restored_coll->get_sort_fields()[0].name);
-    ASSERT_EQ("average", restored_coll->get_sort_fields()[1].name);
+    ASSERT_EQ("average", restored_coll->get_sort_fields()[0].name);
+    ASSERT_EQ("is_valid", restored_coll->get_sort_fields()[1].name);
     ASSERT_EQ("max", restored_coll->get_sort_fields()[2].name);
 
     // ensures that the "id" field is not added to the schema
@@ -459,11 +628,11 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
 
     // all detected schema are optional fields, while defined schema is not
 
-    for(const auto& kv: restored_schema) {
-        if(kv.first == "max") {
-            ASSERT_FALSE(kv.second.optional);
+    for(const auto& a_field: restored_schema) {
+        if(a_field.name == "max") {
+            ASSERT_FALSE(a_field.optional);
         } else {
-            ASSERT_TRUE(kv.second.optional);
+            ASSERT_TRUE(a_field.optional);
         }
     }
 
@@ -487,6 +656,77 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     results = restored_coll->search("*", {"title"}, "", {}, {sort_fields}, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(7, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+    collectionManager2.drop_collection("coll1");
+}
+
+TEST_F(CollectionManagerTest, RestoreNestedDocsOnRestart) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "details", "type": "object[]" },
+          {"name": "company.name", "type": "string" },
+          {"name": "person", "type": "object"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "details": [{"tags": ["foobar"]}],
+        "company": {"name": "Foobar Corp"},
+        "person": {"first_name": "Foobar"}
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto res_op = coll1->search("foobar", {"details"}, "", {}, {}, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    res_op = coll1->search("foobar", {"company.name"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    res_op = coll1->search("foobar", {"person"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    // create a new collection manager to ensure that it restores the records from the disk backed store
+    CollectionManager& collectionManager2 = CollectionManager::get_instance();
+    collectionManager2.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager2.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+
+    ASSERT_TRUE(load_op.ok());
+
+    auto restored_coll = collectionManager2.get_collection("coll1").get();
+    ASSERT_NE(nullptr, restored_coll);
+
+    res_op = restored_coll->search("foobar", {"details"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    res_op = restored_coll->search("foobar", {"company.name"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    res_op = restored_coll->search("foobar", {"person"}, "", {}, {}, {0}, 10, 1,
+                           token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
     collectionManager2.drop_collection("coll1");
@@ -720,6 +960,14 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ("ASC", sort_fields[0].order);
 
     sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(brand:nike && foo:bar):DESC,points:desc ", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("_eval(brand:nike && foo:bar)", sort_fields[0].name);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+    ASSERT_EQ("points", sort_fields[1].name);
+    ASSERT_EQ("DESC", sort_fields[1].order);
+
+    sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
     ASSERT_EQ(0, sort_fields.size());
@@ -739,6 +987,43 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str(",,", sort_fields);
     ASSERT_FALSE(sort_by_parsed);
+}
+
+TEST_F(CollectionManagerTest, ParseVectorQueryString) {
+    vector_query_t vector_query;
+    bool parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
+    ASSERT_TRUE(parsed);
+    ASSERT_EQ("vec", vector_query.field_name);
+    ASSERT_EQ(10, vector_query.k);
+    std::vector<float> fvs = {0.34, 0.66, 0.12, 0.68};
+    ASSERT_EQ(fvs.size(), vector_query.values.size());
+    for(size_t i = 0; i < fvs.size(); i++) {
+        ASSERT_EQ(fvs[i], vector_query.values[i]);
+    }
+
+    vector_query._reset();
+    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
+    ASSERT_TRUE(parsed);
+
+    vector_query._reset();
+    parsed = CollectionManager::parse_vector_query_str("vec:[0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
+    ASSERT_FALSE(parsed);
+
+    vector_query._reset();
+    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10", vector_query);
+    ASSERT_TRUE(parsed);
+
+    vector_query._reset();
+    parsed = CollectionManager::parse_vector_query_str("vec:(0.34, 0.66, 0.12, 0.68, k: 10)", vector_query);
+    ASSERT_FALSE(parsed);
+
+    vector_query._reset();
+    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], )", vector_query);
+    ASSERT_FALSE(parsed);
+
+    vector_query._reset();
+    parsed = CollectionManager::parse_vector_query_str("vec([0.34, 0.66, 0.12, 0.68])", vector_query);
+    ASSERT_FALSE(parsed);
 }
 
 TEST_F(CollectionManagerTest, Presets) {
@@ -796,4 +1081,61 @@ TEST_F(CollectionManagerTest, Presets) {
     preset.clear();
     preset_op = collectionManager.get_preset("preset1", preset);
     ASSERT_TRUE(preset_op.ok());
+}
+
+TEST_F(CollectionManagerTest, CloneCollection) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ],
+        "symbols_to_index":["+"],
+        "token_separators":["-", "?"]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll1 = create_op.get();
+
+    nlohmann::json synonym1 = R"({
+        "id": "ipod-synonyms",
+        "synonyms": ["ipod", "i pod", "pod"]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add_synonym(synonym1).ok());
+
+    nlohmann::json override_json = {
+            {"id",   "dynamic-cat-filter"},
+            {
+             "rule", {
+                             {"query", "{categories}"},
+                             {"match", override_t::MATCH_EXACT}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"filter_by", "category: {categories}"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    nlohmann::json req = R"({"name": "coll2"})"_json;
+    collectionManager.clone_collection("coll1", req);
+
+    auto coll2 = collectionManager.get_collection_unsafe("coll2");
+    ASSERT_FALSE(coll2 == nullptr);
+    ASSERT_EQ("coll2", coll2->get_name());
+    ASSERT_EQ(1, coll2->get_fields().size());
+    ASSERT_EQ(1, coll2->get_synonyms().size());
+    ASSERT_EQ(1, coll2->get_overrides().size());
+    ASSERT_EQ("", coll2->get_fallback_field_type());
+
+    ASSERT_EQ(1, coll2->get_symbols_to_index().size());
+    ASSERT_EQ(2, coll2->get_token_separators().size());
+
+    ASSERT_EQ('+', coll2->get_symbols_to_index().at(0));
+    ASSERT_EQ('-', coll2->get_token_separators().at(0));
+    ASSERT_EQ('?', coll2->get_token_separators().at(1));
 }

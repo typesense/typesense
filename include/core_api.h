@@ -2,6 +2,7 @@
 
 #include "http_server.h"
 #include "auth_manager.h"
+#include "ratelimit_manager.h"
 
 bool handle_authentication(std::map<std::string, std::string>& req_params,
                            std::vector<nlohmann::json>& embedded_params_vec,
@@ -113,6 +114,20 @@ bool post_vote(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool post_compact_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+// Rate Limiting
+
+bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Misc helpers
 

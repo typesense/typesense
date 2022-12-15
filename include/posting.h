@@ -48,13 +48,10 @@ public:
         std::vector<posting_list_t*> plists;
         std::vector<posting_list_t*> expanded_plists;
         result_iter_state_t& iter_state;
-        ThreadPool* thread_pool;
 
         block_intersector_t(const std::vector<void*>& raw_posting_lists,
-                            result_iter_state_t& iter_state,
-                            ThreadPool* thread_pool,
-                            size_t parallelize_min_ids = 1):
-                            iter_state(iter_state), thread_pool(thread_pool) {
+                            result_iter_state_t& iter_state):
+                            iter_state(iter_state) {
 
             to_expanded_plists(raw_posting_lists, plists, expanded_plists);
 
@@ -72,7 +69,7 @@ public:
         }
 
         template<class T>
-        bool intersect(T func, size_t concurrency=4);
+        bool intersect(T func);
     };
 
     static void to_expanded_plists(const std::vector<void*>& raw_posting_lists, std::vector<posting_list_t*>& plists,
@@ -115,7 +112,7 @@ public:
 };
 
 template<class T>
-bool posting_t::block_intersector_t::intersect(T func, size_t concurrency) {
+bool posting_t::block_intersector_t::intersect(T func) {
     if(plists.empty()) {
         return true;
     }

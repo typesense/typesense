@@ -1124,10 +1124,15 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
         else {
             // field is an array
 
+            struct token_index_meta_t {
+                std::bitset<32> token_index;
+                bool has_last_token;
+            };
+
             for(size_t i = 0; i < num_ids; i++) {
                 uint32_t id = ids[i];
 
-                std::map<size_t, std::bitset<32>> array_index_to_token_index;
+                std::map<size_t, token_index_meta_t> array_index_to_token_index;
                 bool premature_exit = false;
 
                 for(int j = its.size()-1; j >= 0; j--) {
@@ -1165,13 +1170,14 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
                                 size_t next_offset = (size_t) offsets[start_offset_index + 1];
                                 if(next_offset == 0 && pos == its.size()) {
                                     // indicates that token is the last token on the doc
+                                    array_index_to_token_index[array_index].has_last_token = true;
                                     has_atleast_one_last_token = true;
                                     start_offset_index++;
                                 }
                             }
 
                             if(found_matching_index) {
-                                array_index_to_token_index[array_index].set(j+1);
+                                array_index_to_token_index[array_index].token_index.set(j+1);
                             }
 
                             start_offset_index++;  // skip current value which is the array index or flag for last index
@@ -1205,7 +1211,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
                 if(!premature_exit) {
                     // iterate array index to token index to check if atleast 1 array position contains all tokens
                     for(auto& kv: array_index_to_token_index) {
-                        if(kv.second.count() == its.size()) {
+                        if(kv.second.token_index.count() == its.size() && kv.second.has_last_token) {
                             exact_ids[exact_id_index++] = id;
                             break;
                         }
@@ -1216,6 +1222,60 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
     }
 
     num_exact_ids = exact_id_index;
+}
+
+bool posting_list_t::found_token_sequence(const std::vector<token_positions_t>& token_positions,
+                                          const size_t token_index, const uint16_t target_pos) {
+
+    if(token_index == token_positions.size()) {
+        return true;
+    }
+
+    // iterate through the positions and see if `target_pos` is found in token positions
+    const auto& tok_positions = token_positions[token_index].positions;
+    bool found_pos = false;
+    int prev_pos = -1;
+
+    for(auto tok_pos: tok_positions) {
+        if(tok_pos < prev_pos) {
+            // indicates that the positions are wrapping around
+            found_pos = false;
+            break;
+        }
+
+        if(tok_pos == target_pos) {
+            found_pos = true;
+            break;
+        }
+
+        prev_pos = tok_pos;
+    }
+
+    if(!found_pos) {
+        return false;
+    }
+
+    return found_token_sequence(token_positions, token_index+1, target_pos+1);
+}
+
+bool posting_list_t::has_phrase_match(const std::vector<token_positions_t>& token_positions) {
+    const auto& positions = token_positions[0].positions;
+    int prev_pos = -1;
+
+    for(auto pos: positions) {
+        if(pos < prev_pos) {
+            // indicates that the positions are wrapping around
+            return false;
+        }
+
+        if(found_token_sequence(token_positions, 1, pos + 1)) {
+            return true;
+        }
+
+        prev_pos = pos;
+    }
+
+    return false;
 }
 
 void posting_list_t::get_phrase_matches(std::vector<iterator_t>& its, bool field_is_array, const uint32_t* ids,
@@ -1241,8 +1301,8 @@ void posting_list_t::get_phrase_matches(std::vector<iterator_t>& its, bool field
             get_offsets(its, array_token_positions);
 
             for(auto& kv: array_token_positions) {
-                bool is_phrase_match = Match(id, kv.second, false, false).phrase_match;
-                if(is_phrase_match) {
+                const auto& token_positions = kv.second;
+                if(has_phrase_match(token_positions)) {
                     phrase_ids[phrase_id_index] = ids[i];
                     phrase_id_index++;
                     break;
