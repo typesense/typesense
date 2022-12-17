@@ -33,19 +33,6 @@ struct rate_limit_max_requests_t {
 
 };
 
-struct rate_limit_rule_t {
-    uint32_t id;
-    RateLimitAction action;
-    RateLimitedEntityType entity_type;
-    std::vector<std::string> entity_ids;
-    rate_limit_max_requests_t max_requests;
-    int64_t auto_ban_threshold_num = -1;
-    int64_t auto_ban_num_hours = -1;
-
-    const nlohmann::json to_json() const;
-
-};
-
 // Entry struct for rate limit rule pointer hash map as key
 struct rate_limit_entity_t {
     RateLimitedEntityType entity_type;
@@ -56,6 +43,22 @@ struct rate_limit_entity_t {
         return std::tie(entity_type, entity_id) == std::tie(other.entity_type, other.entity_id);
     }
 };
+
+struct rate_limit_rule_t {
+    uint32_t id;
+    RateLimitAction action;
+    std::vector<rate_limit_entity_t> entities;
+    rate_limit_max_requests_t max_requests;
+    int64_t auto_ban_threshold_num = -1;
+    int64_t auto_ban_num_hours = -1;
+    uint32_t priority = 0;
+    // If true, the rule has both api_key and ip entities
+    bool is_and = false;
+
+    const nlohmann::json to_json() const;
+
+};
+
 
 // Request counter struct for ip addresses to keep track of requests for current and previous sampling period
 struct request_counter_t {
@@ -91,9 +94,21 @@ struct rate_limit_status_t {
     uint32_t status_id;
     int64_t throttling_from;
     int64_t throttling_to;
-    std::string value;
-    RateLimitedEntityType entity_type;
+    rate_limit_entity_t entity;
+    rate_limit_entity_t and_entity;
+    bool is_and = false;
 
+
+    rate_limit_status_t(uint32_t status_id, int64_t throttling_from, int64_t throttling_to, const rate_limit_entity_t& entity, const rate_limit_entity_t* and_entity = nullptr) :
+        status_id(status_id), throttling_from(throttling_from), 
+        throttling_to(throttling_to), entity(entity) {
+        if (and_entity != nullptr) {
+            this->and_entity = *and_entity;
+            is_and = true;
+        }
+    }
+
+    rate_limit_status_t() = default;
 
     const nlohmann::json to_json() const;
 
@@ -107,6 +122,17 @@ namespace std {
     struct hash<rate_limit_entity_t> {
         std::size_t operator()(const rate_limit_entity_t& k) const{
             return ((std::hash<int>()(static_cast<int>(k.entity_type)) ^ (std::hash<std::string>()(k.entity_id) << 1)) >> 1);
+        }
+    };
+}
+
+// Hash function for pairs of rate_limit_entity_t 
+namespace std {
+    template <>
+    struct hash<std::pair<rate_limit_entity_t, rate_limit_entity_t>> {
+        std::size_t operator()(const std::pair<rate_limit_entity_t, rate_limit_entity_t>& k) const{
+            return ((std::hash<int>()(static_cast<int>(k.first.entity_type)) ^ (std::hash<std::string>()(k.first.entity_id) << 1)) >> 1) ^
+                   ((std::hash<int>()(static_cast<int>(k.second.entity_type)) ^ (std::hash<std::string>()(k.second.entity_id) << 1)) >> 1);
         }
     };
 }
@@ -129,7 +155,7 @@ class RateLimitManager
         bool remove_rule_entity(const RateLimitedEntityType entity_type, const std::string &entity);
 
         // Get vector of banned entities
-        const std::vector<rate_limit_status_t> get_banned_entities(const RateLimitedEntityType entity_type);
+        const std::vector<rate_limit_status_t> get_banned_entities();
 
         // Check if request is rate limited for given entities
         bool is_rate_limited(const std::vector<rate_limit_entity_t> &entities);
@@ -201,11 +227,17 @@ class RateLimitManager
         // LRU Cache to store rate limit and request counts for entities
         LRU::Cache<rate_limit_entity_t, request_counter_t> rate_limit_request_counts;
 
+        // LRU Cache to store rate limit and request counts for AND operation of entities
+        LRU::Cache<std::pair<rate_limit_entity_t, rate_limit_entity_t>, request_counter_t> rate_limit_request_counts_and;
+
         // Unordered map to point rules from rule store for entities
         std::unordered_map<rate_limit_entity_t, rate_limit_rule_t*> rate_limit_entities;
+
+        // Unordered map to point rules from rule store for AND operation of entities
+        std::unordered_map<std::pair<rate_limit_entity_t, rate_limit_entity_t>, rate_limit_rule_t*> rate_limit_entities_and;
         
-        // Unordered map to store banned entities
-        std::unordered_map<rate_limit_entity_t, rate_limit_status_t> throttled_entities;
+        // 2D Hashmap to store throttled entities and their status, first key is IP entity, second key is API key entity
+        std::unordered_map<rate_limit_entity_t, std::unordered_map<rate_limit_entity_t, rate_limit_status_t>> throttled_entities;
 
         // Mutex to protect access to ip_rate_limits and api_key_rate_limits
         std::shared_mutex rate_limit_mutex;
@@ -213,7 +245,7 @@ class RateLimitManager
         // Helper function to ban an entity temporarily
         void temp_ban_entity(const rate_limit_entity_t& entity, const int64_t number_of_hours);
         // Helper function to ban an entity temporarily without locking mutex
-        void temp_ban_entity_unsecure(const rate_limit_entity_t& entity, const int64_t number_of_hours);
+        void temp_ban_entity_unsecure(const rate_limit_entity_t& entity, const int64_t number_of_hours, const rate_limit_entity_t* and_entity1 = nullptr);
 
         // Helper function to check if JSON rule is valid
         static Option<bool> is_valid_rule(const nlohmann::json &rule_json);
@@ -222,7 +254,7 @@ class RateLimitManager
         static rate_limit_rule_t parse_rule(const nlohmann::json &rule_json);
 
         // Helper function to insert rule in store
-        void insert_rule(const rate_limit_rule_t &rule);
+        void insert_rule(rate_limit_rule_t &rule);
 
         // Helper function to get rule key for DB store from ID
         std::string get_rule_key(const uint32_t id);
