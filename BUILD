@@ -51,6 +51,7 @@ cc_library(
         "@lrucache",
         "@rocksdb",
         "@s2geometry",
+        "@hnsw",
     ],
 )
 
@@ -117,6 +118,36 @@ cc_test(
     data = [
         ":test_data_files",
         "@libart//:data",
+        "@token_offsets//file",
+    ],
+    deps = [
+        ":common_deps",
+        "@com_google_googletest//:gtest",
+    ],
+    defines = [
+        "ROOT_DIR="
+    ],
+)
+
+genrule(
+    name = "write_bazel_bin",
+    srcs = [],
+    outs = ["bazel_bin_dir.txt"],
+    cmd = "echo -n $(BINDIR) > $@",
+)
+
+cc_library(
+    name = "build_deps_all",
+    srcs = [
+        ":src_files",
+        ":test_src_files",
+    ],
+    copts = COPTS,
+    data = [
+        ":test_data_files",
+        "@libart//:data",
+        "@token_offsets//file",
+        ":write_bazel_bin"
     ],
     deps = [
         ":common_deps",

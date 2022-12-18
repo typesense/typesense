@@ -11,7 +11,7 @@
 #include "string_utils.h"
 #include "logger.h"
 #include "app_metrics.h"
-#include "config.h"
+#include "tsconfig.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {

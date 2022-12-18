@@ -1,6 +1,6 @@
-#include "config.h"
 #include "option.h"
 #include "json.hpp"
+#include "tsconfig.h"
 
 Option<bool> Config::update_config(const nlohmann::json& req_json) {
     bool found_config = false;

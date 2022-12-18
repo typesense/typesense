@@ -38,7 +38,7 @@ protected:
 TEST_F(CollectionSortingTest, SortingOrder) {
     Collection *coll_mul_fields;
 
-    std::ifstream infile("test/multi_field_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("starring", field_types::STRING, false),
                                  field("points", field_types::INT32, false),
@@ -145,7 +145,7 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
 TEST_F(CollectionSortingTest, NoDefaultSortingField) {
     Collection *coll1;
 
-    std::ifstream infile("test/documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false)};
 
@@ -281,7 +281,7 @@ TEST_F(CollectionSortingTest, TokenOrderingOnFloatValue) {
 TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
     Collection *coll_mul_fields;
 
-    std::ifstream infile("test/multi_field_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("starring", field_types::STRING, false),
                                  field("points", field_types::INT64, false),
@@ -337,7 +337,7 @@ TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
 TEST_F(CollectionSortingTest, SortOnFloatFields) {
     Collection *coll_float_fields;
 
-    std::ifstream infile("test/float_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/float_documents.jsonl");
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("score", field_types::FLOAT, false),

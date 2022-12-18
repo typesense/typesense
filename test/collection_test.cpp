@@ -27,7 +27,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        std::ifstream infile("test/documents.jsonl");
+        std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
         std::vector<field> search_fields = {
             field("title", field_types::STRING, false),
             field("points", field_types::INT32, false)
@@ -53,7 +53,7 @@ protected:
 
         infile.close();
 
-        std::ifstream words_file("test/resources/common100_english.txt");
+        std::ifstream words_file(std::string(ROOT_DIR)+"test/resources/common100_english.txt");
         std::stringstream strstream;
         strstream << words_file.rdbuf();
         words_file.close();
@@ -712,7 +712,7 @@ TEST_F(CollectionTest, MultiOccurrenceString) {
 TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     Collection *coll_array_text;
 
-    std::ifstream infile("test/array_text_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/array_text_documents.jsonl");
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("tags", field_types::STRING_ARRAY, false),
@@ -890,7 +890,7 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
 TEST_F(CollectionTest, MultipleFields) {
     Collection *coll_mul_fields;
 
-    std::ifstream infile("test/multi_field_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("starring", field_types::STRING, false),
@@ -1010,7 +1010,7 @@ TEST_F(CollectionTest, MultipleFields) {
 TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
     Collection *coll_mul_fields;
 
-    std::ifstream infile("test/multi_field_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("starring", field_types::STRING, false),
@@ -1086,7 +1086,7 @@ std::vector<nlohmann::json> import_res_to_json(const std::vector<std::string>& i
 TEST_F(CollectionTest, ImportDocumentsUpsert) {
     Collection *coll_mul_fields;
 
-    std::ifstream infile("test/multi_field_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::stringstream strstream;
     strstream << infile.rdbuf();
     infile.close();
@@ -1509,7 +1509,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
 TEST_F(CollectionTest, ImportDocuments) {
     Collection *coll_mul_fields;
 
-    std::ifstream infile("test/multi_field_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::stringstream strstream;
     strstream << infile.rdbuf();
     infile.close();
@@ -1648,7 +1648,7 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
     // return error without crashing when searching for fields that do not conform to the schema
     Collection *coll_array_fields;
 
-    std::ifstream infile("test/numeric_array_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("age", field_types::INT32, false),
                                  field("years", field_types::INT32_ARRAY, false),
@@ -1872,7 +1872,7 @@ TEST_F(CollectionTest, AnIntegerCanBePassedToAFloatField) {
 TEST_F(CollectionTest, DeletionOfADocument) {
     collectionManager.drop_collection("collection");
 
-    std::ifstream infile("test/documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
 
     std::vector<field> search_fields = {field("title", field_types::STRING, false),
                                         field("points", field_types::INT32, false)};
@@ -2106,7 +2106,7 @@ TEST_F(CollectionTest, SearchLargeTextField) {
     }
 
     std::string json_line;
-    std::ifstream infile("test/large_text_field.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/large_text_field.jsonl");
 
     while (std::getline(infile, json_line)) {
         coll_large_text->add(json_line);
@@ -2727,7 +2727,7 @@ TEST_F(CollectionTest, OptionalFields) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "max").get();
     }
 
-    std::ifstream infile("test/optional_fields.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/optional_fields.jsonl");
 
     std::string json_line;
 

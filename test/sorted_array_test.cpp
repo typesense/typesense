@@ -208,7 +208,7 @@ TEST(SortedArrayTest, RemoveValues) {
 }
 
 TEST(SortedArrayTest, BulkIndexOf) {
-    std::ifstream infile("test/ids.txt");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/ids.txt");
 
     sorted_array ids;
 

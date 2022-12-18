@@ -3,7 +3,7 @@
 #include <iostream>
 #include <cmdline.h>
 #include "typesense_server_utils.h"
-#include "config.h"
+#include "tsconfig.h"
 
 std::vector<char*> get_argv(std::vector<std::string> & args) {
     std::vector<char*> argv;
@@ -78,7 +78,7 @@ TEST(ConfigTest, LoadConfigFile) {
 
     std::vector<std::string> args = {
         "./typesense-server",
-        std::string("--config=") + "test/valid_config.ini"
+        std::string("--config=") + std::string(ROOT_DIR)+"test/valid_config.ini"
     };
     std::vector<char*> argv = get_argv(args);
     init_cmdline_options(options, argv.size() - 1, argv.data());
@@ -102,7 +102,7 @@ TEST(ConfigTest, LoadIncompleteConfigFile) {
 
     std::vector<std::string> args = {
             "./typesense-server",
-            std::string("--config=") + "test/valid_sparse_config.ini"
+            std::string("--config=") + std::string(ROOT_DIR)+"test/valid_sparse_config.ini"
     };
     std::vector<char*> argv = get_argv(args);
     init_cmdline_options(options, argv.size() - 1, argv.data());
@@ -121,7 +121,7 @@ TEST(ConfigTest, LoadBadConfigFile) {
 
     std::vector<std::string> args = {
             "./typesense-server",
-            std::string("--config=") + "test/bad_config.ini"
+            std::string("--config=") + std::string(ROOT_DIR)+"test/bad_config.ini"
     };
     std::vector<char*> argv = get_argv(args);
     init_cmdline_options(options, argv.size() - 1, argv.data());
@@ -144,7 +144,7 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
         "--api-key=abcd",
         "--listen-address=192.168.10.10",
         "--cors-domains=http://localhost:8108",
-        std::string("--config=") + "test/valid_sparse_config.ini"
+        std::string("--config=") + std::string(ROOT_DIR)+"test/valid_sparse_config.ini"
     };
 
     putenv((char*)"TYPESENSE_DATA_DIR=/tmp/ts");
@@ -182,7 +182,7 @@ TEST(ConfigTest, CorsDefaults) {
         "--data-dir=/tmp/data",
         "--api-key=abcd",
         "--listen-address=192.168.10.10",
-        std::string("--config=") + "test/valid_sparse_config.ini"
+        std::string("--config=") + std::string(ROOT_DIR)+"test/valid_sparse_config.ini"
     };
 
     std::vector<char*> argv = get_argv(args);

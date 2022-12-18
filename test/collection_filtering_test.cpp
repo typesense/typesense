@@ -38,7 +38,7 @@ protected:
 TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     Collection *coll_array_fields;
 
-    std::ifstream infile("test/numeric_array_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {
             field("name", field_types::STRING, false),
             field("age", field_types::INT32, false),
@@ -140,7 +140,7 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
 TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
     Collection *coll_str;
 
-    std::ifstream infile("test/multi_field_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("starring", field_types::STRING, true),
@@ -208,7 +208,7 @@ TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
 TEST_F(CollectionFilteringTest, FacetFieldStringArrayFiltering) {
     Collection *coll_array_fields;
 
-    std::ifstream infile("test/numeric_array_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("name_facet", field_types::STRING, true),
                                  field("age", field_types::INT32, true),
@@ -325,7 +325,7 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
     // should not crash when filter query is malformed!
     Collection *coll_array_fields;
 
-    std::ifstream infile("test/numeric_array_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {field("name", field_types::STRING, false), field("age", field_types::INT32, false),
                                  field("years", field_types::INT32_ARRAY, false),
                                  field("timestamps", field_types::INT64_ARRAY, false),
@@ -393,7 +393,7 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
 TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
     Collection *coll_mul_fields;
 
-    std::ifstream infile("test/multi_field_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {
         field("title", field_types::STRING, false),
         field("starring", field_types::STRING, false),
@@ -502,7 +502,7 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
 TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     Collection *coll_array_fields;
 
-    std::ifstream infile("test/numeric_array_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {
             field("name", field_types::STRING, false),
             field("rating", field_types::FLOAT, false),
@@ -701,7 +701,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
 TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     Collection *coll_array_fields;
 
-    std::ifstream infile("test/numeric_array_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {
             field("name", field_types::STRING, false),
             field("age", field_types::INT32, false),
@@ -897,7 +897,7 @@ TEST_F(CollectionFilteringTest, FilterOnNegativeNumericalFields) {
 TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
     Collection *coll_array_fields;
 
-    std::ifstream infile("test/numeric_array_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {
             field("name", field_types::STRING, false),
             field("age", field_types::INT32, false),
@@ -1991,7 +1991,7 @@ TEST_F(CollectionFilteringTest, RangeFilterOnTimestamp) {
 TEST_F(CollectionFilteringTest, QueryBoolFields) {
     Collection *coll_bool;
 
-    std::ifstream infile("test/bool_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/bool_documents.jsonl");
     std::vector<field> fields = {
             field("popular", field_types::BOOL, false),
             field("title", field_types::STRING, false),

@@ -1,5 +1,6 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository", "new_git_repository")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
 git_repository(
     name = "com_grail_bazel_compdb",
@@ -142,6 +143,13 @@ new_git_repository(
     remote = "https://github.com/typesense/kakasi.git",
 )
 
+new_git_repository(
+    name = "hnsw",
+    build_file = "//bazel:hnsw.BUILD",
+    commit = "21de18ffabea1a9d1e8b16b49afc6045d7707e4c",
+    remote = "https://github.com/typesense/hnswlib.git",
+)
+
 http_archive(
     name = "com_github_gflags_gflags",
     sha256 = "34af2f15cf7367513b352bdcd2493ab14ce43692d2dcd9dfc499492966c64dcf",
@@ -253,4 +261,11 @@ http_archive(
     sha256 = "8f74213b56238c85a50a5329f77e06198771e70dd9a739779f4c02f65d971313",
     strip_prefix = "libiconv-1.17",
     urls = ["https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz"],
+)
+
+http_file(
+  name = "token_offsets",
+  downloaded_file_path = "token_offsets.txt",
+  sha256 = "55c1c510ca6335c049f5696f3b94ac7be61e84f3e27cd8169021929b3db99651",
+  urls = ["https://gist.githubusercontent.com/kishorenc/1d330714eb07019f210f16ccb3991217/raw/bd52e05375d305d5aaa7ac06219af999726933a4/token_offsets.log"],
 )
