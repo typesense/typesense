@@ -1248,22 +1248,17 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         }
 
         const auto& field_facet_mapping = field_facet_mapping_it->second;
-
-        // used for sampling facets (if enabled)
-        std::mt19937 gen(137723); // use constant seed to make sure that counts don't jump around
-        std::uniform_int_distribution<> distr(1, 100); // 1 to 100 inclusive
+        size_t mod_value = 100 / facet_sample_percent;
 
         for(size_t i = 0; i < results_size; i++) {
-            uint32_t doc_seq_id = result_ids[i];
-
             // if sampling is enabled, we will skip a portion of the results to speed up things
             if(estimate_facets) {
-                size_t num = distr(gen);
-                if(num > facet_sample_percent) {
+                if(i % mod_value != 0) {
                     continue;
                 }
             }
 
+            uint32_t doc_seq_id = result_ids[i];
             const auto& facet_hashes_it = field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->find(doc_seq_id);
 
             if(facet_hashes_it == field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->end()) {
