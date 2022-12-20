@@ -203,8 +203,9 @@ void BatchedIndexer::run() {
                         if (resource_check != cached_resource_stat_t::OK && orig_req->http_method != "DELETE") {
                             orig_res->set_422("Rejecting write: running out of resource type: " +
                                               std::string(magic_enum::enum_name(resource_check)));
-                            orig_res->final = true;
-                            async_res = false;
+                            async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
+                            server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                            break;
                         }
 
                         else if(route_found) {
