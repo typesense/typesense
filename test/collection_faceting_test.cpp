@@ -1291,12 +1291,16 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
     std::mt19937 gen(137723); // use constant seed to make sure that counts don't jump around
     std::uniform_int_distribution<> distr(1, 100); // 1 to 100 inclusive
 
+    size_t count_blue = 0, count_red = 0;
+
     for(size_t i = 0; i < 1000; i++) {
         nlohmann::json doc;
         if(distr(gen) % 2 == 0) {
             doc["color"] = "blue";
+            count_blue++;
         } else {
             doc["color"] = "red";
+            count_red++;
         }
 
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
@@ -1328,8 +1332,14 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
     ASSERT_EQ(1, res["facet_counts"].size());
     ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
 
-    ASSERT_EQ(512, res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
-    ASSERT_EQ(488, res["facet_counts"][0]["counts"][1]["count"].get<size_t>());
+    for(size_t i = 0; i < res["facet_counts"][0]["counts"].size(); i++) {
+        if(res["facet_counts"][0]["counts"][i]["value"].get<std::string>() == "red") {
+            ASSERT_EQ(count_red, res["facet_counts"][0]["counts"][i]["count"].get<size_t>());
+        } else {
+            ASSERT_EQ(count_blue, res["facet_counts"][0]["counts"][i]["count"].get<size_t>());
+        }
+    }
+
     ASSERT_FALSE(res["facet_counts"][0]["sampled"].get<bool>());
 
     // test for sample percent > 100
