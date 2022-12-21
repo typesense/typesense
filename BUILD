@@ -30,7 +30,6 @@ cc_library(
     name = "common_deps",
     defines = [
         "NDEBUG",
-        "TYPESENSE_VERSION=\\\"nightly\\\"",
     ],
     linkopts = select({
         "@platforms//os:macos": ["-framework Foundation -framework SystemConfiguration"],
@@ -69,6 +68,9 @@ cc_binary(
     srcs = [
         "src/main/typesense_server.cpp",
         ":src_files",
+    ],
+    local_defines = [
+        "TYPESENSE_VERSION=\\\"$(TYPESENSE_VERSION)\\\""
     ],
     copts = COPTS,
     deps = [":common_deps"],
