@@ -1,4 +1,5 @@
 build --action_env=BAZEL_CXXOPTS="-std=c++17"
 build --experimental_strict_action_env
+build --define=TYPESENSE_VERSION=\"nightly\"
 
 build --cxxopt="-std=c++17"
