@@ -1170,14 +1170,12 @@ void Index::tokenize_string_array_with_facets(const std::vector<std::string>& st
             }
         }
 
-        //LOG(INFO) << "Str: " << str << ", last_token: " << last_token;
+        if(is_facet) {
+            facet_hashes.push_back(facet_hash);
+        }
 
         if(token_set.empty()) {
             continue;
-        }
-
-        if(is_facet) {
-            facet_hashes.push_back(facet_hash);
         }
 
         for(auto& the_token: token_set) {

@@ -979,3 +979,36 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
     ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
     ASSERT_EQ("2000", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 }
+
+TEST_F(CollectionFacetingTest, FacetOnArrayFieldWithSpecialChars) {
+    std::vector<field> fields = {
+        field("tags", field_types::STRING_ARRAY, true),
+        field("points", field_types::INT32, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["tags"] = {"gamma"};
+    doc["points"] = 10;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["tags"] = {"alpha", "| . |", "beta", "gamma"};
+    doc["points"] = 10;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"tags"}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(4, results["facet_counts"][0]["counts"].size());
+
+    for(size_t i = 0; i < results["facet_counts"][0]["counts"].size(); i++) {
+        auto fvalue = results["facet_counts"][0]["counts"][i]["value"].get<std::string>();
+        if(fvalue == "gamma") {
+            ASSERT_EQ(2, results["facet_counts"][0]["counts"][i]["count"].get<size_t>());
+        } else {
+            ASSERT_EQ(1, results["facet_counts"][0]["counts"][i]["count"].get<size_t>());
+        }
+    }
+}

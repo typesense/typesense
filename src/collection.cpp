@@ -1658,7 +1658,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         facet_result["field_name"] = a_facet.field_name;
         facet_result["counts"] = nlohmann::json::array();
 
-        std::vector<std::pair<int64_t, facet_count_t>> facet_hash_counts;
+        std::vector<std::pair<uint64_t, facet_count_t>> facet_hash_counts;
         for (const auto & kv : a_facet.result_map) {
             facet_hash_counts.emplace_back(kv);
         }
