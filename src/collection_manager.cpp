@@ -1222,6 +1222,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     size_t num_found_docs = 0;
     size_t num_valid_docs = 0;
     size_t num_indexed_docs = 0;
+    size_t batch_doc_str_size = 0;
 
     auto begin = std::chrono::high_resolution_clock::now();
 
@@ -1230,13 +1231,16 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 
         nlohmann::json document;
+        const std::string& doc_string = iter->value().ToString();
 
         try {
-            document = nlohmann::json::parse(iter->value().ToString());
+            document = nlohmann::json::parse(doc_string);
         } catch(const std::exception& e) {
             LOG(ERROR) << "JSON error: " << e.what();
             return Option<bool>(400, "Bad JSON.");
         }
+
+        batch_doc_str_size += doc_string.size();
 
         if(collection->get_enable_nested_fields()) {
             std::vector<field> flattened_fields;
@@ -1254,10 +1258,14 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         iter->Next();
         bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
 
+        // if expected memory usage exceeds 250M, we index the accumulated set without caring about batch size
+        bool exceeds_batch_mem_threshold = ((batch_doc_str_size * 7) > (250 * 1014 * 1024));
+
         // batch must match atleast the number of shards
-        if((num_valid_docs % batch_size == 0) || last_record) {
+         if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
             size_t num_indexed = collection->batch_index_in_memory(index_records);
+            batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {
                 const Option<std::string> & index_error_op = get_first_index_error(index_records);
