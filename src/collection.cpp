@@ -865,7 +865,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const size_t facet_query_num_typos,
                                   const size_t filter_curated_hits_option,
                                   const bool prioritize_token_position,
-                                  const std::string& vector_query_str) const {
+                                  const std::string& vector_query_str,
+                                  const bool enable_highlight_v1) const {
 
     std::shared_lock lock(mutex);
 
@@ -1497,7 +1498,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             }
 
             nlohmann::json wrapper_doc;
-            wrapper_doc["highlights"] = nlohmann::json::array();
+
+            if(enable_highlight_v1) {
+                wrapper_doc["highlights"] = nlohmann::json::array();
+            }
+
             std::vector<highlight_t> highlights;
             StringUtils string_utils;
 
@@ -1568,34 +1573,36 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 prune_doc(highlight_res, hfield_names, tsl::htrie_set<char>(), "");
             }
 
-            std::sort(highlights.begin(), highlights.end());
+            if(enable_highlight_v1) {
+                std::sort(highlights.begin(), highlights.end());
 
-            for(const auto & highlight: highlights) {
-                auto field_it = search_schema.find(highlight.field);
-                if(field_it == search_schema.end() || field_it->nested) {
-                    // nested field highlighting will be available only in the new highlight structure.
-                    continue;
-                }
-
-                nlohmann::json h_json = nlohmann::json::object();
-                h_json["field"] = highlight.field;
-
-                if(!highlight.indices.empty()) {
-                    h_json["matched_tokens"] = highlight.matched_tokens;
-                    h_json["indices"] = highlight.indices;
-                    h_json["snippets"] = highlight.snippets;
-                    if(!highlight.values.empty()) {
-                        h_json["values"] = highlight.values;
+                for(const auto & highlight: highlights) {
+                    auto field_it = search_schema.find(highlight.field);
+                    if(field_it == search_schema.end() || field_it->nested) {
+                        // nested field highlighting will be available only in the new highlight structure.
+                        continue;
                     }
-                } else {
-                    h_json["matched_tokens"] = highlight.matched_tokens[0];
-                    h_json["snippet"] = highlight.snippets[0];
-                    if(!highlight.values.empty() && !highlight.values[0].empty()) {
-                        h_json["value"] = highlight.values[0];
-                    }
-                }
 
-                wrapper_doc["highlights"].push_back(h_json);
+                    nlohmann::json h_json = nlohmann::json::object();
+                    h_json["field"] = highlight.field;
+
+                    if(!highlight.indices.empty()) {
+                        h_json["matched_tokens"] = highlight.matched_tokens;
+                        h_json["indices"] = highlight.indices;
+                        h_json["snippets"] = highlight.snippets;
+                        if(!highlight.values.empty()) {
+                            h_json["values"] = highlight.values;
+                        }
+                    } else {
+                        h_json["matched_tokens"] = highlight.matched_tokens[0];
+                        h_json["snippet"] = highlight.snippets[0];
+                        if(!highlight.values.empty() && !highlight.values[0].empty()) {
+                            h_json["value"] = highlight.values[0];
+                        }
+                    }
+
+                    wrapper_doc["highlights"].push_back(h_json);
+                }
             }
 
             //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;

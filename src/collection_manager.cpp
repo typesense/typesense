@@ -695,6 +695,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
     const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
 
+    const char *ENABLE_HIGHLIGHT_V1 = "enable_highlight_v1";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -771,6 +773,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::vector<enable_t> infixes;
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
+    bool enable_highlight_v1 = true;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -810,6 +813,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {PRE_SEGMENTED_QUERY, &pre_segmented_query},
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
         {ENABLE_OVERRIDES, &enable_overrides},
+        {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -976,7 +980,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           facet_query_num_typos,
                                                           filter_curated_hits_option,
                                                           prioritize_token_position,
-                                                          vector_query
+                                                          vector_query,
+                                                          enable_highlight_v1
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
