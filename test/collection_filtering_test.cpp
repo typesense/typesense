@@ -598,6 +598,17 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= 24", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"3", "1", "4", "2"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
     // multiple filters
     results = coll_array_fields->search("Jeremy", query_fields, "years:<2005 && years:>1987", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());

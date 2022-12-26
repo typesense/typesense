@@ -1603,6 +1603,29 @@ void Index::do_filtering(uint32_t*& filter_ids,
                 int64_t range_end_value = (int64_t)std::stol(next_filter_value);
                 num_tree->range_inclusive_search(value, range_end_value, &result_ids, result_ids_len);
                 fi++;
+            } else if (a_filter.comparators[fi] == NOT_EQUALS) {
+                uint32_t* to_exclude_ids = nullptr;
+                size_t to_exclude_ids_len = 0;
+                num_tree->search(EQUALS, value, &to_exclude_ids, to_exclude_ids_len);
+
+                auto all_ids = seq_ids->uncompress();
+                auto all_ids_size = seq_ids->num_ids();
+
+                uint32_t* excluded_ids = nullptr;
+                size_t excluded_ids_len = 0;
+
+                excluded_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_size, to_exclude_ids,
+                                                              to_exclude_ids_len, &excluded_ids);
+
+                delete[] all_ids;
+                delete[] to_exclude_ids;
+
+                uint32_t* out = nullptr;
+                result_ids_len = ArrayUtils::or_scalar(result_ids, result_ids_len,
+                                                       excluded_ids, excluded_ids_len, &out);
+                delete[] result_ids;
+                result_ids = out;
+                delete[] excluded_ids;
             } else {
                 num_tree->search(a_filter.comparators[fi], value, &result_ids, result_ids_len);
             }

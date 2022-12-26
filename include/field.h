@@ -473,6 +473,10 @@ struct filter {
             num_comparator = GREATER_THAN_EQUALS;
         }
 
+        else if(comp_and_value.compare(0, 2, "!=") == 0) {
+            num_comparator = NOT_EQUALS;
+        }
+
         else if(comp_and_value.compare(0, 1, "<") == 0) {
             num_comparator = LESS_THAN;
         }
@@ -491,7 +495,7 @@ struct filter {
 
         if(num_comparator == LESS_THAN || num_comparator == GREATER_THAN) {
             comp_and_value = comp_and_value.substr(1);
-        } else if(num_comparator == LESS_THAN_EQUALS || num_comparator == GREATER_THAN_EQUALS) {
+        } else if(num_comparator == LESS_THAN_EQUALS || num_comparator == GREATER_THAN_EQUALS || num_comparator == NOT_EQUALS) {
             comp_and_value = comp_and_value.substr(2);
         }
 
