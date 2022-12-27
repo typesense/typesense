@@ -1914,6 +1914,23 @@ void Index::do_filtering(uint32_t*& filter_ids,
         result_ids_len = or_ids_size;
     }
 
+    if (a_filter.apply_not_equals) {
+        auto all_ids = seq_ids->uncompress();
+        auto all_ids_size = seq_ids->num_ids();
+
+        uint32_t* to_include_ids = nullptr;
+        size_t to_include_ids_len = 0;
+
+        to_include_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_size, result_ids,
+                                                        result_ids_len, &to_include_ids);
+
+        delete[] all_ids;
+        delete[] result_ids;
+
+        result_ids = to_include_ids;
+        result_ids_len = to_include_ids_len;
+    }
+
     filter_ids = result_ids;
     filter_ids_length = result_ids_len;
 

@@ -436,6 +436,7 @@ struct filter {
     std::string field_name;
     std::vector<std::string> values;
     std::vector<NUM_COMPARATOR> comparators;
+    bool apply_not_equals = false;
 
     static const std::string RANGE_OPERATOR() {
         return "..";

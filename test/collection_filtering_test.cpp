@@ -611,16 +611,27 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     }
 
     // not equals array
-//    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-//    ASSERT_EQ(3, results["hits"].size());
-//
-//    ids = {"3", "1", "4"};
-//    for(size_t i = 0; i < results["hits"].size(); i++) {
-//        nlohmann::json result = results["hits"].at(i);
-//        std::string result_id = result["document"]["id"];
-//        std::string id = ids.at(i);
-//        ASSERT_STREQ(id.c_str(), result_id.c_str());
-//    }
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"3", "1", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = coll_array_fields->search("Jeremy", query_fields, "age: != [<30, >60]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"1", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 
     // multiple filters
     results = coll_array_fields->search("Jeremy", query_fields, "years:<2005 && years:>1987", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
