@@ -610,29 +610,6 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // not equals array
-    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(3, results["hits"].size());
-
-    ids = {"3", "1", "4"};
-    for(size_t i = 0; i < results["hits"].size(); i++) {
-        nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["document"]["id"];
-        std::string id = ids.at(i);
-        ASSERT_STREQ(id.c_str(), result_id.c_str());
-    }
-
-    results = coll_array_fields->search("Jeremy", query_fields, "age: != [<30, >60]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(2, results["hits"].size());
-
-    ids = {"1", "4"};
-    for(size_t i = 0; i < results["hits"].size(); i++) {
-        nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["document"]["id"];
-        std::string id = ids.at(i);
-        ASSERT_STREQ(id.c_str(), result_id.c_str());
-    }
-
     // multiple filters
     results = coll_array_fields->search("Jeremy", query_fields, "years:<2005 && years:>1987", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
@@ -655,6 +632,30 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // negate multiple search values (works like SQL's NOT IN) against a single int field
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"3", "1", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
+    // individual comparators can still be applied.
+    results = coll_array_fields->search("Jeremy", query_fields, "age: != [<30, >60]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"1", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
     }
 
     // alternative `:=` syntax
@@ -846,6 +847,30 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
         std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // negate multiple search values (works like SQL's NOT IN operator) against a single float field
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:!= [1.09, 7.812]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"1", "4", "3"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
+    // individual comparators can still be applied.
+    results = coll_array_fields->search("Jeremy", query_fields, "rating: != [<5.4, >9]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"2", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
     }
 
     // multiple search values against a float array field - also use extra padding between symbols
