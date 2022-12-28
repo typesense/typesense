@@ -1881,35 +1881,6 @@ void Index::do_filtering(uint32_t*& filter_ids,
             std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
         }
 
-        if (a_filter.comparators[0] == NOT_EQUALS) {
-            // exclude records from existing IDs (from previous filters or ALL records)
-            // "not equals" can only be applied to the entire array so we can do the exclusion operations once here
-            uint32_t* excluded_strt_ids = nullptr;
-            size_t excluded_strt_size = 0;
-
-            if (result_ids == nullptr) {
-                if (filter_ids == nullptr) {
-                    result_ids = seq_ids->uncompress();
-                    result_ids_len = seq_ids->num_ids();
-                } else {
-                    result_ids = filter_ids;
-                    result_ids_len = filter_ids_length;
-                }
-            }
-
-            excluded_strt_size = ArrayUtils::exclude_scalar(result_ids, result_ids_len, or_ids,
-                                                            or_ids_size, &excluded_strt_ids);
-
-            if (filter_ids == nullptr) {
-                // means we had to uncompress `seq_ids` so need to free that
-                delete[] result_ids;
-            }
-
-            delete[] or_ids;
-            or_ids = excluded_strt_ids;
-            or_ids_size = excluded_strt_size;
-        }
-
         result_ids = or_ids;
         result_ids_len = or_ids_size;
     }

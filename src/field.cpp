@@ -368,6 +368,8 @@ Option<bool> toFilter(const std::string expression,
         } else {
             filter_exp = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
         }
+
+        filter_exp.apply_not_equals = (str_comparator == NOT_EQUALS);
     } else {
         return Option<bool>(400, "Error with filter field `" + _field.name +
                                  "`: Unidentified field data type, see docs for supported data types.");
