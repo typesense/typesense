@@ -199,6 +199,29 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
     // ensure that req params are appended to (embedded params are also rolled into req params)
     ASSERT_EQ("((user_id: 100) && (age: > 100)) && (foo: bar)", req->params["filter_by"]);
 
+    // when empty filter_by is present in req params, don't add ()
+    req->params["filter_by"] = "";
+    post_multi_search(req, res);
+    ASSERT_EQ("((age: > 100)) && (foo: bar)", req->params["filter_by"]);
+
+    // when empty filter_by in collection search params, don't add ()
+    req->params["filter_by"] = "user_id: 100";
+    search["filter_by"] = "";
+    body["searches"].clear();
+    body["searches"].push_back(search);
+    req->body = body.dump();
+    post_multi_search(req, res);
+    ASSERT_EQ("((user_id: 100)) && (foo: bar)", req->params["filter_by"]);
+
+    // when both are empty, don't add ()
+    req->params["filter_by"] = "";
+    search["filter_by"] = "";
+    body["searches"].clear();
+    body["searches"].push_back(search);
+    req->body = body.dump();
+    post_multi_search(req, res);
+    ASSERT_EQ("(foo: bar)", req->params["filter_by"]);
+
     // try setting max search limit
     req->embedded_params_vec[0]["limit_multi_searches"] = 0;
     ASSERT_FALSE(post_multi_search(req, res));
