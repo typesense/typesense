@@ -1,5 +1,0 @@
-{
-    "clangd.arguments": [
-        "--compile-commands-dir=bazel-bin"
-    ]
-}
