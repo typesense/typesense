@@ -635,10 +635,10 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     }
 
     // negate multiple search values (works like SQL's NOT IN) against a single int field
-    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(3, results["hits"].size());
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24, 63]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
 
-    ids = {"3", "1", "4"};
+    ids = {"1", "4"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string result_id = result["document"]["id"];
