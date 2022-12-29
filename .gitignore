@@ -11,3 +11,5 @@ cmake-build-release
 .DS_Store
 /bazel-*
 typesense-server-data/
+.clwb/.bazelproject
+.vscode/settings.json
