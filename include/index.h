@@ -27,6 +27,7 @@
 #include "id_list.h"
 #include "synonym_index.h"
 #include "override.h"
+#include "vector_query_ops.h"
 #include "hnswlib/hnswlib.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;

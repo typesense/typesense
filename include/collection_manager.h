@@ -181,8 +181,6 @@ public:
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 
-    static bool parse_vector_query_str(std::string vector_query_str, vector_query_t& vector_query);
-
     // symlinks
     Option<std::string> resolve_symlink(const std::string & symlink_name) const;
 

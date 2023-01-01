@@ -609,20 +609,6 @@ struct sort_by {
     }
 };
 
-struct vector_query_t {
-    std::string field_name;
-    size_t k = 0;
-    size_t flat_search_cutoff = 0;
-    std::vector<float> values;
-
-    void _reset() {
-        // used for testing only
-        field_name.clear();
-        k = 0;
-        values.clear();
-    }
-};
-
 class GeoPoint {
     constexpr static const double EARTH_RADIUS = 3958.75;
     constexpr static const double METER_CONVERT = 1609.00;

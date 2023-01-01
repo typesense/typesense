@@ -15,6 +15,7 @@
 #include "topster.h"
 #include "logger.h"
 #include "thread_local_vars.h"
+#include "vector_query_ops.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -921,8 +922,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             return Option<nlohmann::json>(400, "Vector query is supported only on wildcard (q=*) searches.");
         }
 
-        if(!CollectionManager::parse_vector_query_str(vector_query_str, vector_query)) {
-            return Option<nlohmann::json>(400, "The `vector_query` parameter is malformed.");
+        auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query, this);
+        if(!parse_vector_op.ok()) {
+            return Option<nlohmann::json>(400, parse_vector_op.error());
         }
 
         auto vector_field_it = search_schema.find(vector_query.field_name);

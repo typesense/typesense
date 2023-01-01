@@ -2561,6 +2561,11 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
             for (const auto& dist_label : dist_labels) {
                 uint32 seq_id = dist_label.second;
+
+                if(vector_query.query_doc_given && vector_query.seq_id == seq_id) {
+                    continue;
+                }
+
                 uint64_t distinct_id = seq_id;
                 if (group_limit != 0) {
                     distinct_id = get_distinct_id(group_by_fields, seq_id);
