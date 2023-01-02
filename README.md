@@ -14,6 +14,9 @@
  <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a>
  <a href="https://hub.docker.com/r/typesense/typesense/tags"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>
   <a href="https://github.com/typesense"><img src="https://img.shields.io/github/stars/typesense/typesense?label=github%20stars"></a>
+  <a href="https://unzip.dev/0x002-search-as-a-service/#tools-players-%F0%9F%9B%A0%EF%B8%8F">
+   <img alt="Unzip.dev badge" src="https://img.shields.io/badge/Featured%20on-Unzip.dev-fa2367" />
+  </a> 
 <p>
 <p align="center">
   <a href="https://typesense.org">Website</a> | 
