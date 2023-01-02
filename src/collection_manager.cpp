@@ -630,7 +630,9 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
 
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
                                           nlohmann::json& embedded_params,
-                                          std::string& results_json_str) {
+                                          std::string& results_json_str,
+                                          uint64_t start_ts) {
+
     auto begin = std::chrono::high_resolution_clock::now();
 
     const char *NUM_TYPOS = "num_typos";
@@ -981,7 +983,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           filter_curated_hits_option,
                                                           prioritize_token_position,
                                                           vector_query,
-                                                          enable_highlight_v1
+                                                          enable_highlight_v1,
+                                                          start_ts
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

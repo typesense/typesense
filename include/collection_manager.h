@@ -177,7 +177,8 @@ public:
 
     static Option<bool> do_search(std::map<std::string, std::string>& req_params,
                                   nlohmann::json& embedded_params,
-                                  std::string& results_json_str);
+                                  std::string& results_json_str,
+                                  uint64_t start_ts);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 

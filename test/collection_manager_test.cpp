@@ -526,7 +526,10 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     embedded_params["filter_by"] = "points: 200";
 
     std::string json_res;
-    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res);
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
     nlohmann::json res_obj = nlohmann::json::parse(json_res);
@@ -540,7 +543,7 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     req_params["filter_by"] = "year: 1922";
     req_params["q"] = "*";
 
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res);
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     res_obj = nlohmann::json::parse(json_res);
 

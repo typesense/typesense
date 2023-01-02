@@ -261,11 +261,13 @@ struct http_req {
             chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
             log_index(0), is_diposed(false), client_ip(client_ip) {
 
-        const auto& tv = _req->processed_at.at;
-        start_ts = (tv.tv_sec * 1000 * 1000) + tv.tv_usec;
-
         if(_req != nullptr) {
+            const auto& tv = _req->processed_at.at;
+            start_ts = (tv.tv_sec * 1000 * 1000) + tv.tv_usec;
             is_http_v1 = (_req->version < 0x200);
+        } else {
+            start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
         }
     }
 
