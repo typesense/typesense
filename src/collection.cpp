@@ -867,13 +867,16 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const size_t filter_curated_hits_option,
                                   const bool prioritize_token_position,
                                   const std::string& vector_query_str,
-                                  const bool enable_highlight_v1) const {
+                                  const bool enable_highlight_v1,
+                                  const uint64_t search_time_start_us) const {
 
     std::shared_lock lock(mutex);
 
     // setup thread local vars
-    search_stop_ms = search_stop_millis;
-    search_begin = std::chrono::high_resolution_clock::now();
+    search_stop_us = search_stop_millis * 1000;
+    search_begin_us = (search_time_start_us != 0) ? search_time_start_us :
+                      std::chrono::duration_cast<std::chrono::microseconds>(
+                           std::chrono::system_clock::now().time_since_epoch()).count();
     search_cutoff = false;
 
     if(raw_query != "*" && raw_search_fields.empty()) {

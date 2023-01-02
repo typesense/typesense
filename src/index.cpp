@@ -23,17 +23,17 @@
 #include <timsort.hpp>
 #include "logger.h"
 
-#define RETURN_CIRCUIT_BREAKER if(std::chrono::duration_cast<std::chrono::milliseconds>(\
-                                std::chrono::high_resolution_clock::now() - search_begin).count() > search_stop_ms) { \
-                                    search_cutoff = true;                                                    \
-                                    return ;\
-                                }
+#define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
+                  std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
+                    search_cutoff = true; \
+                    return ;\
+            }
 
-#define BREAK_CIRCUIT_BREAKER if(std::chrono::duration_cast<std::chrono::milliseconds>(\
-                                std::chrono::high_resolution_clock::now() - search_begin).count() > search_stop_ms) { \
-                                    search_cutoff = true;                              \
-                                    break;\
-                                }
+#define BREAK_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
+                 std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
+                    search_cutoff = true; \
+                    break;\
+                }
 
 spp::sparse_hash_map<uint32_t, int64_t> Index::text_match_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
@@ -2328,8 +2328,8 @@ void Index::search_infix(const std::string& query, const std::string& field_name
 
     auto search_tree = search_index.at(field_name);
 
-    const auto parent_search_begin = search_begin;
-    const auto parent_search_stop_ms = search_stop_ms;
+    const auto parent_search_begin = search_begin_us;
+    const auto parent_search_stop_ms = search_stop_us;
     auto parent_search_cutoff = search_cutoff;
 
     for(auto infix_set: infix_sets) {
@@ -2337,7 +2337,7 @@ void Index::search_infix(const std::string& query, const std::string& field_name
                                      &num_processed, &m_process, &cv_process,
                                      &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff]() {
 
-            search_begin = parent_search_begin;
+            search_begin_us = parent_search_begin;
             search_cutoff = parent_search_cutoff;
             auto op_search_stop_ms = parent_search_stop_ms/2;
 
@@ -2362,8 +2362,8 @@ void Index::search_infix(const std::string& query, const std::string& field_name
 
                 // check for search cutoff but only once every 2^10 docs to reduce overhead
                 if(((num_iterated + 1) % (1 << 12)) == 0) {
-                    if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::high_resolution_clock::now() - search_begin).count() > op_search_stop_ms) {
+                    if ((std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().
+                        time_since_epoch()).count() - search_begin_us) > op_search_stop_ms) {
                         search_cutoff = true;
                         break;
                     }
@@ -4335,8 +4335,8 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
     size_t num_queued = 0;
     size_t filter_index = 0;
 
-    const auto parent_search_begin = search_begin;
-    const auto parent_search_stop_ms = search_stop_ms;
+    const auto parent_search_begin = search_begin_us;
+    const auto parent_search_stop_ms = search_stop_us;
     auto parent_search_cutoff = search_cutoff;
 
     for(size_t thread_id = 0; thread_id < num_threads && filter_index < filter_ids_length; thread_id++) {
@@ -4361,8 +4361,8 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
                                      batch_result_ids, batch_res_len,
                                      &num_processed, &m_process, &cv_process]() {
 
-            search_begin = parent_search_begin;
-            search_stop_ms = parent_search_stop_ms;
+            search_begin_us = parent_search_begin;
+            search_stop_us = parent_search_stop_ms;
             search_cutoff = parent_search_cutoff;
 
             size_t filter_index = 0;

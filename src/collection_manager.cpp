@@ -767,7 +767,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t filter_curated_hits_option = 2;
     std::string highlight_fields;
     bool exhaustive_search = false;
-    size_t search_cutoff_ms = 3600000;
+    size_t search_cutoff_ms = 30 * 1000;
     enable_t split_join_tokens = fallback;
     size_t max_candidates = 0;
     std::vector<enable_t> infixes;

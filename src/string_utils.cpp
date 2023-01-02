@@ -217,6 +217,10 @@ void StringUtils::replace_all(std::string& subject, const std::string& search, c
     }
 }
 
+void StringUtils::erase_char(std::string& str, const char c) {
+    str.erase(std::remove(str.begin(), str.end(), c), str.cend());
+}
+
 std::string StringUtils::trim_curly_spaces(const std::string& str) {
     std::string left_trimmed;
     int i = 0;

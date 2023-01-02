@@ -68,9 +68,8 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
             while(its.size() == it_size && its[0].valid()) {
                 num_processed++;
-                if (num_processed % 65536 == 0 &&
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::high_resolution_clock::now() - search_begin).count() > search_stop_ms) {
+                if (num_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
                     search_cutoff = true;
                     break;
                 }
@@ -100,9 +99,8 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
             while(its.size() == it_size && !at_end2(its)) {
                 num_processed++;
-                if (num_processed % 65536 == 0 &&
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::high_resolution_clock::now() - search_begin).count() > search_stop_ms) {
+                if (num_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
                     search_cutoff = true;
                     break;
                 }
@@ -138,9 +136,8 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
             while(its.size() == it_size && !at_end(its)) {
                 num_processed++;
-                if (num_processed % 65536 == 0 &&
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::high_resolution_clock::now() - search_begin).count() > search_stop_ms) {
+                if (num_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
                     search_cutoff = true;
                     break;
                 }
