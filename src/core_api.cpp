@@ -930,6 +930,38 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
     return true;
 }
 
+bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char *FILTER_BY = "filter_by";
+    std::string filter_query;
+    if(req->params.count(FILTER_BY) == 0) {
+        res->set_400("Parameter `" + std::string(FILTER_BY) + "` must be provided.");
+        return false;
+    } else {
+        filter_query = req->params[FILTER_BY];
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+    if(collection == nullptr) {
+        res->set_404();
+        return false;
+    }
+
+    const char* DIRTY_VALUES_PARAM = "dirty_values";
+    if(req->params.count(DIRTY_VALUES_PARAM) == 0) {
+        req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
+    }
+
+    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM]);
+    if(update_op.ok()) {
+        res->set_200(update_op.get().dump());
+    } else {
+        res->set(update_op.code(), update_op.error());
+    }
+
+    return update_op.ok();
+}
+
 bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string doc_id = req->params["id"];
 

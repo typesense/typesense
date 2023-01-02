@@ -370,6 +370,10 @@ public:
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
                             const bool& return_doc=false, const bool& return_id=false);
 
+    Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
+                                                  const std::string & json_str,
+                                                  std::string& req_dirty_values);
+
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
@@ -412,8 +416,8 @@ public:
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0) const;
 
-    Option<bool> get_filter_ids(const std::string & simple_filter_query,
-                                std::vector<std::pair<size_t, uint32_t*>>& index_ids);
+    Option<bool> get_filter_ids(const std::string & filter_query,
+                                std::vector<std::pair<size_t, uint32_t*>>& index_ids) const;
 
     Option<nlohmann::json> get(const std::string & id) const;
 
