@@ -2564,7 +2564,7 @@ TEST_F(CollectionTest, UpdateDocuments) {
 
     auto update_op = update_docs_collection->update_matching_filter("user_name:=fat_cat", document.dump(), dirty_values);
     ASSERT_TRUE(update_op.ok());
-    ASSERT_TRUE(update_op.get()["success"]);
+    ASSERT_EQ(2, update_op.get()["num_updated"]);
 
     res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
     ASSERT_EQ(2, res["hits"].size());
