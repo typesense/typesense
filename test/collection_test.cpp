@@ -2528,6 +2528,52 @@ TEST_F(CollectionTest, UpdateDocument) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, UpdateDocuments) {
+    std::vector<field> fields = {
+            field("user_name", field_types::STRING, true),
+            field("likes", field_types::INT32, false),
+            field("content", field_types::STRING, false)
+    };
+
+    Collection *update_docs_collection = collectionManager.get_collection("update_docs_collection").get();
+    if (update_docs_collection == nullptr) {
+        update_docs_collection = collectionManager.create_collection("update_docs_collection", 1, fields, "likes").get();
+    }
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/posts.jsonl");
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        auto add_op = update_docs_collection->add(json_line);
+        if(!add_op.ok()) {
+            std::cout << add_op.error() << std::endl;
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+    infile.close();
+
+    std::vector<sort_by> sort_fields = { sort_by("likes", "DESC") };
+
+    auto res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("fat_cat", res["hits"][0]["document"]["user_name"].get<std::string>());
+    ASSERT_EQ("fat_cat", res["hits"][1]["document"]["user_name"].get<std::string>());
+
+    nlohmann::json document;
+    document["user_name"] = "slim_cat";
+    std::string dirty_values;
+
+    auto update_op = update_docs_collection->update_matching_filter("user_name:=fat_cat", document.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_TRUE(update_op.get()["success"]);
+
+    res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("slim_cat", res["hits"][0]["document"]["user_name"].get<std::string>());
+    ASSERT_EQ("slim_cat", res["hits"][1]["document"]["user_name"].get<std::string>());
+
+    collectionManager.drop_collection("update_docs_collection");
+}
+
 TEST_F(CollectionTest, UpdateDocumentSorting) {
     Collection *coll1;
 

@@ -30,6 +30,7 @@ void master_server_routes() {
 
     server->get("/collections/:collection/documents/:id", get_fetch_document);
     server->patch("/collections/:collection/documents/:id", patch_update_document);
+    server->patch("/collections/:collection/documents", patch_update_documents);
     server->del("/collections/:collection/documents/:id", del_remove_document);
 
     server->get("/collections/:collection/overrides", get_overrides);
