@@ -106,7 +106,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<bool>("skip-writes", '\0', "Skip all writes except config changes. Default: false.", false, false);
 
     options.add<int>("log-slow-searches-time-ms", '\0', "When >= 0, searches that take longer than this duration are logged.", false, 30*1000);
-    options.add<int>("snapshot_max_threads_per_copy", '\0', "Maximum threads to use for parallel snaphost copy. Default: 1", false, 1);
+    options.add<int>("snapshot_max_threads_per_copy", '\0', "Maximum threads to use for parallel snapshot copy. Default: 1", false, 1);
     
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
