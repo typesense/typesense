@@ -2,6 +2,7 @@
 #include <thread>
 #include <cstdlib> 
 #include <app_metrics.h>
+#include <regex>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "string_utils.h"
@@ -496,7 +497,24 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
-    //LOG(INFO) << "REQ: " << req_json.dump(-1);
+    // Get API key and IP
+    if(!req->metadata.empty()) {
+        auto api_key_ip_op = get_api_key_and_ip(req->metadata);
+        if(!api_key_ip_op.ok()) {
+            res->set(api_key_ip_op.code(), api_key_ip_op.error());
+            return false;
+        }
+        const auto& api_key_ip = api_key_ip_op.get();
+        auto rate_limit_manager = RateLimitManager::getInstance();
+
+        // Check rate limiting first before doing any search, don't want to waste time if we're rate limited
+        for(size_t i = 0; i < searches.size(); i++) {
+            if(RateLimitManager::getInstance()->is_rate_limited({{RateLimitedEntityType::api_key, api_key_ip.first}, {RateLimitedEntityType::ip, api_key_ip.second}})) {
+                res->set(429, "Rate limit exceeded or blocked");
+                return false;
+            }
+        }
+    }
 
     for(size_t i = 0; i < searches.size(); i++) {
         auto& search_params = searches[i];
@@ -1721,6 +1739,10 @@ bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr
 bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
     // Convert param id to uint64_t
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
     uint64_t id = std::stoull(req->params["id"]);
     const auto& rule_option = rateLimitManager->find_rule_by_id(id);
 
@@ -1736,6 +1758,10 @@ bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
     nlohmann::json req_json;
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
     uint64_t id = std::stoull(req->params["id"]);
 
     try {
@@ -1759,6 +1785,10 @@ bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 
 bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
     uint64_t id = std::stoull(req->params["id"]);
     const auto& rule_option = rateLimitManager->find_rule_by_id(id);
 
@@ -1768,7 +1798,9 @@ bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     }
 
     rateLimitManager->delete_rule_by_id(id);
-    res->set_200("OK");
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
     return true;
 }
 
@@ -1792,4 +1824,61 @@ bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr
 
     res->set_200(add_rule_result.get().dump());
     return true;
+}
+
+bool get_active_throttles(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    res->set_200(rateLimitManager->get_throttled_entities_json().dump());
+    return true;
+}
+
+bool del_throttle(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
+    uint64_t id = std::stoull(req->params["id"]);
+    bool res_ = rateLimitManager->delete_throttle_by_id(id);
+    if(!res_) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
+    return true;
+}
+
+Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata) {
+        // format <length of api_key>:<api_key><ip>
+    // length of api_key is a uint32_t
+    if(metadata.size() < 10) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    if(metadata.find(":") == std::string::npos) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    if(!StringUtils::is_uint32_t(metadata.substr(0, metadata.find(":")))) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    if(metadata.size() < std::stoul(metadata.substr(0, metadata.find(":"))) + metadata.find(":") + 7) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    uint32_t api_key_length = static_cast<uint32_t>(std::stoul(metadata.substr(0, metadata.find(":"))));
+
+    std::string api_key = metadata.substr(metadata.find(":") + 1, api_key_length);
+    std::string ip = metadata.substr(metadata.find(":") + 1 + api_key_length);
+
+    // validate IP address
+    std::regex ip_pattern("\\b(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\b");
+    if(!std::regex_match(ip, ip_pattern)) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    return Option<std::pair<std::string,std::string>>(std::make_pair(api_key, ip));
 }

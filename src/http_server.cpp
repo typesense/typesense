@@ -497,6 +497,12 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     //LOG(INFO) << "Init res: " << custom_gen->response << ", ref count: " << custom_gen->response.use_count();
 
+    if(root_resource == "multi_search") {
+        // format is <length of api_auth_key_sent>:<api_auth_key_sent><client_ip>
+        std::string multi_search_key = std::to_string(api_auth_key_sent.length()) + ":" + api_auth_key_sent + client_ip;
+        request->metadata = multi_search_key;
+    }
+
     // routes match and is an authenticated request
     // do any additional pre-request middleware operations here
     if(rpath->action == "keys:create") {

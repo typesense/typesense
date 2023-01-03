@@ -446,7 +446,7 @@ int run_server(const Config & config, const std::string & version, void (*master
                            config.get_api_key(), quit_raft_service, batch_indexer);
     
     RateLimitManager *rateLimitManager = RateLimitManager::getInstance();
-    auto rate_limit_manager_init = rateLimitManager->init(&store);
+    auto rate_limit_manager_init = rateLimitManager->init(&meta_store);
 
     if(!rate_limit_manager_init.ok()) {
         LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
