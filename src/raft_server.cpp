@@ -19,6 +19,7 @@ namespace braft {
     DECLARE_int32(raft_max_byte_count_per_rpc);
     DECLARE_int32(raft_max_threads_snapshot_copy);
     DECLARE_int32(raft_rpc_channel_connect_timeout_ms);
+    DECLARE_int32(raft_max_threads_snapshot_copy);
 }
 
 void ReplicationClosure::Run() {
@@ -31,6 +32,7 @@ void ReplicationClosure::Run() {
 
 int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int api_port,
                             int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
+                            int snapshot_max_threads_per_copy,
                             const std::string & raft_dir, const std::string & nodes,
                             const std::atomic<bool>& quit_abruptly, int snapshot_max_threads_per_copy) {
 
@@ -84,6 +86,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     braft::FLAGS_raft_max_threads_snapshot_copy = snapshot_max_threads_per_copy;
 
     braft::FLAGS_raft_rpc_channel_connect_timeout_ms = 2000;
+    braft::FLAGS_raft_max_threads_snapshot_copy = snapshot_max_threads_per_copy;
 
     // automatic snapshot is disabled since it caused issues during slow follower catch-ups
     node_options.snapshot_interval_s = -1;
