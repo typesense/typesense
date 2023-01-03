@@ -34,7 +34,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
                             int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
                             int snapshot_max_threads_per_copy,
                             const std::string & raft_dir, const std::string & nodes,
-                            const std::atomic<bool>& quit_abruptly, int snapshot_max_threads_per_copy) {
+                            const std::atomic<bool>& quit_abruptly) {
 
     this->election_timeout_interval_ms = election_timeout_ms;
     this->raft_dir_path = raft_dir;
@@ -83,12 +83,9 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     // flag controls snapshot download size of each RPC
     braft::FLAGS_raft_max_byte_count_per_rpc = snapshot_max_byte_count_per_rpc;
-    braft::FLAGS_raft_max_threads_snapshot_copy = snapshot_max_threads_per_copy;
 
     braft::FLAGS_raft_rpc_channel_connect_timeout_ms = 2000;
     braft::FLAGS_raft_max_threads_snapshot_copy = snapshot_max_threads_per_copy;
-
-    braft::FLAGS_raft_rpc_channel_connect_timeout_ms = 2000;
 
     // automatic snapshot is disabled since it caused issues during slow follower catch-ups
     node_options.snapshot_interval_s = -1;

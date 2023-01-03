@@ -296,8 +296,8 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     size_t election_timeout_ms = 5000;
 
-    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
-                                nodes_config_op.get(), quit_raft_service, snapshot_max_threads_per_copy) != 0) {
+    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, 
+        snapshot_max_threads_per_copy, state_dir, nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }
