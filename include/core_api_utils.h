@@ -24,6 +24,7 @@ struct export_state_t: public req_state_t {
     std::vector<size_t> offsets;
     std::set<std::string> include_fields;
     std::set<std::string> exclude_fields;
+    size_t export_batch_size = 100;
     std::string* res_body;
 
     bool filtered_export = false;

@@ -366,6 +366,8 @@ struct StringUtils {
     static void replace_all(std::string& subject, const std::string& search,
                             const std::string& replace);
 
+    static void erase_char(std::string& str, const char c);
+
     static std::string trim_curly_spaces(const std::string& str);
 
     static bool ends_with(std::string const &str, std::string const &ending);

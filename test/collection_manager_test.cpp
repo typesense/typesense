@@ -526,7 +526,10 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     embedded_params["filter_by"] = "points: 200";
 
     std::string json_res;
-    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res);
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
     nlohmann::json res_obj = nlohmann::json::parse(json_res);
@@ -540,7 +543,7 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     req_params["filter_by"] = "year: 1922";
     req_params["q"] = "*";
 
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res);
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     res_obj = nlohmann::json::parse(json_res);
 
@@ -987,43 +990,6 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str(",,", sort_fields);
     ASSERT_FALSE(sort_by_parsed);
-}
-
-TEST_F(CollectionManagerTest, ParseVectorQueryString) {
-    vector_query_t vector_query;
-    bool parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
-    ASSERT_TRUE(parsed);
-    ASSERT_EQ("vec", vector_query.field_name);
-    ASSERT_EQ(10, vector_query.k);
-    std::vector<float> fvs = {0.34, 0.66, 0.12, 0.68};
-    ASSERT_EQ(fvs.size(), vector_query.values.size());
-    for(size_t i = 0; i < fvs.size(); i++) {
-        ASSERT_EQ(fvs[i], vector_query.values[i]);
-    }
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
-    ASSERT_TRUE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:[0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
-    ASSERT_FALSE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10", vector_query);
-    ASSERT_TRUE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:(0.34, 0.66, 0.12, 0.68, k: 10)", vector_query);
-    ASSERT_FALSE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], )", vector_query);
-    ASSERT_FALSE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec([0.34, 0.66, 0.12, 0.68])", vector_query);
-    ASSERT_FALSE(parsed);
 }
 
 TEST_F(CollectionManagerTest, Presets) {

@@ -983,23 +983,23 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
 
 TEST_F(CollectionFacetingTest, FacetParseTest){
     std::vector<field> fields = {
-        field("score", field_types::INT32, true),
-        field("grade", field_types::INT32, true),
-        field("rank", field_types::INT32, true),
+            field("score", field_types::INT32, true),
+            field("grade", field_types::INT32, true),
+            field("rank", field_types::INT32, true),
     };
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
 
     std::vector<std::string> range_facet_fields {
-        "score(fail:[0, 40], pass:[40, 100])",
-        "grade(A:[80, 100], B:[60, 80], C:[40, 60])"
+            "score(fail:[0, 40], pass:[40, 100])",
+            "grade(A:[80, 100], B:[60, 80], C:[40, 60])"
     };
     std::vector<facet> range_facets;
     for(const std::string & facet_field: range_facet_fields) {
         coll1->parse_facet(facet_field, range_facets);
     }
     ASSERT_EQ(2, range_facets.size());
-    
+
     ASSERT_STREQ("score", range_facets[0].field_name.c_str());
     ASSERT_TRUE(range_facets[0].is_range_query);
     ASSERT_GT(range_facets[0].facet_range_map.size(), 0);
@@ -1009,8 +1009,8 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_GT(range_facets[1].facet_range_map.size(), 0);
 
     std::vector<std::string> normal_facet_fields {
-        "score",
-        "grade"
+            "score",
+            "grade"
     };
     std::vector<facet> normal_facets;
     for(const std::string & facet_field: normal_facet_fields) {
@@ -1022,25 +1022,24 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_STREQ("grade", normal_facets[1].field_name.c_str());
 
     std::vector<std::string> mixed_facet_fields {
-        "score", 
-        "grade(A:[80, 100], B:[60, 80], C:[40, 60])", 
-        "rank"
+            "score",
+            "grade(A:[80, 100], B:[60, 80], C:[40, 60])",
+            "rank"
     };
     std::vector<facet> mixed_facets;
     for(const std::string & facet_field: mixed_facet_fields) {
         coll1->parse_facet(facet_field, mixed_facets);
     }
     ASSERT_EQ(3, mixed_facets.size());
-    
+
     ASSERT_STREQ("score", mixed_facets[0].field_name.c_str());
-    
+
     ASSERT_STREQ("grade", mixed_facets[1].field_name.c_str());
     ASSERT_TRUE(mixed_facets[1].is_range_query);
     ASSERT_GT(mixed_facets[1].facet_range_map.size(), 0);
 
     ASSERT_STREQ("rank", mixed_facets[2].field_name.c_str());
 }
-
 
 TEST_F(CollectionFacetingTest, RangeFacetTest) {
     std::vector<field> fields = {field("place", field_types::STRING, false),
@@ -1345,11 +1344,44 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
     // test for sample percent > 100
 
     auto res_op = coll1->search("*", {}, "", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
-                        spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
-                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                        4, {off}, 3, 3, 2, 2, false, "", 200, 0);
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 3, 3, 2, 2, false, "", 200, 0);
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Value of `facet_sample_percent` must be less than 100.", res_op.error());
+}
+
+TEST_F(CollectionFacetingTest, FacetOnArrayFieldWithSpecialChars) {
+    std::vector<field> fields = {
+            field("tags", field_types::STRING_ARRAY, true),
+            field("points", field_types::INT32, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["tags"] = {"gamma"};
+    doc["points"] = 10;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["tags"] = {"alpha", "| . |", "beta", "gamma"};
+    doc["points"] = 10;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"tags"}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(4, results["facet_counts"][0]["counts"].size());
+
+    for(size_t i = 0; i < results["facet_counts"][0]["counts"].size(); i++) {
+        auto fvalue = results["facet_counts"][0]["counts"][i]["value"].get<std::string>();
+        if(fvalue == "gamma") {
+            ASSERT_EQ(2, results["facet_counts"][0]["counts"][i]["count"].get<size_t>());
+        } else {
+            ASSERT_EQ(1, results["facet_counts"][0]["counts"][i]["count"].get<size_t>());
+        }
+    }
 }

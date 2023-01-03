@@ -59,6 +59,8 @@ private:
 
     std::atomic<bool> skip_writes;
 
+    std::atomic<int> log_slow_searches_time_ms;
+
 protected:
 
     Config() {
@@ -80,6 +82,7 @@ protected:
         this->disk_used_max_percentage = 100;
         this->memory_used_max_percentage = 100;
         this->skip_writes = false;
+        this->log_slow_searches_time_ms = 30 * 1000;
     }
 
     Config(Config const&) {
@@ -140,6 +143,10 @@ public:
 
     void set_log_slow_requests_time_ms(int log_slow_requests_time_ms) {
         this->log_slow_requests_time_ms = log_slow_requests_time_ms;
+    }
+
+    void set_log_slow_searches_time_ms(int log_slow_searches_time_ms) {
+        this->log_slow_searches_time_ms = log_slow_searches_time_ms;
     }
 
     void set_healthy_read_lag(size_t healthy_read_lag) {
@@ -243,6 +250,10 @@ public:
 
     int get_log_slow_requests_time_ms() const {
         return this->log_slow_requests_time_ms;
+    }
+
+    int get_log_slow_searches_time_ms() const {
+        return this->log_slow_searches_time_ms;
     }
 
     size_t get_num_collections_parallel_load() const {
@@ -362,6 +373,10 @@ public:
 
         if(!get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS").empty()) {
             this->log_slow_requests_time_ms = std::stoi(get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS"));
+        }
+
+        if(!get_env("TYPESENSE_LOG_SLOW_SEARCHES_TIME_MS").empty()) {
+            this->log_slow_searches_time_ms = std::stoi(get_env("TYPESENSE_LOG_SLOW_SEARCHES_TIME_MS"));
         }
 
         if(!get_env("TYPESENSE_NUM_COLLECTIONS_PARALLEL_LOAD").empty()) {
@@ -513,6 +528,10 @@ public:
             this->log_slow_requests_time_ms = (int) reader.GetInteger("server", "log-slow-requests-time-ms", -1);
         }
 
+        if(reader.Exists("server", "log-slow-searches-time-ms")) {
+            this->log_slow_searches_time_ms = (int) reader.GetInteger("server", "log-slow-searches-time-ms", 30*1000);
+        }
+
         if(reader.Exists("server", "num-collections-parallel-load")) {
             this->num_collections_parallel_load = (int) reader.GetInteger("server", "num-collections-parallel-load", 0);
         }
@@ -641,6 +660,10 @@ public:
 
         if(options.exist("log-slow-requests-time-ms")) {
             this->log_slow_requests_time_ms = options.get<int>("log-slow-requests-time-ms");
+        }
+
+        if(options.exist("log-slow-searches-time-ms")) {
+            this->log_slow_searches_time_ms = options.get<int>("log-slow-searches-time-ms");
         }
 
         if(options.exist("num-collections-parallel-load")) {

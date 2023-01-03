@@ -262,9 +262,9 @@ nlohmann::json synonym_t::to_view_json() const {
     }
 
     if(!symbols.empty()) {
-        obj["symbols"] = nlohmann::json::array();
+        obj["symbols_to_index"] = nlohmann::json::array();
         for(char c: symbols) {
-            obj["symbols"].push_back(std::string(1, c));
+            obj["symbols_to_index"].push_back(std::string(1, c));
         }
     }
 

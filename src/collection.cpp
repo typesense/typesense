@@ -15,6 +15,7 @@
 #include "topster.h"
 #include "logger.h"
 #include "thread_local_vars.h"
+#include "vector_query_ops.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -867,14 +868,18 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const size_t filter_curated_hits_option,
                                   const bool prioritize_token_position,
                                   const std::string& vector_query_str,
+                                  const bool enable_highlight_v1,
+                                  const uint64_t search_time_start_us,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold) const {
 
     std::shared_lock lock(mutex);
 
     // setup thread local vars
-    search_stop_ms = search_stop_millis;
-    search_begin = std::chrono::high_resolution_clock::now();
+    search_stop_us = search_stop_millis * 1000;
+    search_begin_us = (search_time_start_us != 0) ? search_time_start_us :
+                      std::chrono::duration_cast<std::chrono::microseconds>(
+                           std::chrono::system_clock::now().time_since_epoch()).count();
     search_cutoff = false;
 
     if(raw_query != "*" && raw_search_fields.empty()) {
@@ -927,8 +932,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             return Option<nlohmann::json>(400, "Vector query is supported only on wildcard (q=*) searches.");
         }
 
-        if(!CollectionManager::parse_vector_query_str(vector_query_str, vector_query)) {
-            return Option<nlohmann::json>(400, "The `vector_query` parameter is malformed.");
+        auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query, this);
+        if(!parse_vector_op.ok()) {
+            return Option<nlohmann::json>(400, parse_vector_op.error());
         }
 
         auto vector_field_it = search_schema.find(vector_query.field_name);
@@ -1491,7 +1497,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             }
 
             nlohmann::json wrapper_doc;
-            wrapper_doc["highlights"] = nlohmann::json::array();
+
+            if(enable_highlight_v1) {
+                wrapper_doc["highlights"] = nlohmann::json::array();
+            }
+
             std::vector<highlight_t> highlights;
             StringUtils string_utils;
 
@@ -1562,34 +1572,36 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 prune_doc(highlight_res, hfield_names, tsl::htrie_set<char>(), "");
             }
 
-            std::sort(highlights.begin(), highlights.end());
+            if(enable_highlight_v1) {
+                std::sort(highlights.begin(), highlights.end());
 
-            for(const auto & highlight: highlights) {
-                auto field_it = search_schema.find(highlight.field);
-                if(field_it == search_schema.end() || field_it->nested) {
-                    // nested field highlighting will be available only in the new highlight structure.
-                    continue;
-                }
-
-                nlohmann::json h_json = nlohmann::json::object();
-                h_json["field"] = highlight.field;
-
-                if(!highlight.indices.empty()) {
-                    h_json["matched_tokens"] = highlight.matched_tokens;
-                    h_json["indices"] = highlight.indices;
-                    h_json["snippets"] = highlight.snippets;
-                    if(!highlight.values.empty()) {
-                        h_json["values"] = highlight.values;
+                for(const auto & highlight: highlights) {
+                    auto field_it = search_schema.find(highlight.field);
+                    if(field_it == search_schema.end() || field_it->nested) {
+                        // nested field highlighting will be available only in the new highlight structure.
+                        continue;
                     }
-                } else {
-                    h_json["matched_tokens"] = highlight.matched_tokens[0];
-                    h_json["snippet"] = highlight.snippets[0];
-                    if(!highlight.values.empty() && !highlight.values[0].empty()) {
-                        h_json["value"] = highlight.values[0];
-                    }
-                }
 
-                wrapper_doc["highlights"].push_back(h_json);
+                    nlohmann::json h_json = nlohmann::json::object();
+                    h_json["field"] = highlight.field;
+
+                    if(!highlight.indices.empty()) {
+                        h_json["matched_tokens"] = highlight.matched_tokens;
+                        h_json["indices"] = highlight.indices;
+                        h_json["snippets"] = highlight.snippets;
+                        if(!highlight.values.empty()) {
+                            h_json["values"] = highlight.values;
+                        }
+                    } else {
+                        h_json["matched_tokens"] = highlight.matched_tokens[0];
+                        h_json["snippet"] = highlight.snippets[0];
+                        if(!highlight.values.empty() && !highlight.values[0].empty()) {
+                            h_json["value"] = highlight.values[0];
+                        }
+                    }
+
+                    wrapper_doc["highlights"].push_back(h_json);
+                }
             }
 
             //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
@@ -1654,8 +1666,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         facet_result["counts"] = nlohmann::json::array();
 
         std::vector<facet_value_t> facet_values;
-        std::vector<std::pair<int64_t, facet_count_t>> facet_hash_counts;
-            
+        std::vector<std::pair<uint64_t, facet_count_t>> facet_hash_counts;
+
         for (const auto & kv : a_facet.result_map) {
             facet_hash_counts.emplace_back(kv);
         }

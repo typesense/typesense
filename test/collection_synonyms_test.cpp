@@ -97,9 +97,9 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     ASSERT_STREQ("#", synonym_plus.synonyms[1][0].c_str());
 
     nlohmann::json view_json = synonym_plus.to_view_json();
-    ASSERT_EQ(2, view_json["symbols"].size());
-    ASSERT_EQ("+", view_json["symbols"][0].get<std::string>());
-    ASSERT_EQ("#", view_json["symbols"][1].get<std::string>());
+    ASSERT_EQ(2, view_json["symbols_to_index"].size());
+    ASSERT_EQ("+", view_json["symbols_to_index"][0].get<std::string>());
+    ASSERT_EQ("#", view_json["symbols_to_index"][1].get<std::string>());
 
     // when `id` is not given
     nlohmann::json syn_json_without_id = {

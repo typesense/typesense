@@ -409,6 +409,8 @@ public:
                                   const size_t filter_curated_hits_option = 2,
                                   const bool prioritize_token_position = false,
                                   const std::string& vector_query_str = "",
+                                  const bool enable_highlight_v1 = true,
+                                  const uint64_t search_time_start_us = 0,
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0) const;
 

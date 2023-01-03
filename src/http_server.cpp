@@ -474,8 +474,6 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
-
-
     std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,
                                                                    route_hash, query_map, embedded_params_vec,
                                                                    api_auth_key_sent, body, client_ip);
