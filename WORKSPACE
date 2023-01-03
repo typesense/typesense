@@ -62,7 +62,7 @@ register_toolchains(
 
 git_repository(
     name = "com_github_brpc_braft",
-    commit = "c6d5cb0b667cc9ed27d2d355655e82988633a3fe",
+    commit = "bc527db96420f610257573d80e5f60a8b0d835ef",
     patches = ["//bazel/braft:0001.patch"],
     remote = "https://github.com/baidu/braft.git",
     repo_mapping = {
