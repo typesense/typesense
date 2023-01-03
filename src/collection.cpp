@@ -322,6 +322,38 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     return resp_summary;
 }
 
+Option<nlohmann::json> Collection::update_matching_filter(const std::string& filter_query,
+                                                          const std::string & json_str,
+                                                          std::string& req_dirty_values) {
+    std::vector<std::pair<size_t, uint32_t*>> filter_ids;
+    auto filter_ids_op = get_filter_ids(filter_query, filter_ids);
+    if(!filter_ids_op.ok()) {
+        return Option<nlohmann::json>(filter_ids_op.code(), filter_ids_op.error());
+    }
+
+    const auto& dirty_values = parse_dirty_values_option(req_dirty_values);
+    bool is_successful = true;
+
+    for (uint32_t i = 0; i < filter_ids[0].first; i++) {
+        uint32_t seq_id = *(filter_ids[0].second + i);
+        nlohmann::json document;
+        auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), document);
+        if (!get_doc_op.ok()) {
+            is_successful = false;
+        }
+
+        auto doc_id = document["id"].get<std::string>();
+        auto update_doc_op = add(json_str, index_operation_t::UPDATE, doc_id, dirty_values);
+        if(!update_doc_op.ok()) {
+            is_successful = false;
+        }
+    }
+
+    nlohmann::json resp_summary;
+    resp_summary["success"] = is_successful;
+    return Option(resp_summary);
+}
+
 bool Collection::is_exceeding_memory_threshold() const {
     return SystemMetrics::used_memory_ratio() > max_memory_ratio;
 }
@@ -2225,13 +2257,13 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
     }
 }
 
-Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
-                                    std::vector<std::pair<size_t, uint32_t*>>& index_ids) {
+Option<bool> Collection::get_filter_ids(const std::string & filter_query,
+                                    std::vector<std::pair<size_t, uint32_t*>>& index_ids) const {
     std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query(simple_filter_query, search_schema,
+    Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                         store, doc_id_prefix, filter_tree_root);
 
     if(!filter_op.ok()) {
