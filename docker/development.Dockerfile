@@ -84,15 +84,15 @@ RUN mkdir -p /opt/incubator-brpc-a48506a635072ae2abf370798a47038fbcd230ff/bld &&
     make -j8 && make install && rm -rf /usr/local/lib/*.so* && \
     rm -rf /opt/incubator-brpc-a48506a635072ae2abf370798a47038fbcd230ff/bld/output/bin
 
-ADD https://github.com/typesense/braft/archive/80d97b2.tar.gz /opt/braft-80d97b2.tar.gz
-RUN tar -C /opt -xf /opt/braft-80d97b2.tar.gz
-COPY patches/braft_cmakelists.txt /opt/braft-80d97b2475b3c0afca79c19b64d46bb665d704f4/src/CMakeLists.txt
-RUN chown root:root /opt/braft-80d97b2475b3c0afca79c19b64d46bb665d704f4/src/CMakeLists.txt
-RUN mkdir -p /opt/braft-80d97b2475b3c0afca79c19b64d46bb665d704f4/bld && \
-    cd /opt/braft-80d97b2475b3c0afca79c19b64d46bb665d704f4/bld && \
+ADD https://github.com/baidu/braft/archive/bc527db.tar.gz /opt/braft-bc527db.tar.gz
+RUN tar -C /opt -xf /opt/braft-bc527db.tar.gz
+COPY patches/braft_cmakelists.txt /opt/braft-bc527db96420f610257573d80e5f60a8b0d835ef/src/CMakeLists.txt
+RUN chown root:root /opt/braft-bc527db96420f610257573d80e5f60a8b0d835ef/src/CMakeLists.txt
+RUN mkdir -p /opt/braft-bc527db96420f610257573d80e5f60a8b0d835ef/bld && \
+    cd /opt/braft-bc527db96420f610257573d80e5f60a8b0d835ef/bld && \
     cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j4 && \
     make install && rm -rf /usr/local/lib/*.so* && \
-    rm -rf /opt/braft-80d97b2475b3c0afca79c19b64d46bb665d704f4/bld/output/bin
+    rm -rf /opt/braft-bc527db96420f610257573d80e5f60a8b0d835ef/bld/output/bin
 
 # This is mostly for CI, and should be moved above in the next iteration
 RUN apt-get -y install git
