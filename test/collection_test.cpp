@@ -712,7 +712,7 @@ TEST_F(CollectionTest, MultiOccurrenceString) {
 TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     Collection *coll_array_text;
 
-    std::ifstream infile(std::string(ROOT_DIR) + "test/array_text_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/array_text_documents.jsonl");
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("tags", field_types::STRING_ARRAY, false),

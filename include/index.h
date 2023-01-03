@@ -466,6 +466,11 @@ private:
                                         const size_t num_search_fields,
                                         std::vector<size_t>& popular_field_ids);
 
+    void numeric_not_equals_filter(num_tree_t* const num_tree,
+                                   const int64_t value,
+                                   uint32_t*& ids,
+                                   size_t& ids_len) const;
+
     void do_filtering(uint32_t*& filter_ids,
                       uint32_t& filter_ids_length,
                       filter_node_t const* const root) const;

@@ -1,13 +1,23 @@
 # Download test resources
 
 set(ART_VERSION bbbf588bca55bce095538ee8ca8b422904baebc5)
-set(TEST_RESOURCES_DIR ${CMAKE_SOURCE_DIR}/build/test_resources)
-set(ART_WORDS_PATH ${TEST_RESOURCES_DIR}/words.txt)
-set(ART_UUID_PATH ${TEST_RESOURCES_DIR}/uuid.txt)
-set(TOKEN_OFFSETS_PATH ${TEST_RESOURCES_DIR}/token_offsets.txt)
+set(TEST_RESOURCES_DIR ${CMAKE_SOURCE_DIR}/external/ CACHE STRING "")
+set(ART_WORDS_PATH ${TEST_RESOURCES_DIR}/libart/tests/words.txt)
+set(ART_UUID_PATH ${TEST_RESOURCES_DIR}/libart/tests/uuid.txt)
+set(TOKEN_OFFSETS_PATH ${TEST_RESOURCES_DIR}/token_offsets/file/token_offsets.txt)
 
 if(NOT EXISTS ${TEST_RESOURCES_DIR})
     file(MAKE_DIRECTORY ${TEST_RESOURCES_DIR})
+endif()
+
+if(NOT EXISTS ${TEST_RESOURCES_DIR}/libart)
+    file(MAKE_DIRECTORY ${TEST_RESOURCES_DIR}/libart)
+    file(MAKE_DIRECTORY ${TEST_RESOURCES_DIR}/libart/tests)
+endif()
+
+if(NOT EXISTS ${TEST_RESOURCES_DIR}/token_offsets)
+    file(MAKE_DIRECTORY ${TEST_RESOURCES_DIR}/token_offsets)
+    file(MAKE_DIRECTORY ${TEST_RESOURCES_DIR}/token_offsets/file)
 endif()
 
 if(NOT EXISTS ${ART_WORDS_PATH} AND BUILD_DEPS STREQUAL "yes")

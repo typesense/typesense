@@ -1,6 +1,6 @@
 #include "typesense_server_utils.h"
 #include "core_api.h"
-#include "config.h"
+#include "tsconfig.h"
 #include "stackprinter.h"
 #include "backward.hpp"
 

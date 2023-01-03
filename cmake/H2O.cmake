@@ -1,6 +1,6 @@
 # Download and build H2O
 
-set(H2O_VERSION 6dda7d6f21610ecd5256543384fa4b4b345a88ac)
+set(H2O_VERSION 1491a703195790278091fd7aee547fbba78e89af)
 set(H2O_NAME h2o-${H2O_VERSION})
 set(H2O_TAR_PATH ${DEP_ROOT_DIR}/${H2O_NAME}.tar.gz)
 

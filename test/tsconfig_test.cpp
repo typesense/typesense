@@ -3,7 +3,7 @@
 #include <iostream>
 #include <cmdline.h>
 #include "typesense_server_utils.h"
-#include "config.h"
+#include "tsconfig.h"
 
 std::vector<char*> get_argv(std::vector<std::string> & args) {
     std::vector<char*> argv;

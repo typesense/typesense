@@ -1,0 +1,16 @@
+
+
+--- include/quicly/loss.h
++++ include/quicly/loss.h
+@@ -250,8 +250,8 @@ inline void quicly_loss_init(quicly_loss_t *r, const quicly_loss_conf_t *conf, u
+     *r = (quicly_loss_t){.conf = conf,
+                          .max_ack_delay = max_ack_delay,
+                          .ack_delay_exponent = ack_delay_exponent,
+-                         .pto_count = 0,
+                          .thresholds = {.use_packet_based = 1, .time_based_percentile = 1024 / 8 /* start from 1/8 RTT */},
++                         .pto_count = 0,
+                          .time_of_last_packet_sent = 0,
+                          .largest_acked_packet_plus1 = {0},
+                          .total_bytes_sent = 0,
+
+

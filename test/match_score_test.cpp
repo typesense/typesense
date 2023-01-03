@@ -4,7 +4,7 @@
 #include "posting_list.h"
 #include <fstream>
 
-#define token_offsets_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/token_offsets.txt").c_str()
+#define token_offsets_file_path (std::string(ROOT_DIR) + std::string("external/token_offsets/file/token_offsets.txt")).c_str()
 
 TEST(MatchTest, TokenOffsetsExceedWindowSize) {
     std::vector<token_positions_t> token_positions = {

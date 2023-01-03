@@ -1541,6 +1541,35 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
     }
 }
 
+void Index::numeric_not_equals_filter(num_tree_t* const num_tree,
+                                      const int64_t value,
+                                      uint32_t*& ids,
+                                      size_t& ids_len) const {
+    uint32_t* to_exclude_ids = nullptr;
+    size_t to_exclude_ids_len = 0;
+    num_tree->search(EQUALS, value, &to_exclude_ids, to_exclude_ids_len);
+
+    auto all_ids = seq_ids->uncompress();
+    auto all_ids_size = seq_ids->num_ids();
+
+    uint32_t* to_include_ids = nullptr;
+    size_t to_include_ids_len = 0;
+
+    to_include_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_size, to_exclude_ids,
+                                                    to_exclude_ids_len, &to_include_ids);
+
+    delete[] all_ids;
+    delete[] to_exclude_ids;
+
+    uint32_t* out = nullptr;
+    ids_len = ArrayUtils::or_scalar(ids, ids_len,
+                                    to_include_ids, to_include_ids_len, &out);
+    delete[] ids;
+    delete[] to_include_ids;
+
+    ids = out;
+}
+
 void Index::do_filtering(uint32_t*& filter_ids,
                          uint32_t& filter_ids_length,
                          filter_node_t const* const root) const {
@@ -1596,6 +1625,8 @@ void Index::do_filtering(uint32_t*& filter_ids,
                 int64_t range_end_value = (int64_t)std::stol(next_filter_value);
                 num_tree->range_inclusive_search(value, range_end_value, &result_ids, result_ids_len);
                 fi++;
+            } else if (a_filter.comparators[fi] == NOT_EQUALS) {
+                numeric_not_equals_filter(num_tree, value, result_ids, result_ids_len);
             } else {
                 num_tree->search(a_filter.comparators[fi], value, &result_ids, result_ids_len);
             }
@@ -1613,6 +1644,8 @@ void Index::do_filtering(uint32_t*& filter_ids,
                 int64_t range_end_value = float_to_int64_t((float) std::atof(next_filter_value.c_str()));
                 num_tree->range_inclusive_search(float_int64, range_end_value, &result_ids, result_ids_len);
                 fi++;
+            } else if (a_filter.comparators[fi] == NOT_EQUALS) {
+                numeric_not_equals_filter(num_tree, value, result_ids, result_ids_len);
             } else {
                 num_tree->search(a_filter.comparators[fi], float_int64, &result_ids, result_ids_len);
             }
@@ -1624,28 +1657,7 @@ void Index::do_filtering(uint32_t*& filter_ids,
         for (const std::string& filter_value : a_filter.values) {
             int64_t bool_int64 = (filter_value == "1") ? 1 : 0;
             if (a_filter.comparators[value_index] == NOT_EQUALS) {
-                uint32_t* to_exclude_ids = nullptr;
-                size_t to_exclude_ids_len = 0;
-                num_tree->search(EQUALS, bool_int64, &to_exclude_ids, to_exclude_ids_len);
-
-                auto all_ids = seq_ids->uncompress();
-                auto all_ids_size = seq_ids->num_ids();
-
-                uint32_t* excluded_ids = nullptr;
-                size_t excluded_ids_len = 0;
-
-                excluded_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_size, to_exclude_ids,
-                                                              to_exclude_ids_len, &excluded_ids);
-
-                delete[] all_ids;
-                delete[] to_exclude_ids;
-
-                uint32_t* out = nullptr;
-                result_ids_len = ArrayUtils::or_scalar(result_ids, result_ids_len,
-                                                       excluded_ids, excluded_ids_len, &out);
-                delete[] result_ids;
-                result_ids = out;
-                delete[] excluded_ids;
+                numeric_not_equals_filter(num_tree, bool_int64, result_ids, result_ids_len);
             } else {
                 num_tree->search(a_filter.comparators[value_index], bool_int64, &result_ids, result_ids_len);
             }
@@ -1862,37 +1874,25 @@ void Index::do_filtering(uint32_t*& filter_ids,
             std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
         }
 
-        if (a_filter.comparators[0] == NOT_EQUALS) {
-            // exclude records from existing IDs (from previous filters or ALL records)
-            // "not equals" can only be applied to the entire array so we can do the exclusion operations once here
-            uint32_t* excluded_strt_ids = nullptr;
-            size_t excluded_strt_size = 0;
-
-            if (result_ids == nullptr) {
-                if (filter_ids == nullptr) {
-                    result_ids = seq_ids->uncompress();
-                    result_ids_len = seq_ids->num_ids();
-                } else {
-                    result_ids = filter_ids;
-                    result_ids_len = filter_ids_length;
-                }
-            }
-
-            excluded_strt_size = ArrayUtils::exclude_scalar(result_ids, result_ids_len, or_ids,
-                                                            or_ids_size, &excluded_strt_ids);
-
-            if (filter_ids == nullptr) {
-                // means we had to uncompress `seq_ids` so need to free that
-                delete[] result_ids;
-            }
-
-            delete[] or_ids;
-            or_ids = excluded_strt_ids;
-            or_ids_size = excluded_strt_size;
-        }
-
         result_ids = or_ids;
         result_ids_len = or_ids_size;
+    }
+
+    if (a_filter.apply_not_equals) {
+        auto all_ids = seq_ids->uncompress();
+        auto all_ids_size = seq_ids->num_ids();
+
+        uint32_t* to_include_ids = nullptr;
+        size_t to_include_ids_len = 0;
+
+        to_include_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_size, result_ids,
+                                                        result_ids_len, &to_include_ids);
+
+        delete[] all_ids;
+        delete[] result_ids;
+
+        result_ids = to_include_ids;
+        result_ids_len = to_include_ids_len;
     }
 
     filter_ids = result_ids;
