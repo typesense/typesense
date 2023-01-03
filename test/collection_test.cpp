@@ -2540,16 +2540,18 @@ TEST_F(CollectionTest, UpdateDocuments) {
         update_docs_collection = collectionManager.create_collection("update_docs_collection", 1, fields, "likes").get();
     }
 
-    std::ifstream infile(std::string(ROOT_DIR)+"test/posts.jsonl");
-    std::string json_line;
-    while (std::getline(infile, json_line)) {
-        auto add_op = update_docs_collection->add(json_line);
-        if(!add_op.ok()) {
+    std::vector<std::string> json_lines = {
+        R"({"id": "110","user_name": "fat_cat","likes": 5215,"content": "cat data 1"})",
+        R"({"id": "111","user_name": "fat_cat","likes": 2133,"content": "cat data 2"})",
+        R"({"id": "112","user_name": "fast_dog","likes": 273,"content": "dog data 3"})"
+    };
+    for (auto const& json: json_lines){
+        auto add_op = update_docs_collection->add(json);
+        if (!add_op.ok()) {
             std::cout << add_op.error() << std::endl;
         }
         ASSERT_TRUE(add_op.ok());
     }
-    infile.close();
 
     std::vector<sort_by> sort_fields = { sort_by("likes", "DESC") };
 
