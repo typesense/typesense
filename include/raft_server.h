@@ -153,6 +153,7 @@ public:
     // Starts this node
     int start(const butil::EndPoint & peering_endpoint, int api_port,
               int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
+              int snapshot_max_threads_per_copy,
               const std::string & raft_dir, const std::string & nodes,
               const std::atomic<bool>& quit_abruptly);
 

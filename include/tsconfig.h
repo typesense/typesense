@@ -58,8 +58,10 @@ private:
     int memory_used_max_percentage;
 
     std::atomic<bool> skip_writes;
-
+    
     std::atomic<int> log_slow_searches_time_ms;
+
+    size_t snapshot_max_threads_per_copy;
 
 protected:
 
@@ -83,6 +85,7 @@ protected:
         this->memory_used_max_percentage = 100;
         this->skip_writes = false;
         this->log_slow_searches_time_ms = 30 * 1000;
+        this->snapshot_max_threads_per_copy = 1;
     }
 
     Config(Config const&) {
@@ -159,6 +162,10 @@ public:
 
     void set_skip_writes(bool skip_writes) {
         this->skip_writes = skip_writes;
+    }
+
+    void set_snapshot_max_threads_per_copy(size_t snapshot_max_threads_per_copy) {
+        this->snapshot_max_threads_per_copy = snapshot_max_threads_per_copy;
     }
 
     // getters
@@ -296,6 +303,9 @@ public:
         return skip_writes;
     }
 
+    size_t get_snapshot_max_threads_per_copy() const {
+        return this->snapshot_max_threads_per_copy;
+    }
     // loaders
 
     std::string get_env(const char *name) {
@@ -410,6 +420,10 @@ public:
         }
 
         this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
+
+        if(!get_env("TYPESENSE_SNAPSHOT_MAX_THREADS_PER_COPY").empty()) {
+            this->snapshot_max_threads_per_copy = std::stoi(get_env("TYPESENSE_SNAPSHOT_MAX_THREADS_PER_COPY"));
+        }
     }
 
     void load_config_file(cmdline::parser & options) {
@@ -565,6 +579,10 @@ public:
             auto skip_writes_str = reader.Get("server", "skip-writes", "false");
             this->skip_writes = (skip_writes_str == "true");
         }
+
+        if(reader.Exists("server", "snapshot_max_threads_per_copy")) {
+            this->snapshot_max_threads_per_copy = (int) reader.GetInteger("server", "snapshot_max_threads_per_copy", 1);
+        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -696,6 +714,10 @@ public:
 
         if(options.exist("skip-writes")) {
             this->skip_writes = options.get<bool>("skip-writes");
+        }
+
+        if(options.exist("snapshot_max_threads_per_copy")) {
+            this->snapshot_max_threads_per_copy = options.get<int>("snapshot_max_threads_per_copy");
         }
     }
 

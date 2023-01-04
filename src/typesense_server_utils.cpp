@@ -106,7 +106,9 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<bool>("skip-writes", '\0', "Skip all writes except config changes. Default: false.", false, false);
 
     options.add<int>("log-slow-searches-time-ms", '\0', "When >= 0, searches that take longer than this duration are logged.", false, 30*1000);
+    options.add<int>("snapshot_max_threads_per_copy", '\0', "Maximum threads to use for parallel snapshot copy. Default: 1", false, 1);
 
+    
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "[DEPRECATED: use `api-port`] Port on which Typesense API service listens.", false, 8108);
@@ -249,7 +251,8 @@ const char* get_internal_ip(const std::string& subnet_cidr) {
 
 int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
                       const std::string& peering_address, uint32_t peering_port, const std::string& peering_subnet,
-                      uint32_t api_port, int snapshot_interval_seconds, int snapshot_max_byte_count_per_rpc) {
+                      uint32_t api_port, int snapshot_interval_seconds, int snapshot_max_byte_count_per_rpc, 
+                      int32_t snapshot_max_threads_per_copy) {
 
     if(path_to_nodes.empty()) {
         LOG(INFO) << "Since no --nodes argument is provided, starting a single node Typesense cluster.";
@@ -294,8 +297,8 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     size_t election_timeout_ms = 5000;
 
-    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
-                                nodes_config_op.get(), quit_raft_service) != 0) {
+    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, 
+        snapshot_max_threads_per_copy, state_dir, nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }
@@ -474,7 +477,8 @@ int run_server(const Config & config, const std::string & version, void (*master
                           config.get_peering_subnet(),
                           config.get_api_port(),
                           config.get_snapshot_interval_seconds(),
-                          config.get_snapshot_max_byte_count_per_rpc());
+                          config.get_snapshot_max_byte_count_per_rpc(),
+                          config.get_snapshot_max_threads_per_copy());
 
         LOG(INFO) << "Shutting down batch indexer...";
         batch_indexer->stop();
