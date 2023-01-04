@@ -334,19 +334,37 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     const auto& dirty_values = parse_dirty_values_option(req_dirty_values);
     size_t docs_updated_count;
 
-    for (size_t i = 0; i < filter_ids[0].first; i++) {
-        uint32_t seq_id = *(filter_ids[0].second + i);
-        nlohmann::json document;
-        auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), document);
-        if (!get_doc_op.ok()) {
-            continue;
+    nlohmann::json update_document, dummy;
+    try {
+        update_document = nlohmann::json::parse(json_str);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        return Option<nlohmann::json>(400, std::string("Bad JSON: ") + e.what());
+    }
+
+    std::vector<std::string> buffer;
+    const int batch_size = 1000;
+    buffer.reserve(batch_size);
+
+    size_t i = 0;
+    while (i < filter_ids[0].first) {
+        // Generate a batch of documents to be ingested by add_many.
+        for (int j = 0; j < batch_size && i < filter_ids[0].first;) {
+            uint32_t seq_id = *(filter_ids[0].second + i++);
+            nlohmann::json existing_document;
+            auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
+            if (!get_doc_op.ok()) {
+                continue; // Don't add into buffer.
+            }
+
+            update_document["id"] = existing_document["id"].get<std::string>();
+            buffer.push_back(update_document.dump());
+            j++;
         }
 
-        auto doc_id = document["id"].get<std::string>();
-        auto update_doc_op = add(json_str, index_operation_t::UPDATE, doc_id, dirty_values);
-        if(update_doc_op.ok()) {
-            docs_updated_count++;
-        }
+        auto res = add_many(buffer, dummy, index_operation_t::UPDATE, "", dirty_values);
+        docs_updated_count += res["num_imported"].get<size_t>();
+        buffer.clear();
     }
 
     nlohmann::json resp_summary;
