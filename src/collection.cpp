@@ -324,7 +324,8 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
 Option<nlohmann::json> Collection::update_matching_filter(const std::string& filter_query,
                                                           const std::string & json_str,
-                                                          std::string& req_dirty_values) {
+                                                          std::string& req_dirty_values,
+                                                          const int batch_size) {
     std::vector<std::pair<size_t, uint32_t*>> filter_ids;
     auto filter_ids_op = get_filter_ids(filter_query, filter_ids);
     if(!filter_ids_op.ok()) {
@@ -332,7 +333,6 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     }
 
     const auto& dirty_values = parse_dirty_values_option(req_dirty_values);
-    size_t docs_updated_count;
 
     nlohmann::json update_document, dummy;
     try {
@@ -343,15 +343,15 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     }
 
     std::vector<std::string> buffer;
-    const int batch_size = 1000;
     buffer.reserve(batch_size);
+    size_t docs_updated_count;
 
-    size_t i = 0;
-    while (i < filter_ids[0].first) {
+    for (size_t i = 0; i < filter_ids[0].first;) {
         // Generate a batch of documents to be ingested by add_many.
         for (int j = 0; j < batch_size && i < filter_ids[0].first;) {
             uint32_t seq_id = *(filter_ids[0].second + i++);
             nlohmann::json existing_document;
+
             auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
             if (!get_doc_op.ok()) {
                 continue; // Don't add into buffer.

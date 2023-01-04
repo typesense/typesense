@@ -2541,9 +2541,11 @@ TEST_F(CollectionTest, UpdateDocuments) {
     }
 
     std::vector<std::string> json_lines = {
-        R"({"id": "110","user_name": "fat_cat","likes": 5215,"content": "cat data 1"})",
-        R"({"id": "111","user_name": "fat_cat","likes": 2133,"content": "cat data 2"})",
-        R"({"id": "112","user_name": "fast_dog","likes": 273,"content": "dog data 3"})"
+        R"({"user_name": "fat_cat","likes": 5215,"content": "cat data 1"})",
+        R"({"user_name": "fast_dog","likes": 273,"content": "dog data 1"})",
+        R"({"user_name": "fat_cat","likes": 2133,"content": "cat data 2"})",
+        R"({"user_name": "fast_dog","likes": 9754,"content": "dog data 2"})",
+        R"({"user_name": "fast_dog","likes": 576,"content": "dog data 3"})"
     };
     for (auto const& json: json_lines){
         auto add_op = update_docs_collection->add(json);
@@ -2557,8 +2559,9 @@ TEST_F(CollectionTest, UpdateDocuments) {
 
     auto res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
     ASSERT_EQ(2, res["hits"].size());
-    ASSERT_EQ("fat_cat", res["hits"][0]["document"]["user_name"].get<std::string>());
-    ASSERT_EQ("fat_cat", res["hits"][1]["document"]["user_name"].get<std::string>());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fat_cat", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
 
     nlohmann::json document;
     document["user_name"] = "slim_cat";
@@ -2570,8 +2573,27 @@ TEST_F(CollectionTest, UpdateDocuments) {
 
     res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
     ASSERT_EQ(2, res["hits"].size());
-    ASSERT_EQ("slim_cat", res["hits"][0]["document"]["user_name"].get<std::string>());
-    ASSERT_EQ("slim_cat", res["hits"][1]["document"]["user_name"].get<std::string>());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("slim_cat", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    // Test batching
+    res = update_docs_collection->search("dog data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(3, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fast_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    document["user_name"] = "lazy_dog";
+    update_op = update_docs_collection->update_matching_filter("user_name:=fast_dog", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(3, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("dog data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(3, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("lazy_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
 
     collectionManager.drop_collection("update_docs_collection");
 }

@@ -372,7 +372,8 @@ public:
 
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
-                                                  std::string& req_dirty_values);
+                                                  std::string& req_dirty_values,
+                                                  const int batch_size = 1000);
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & filter_query, const std::vector<std::string> & facet_fields,
