@@ -697,6 +697,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
     const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
 
+    const char *TEXT_MATCH_TYPE = "text_match_type";
+
     const char *ENABLE_HIGHLIGHT_V1 = "enable_highlight_v1";
 
     // enrich params with values from embedded params
@@ -776,6 +778,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
+    text_match_type_t match_type;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -858,6 +861,13 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 if(enable_op.has_value()) {
                     split_join_tokens = enable_op.value();
                 }
+            }
+        }
+
+        else if(key == TEXT_MATCH_TYPE) {
+            auto match_op = magic_enum::enum_cast<text_match_type_t>(val);
+            if(match_op.has_value()) {
+                match_type = match_op.value();
             }
         }
 

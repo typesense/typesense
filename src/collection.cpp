@@ -868,7 +868,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const bool prioritize_token_position,
                                   const std::string& vector_query_str,
                                   const bool enable_highlight_v1,
-                                  const uint64_t search_time_start_us) const {
+                                  const uint64_t search_time_start_us,
+                                  const text_match_type_t match_type) const {
 
     std::shared_lock lock(mutex);
 
@@ -1297,6 +1298,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     size_t index_id = 0;
     search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
+                                                 match_type,
                                                  filter_tree_root, facets, included_ids, excluded_ids,
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                  per_page, page, token_order, prefixes,

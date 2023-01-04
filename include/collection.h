@@ -410,7 +410,8 @@ public:
                                   const bool prioritize_token_position = false,
                                   const std::string& vector_query_str = "",
                                   const bool enable_highlight_v1 = true,
-                                  const uint64_t search_time_start_us = 0) const;
+                                  const uint64_t search_time_start_us = 0,
+                                  const text_match_type_t match_type = max_score) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);
