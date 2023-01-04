@@ -31,47 +31,14 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
         }
     }
     // get wildcard rules
-    if(rate_limit_entities.count(rate_limit_entity_t{RateLimitedEntityType::ip, ".*"}) > 0) {
-        std::copy_if(rate_limit_entities.at(rate_limit_entity_t{RateLimitedEntityType::ip, ".*"}).begin(), rate_limit_entities.at(rate_limit_entity_t{RateLimitedEntityType::ip, ".*"}).end(), std::back_inserter(rules_bucket), [&](rate_limit_rule_t* rule) {
-            return std::find_if(rule->entities.begin(), rule->entities.end(), [](const rate_limit_entity_t& entity) {
-                return entity.entity_type == RateLimitedEntityType::api_key;
-            }) == rule->entities.end() || std::find_if(rule->entities.begin(), rule->entities.end(), [&](const rate_limit_entity_t& entity) {
-                return entity.entity_type == RateLimitedEntityType::api_key && (entity.entity_id == ".*" || entity.entity_id == api_key_entity.entity_id);
-        }) != rule->entities.end();
-        });
-    }
-
-    if(rate_limit_entities.count(rate_limit_entity_t{RateLimitedEntityType::api_key, ".*"}) > 0) {
-        std::copy_if(rate_limit_entities.at(rate_limit_entity_t{RateLimitedEntityType::api_key, ".*"}).begin(), rate_limit_entities.at(rate_limit_entity_t{RateLimitedEntityType::api_key, ".*"}).end(), std::back_inserter(rules_bucket), [&](rate_limit_rule_t* rule) {
-            return std::find_if(rule->entities.begin(), rule->entities.end(), [](const rate_limit_entity_t& entity) {
-                return entity.entity_type == RateLimitedEntityType::ip;
-            }) == rule->entities.end() || std::find_if(rule->entities.begin(), rule->entities.end(), [&](const rate_limit_entity_t& entity) {
-                return entity.entity_type == RateLimitedEntityType::ip && (entity.entity_id == ".*" || entity.entity_id == ip_entity.entity_id);
-        }) != rule->entities.end();
-        });
-    }
+    fill_bucket(rate_limit_entity_t{RateLimitedEntityType::ip, ".*"}, api_key_entity, rules_bucket);
+    fill_bucket(rate_limit_entity_t{RateLimitedEntityType::api_key, ".*"}, ip_entity, rules_bucket);
 
     // get rules for the IP entity
-    if(rate_limit_entities.count(ip_entity) > 0) {
-        std::copy_if(rate_limit_entities.at(ip_entity).begin(), rate_limit_entities.at(ip_entity).end(), std::back_inserter(rules_bucket), [&](rate_limit_rule_t* rule) {
-            return std::find_if(rule->entities.begin(), rule->entities.end(), [](const rate_limit_entity_t& entity) {
-                return entity.entity_type == RateLimitedEntityType::api_key;
-            }) == rule->entities.end() || std::find_if(rule->entities.begin(), rule->entities.end(), [&](const rate_limit_entity_t& entity) {
-                return entity.entity_type == RateLimitedEntityType::api_key && (entity.entity_id == ".*" || entity.entity_id == api_key_entity.entity_id);
-        }) != rule->entities.end();
-        });
-    }
+    fill_bucket(ip_entity, api_key_entity, rules_bucket);
 
     // get rules for the API key entity
-    if(rate_limit_entities.count(api_key_entity) > 0) {
-        std::copy_if(rate_limit_entities.at(api_key_entity).begin(), rate_limit_entities.at(api_key_entity).end(), std::back_inserter(rules_bucket), [&](rate_limit_rule_t* rule) {
-            return std::find_if(rule->entities.begin(), rule->entities.end(), [](const rate_limit_entity_t& entity) {
-                return entity.entity_type == RateLimitedEntityType::ip;
-            }) == rule->entities.end() || std::find_if(rule->entities.begin(), rule->entities.end(), [&](const rate_limit_entity_t& entity) {
-                return entity.entity_type == RateLimitedEntityType::ip && (entity.entity_id == ".*" || entity.entity_id == ip_entity.entity_id);
-        }) != rule->entities.end();
-        });
-    }
+    fill_bucket(api_key_entity, ip_entity, rules_bucket);
 
     if(rules_bucket.empty()) {
         return false;
@@ -429,14 +396,20 @@ Option<bool> RateLimitManager::is_valid_rule(const nlohmann::json &rule_json) {
     if(rule_json.count("apply_limit_per_entity") > 0 && rule_json["apply_limit_per_entity"].is_boolean() == false) {
         return Option<bool>(400, "Parameter `apply_limit_per_entity` must be a boolean.");
     }
-    if((rule_json.count("ip_addresses") == 0 && rule_json.count("api_keys") == 0) || (rule_json.count("ip_addresses") > 1 && rule_json.count("api_keys") > 1)) {
-            return Option<bool>(400, "Invalid combination of `ip_addresses` and `api_keys`.");
+    if((rule_json.count("ip_addresses") == 0 && rule_json.count("api_keys") == 0)) {
+        return Option<bool>(400, "Parameter `ip_addresses` or `api_keys` is required.");
     }
-    if(rule_json.count("ip_addresses") > 0 && !rule_json["ip_addresses"].is_array() && !rule_json["ip_addresses"][0].is_string()) {
+    if(rule_json.count("ip_addresses") > 0 && (!rule_json["ip_addresses"].is_array() || !rule_json["ip_addresses"][0].is_string())) {
         return Option<bool>(400, "Parameter `ip_addresses` must be an array of strings.");
     }
-    if(rule_json.count("api_keys") > 0 && !rule_json["api_keys"].is_array() && !rule_json["api_keys"][0].is_string()) {
+    if(rule_json.count("api_keys") > 0 && (!rule_json["api_keys"].is_array() || !rule_json["api_keys"][0].is_string())) {
         return Option<bool>(400, "Parameter `api_keys` must be an array of strings.");
+    }
+    if(rule_json.count("api_keys") > 0 && rule_json.count("ip_addresses") > 0 && rule_json["api_keys"].size() == 0 && rule_json["ip_addresses"].size() == 0) {
+        return Option<bool>(400, "Parameter `ip_addresses` or `api_keys` must have at least one value.");
+    }
+    if(rule_json.count("api_keys") > 0 && rule_json.count("ip_addresses") > 0 && rule_json["api_keys"].size() > 1 && rule_json["ip_addresses"].size() > 1) {
+        return Option<bool>(400, "Many to many rule is not supported.");
     }
     if(rule_json["action"].is_string() == false) {
         return Option<bool>(400, "Parameter `action` must be a string.");
@@ -449,10 +422,10 @@ Option<bool> RateLimitManager::is_valid_rule(const nlohmann::json &rule_json) {
         if(rule_json.count("max_requests_1m") == 0 && rule_json.count("max_requests_1h") == 0) {
             return Option<bool>(400, "At least  one of `max_requests_1m` or `max_requests_1h` is required.");
         }
-        if(rule_json.count("max_requests_1m") > 0 && rule_json["max_requests_1m"].is_number_integer() == false) {
+        if(rule_json.count("max_requests_1m") > 0 && !rule_json["max_requests_1m"].is_number_integer()) {
             return Option<bool>(400, "Parameter `max_requests_1m` must be an integer.");
         }
-        if(rule_json.count("max_requests_1h") > 0 && rule_json["max_requests_1h"].is_number_integer() == false) {
+        if(rule_json.count("max_requests_1h") > 0 && !rule_json["max_requests_1h"].is_number_integer()) {
             return Option<bool>(400, "Parameter `max_requests_1h` must be an integer.");
         }
         if((rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_hours") == 0) || (rule_json.count("auto_ban_threshold_num") == 0 && rule_json.count("auto_ban_num_hours") > 0)) {
@@ -681,4 +654,21 @@ bool RateLimitManager::delete_throttle_by_id(const uint64_t id) {
         return false;
     }
     return true;
+}
+
+void RateLimitManager::fill_bucket(const rate_limit_entity_t& target_entity, const rate_limit_entity_t& other_entity, std::vector<rate_limit_rule_t*> &rules_bucket) {
+    if(rate_limit_entities.count(target_entity) > 0) {
+        for(const auto& rule: rate_limit_entities[target_entity]) {
+            bool flag = true;
+            for(const auto& entity: rule->entities) {
+                if(entity.entity_type != target_entity.entity_type && entity.entity_id != ".*" && entity.entity_id != other_entity.entity_id) {
+                    flag = false;
+                    break;
+                }
+            }
+            if(flag) {
+                rules_bucket.push_back(rule);
+            }
+        }
+    }
 }

@@ -28,6 +28,16 @@ enum class RateLimitedEntityType {
     api_key
 };
 
+// overload operator! to get inverse of RateLimitedEntityType
+inline RateLimitedEntityType operator!(const RateLimitedEntityType& entity_type) {
+    switch (entity_type) {
+        case RateLimitedEntityType::ip:
+            return RateLimitedEntityType::api_key;
+        case RateLimitedEntityType::api_key:
+            return RateLimitedEntityType::ip;
+    }
+}
+
 // Max requests struct for rate limit rules
 struct rate_limit_max_requests_t {
     int64_t minute_threshold = -1;
@@ -270,6 +280,9 @@ class RateLimitManager
 
         // Helper function to get request counter key according to rule type
         static const std::string get_request_counter_key(const rate_limit_rule_t& rule, const rate_limit_entity_t& ip_entity, const rate_limit_entity_t& api_key_entity);
+
+        // Fill bucket rule for the given entity
+        void fill_bucket(const rate_limit_entity_t& target_entity, const rate_limit_entity_t& other_entity, std::vector<rate_limit_rule_t*> &rules_bucket);
 
         // Singleton instance
         inline static RateLimitManager *instance;

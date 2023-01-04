@@ -79,6 +79,7 @@ void master_server_routes() {
 
     server->get("/limits", get_rate_limits);
     server->get("/limits/active", get_active_throttles);
+    server->get("/limits/exceeds", get_limit_exceed_counts);
     server->get("/limits/:id", get_rate_limit);
     server->post("/limits", post_rate_limit);
     server->put("/limits/:id", put_rate_limit);

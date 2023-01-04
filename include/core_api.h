@@ -131,6 +131,8 @@ bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr
 
 bool get_active_throttles(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_limit_exceed_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 bool del_throttle(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Misc helpers

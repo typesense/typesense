@@ -1850,6 +1850,12 @@ bool del_throttle(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     return true;
 }
 
+bool get_limit_exceed_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    res->set_200(rateLimitManager->get_exceeded_entities_json().dump());
+    return true;
+}
+
 Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata) {
         // format <length of api_key>:<api_key><ip>
     // length of api_key is a uint32_t
