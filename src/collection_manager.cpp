@@ -306,10 +306,6 @@ bool CollectionManager::auth_key_matches(const string& req_auth_key, const strin
                                          std::vector<nlohmann::json>& embedded_params_vec) const {
     std::shared_lock lock(mutex);
 
-    if(req_auth_key.empty()) {
-        return false;
-    }
-
     // check with bootstrap auth key
     if(bootstrap_auth_key == req_auth_key) {
         return true;

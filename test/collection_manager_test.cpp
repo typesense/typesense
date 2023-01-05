@@ -768,6 +768,39 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     delete it;
 }
 
+TEST_F(CollectionManagerTest, AuthWithMultiSearchKeys) {
+    api_key_t key1("api_key", "some key", {"documents:create"}, {"foo"}, 64723363199);
+    collectionManager.getAuthManager().create_key(key1);
+
+    std::vector<collection_key_t> collection_keys = {
+        collection_key_t("foo", "api_key")
+    };
+
+    std::vector<nlohmann::json> embedded_params_vec = { nlohmann::json::object() };
+    std::map<std::string, std::string> params;
+
+    // empty req auth key (present in header / GET param)
+    ASSERT_TRUE(collectionManager.auth_key_matches("", "documents:create", collection_keys, params,
+                                                   embedded_params_vec));
+
+    // should work with bootstrap key
+    collection_keys = {
+        collection_key_t("foo", "auth_key")
+    };
+
+    ASSERT_TRUE(collectionManager.auth_key_matches("", "documents:create", collection_keys, params,
+                                                   embedded_params_vec));
+
+    // bad key
+
+    collection_keys = {
+        collection_key_t("foo", "")
+    };
+
+    ASSERT_FALSE(collectionManager.auth_key_matches("", "documents:create", collection_keys, params,
+                                                   embedded_params_vec));
+}
+
 TEST_F(CollectionManagerTest, Symlinking) {
     CollectionManager & cmanager = CollectionManager::get_instance();
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
