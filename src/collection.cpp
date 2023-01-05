@@ -407,6 +407,8 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
             docs_updated_count += res["num_imported"].get<size_t>();
             buffer.clear();
         }
+
+        delete [] filter_ids[0].second;
     }
 
     nlohmann::json resp_summary;
