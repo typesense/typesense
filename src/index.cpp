@@ -1256,6 +1256,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             const auto& facet_hashes = facet_hashes_it->second;
             const uint64_t distinct_id = group_limit ? get_distinct_id(group_by_fields, doc_seq_id) : 0;
 
+            if(((i + 1) % 16384) == 0) {
+                RETURN_CIRCUIT_BREAKER
+            }
+
             for(size_t j = 0; j < facet_hashes.size(); j++) {
                 auto fhash = facet_hashes.hashes[j];
 
@@ -2794,6 +2798,10 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
         size_t num_queued = 0;
         size_t result_index = 0;
 
+        const auto parent_search_begin = search_begin_us;
+        const auto parent_search_stop_ms = search_stop_us;
+        auto parent_search_cutoff = search_cutoff;
+
         //auto beginF = std::chrono::high_resolution_clock::now();
 
         for(size_t thread_id = 0; thread_id < num_threads && result_index < all_result_ids_len; thread_id++) {
@@ -2808,12 +2816,18 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
             thread_pool->enqueue([this, thread_id, &facet_batches, &facet_query, group_limit, group_by_fields,
                                          batch_result_ids, batch_res_len, &facet_infos,
+                                         &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                                          &num_processed, &m_process, &cv_process]() {
+                search_begin_us = parent_search_begin;
+                search_stop_us = parent_search_stop_ms;
+                search_cutoff = parent_search_cutoff;
+
                 auto fq = facet_query;
                 do_facets(facet_batches[thread_id], fq, facet_infos, group_limit, group_by_fields,
                           batch_result_ids, batch_res_len);
                 std::unique_lock<std::mutex> lock(m_process);
                 num_processed++;
+                parent_search_cutoff = parent_search_cutoff || search_cutoff;
                 cv_process.notify_one();
             });
 
@@ -2822,6 +2836,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
         std::unique_lock<std::mutex> lock_process(m_process);
         cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+        search_cutoff = parent_search_cutoff;
 
         for(auto& facet_batch: facet_batches) {
             for(size_t fi = 0; fi < facet_batch.size(); fi++) {
