@@ -2529,24 +2529,32 @@ TEST_F(CollectionTest, UpdateDocument) {
 }
 
 TEST_F(CollectionTest, UpdateDocuments) {
-    std::vector<field> fields = {
-            field("user_name", field_types::STRING, true),
-            field("likes", field_types::INT32, false),
-            field("content", field_types::STRING, false)
-    };
+    nlohmann::json schema = R"({
+        "name": "update_docs_collection",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "user_name", "type": "string", "facet": true},
+          {"name": "likes", "type": "int32"},
+          {"name": "content", "type": "object"}
+        ],
+        "default_sorting_field": "likes"
+    })"_json;
 
     Collection *update_docs_collection = collectionManager.get_collection("update_docs_collection").get();
     if (update_docs_collection == nullptr) {
-        update_docs_collection = collectionManager.create_collection("update_docs_collection", 1, fields, "likes").get();
+        auto op = CollectionManager::create_collection(schema);
+        ASSERT_TRUE(op.ok());
+        update_docs_collection = op.get();
     }
 
     std::vector<std::string> json_lines = {
-        R"({"user_name": "fat_cat","likes": 5215,"content": "cat data 1"})",
-        R"({"user_name": "fast_dog","likes": 273,"content": "dog data 1"})",
-        R"({"user_name": "fat_cat","likes": 2133,"content": "cat data 2"})",
-        R"({"user_name": "fast_dog","likes": 9754,"content": "dog data 2"})",
-        R"({"user_name": "fast_dog","likes": 576,"content": "dog data 3"})"
+        R"({"user_name": "fat_cat","likes": 5215,"content": {"title": "cat data 1", "body": "cd1"}})",
+        R"({"user_name": "fast_dog","likes": 273,"content": {"title": "dog data 1", "body": "dd1"}})",
+        R"({"user_name": "fat_cat","likes": 2133,"content": {"title": "cat data 2", "body": "cd2"}})",
+        R"({"user_name": "fast_dog","likes": 9754,"content": {"title": "dog data 2", "body": "dd2"}})",
+        R"({"user_name": "fast_dog","likes": 576,"content": {"title": "dog data 3", "body": "dd3"}})"
     };
+
     for (auto const& json: json_lines){
         auto add_op = update_docs_collection->add(json);
         if (!add_op.ok()) {

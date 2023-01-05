@@ -350,27 +350,23 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     buffer.reserve(batch_size);
 
     if (_filter_query == "*") {
+        // Get an iterator from rocksdb and iterate over all the documents present in the collection.
         std::string iter_upper_bound_key = get_seq_id_collection_prefix() + "`";
         auto iter_upper_bound = new rocksdb::Slice(iter_upper_bound_key);
         CollectionManager & collectionManager = CollectionManager::get_instance();
         const std::string seq_id_prefix = get_seq_id_collection_prefix();
-        rocksdb::Iterator* it = collectionManager.get_store()->scan(seq_id_prefix, iter_upper_bound);;
+        rocksdb::Iterator* it = collectionManager.get_store()->scan(seq_id_prefix, iter_upper_bound);
 
         while(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
             // Generate a batch of documents to be ingested by add_many.
             for (int buffer_counter = 0; buffer_counter < batch_size && it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0;) {
-                auto json_doc_str = it->value().ToString(); // document
+                auto json_doc_str = it->value().ToString();
                 it->Next();
                 nlohmann::json existing_document;
                 try {
                     existing_document = nlohmann::json::parse(json_doc_str);
                 } catch(...) {
-                    continue;
-                }
-
-                if(enable_nested_fields) {
-                    std::vector<field> flattened_fields;
-                    field::flatten_doc(existing_document, nested_fields, true, flattened_fields);
+                    continue; // Don't add into buffer.
                 }
 
                 update_document["id"] = existing_document["id"].get<std::string>();
@@ -393,14 +389,13 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
         }
 
         for (size_t i = 0; i < filter_ids[0].first;) {
-            // Generate a batch of documents to be ingested by add_many.
             for (int buffer_counter = 0; buffer_counter < batch_size && i < filter_ids[0].first;) {
                 uint32_t seq_id = *(filter_ids[0].second + i++);
                 nlohmann::json existing_document;
 
                 auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
                 if (!get_doc_op.ok()) {
-                    continue; // Don't add into buffer.
+                    continue;
                 }
 
                 update_document["id"] = existing_document["id"].get<std::string>();
