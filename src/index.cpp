@@ -2517,6 +2517,10 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
         if (!vector_query.field_name.empty()) {
             auto k = std::max<size_t>(vector_query.k, per_page * page);
+            if(vector_query.query_doc_given) {
+                // since we will omit the query doc from results
+                k++;
+            }
 
             VectorFilterFunctor filterFunctor(filter_ids, filter_ids_length);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
