@@ -2595,6 +2595,26 @@ TEST_F(CollectionTest, UpdateDocuments) {
         ASSERT_EQ("lazy_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
     }
 
+    // Test all document updation
+    res = update_docs_collection->search("*", {}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(5, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_NE(0, res["hits"][i]["document"]["likes"].get<int>());
+    }
+
+    document.erase("user_name");
+    document["likes"] = 0;
+
+    update_op = update_docs_collection->update_matching_filter("*", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(5, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("*", {}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(5, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ(0, res["hits"][i]["document"]["likes"].get<int>());
+    }
+
     collectionManager.drop_collection("update_docs_collection");
 }
 
