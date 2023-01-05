@@ -2603,6 +2603,26 @@ TEST_F(CollectionTest, UpdateDocuments) {
         ASSERT_EQ("lazy_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
     }
 
+    // Test nested fields updation
+    res = update_docs_collection->search("*", {}, "user_name:=slim_cat", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("cat data " + std::to_string(i + 1), res["hits"][i]["document"]["content"]["title"].get<std::string>());
+    }
+
+    document.clear();
+    document["content"]["title"] = "fancy cat title";
+
+    update_op = update_docs_collection->update_matching_filter("user_name:=slim_cat", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(2, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("*", {}, "user_name:=slim_cat", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fancy cat title", res["hits"][i]["document"]["content"]["title"].get<std::string>());
+    }
+
     // Test all document updation
     res = update_docs_collection->search("*", {}, "", {}, sort_fields, {0}, 10).get();
     ASSERT_EQ(5, res["hits"].size());
@@ -2610,7 +2630,7 @@ TEST_F(CollectionTest, UpdateDocuments) {
         ASSERT_NE(0, res["hits"][i]["document"]["likes"].get<int>());
     }
 
-    document.erase("user_name");
+    document.clear();
     document["likes"] = 0;
 
     update_op = update_docs_collection->update_matching_filter("*", document.dump(), dirty_values, 2);
