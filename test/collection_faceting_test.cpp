@@ -946,7 +946,8 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
         "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": false },
-          {"name": "company.num_employees", "type": "int32", "optional": false, "facet": true }
+          {"name": "company.num_employees", "type": "int32", "optional": false, "facet": true },
+          {"name": "companyRank", "type": "int32", "optional": false, "facet": true }
         ]
     })"_json;
 
@@ -956,12 +957,14 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
 
     auto doc1 = R"({
         "details": {"count": 1000},
-        "company": {"num_employees": 2000}
+        "company": {"num_employees": 2000},
+        "companyRank": 100
     })"_json;
 
     auto doc2 = R"({
         "details": {"count": 2000},
-        "company": {"num_employees": 2000}
+        "company": {"num_employees": 2000},
+        "companyRank": 101
     })"_json;
 
     ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
@@ -979,6 +982,13 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
     ASSERT_EQ("2000", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    // Nested wildcard faceting
+    std::vector<facet> wildcard_facets;
+    coll1->parse_facet("company.*", wildcard_facets);
+
+    ASSERT_EQ(1, wildcard_facets.size());
+    ASSERT_EQ("company.num_employees", wildcard_facets[0].field_name);
 }
 
 TEST_F(CollectionFacetingTest, FacetParseTest){
