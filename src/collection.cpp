@@ -357,9 +357,9 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
         const std::string seq_id_prefix = get_seq_id_collection_prefix();
         rocksdb::Iterator* it = collectionManager.get_store()->scan(seq_id_prefix, iter_upper_bound);
 
-        while(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
+        while(it->Valid()) {
             // Generate a batch of documents to be ingested by add_many.
-            for (int buffer_counter = 0; buffer_counter < batch_size && it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0;) {
+            for (int buffer_counter = 0; buffer_counter < batch_size && it->Valid();) {
                 auto json_doc_str = it->value().ToString();
                 it->Next();
                 nlohmann::json existing_document;
