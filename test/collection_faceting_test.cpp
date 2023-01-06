@@ -986,6 +986,8 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
             field("score", field_types::INT32, true),
             field("grade", field_types::INT32, true),
             field("rank", field_types::INT32, true),
+            field("range", field_types::INT32, true),
+            field("scale", field_types::INT32, false),
     };
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
@@ -1021,16 +1023,40 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_STREQ("score", normal_facets[0].field_name.c_str());
     ASSERT_STREQ("grade", normal_facets[1].field_name.c_str());
 
+    std::vector<std::string> wildcard_facet_fields {
+            "ran.*",
+            "sc*",
+    };
+    std::vector<facet> wildcard_facets;
+    for(const std::string & facet_field: wildcard_facet_fields) {
+        coll1->parse_facet(facet_field, wildcard_facets);
+    }
+    ASSERT_EQ(3, wildcard_facets.size());
+
+    ASSERT_EQ("rank", wildcard_facets[0].field_name);
+    ASSERT_EQ("range", wildcard_facets[1].field_name);
+    ASSERT_EQ("score", wildcard_facets[2].field_name);
+
+    wildcard_facets.clear();
+    coll1->parse_facet("*", wildcard_facets);
+
+    // Last field is not a facet.
+    ASSERT_EQ(fields.size() - 1, wildcard_facets.size());
+    for (size_t i = 0; i < wildcard_facets.size(); i++) {
+        LOG(INFO) << wildcard_facets[i].field_name;
+//        ASSERT_EQ(fields[i].name, wildcard_facets[i].field_name);
+    }
+
     std::vector<std::string> mixed_facet_fields {
             "score",
             "grade(A:[80, 100], B:[60, 80], C:[40, 60])",
-            "rank"
+            "ra*",
     };
     std::vector<facet> mixed_facets;
     for(const std::string & facet_field: mixed_facet_fields) {
         coll1->parse_facet(facet_field, mixed_facets);
     }
-    ASSERT_EQ(3, mixed_facets.size());
+    ASSERT_EQ(4, mixed_facets.size());
 
     ASSERT_STREQ("score", mixed_facets[0].field_name.c_str());
 
@@ -1039,6 +1065,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_GT(mixed_facets[1].facet_range_map.size(), 0);
 
     ASSERT_STREQ("rank", mixed_facets[2].field_name.c_str());
+    ASSERT_EQ("range", mixed_facets[3].field_name);
 }
 
 TEST_F(CollectionFacetingTest, RangeFacetTest) {
