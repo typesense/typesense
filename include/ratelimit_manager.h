@@ -125,6 +125,7 @@ struct rate_limit_status_t {
 
 // Struct to store how many requests made by exceeded rate limit entities
 struct rate_limit_exceed_t {
+    uint32_t rule_id;
     std::string entities;
     uint64_t request_count = 0;
 
@@ -132,6 +133,7 @@ struct rate_limit_exceed_t {
         nlohmann::json json;
         std::string api_key = entities.substr(0, entities.find("_"));
         std::string ip = entities.substr(entities.find("_") + 1);
+        json["id"] = rule_id;
         json["api_key"] = api_key;
         json["ip"] = ip;
         json["request_count"] = request_count;
@@ -182,8 +184,11 @@ class RateLimitManager
         // Delete rule by ID
         bool delete_rule_by_id(const uint64_t id);
 
+        // Delete ban by ID
+        bool delete_ban_by_id(const uint64_t id);
+
         // Delete throttle by ID
-        bool delete_throttle_by_id(const uint64_t id);
+        bool delete_throttle_by_id(const uint32_t id);
 
         // Get All rules as vector
         const std::vector<rate_limit_rule_t> get_all_rules();
@@ -229,6 +234,9 @@ class RateLimitManager
 
         // ID of latest added ban
         inline static uint32_t last_ban_id = 0;
+
+        // ID of latest added throttle
+        inline static uint32_t last_throttle_id = 0;
 
         // Store for rate_limit_rule_t
         std::unordered_map<uint64_t,rate_limit_rule_t> rule_store;

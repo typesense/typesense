@@ -1839,6 +1839,24 @@ bool del_throttle(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
         return false;
     }
     uint64_t id = std::stoull(req->params["id"]);
+    bool res_ = rateLimitManager->delete_ban_by_id(id);
+    if(!res_) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool del_exceed(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
+    uint64_t id = std::stoull(req->params["id"]);
     bool res_ = rateLimitManager->delete_throttle_by_id(id);
     if(!res_) {
         res->set_400("{\"message\": \"Invalid ID\"}");

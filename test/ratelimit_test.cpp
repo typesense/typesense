@@ -597,7 +597,7 @@ TEST_F(RateLimitManagerTest, TestMultiSearchRateLimiting) {
     EXPECT_EQ(res->status_code, 200);
 }
 
-TEST_F(RateLimitManagerTest, TestDeleteThrottleByID) {
+TEST_F(RateLimitManagerTest, TestDeleteBanByID) {
     manager->add_rule({
         {"action", "throttle"},
         {"ip_addresses", nlohmann::json::array({".*"})},
@@ -626,7 +626,7 @@ TEST_F(RateLimitManagerTest, TestDeleteThrottleByID) {
     EXPECT_EQ(throttles[0].count("throttling_from"), 1);
     EXPECT_EQ(throttles[0].count("throttling_to"), 1);
 
-    EXPECT_TRUE(manager->delete_throttle_by_id(throttles[0]["id"]));
+    EXPECT_TRUE(manager->delete_ban_by_id(throttles[0]["id"]));
     EXPECT_EQ(manager->get_throttled_entities_json().size(), 0);
 }
 
@@ -763,4 +763,30 @@ TEST_F(RateLimitManagerTest, TestOneToManyRule) {
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.2"}}));
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.2"}}));
     EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.2"}}));
+}
+
+TEST_F(RateLimitManagerTest, TestDeleteThrottleByID) {
+    manager->add_rule({
+        {"action", "throttle"},
+        {"ip_addresses", nlohmann::json::array({".*"})},
+        {"priority", 3},
+        {"max_requests_1m", 3},
+        {"max_requests_1h", -1},
+        {"apply_limit_per_entity", true}
+    });
+
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.1"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.1"}}));
+
+    auto exceeds = manager->get_exceeded_entities_json();
+    EXPECT_EQ(1, exceeds.size());
+    auto id = exceeds[0]["id"];
+    auto res = manager->delete_throttle_by_id(id);
+    EXPECT_TRUE(res);
+    exceeds = manager->get_exceeded_entities_json();
+    EXPECT_EQ(0, exceeds.size());
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.1"}}));
+
 }

@@ -113,7 +113,7 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
         bool auto_ban_is_enabled = (rule.auto_ban_threshold_num > 0 && rule.auto_ban_num_hours > 0);
         // If key is not in exceed map that means, it is a new exceed, not a continued exceed
         if(rate_limit_exceeds.count(request_counter_key) == 0) {
-            rate_limit_exceeds.insert({request_counter_key, rate_limit_exceed_t{request_counter_key, 1}});
+            rate_limit_exceeds.insert({request_counter_key, rate_limit_exceed_t{last_throttle_id++, request_counter_key, 1}});
             request_counts.threshold_exceed_count_minute++;
         } else {
             // else it is a continued exceed, so just increment the request count
@@ -131,7 +131,7 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
     current_rate_for_hour += request_counts.current_requests_count_hour;
     if(rule.max_requests.hour_threshold >= 0 && current_rate_for_hour >= rule.max_requests.hour_threshold) {
         if(rate_limit_exceeds.count(request_counter_key) == 0) {
-            rate_limit_exceeds.insert({request_counter_key, rate_limit_exceed_t{request_counter_key, 1}});
+            rate_limit_exceeds.insert({request_counter_key, rate_limit_exceed_t{last_throttle_id++, request_counter_key, 1}});
         } else {
             rate_limit_exceeds[request_counter_key].request_count++;
         }
@@ -638,7 +638,7 @@ const nlohmann::json RateLimitManager::get_throttled_entities_json() {
     return throttled_entities_json;
 }
 
-bool RateLimitManager::delete_throttle_by_id(const uint64_t id) {
+bool RateLimitManager::delete_ban_by_id(const uint64_t id) {
     std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
     std::string ban_key = get_ban_key(id);
     bool deleted = store->remove(ban_key);
@@ -672,3 +672,23 @@ void RateLimitManager::fill_bucket(const rate_limit_entity_t& target_entity, con
         }
     }
 }
+
+bool RateLimitManager::delete_throttle_by_id(const uint32_t id) {
+    std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
+    bool flag = false;
+    decltype(rate_limit_exceeds)::iterator iterator;
+    for(auto it = rate_limit_exceeds.begin(); it != rate_limit_exceeds.end(); it++) {
+        if(it->second.rule_id == id) {
+            flag = true;
+            iterator = it;
+            break;
+        }
+    }
+    if(!flag) {
+        return false;
+    }
+    rate_limit_request_counts.erase(iterator->first);
+    rate_limit_exceeds.erase(iterator);
+    return true;
+}
+

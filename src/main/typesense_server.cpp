@@ -85,6 +85,7 @@ void master_server_routes() {
     server->put("/limits/:id", put_rate_limit);
     server->del("/limits/:id", del_rate_limit);
     server->del("/limits/active/:id", del_throttle);
+    server->del("/limits/exceeds/:id", del_exceed);
     server->post("/config", post_config, false, false);
 }
 
