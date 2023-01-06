@@ -2528,6 +2528,124 @@ TEST_F(CollectionTest, UpdateDocument) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, UpdateDocuments) {
+    nlohmann::json schema = R"({
+        "name": "update_docs_collection",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "user_name", "type": "string", "facet": true},
+          {"name": "likes", "type": "int32"},
+          {"name": "content", "type": "object"}
+        ],
+        "default_sorting_field": "likes"
+    })"_json;
+
+    Collection *update_docs_collection = collectionManager.get_collection("update_docs_collection").get();
+    if (update_docs_collection == nullptr) {
+        auto op = CollectionManager::create_collection(schema);
+        ASSERT_TRUE(op.ok());
+        update_docs_collection = op.get();
+    }
+
+    std::vector<std::string> json_lines = {
+        R"({"user_name": "fat_cat","likes": 5215,"content": {"title": "cat data 1", "body": "cd1"}})",
+        R"({"user_name": "fast_dog","likes": 273,"content": {"title": "dog data 1", "body": "dd1"}})",
+        R"({"user_name": "fat_cat","likes": 2133,"content": {"title": "cat data 2", "body": "cd2"}})",
+        R"({"user_name": "fast_dog","likes": 9754,"content": {"title": "dog data 2", "body": "dd2"}})",
+        R"({"user_name": "fast_dog","likes": 576,"content": {"title": "dog data 3", "body": "dd3"}})"
+    };
+
+    for (auto const& json: json_lines){
+        auto add_op = update_docs_collection->add(json);
+        if (!add_op.ok()) {
+            std::cout << add_op.error() << std::endl;
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("likes", "DESC") };
+
+    auto res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fat_cat", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    nlohmann::json document;
+    document["user_name"] = "slim_cat";
+    std::string dirty_values;
+
+    auto update_op = update_docs_collection->update_matching_filter("user_name:=fat_cat", document.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(2, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("slim_cat", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    // Test batching
+    res = update_docs_collection->search("dog data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(3, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fast_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    document["user_name"] = "lazy_dog";
+    update_op = update_docs_collection->update_matching_filter("user_name:=fast_dog", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(3, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("dog data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(3, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("lazy_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    // Test nested fields updation
+    res = update_docs_collection->search("*", {}, "user_name:=slim_cat", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("cat data " + std::to_string(i + 1), res["hits"][i]["document"]["content"]["title"].get<std::string>());
+    }
+
+    document.clear();
+    document["content"]["title"] = "fancy cat title";
+
+    update_op = update_docs_collection->update_matching_filter("user_name:=slim_cat", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(2, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("*", {}, "user_name:=slim_cat", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fancy cat title", res["hits"][i]["document"]["content"]["title"].get<std::string>());
+    }
+
+    // Test all document updation
+    res = update_docs_collection->search("*", {}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(5, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_NE(0, res["hits"][i]["document"]["likes"].get<int>());
+    }
+
+    document.clear();
+    document["likes"] = 0;
+
+    update_op = update_docs_collection->update_matching_filter("*", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(5, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("*", {}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(5, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ(0, res["hits"][i]["document"]["likes"].get<int>());
+    }
+
+    collectionManager.drop_collection("update_docs_collection");
+}
+
 TEST_F(CollectionTest, UpdateDocumentSorting) {
     Collection *coll1;
 

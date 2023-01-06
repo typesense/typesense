@@ -513,7 +513,7 @@ struct filter {
                                                     std::string& processed_filter_val,
                                                     NUM_COMPARATOR& num_comparator);
 
-    static Option<bool> parse_filter_query(const std::string& simple_filter_query,
+    static Option<bool> parse_filter_query(const std::string& filter_query,
                                            const tsl::htrie_map<char, field>& search_schema,
                                            const Store* store,
                                            const std::string& doc_id_prefix,
