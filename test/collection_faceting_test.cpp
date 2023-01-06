@@ -1024,7 +1024,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_STREQ("grade", normal_facets[1].field_name.c_str());
 
     std::vector<std::string> wildcard_facet_fields {
-            "ran.*",
+            "ran*",
             "sc*",
     };
     std::vector<facet> wildcard_facets;
@@ -1042,9 +1042,22 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
 
     // Last field is not a facet.
     ASSERT_EQ(fields.size() - 1, wildcard_facets.size());
+
+    std::vector<std::string> expected;
+    expected.resize(fields.size() - 1);
+    std::transform(fields.begin(), fields.end() - 1, expected.begin(), [] (const field& f) -> string {
+        return f.name;
+    });
+    std::sort(expected.begin(), expected.end());
+
+    std::vector<std::string> result;
+    result.resize(wildcard_facets.size());
+    std::transform(wildcard_facets.begin(), wildcard_facets.end(), result.begin(), [] (const facet& f) -> string {
+        return f.field_name;
+    });
+    std::sort(result.begin(), result.end());
     for (size_t i = 0; i < wildcard_facets.size(); i++) {
-        LOG(INFO) << wildcard_facets[i].field_name;
-//        ASSERT_EQ(fields[i].name, wildcard_facets[i].field_name);
+        ASSERT_EQ(expected[i], result[i]);
     }
 
     std::vector<std::string> mixed_facet_fields {
