@@ -1579,6 +1579,27 @@ bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
         return false;
     }
 
+    // These checks should be inside `add_synonym` but older versions of Typesense wrongly persisted
+    // `root` as an array, so we have to do it here so that on-disk synonyms are loaded properly
+    if(syn_json.count("root") != 0 && !syn_json["root"].is_string()) {
+        res->set_400("Key `root` should be a string.");
+        return false;
+    }
+
+    if(syn_json.count("synonyms") && syn_json["synonyms"].is_array()) {
+        if(syn_json["synonyms"].empty()) {
+            res->set_400("Could not find a valid string array of `synonyms`");
+            return false;
+        }
+
+        for(const auto& synonym: syn_json["synonyms"]) {
+            if (!synonym.is_string() || synonym.empty()) {
+                res->set_400("Could not find a valid string array of `synonyms`");
+                return false;
+            }
+        }
+    }
+
     syn_json["id"] = synonym_id;
     Option<bool> upsert_op = collection->add_synonym(syn_json);
 

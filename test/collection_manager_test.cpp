@@ -406,13 +406,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     collection1->remove_override("deleted-rule");
 
     // make some synonym operation
-    synonym_t synonym1("id1", {"smart", "phone"}, {{"iphone"}});
-    synonym_t synonym2("id2", {"mobile", "phone"}, {{"samsung", "phone"}});
-    synonym_t synonym3("id3", {}, {{"football"}, {"foot", "ball"}});
-
-    ASSERT_TRUE(collection1->add_synonym(synonym1.to_view_json()).ok());
-    ASSERT_TRUE(collection1->add_synonym(synonym2.to_view_json()).ok());
-    ASSERT_TRUE(collection1->add_synonym(synonym3.to_view_json()).ok());
+    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
+    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id2", "root": "mobile phone", "synonyms": ["samsung phone"]})"_json).ok());
+    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id3", "synonyms": ["football", "foot ball"]})"_json).ok());
 
     collection1->remove_synonym("id2");
 
