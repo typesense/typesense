@@ -232,6 +232,9 @@ struct http_req {
 
     uint64_t start_ts;
 
+    // timestamp from the underlying http library
+    uint64_t conn_ts;
+
     std::mutex mcv;
     std::condition_variable cv;
     bool ready;
@@ -250,6 +253,8 @@ struct http_req {
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
+        conn_ts = start_ts;
+
     }
 
     http_req(h2o_req_t* _req, const std::string & http_method, const std::string & path_without_query, uint64_t route_hash,
@@ -263,12 +268,15 @@ struct http_req {
 
         if(_req != nullptr) {
             const auto& tv = _req->processed_at.at;
-            start_ts = (tv.tv_sec * 1000 * 1000) + tv.tv_usec;
+            conn_ts = (tv.tv_sec * 1000 * 1000) + tv.tv_usec;
             is_http_v1 = (_req->version < 0x200);
         } else {
-            start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count();
+            conn_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
         }
+
+        start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
     }
 
     ~http_req() {

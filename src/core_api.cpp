@@ -377,7 +377,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
-                                                          results_json_str, req->start_ts);
+                                                          results_json_str, req->conn_ts);
 
     if(!search_op.ok()) {
         res->set(search_op.code(), search_op.error());
@@ -525,7 +525,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         std::string results_json_str;
         Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
-                                                              results_json_str, req->start_ts);
+                                                              results_json_str, req->conn_ts);
 
         if(search_op.ok()) {
             response["results"].push_back(nlohmann::json::parse(results_json_str));
