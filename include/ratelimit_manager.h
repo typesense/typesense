@@ -170,7 +170,7 @@ class RateLimitManager
         const std::vector<rate_limit_status_t> get_banned_entities(const RateLimitedEntityType entity_type);
 
         // Check if request is rate limited for given entities
-        bool is_rate_limited(const std::vector<rate_limit_entity_t> &entities);
+        bool is_rate_limited(const rate_limit_entity_t& api_key_entity, const rate_limit_entity_t& ip_entity);
 
         // Add rule by JSON
         Option<nlohmann::json> add_rule(const nlohmann::json &rule_json);
@@ -228,6 +228,10 @@ class RateLimitManager
         // Prefix for bans
         static constexpr const char* BANS_NEXT_ID = "$RLBN";
         static constexpr const char* BANS_PREFIX = "$RLBP";
+
+        // Static instance of wildcard entities
+        inline static const rate_limit_entity_t WILDCARD_IP = rate_limit_entity_t{RateLimitedEntityType::ip, ".*"};
+        inline static const rate_limit_entity_t WILDCARD_API_KEY = rate_limit_entity_t{RateLimitedEntityType::api_key, ".*"};
 
         // ID of latest added rule 
         inline static uint32_t last_rule_id = 0;

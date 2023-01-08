@@ -509,7 +509,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         // Check rate limiting first before doing any search, don't want to waste time if we're rate limited
         for(size_t i = 0; i < searches.size(); i++) {
-            if(RateLimitManager::getInstance()->is_rate_limited({{RateLimitedEntityType::api_key, api_key_ip.first}, {RateLimitedEntityType::ip, api_key_ip.second}})) {
+            if(RateLimitManager::getInstance()->is_rate_limited({RateLimitedEntityType::api_key, api_key_ip.first}, {RateLimitedEntityType::ip, api_key_ip.second})) {
                 res->set(429, "Rate limit exceeded or blocked");
                 return false;
             }

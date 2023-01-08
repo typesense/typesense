@@ -7,7 +7,6 @@ RateLimitManager * RateLimitManager::getInstance() {
     if(!instance) {
         instance = new RateLimitManager();
     }
-
     return instance;
 }
 
@@ -17,22 +16,14 @@ void RateLimitManager::temp_ban_entity(const rate_limit_entity_t& entity, const 
     temp_ban_entity_wrapped(entity, number_of_hours);
 }
 
-bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &entities) {
+bool RateLimitManager::is_rate_limited(const rate_limit_entity_t& api_key_entity, const rate_limit_entity_t& ip_entity) {
     // lock mutex
     std::unique_lock<std::shared_mutex>lock(rate_limit_mutex);
-    rate_limit_entity_t ip_entity, api_key_entity;
     std::vector<rate_limit_rule_t*> rules_bucket;
 
-    for(const auto &entity : entities) {
-        if(entity.entity_type == RateLimitedEntityType::ip) {
-            ip_entity = entity;
-        } else if(entity.entity_type == RateLimitedEntityType::api_key) {
-            api_key_entity = entity;
-        }
-    }
     // get wildcard rules
-    fill_bucket(rate_limit_entity_t{RateLimitedEntityType::ip, ".*"}, api_key_entity, rules_bucket);
-    fill_bucket(rate_limit_entity_t{RateLimitedEntityType::api_key, ".*"}, ip_entity, rules_bucket);
+    fill_bucket(WILDCARD_IP, api_key_entity, rules_bucket);
+    fill_bucket(WILDCARD_API_KEY, ip_entity, rules_bucket);
 
     // get rules for the IP entity
     fill_bucket(ip_entity, api_key_entity, rules_bucket);
@@ -44,9 +35,9 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
         return false;
     }
 
-    // sort rules_bucket by priority in descending order
+    // sort rules_bucket by priority in ascending order
     std::sort(rules_bucket.begin(), rules_bucket.end(), [](rate_limit_rule_t* rule1, rate_limit_rule_t* rule2) {
-        return rule1->priority > rule2->priority;
+        return rule1->priority < rule2->priority;
     });
 
     // get the rule with the highest priority
@@ -122,7 +113,7 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
         // If auto ban is enabled, check if threshold is exceeded
         if(auto_ban_is_enabled) {
             if(request_counts.threshold_exceed_count_minute > rule.auto_ban_threshold_num) {
-                temp_ban_entity_wrapped(request_counter_key.substr(0, request_counter_key.find("_")) == ".*" ? rate_limit_entity_t{RateLimitedEntityType::api_key, ".*"} : api_key_entity, rule.auto_ban_num_hours, (request_counter_key.substr((request_counter_key.find("_") + 1)) == ".*" && !rule.apply_limit_per_entity) ? nullptr : &ip_entity);
+                temp_ban_entity_wrapped(request_counter_key.substr(0, request_counter_key.find("_")) == ".*" ? WILDCARD_API_KEY : api_key_entity, rule.auto_ban_num_hours, (request_counter_key.substr((request_counter_key.find("_") + 1)) == ".*" && !rule.apply_limit_per_entity) ? nullptr : &ip_entity);
             }
         } 
         return true;
@@ -164,14 +155,25 @@ bool RateLimitManager::delete_rule_by_id(const uint64_t id) {
     }
     // Check ifa rule exists for the given ID
     if(rule_store.count(id) > 0) {
-        auto rule = rule_store.at(id);
+        auto rule = &rule_store.at(id);
+        // Remove rule from rate limit rule pointer
+        for(auto& entity: rate_limit_entities) {
+            for(auto it = entity.second.begin(); it != entity.second.end(); ) {
+                if(*it == rule) {
+                    it = entity.second.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
         // Remove rule from rule store
         rule_store.erase(id);
-        // Remove rule from rate limit rule pointer
-        for(auto &entity : rate_limit_entities) {
-            std::remove_if(entity.second.begin(), entity.second.end(), [&rule](rate_limit_rule_t *rule_ptr) {
-                return rule_ptr->id == rule.id;
-            });
+        for(auto it = rate_limit_entities.begin(); it != rate_limit_entities.end(); ) {
+            if(it->second.empty()) {
+                it = rate_limit_entities.erase(it);
+            } else {
+                ++it;
+            }
         }
         return true;
     }
@@ -657,16 +659,26 @@ bool RateLimitManager::delete_ban_by_id(const uint64_t id) {
 }
 
 void RateLimitManager::fill_bucket(const rate_limit_entity_t& target_entity, const rate_limit_entity_t& other_entity, std::vector<rate_limit_rule_t*> &rules_bucket) {
-    if(rate_limit_entities.count(target_entity) > 0) {
+    if(rate_limit_entities.find(target_entity) != rate_limit_entities.end()) {
         for(const auto& rule: rate_limit_entities[target_entity]) {
-            bool flag = true;
+            // Skip if rule already exists in bucket
+            if(std::find(rules_bucket.begin(), rules_bucket.end(), rule) != rules_bucket.end()) {
+                continue;
+            }
+            // Add the rule only If:
+            // A. it has no entity with type of other_entity
+            // B. it has an entity with type of other_entity and it's value is equal to other_entity's value
+            // C. it has an entity with type of other_entity and it's value is equal to ".*"
+            bool has_other_entity = false;
             for(const auto& entity: rule->entities) {
-                if(entity.entity_type != target_entity.entity_type && entity.entity_id != ".*" && entity.entity_id != other_entity.entity_id) {
-                    flag = false;
-                    break;
+                if(entity.entity_type == other_entity.entity_type) {
+                    has_other_entity = true;
+                    if(entity.entity_id == other_entity.entity_id || entity.entity_id == ".*") {
+                        rules_bucket.push_back(rule);
+                    }
                 }
             }
-            if(flag) {
+            if(!has_other_entity) {
                 rules_bucket.push_back(rule);
             }
         }
