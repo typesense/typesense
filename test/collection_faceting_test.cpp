@@ -989,6 +989,13 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
 
     ASSERT_EQ(1, wildcard_facets.size());
     ASSERT_EQ("company.num_employees", wildcard_facets[0].field_name);
+
+    wildcard_facets.clear();
+    coll1->parse_facet("company*", wildcard_facets);
+
+    ASSERT_EQ(2, wildcard_facets.size());
+    ASSERT_EQ("company.num_employees", wildcard_facets[0].field_name);
+    ASSERT_EQ("companyRank", wildcard_facets[1].field_name);
 }
 
 TEST_F(CollectionFacetingTest, FacetParseTest){
