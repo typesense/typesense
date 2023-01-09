@@ -1622,8 +1622,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 }
             }
 
-            prune_doc(document, include_fields_full, exclude_fields_full);
             remove_flat_fields(document);
+            prune_doc(document, include_fields_full, exclude_fields_full);
 
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
@@ -3502,7 +3502,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
 }
 
 void Collection::remove_flat_fields(nlohmann::json& document) {
-    if(document.contains(".flat")) {
+    if(document.count(".flat") != 0) {
         for(const auto& flat_key: document[".flat"].get<std::vector<std::string>>()) {
             document.erase(flat_key);
         }

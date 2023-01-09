@@ -593,7 +593,7 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
     ASSERT_EQ("Could not find a field named `locations.foo.street` in the schema.", res_op.error());
 }
 
-TEST_F(CollectionNestedFieldsTest, IncludeExcludeFields) {
+TEST_F(CollectionNestedFieldsTest, IncludeExcludeFieldsPruning) {
     auto doc_str = R"({
         "company": {"name": "Nike Inc."},
         "employees": {
@@ -643,6 +643,36 @@ TEST_F(CollectionNestedFieldsTest, IncludeExcludeFields) {
     doc = nlohmann::json::parse(doc_str);
     Collection::prune_doc(doc, {"locations.address.city", "locations.address.products"}, {"locations.address.city"});
     ASSERT_EQ(R"({"locations":[{"address":{"products":["shoes","tshirts"]}},{"address":{"products":["sneakers","shoes"]}}]})", doc.dump());
+}
+
+TEST_F(CollectionNestedFieldsTest, IncludeFieldsSearch) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "name", "type": "object" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "name": {"first": "John", "last": "Smith"}
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {}, sort_fields, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, {"name.first"},
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(1, results["hits"][0]["document"].size());
+    ASSERT_EQ(1, results["hits"][0]["document"].count("name"));
+    ASSERT_EQ(1, results["hits"][0]["document"]["name"].size());
 }
 
 TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
