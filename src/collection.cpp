@@ -4270,7 +4270,18 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         a_facet.is_range_query = true;
 
         facets.emplace_back(std::move(a_facet));
-    } else {//normal facet
+    } else if (facet_field.find('*') != std::string::npos) { // Wildcard
+        // Trim * from the end.
+        auto prefix = facet_field.substr(0, facet_field.size() - 1);
+        auto pair = search_schema.equal_prefix_range(prefix);
+
+        // Collect the fields that match the prefix and are marked as facet.
+        for (auto field = pair.first; field != pair.second; field++) {
+            if (field->facet) {
+                facets.emplace_back(facet(field->name));
+            }
+        }
+   } else {//normal facet
         facets.emplace_back(facet(facet_field));
     }
 
