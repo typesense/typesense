@@ -1699,6 +1699,16 @@ TEST_F(CollectionSpecificMoreTest, WeightTakingPrecendeceOverMatch) {
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("1108091338752", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ(15, res["hits"][0]["text_match_info"]["best_field_weight"].get<size_t>());
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["fields_matched"].get<size_t>());
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
+
+    ASSERT_EQ("2211897868288", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ(14, res["hits"][1]["text_match_info"]["best_field_weight"].get<size_t>());
+    ASSERT_EQ(1, res["hits"][1]["text_match_info"]["fields_matched"].get<size_t>());
+    ASSERT_EQ(2, res["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
 }
 
 TEST_F(CollectionSpecificMoreTest, HighlightOnFieldNameWithDot) {

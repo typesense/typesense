@@ -213,7 +213,7 @@ private:
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids) const;
 
-    void populate_text_match_info(nlohmann::json& info, uint64_t match_score) const;
+    void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type) const;
 
     static void remove_flat_fields(nlohmann::json& document);
 
@@ -248,6 +248,8 @@ private:
                                            const std::string& fallback_field_type,
                                            bool enable_nested_fields,
                                            std::vector<field>& new_fields);
+
+    static uint64_t extract_bits(uint64_t value, unsigned lsb_offset, unsigned n);
 
 public:
 
