@@ -946,7 +946,8 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
         "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": false },
-          {"name": "company.num_employees", "type": "int32", "optional": false, "facet": true }
+          {"name": "company.num_employees", "type": "int32", "optional": false, "facet": true },
+          {"name": "companyRank", "type": "int32", "optional": false, "facet": true }
         ]
     })"_json;
 
@@ -956,12 +957,14 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
 
     auto doc1 = R"({
         "details": {"count": 1000},
-        "company": {"num_employees": 2000}
+        "company": {"num_employees": 2000},
+        "companyRank": 100
     })"_json;
 
     auto doc2 = R"({
         "details": {"count": 2000},
-        "company": {"num_employees": 2000}
+        "company": {"num_employees": 2000},
+        "companyRank": 101
     })"_json;
 
     ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
@@ -979,6 +982,20 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
     ASSERT_EQ("2000", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    // Nested wildcard faceting
+    std::vector<facet> wildcard_facets;
+    coll1->parse_facet("company.*", wildcard_facets);
+
+    ASSERT_EQ(1, wildcard_facets.size());
+    ASSERT_EQ("company.num_employees", wildcard_facets[0].field_name);
+
+    wildcard_facets.clear();
+    coll1->parse_facet("company*", wildcard_facets);
+
+    ASSERT_EQ(2, wildcard_facets.size());
+    ASSERT_EQ("company.num_employees", wildcard_facets[0].field_name);
+    ASSERT_EQ("companyRank", wildcard_facets[1].field_name);
 }
 
 TEST_F(CollectionFacetingTest, FacetParseTest){
@@ -986,6 +1003,8 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
             field("score", field_types::INT32, true),
             field("grade", field_types::INT32, true),
             field("rank", field_types::INT32, true),
+            field("range", field_types::INT32, true),
+            field("scale", field_types::INT32, false),
     };
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
@@ -1021,24 +1040,79 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
     ASSERT_STREQ("score", normal_facets[0].field_name.c_str());
     ASSERT_STREQ("grade", normal_facets[1].field_name.c_str());
 
+    std::vector<std::string> wildcard_facet_fields {
+            "ran*",
+            "sc*",
+    };
+    std::vector<facet> wildcard_facets;
+    for(const std::string & facet_field: wildcard_facet_fields) {
+        coll1->parse_facet(facet_field, wildcard_facets);
+    }
+
+    std::vector<std::string> wildcard_facet_names(3);
+    std::transform(wildcard_facets.begin(), wildcard_facets.end(), wildcard_facet_names.begin(), [] (const facet& f) {
+        return f.field_name;
+    });
+    std::sort(wildcard_facet_names.begin(), wildcard_facet_names.end());
+
+    ASSERT_EQ(3, wildcard_facet_names.size());
+
+    ASSERT_EQ("range", wildcard_facet_names[0]);
+    ASSERT_EQ("rank", wildcard_facet_names[1]);
+    ASSERT_EQ("score", wildcard_facet_names[2]);
+
+    wildcard_facets.clear();
+    coll1->parse_facet("*", wildcard_facets);
+
+    // Last field is not a facet.
+    ASSERT_EQ(fields.size() - 1, wildcard_facets.size());
+
+    std::vector<std::string> expected;
+    expected.resize(fields.size() - 1);
+    std::transform(fields.begin(), fields.end() - 1, expected.begin(), [] (const field& f) -> string {
+        return f.name;
+    });
+    std::sort(expected.begin(), expected.end());
+
+    std::vector<std::string> result;
+    result.resize(wildcard_facets.size());
+    std::transform(wildcard_facets.begin(), wildcard_facets.end(), result.begin(), [] (const facet& f) -> string {
+        return f.field_name;
+    });
+    std::sort(result.begin(), result.end());
+    for (size_t i = 0; i < wildcard_facets.size(); i++) {
+        ASSERT_EQ(expected[i], result[i]);
+    }
+
     std::vector<std::string> mixed_facet_fields {
             "score",
             "grade(A:[80, 100], B:[60, 80], C:[40, 60])",
-            "rank"
+            "ra*",
     };
+
     std::vector<facet> mixed_facets;
     for(const std::string & facet_field: mixed_facet_fields) {
         coll1->parse_facet(facet_field, mixed_facets);
     }
-    ASSERT_EQ(3, mixed_facets.size());
+    ASSERT_EQ(4, mixed_facets.size());
 
-    ASSERT_STREQ("score", mixed_facets[0].field_name.c_str());
+    std::vector<facet*> mixed_facets_ptr;
+    for(auto& f: mixed_facets) {
+        mixed_facets_ptr.push_back(&f);
+    }
 
-    ASSERT_STREQ("grade", mixed_facets[1].field_name.c_str());
-    ASSERT_TRUE(mixed_facets[1].is_range_query);
-    ASSERT_GT(mixed_facets[1].facet_range_map.size(), 0);
+    std::sort(mixed_facets_ptr.begin(), mixed_facets_ptr.end(), [](const facet* f1, const facet* f2) {
+        return f1->field_name < f2->field_name;
+    });
 
-    ASSERT_STREQ("rank", mixed_facets[2].field_name.c_str());
+    ASSERT_EQ("score", mixed_facets_ptr[3]->field_name);
+
+    ASSERT_EQ("grade", mixed_facets_ptr[0]->field_name);
+    ASSERT_TRUE(mixed_facets_ptr[0]->is_range_query);
+    ASSERT_GT(mixed_facets_ptr[0]->facet_range_map.size(), 0);
+
+    ASSERT_EQ("rank", mixed_facets_ptr[2]->field_name);
+    ASSERT_EQ("range", mixed_facets_ptr[1]->field_name);
 }
 
 TEST_F(CollectionFacetingTest, RangeFacetTest) {
@@ -1309,7 +1383,7 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 3, 3, 2, 2, false, "", true, 0, 10, 0).get();
+                             4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 10, 0).get();
 
     ASSERT_EQ(1000, res["found"].get<size_t>());
     ASSERT_EQ(1, res["facet_counts"].size());
@@ -1325,7 +1399,7 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                        4, {off}, 3, 3, 2, 2, false, "", true, 0, 10, 10000).get();
+                        4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 10, 10000).get();
 
     ASSERT_EQ(1000, res["found"].get<size_t>());
     ASSERT_EQ(1, res["facet_counts"].size());
@@ -1347,7 +1421,7 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
                                 spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                                4, {off}, 3, 3, 2, 2, false, "", true, 0, 200, 0);
+                                4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 200, 0);
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Value of `facet_sample_percent` must be less than 100.", res_op.error());

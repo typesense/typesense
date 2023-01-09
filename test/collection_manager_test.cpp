@@ -406,13 +406,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     collection1->remove_override("deleted-rule");
 
     // make some synonym operation
-    synonym_t synonym1("id1", {"smart", "phone"}, {{"iphone"}});
-    synonym_t synonym2("id2", {"mobile", "phone"}, {{"samsung", "phone"}});
-    synonym_t synonym3("id3", {}, {{"football"}, {"foot", "ball"}});
-
-    ASSERT_TRUE(collection1->add_synonym(synonym1.to_view_json()).ok());
-    ASSERT_TRUE(collection1->add_synonym(synonym2.to_view_json()).ok());
-    ASSERT_TRUE(collection1->add_synonym(synonym3.to_view_json()).ok());
+    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
+    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id2", "root": "mobile phone", "synonyms": ["samsung phone"]})"_json).ok());
+    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id3", "synonyms": ["football", "foot ball"]})"_json).ok());
 
     collection1->remove_synonym("id2");
 
@@ -766,6 +762,39 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     ASSERT_EQ(1, collectionManager.get_next_collection_id());
 
     delete it;
+}
+
+TEST_F(CollectionManagerTest, AuthWithMultiSearchKeys) {
+    api_key_t key1("api_key", "some key", {"documents:create"}, {"foo"}, 64723363199);
+    collectionManager.getAuthManager().create_key(key1);
+
+    std::vector<collection_key_t> collection_keys = {
+        collection_key_t("foo", "api_key")
+    };
+
+    std::vector<nlohmann::json> embedded_params_vec = { nlohmann::json::object() };
+    std::map<std::string, std::string> params;
+
+    // empty req auth key (present in header / GET param)
+    ASSERT_TRUE(collectionManager.auth_key_matches("", "documents:create", collection_keys, params,
+                                                   embedded_params_vec));
+
+    // should work with bootstrap key
+    collection_keys = {
+        collection_key_t("foo", "auth_key")
+    };
+
+    ASSERT_TRUE(collectionManager.auth_key_matches("", "documents:create", collection_keys, params,
+                                                   embedded_params_vec));
+
+    // bad key
+
+    collection_keys = {
+        collection_key_t("foo", "")
+    };
+
+    ASSERT_FALSE(collectionManager.auth_key_matches("", "documents:create", collection_keys, params,
+                                                   embedded_params_vec));
 }
 
 TEST_F(CollectionManagerTest, Symlinking) {

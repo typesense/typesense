@@ -322,6 +322,100 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     return resp_summary;
 }
 
+Option<nlohmann::json> Collection::update_matching_filter(const std::string& filter_query,
+                                                          const std::string & json_str,
+                                                          std::string& req_dirty_values,
+                                                          const int batch_size) {
+    auto _filter_query = filter_query;
+    StringUtils::trim(_filter_query);
+
+    if (_filter_query.empty()) {
+        nlohmann::json resp_summary;
+        resp_summary["num_updated"] = 0;
+        return Option(resp_summary);
+    }
+
+    const auto& dirty_values = parse_dirty_values_option(req_dirty_values);
+    size_t docs_updated_count;
+    nlohmann::json update_document, dummy;
+
+    try {
+        update_document = nlohmann::json::parse(json_str);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        return Option<nlohmann::json>(400, std::string("Bad JSON: ") + e.what());
+    }
+
+    std::vector<std::string> buffer;
+    buffer.reserve(batch_size);
+
+    if (_filter_query == "*") {
+        // Get an iterator from rocksdb and iterate over all the documents present in the collection.
+        std::string iter_upper_bound_key = get_seq_id_collection_prefix() + "`";
+        auto iter_upper_bound = new rocksdb::Slice(iter_upper_bound_key);
+        CollectionManager & collectionManager = CollectionManager::get_instance();
+        const std::string seq_id_prefix = get_seq_id_collection_prefix();
+        rocksdb::Iterator* it = collectionManager.get_store()->scan(seq_id_prefix, iter_upper_bound);
+
+        while(it->Valid()) {
+            // Generate a batch of documents to be ingested by add_many.
+            for (int buffer_counter = 0; buffer_counter < batch_size && it->Valid();) {
+                auto json_doc_str = it->value().ToString();
+                it->Next();
+                nlohmann::json existing_document;
+                try {
+                    existing_document = nlohmann::json::parse(json_doc_str);
+                } catch(...) {
+                    continue; // Don't add into buffer.
+                }
+
+                update_document["id"] = existing_document["id"].get<std::string>();
+                buffer.push_back(update_document.dump());
+                buffer_counter++;
+            }
+
+            auto res = add_many(buffer, dummy, index_operation_t::UPDATE, "", dirty_values);
+            docs_updated_count += res["num_imported"].get<size_t>();
+            buffer.clear();
+        }
+
+        delete iter_upper_bound;
+        delete it;
+    } else {
+        std::vector<std::pair<size_t, uint32_t*>> filter_ids;
+        auto filter_ids_op = get_filter_ids(_filter_query, filter_ids);
+        if(!filter_ids_op.ok()) {
+            return Option<nlohmann::json>(filter_ids_op.code(), filter_ids_op.error());
+        }
+
+        for (size_t i = 0; i < filter_ids[0].first;) {
+            for (int buffer_counter = 0; buffer_counter < batch_size && i < filter_ids[0].first;) {
+                uint32_t seq_id = *(filter_ids[0].second + i++);
+                nlohmann::json existing_document;
+
+                auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), existing_document);
+                if (!get_doc_op.ok()) {
+                    continue;
+                }
+
+                update_document["id"] = existing_document["id"].get<std::string>();
+                buffer.push_back(update_document.dump());
+                buffer_counter++;
+            }
+
+            auto res = add_many(buffer, dummy, index_operation_t::UPDATE, "", dirty_values);
+            docs_updated_count += res["num_imported"].get<size_t>();
+            buffer.clear();
+        }
+
+        delete [] filter_ids[0].second;
+    }
+
+    nlohmann::json resp_summary;
+    resp_summary["num_updated"] = docs_updated_count;
+    return Option(resp_summary);
+}
+
 bool Collection::is_exceeding_memory_threshold() const {
     return SystemMetrics::used_memory_ratio() > max_memory_ratio;
 }
@@ -870,6 +964,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const std::string& vector_query_str,
                                   const bool enable_highlight_v1,
                                   const uint64_t search_time_start_us,
+                                  const text_match_type_t match_type,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold) const {
 
@@ -1304,6 +1399,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     size_t index_id = 0;
     search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
+                                                 match_type,
                                                  filter_tree_root, facets, included_ids, excluded_ids,
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                  per_page, page, token_order, prefixes,
@@ -1614,8 +1710,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 }
             }
 
-            prune_doc(document, include_fields_full, exclude_fields_full);
             remove_flat_fields(document);
+            prune_doc(document, include_fields_full, exclude_fields_full);
 
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
@@ -1627,7 +1723,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
                 wrapper_doc["text_match_info"] = nlohmann::json::object();
                 populate_text_match_info(wrapper_doc["text_match_info"],
-                                         field_order_kv->scores[field_order_kv->match_score_index]);
+                                         field_order_kv->scores[field_order_kv->match_score_index], match_type);
             }
 
             nlohmann::json geo_distances;
@@ -1660,6 +1756,13 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     
     // populate facets
     for(facet & a_facet: facets) {
+        // check for search cutoff elapse
+        if((std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().
+            time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+            search_cutoff = true;
+            break;
+        }
+
         nlohmann::json facet_result = nlohmann::json::object();
         facet_result["field_name"] = a_facet.field_name;
         facet_result["sampled"] = a_facet.sampled;
@@ -1925,18 +2028,44 @@ void Collection::process_search_field_weights(const std::vector<std::string>& ra
     }
 }
 
-void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_score) const {
-    // [ sign | tokens_matched | best_field_score | best_field_weight | num_field_matches ]
-    // [  1   |       4        |        48       |       8            |         3         ]  (64 bits)
+// lsb_offset is zero-based and inclusive
+uint64_t Collection::extract_bits(uint64_t value, unsigned lsb_offset, unsigned n) {
+    const uint64_t max_n = CHAR_BIT * sizeof(uint64_t);
+    if (lsb_offset >= max_n) {
+        return 0;
+    }
+    value >>= lsb_offset;
+    if (n >= max_n) {
+        return value;
+    }
+    const uint64_t mask = ((uint64_t(1)) << n) - 1; /* n '1's */
+    return value & mask;
+}
 
-    // 0 0001 000000000010000000111111111011001000000000100000 00000110 011
+void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_score,
+                                          const text_match_type_t match_type) const {
+
+    // MAX_SCORE
+    // [ sign | tokens_matched | max_field_score | max_field_weight | num_matching_fields ]
+    // [   1  |        4       |        48       |       8          |         3           ]  (64 bits)
+
+    // MAX_WEIGHT
+    // [ sign | tokens_matched | max_field_weight | max_field_score  | num_matching_fields ]
+    // [   1  |        4       |        8         |      48          |         3           ]  (64 bits)
 
     info["score"] = std::to_string(match_score);
 
-    info["tokens_matched"] = (match_score >> 59);
-    info["best_field_score"] = std::to_string((match_score << 5) >> (8 + 3 + 5));
-    info["best_field_weight"] = ((match_score << 53) >> (3 + 53));
-    info["fields_matched"] = ((match_score << 61) >> (61));
+    if(match_type == max_score) {
+        info["tokens_matched"] = extract_bits(match_score, 59, 4);
+        info["best_field_score"] = std::to_string(extract_bits(match_score, 11, 48));
+        info["best_field_weight"] = extract_bits(match_score, 3, 8);
+        info["fields_matched"] = extract_bits(match_score, 0, 3);
+    } else {
+        info["tokens_matched"] = extract_bits(match_score, 59, 4);
+        info["best_field_weight"] = extract_bits(match_score, 51, 8);
+        info["best_field_score"] = std::to_string(extract_bits(match_score, 3, 48));
+        info["fields_matched"] = extract_bits(match_score, 0, 3);
+    }
 }
 
 void Collection::process_highlight_fields(const std::vector<search_field_t>& search_fields,
@@ -2225,13 +2354,13 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
     }
 }
 
-Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
-                                    std::vector<std::pair<size_t, uint32_t*>>& index_ids) {
+Option<bool> Collection::get_filter_ids(const std::string & filter_query,
+                                    std::vector<std::pair<size_t, uint32_t*>>& index_ids) const {
     std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query(simple_filter_query, search_schema,
+    Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                         store, doc_id_prefix, filter_tree_root);
 
     if(!filter_op.ok()) {
@@ -3456,7 +3585,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
 }
 
 void Collection::remove_flat_fields(nlohmann::json& document) {
-    if(document.contains(".flat")) {
+    if(document.count(".flat") != 0) {
         for(const auto& flat_key: document[".flat"].get<std::vector<std::string>>()) {
             document.erase(flat_key);
         }
@@ -4176,7 +4305,18 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         a_facet.is_range_query = true;
 
         facets.emplace_back(std::move(a_facet));
-    } else {//normal facet
+    } else if (facet_field.find('*') != std::string::npos) { // Wildcard
+        // Trim * from the end.
+        auto prefix = facet_field.substr(0, facet_field.size() - 1);
+        auto pair = search_schema.equal_prefix_range(prefix);
+
+        // Collect the fields that match the prefix and are marked as facet.
+        for (auto field = pair.first; field != pair.second; field++) {
+            if (field->facet) {
+                facets.emplace_back(facet(field->name));
+            }
+        }
+   } else {//normal facet
         facets.emplace_back(facet(facet_field));
     }
 

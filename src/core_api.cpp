@@ -377,7 +377,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
-                                                          results_json_str, req->start_ts);
+                                                          results_json_str, req->conn_ts);
 
     if(!search_op.ok()) {
         res->set(search_op.code(), search_op.error());
@@ -525,7 +525,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         std::string results_json_str;
         Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
-                                                              results_json_str, req->start_ts);
+                                                              results_json_str, req->conn_ts);
 
         if(search_op.ok()) {
             response["results"].push_back(nlohmann::json::parse(results_json_str));
@@ -942,6 +942,38 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
 
     res->set_201(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
+}
+
+bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char *FILTER_BY = "filter_by";
+    std::string filter_query;
+    if(req->params.count(FILTER_BY) == 0) {
+        res->set_400("Parameter `" + std::string(FILTER_BY) + "` must be provided.");
+        return false;
+    } else {
+        filter_query = req->params[FILTER_BY];
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+    if(collection == nullptr) {
+        res->set_404();
+        return false;
+    }
+
+    const char* DIRTY_VALUES_PARAM = "dirty_values";
+    if(req->params.count(DIRTY_VALUES_PARAM) == 0) {
+        req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
+    }
+
+    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM]);
+    if(update_op.ok()) {
+        res->set_200(update_op.get().dump());
+    } else {
+        res->set(update_op.code(), update_op.error());
+    }
+
+    return update_op.ok();
 }
 
 bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -1577,6 +1609,27 @@ bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     if(!syn_json.is_object()) {
         res->set_400("Bad JSON.");
         return false;
+    }
+
+    // These checks should be inside `add_synonym` but older versions of Typesense wrongly persisted
+    // `root` as an array, so we have to do it here so that on-disk synonyms are loaded properly
+    if(syn_json.count("root") != 0 && !syn_json["root"].is_string()) {
+        res->set_400("Key `root` should be a string.");
+        return false;
+    }
+
+    if(syn_json.count("synonyms") && syn_json["synonyms"].is_array()) {
+        if(syn_json["synonyms"].empty()) {
+            res->set_400("Could not find a valid string array of `synonyms`");
+            return false;
+        }
+
+        for(const auto& synonym: syn_json["synonyms"]) {
+            if (!synonym.is_string() || synonym.empty()) {
+                res->set_400("Could not find a valid string array of `synonyms`");
+                return false;
+            }
+        }
     }
 
     syn_json["id"] = synonym_id;
