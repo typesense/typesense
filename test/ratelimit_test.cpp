@@ -53,8 +53,8 @@ TEST_F(RateLimitManagerTest, TestAddRateLimitApiKey) {
         {"api_keys", nlohmann::json::array({"test"})},
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
-        {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 10},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
 
@@ -67,8 +67,8 @@ TEST_F(RateLimitManagerTest, TestAddRateLimitIp) {
         {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
-        {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 10},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
     EXPECT_EQ(manager->get_all_rules().size(), 1);
@@ -88,8 +88,8 @@ TEST_F(RateLimitManagerTest, TestGetTrackedIps) {
         {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
-        {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 10},
+        {"auto_ban_1m_duration_hours", 1}
     });
     auto rules = manager->get_all_rules();
     bool found = rules[0].action == RateLimitAction::throttle && rules[0].max_requests.minute_threshold == 10 && rules[0].max_requests.hour_threshold == 100;
@@ -103,8 +103,8 @@ TEST_F(RateLimitManagerTest, TestGetTrackedApiKeys) {
         {"api_keys", nlohmann::json::array({"test"})},
         {"max_requests_1m", 10},
         {"max_requests_1h", 100},
-        {"auto_ban_threshold_num", 10},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 10},
+        {"auto_ban_1m_duration_hours", 1}
     });
     auto rules = manager->get_all_rules();
     bool found = rules[0].action == RateLimitAction::throttle && rules[0].max_requests.minute_threshold == 10 && rules[0].max_requests.hour_threshold == 100;
@@ -321,8 +321,8 @@ TEST_F(RateLimitManagerTest, TestAutoBan) {
         {"api_keys", nlohmann::json::array({"test"})},
         {"max_requests_1m", 5},
         {"max_requests_1h", -1},
-        {"auto_ban_threshold_num", 2},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 2},
+        {"auto_ban_1m_duration_hours", 1}
     });
     EXPECT_FALSE(manager->is_rate_limited({RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.1"}));
     EXPECT_FALSE(manager->is_rate_limited({RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.1"}));
@@ -524,8 +524,8 @@ TEST_F(RateLimitManagerTest, TestActiveThrottles) {
         {"priority", 3},
         {"max_requests_1m", 3},
         {"max_requests_1h", -1},
-        {"auto_ban_threshold_num", 1},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 1},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
     EXPECT_FALSE(manager->is_rate_limited({RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.1"}));
@@ -605,8 +605,8 @@ TEST_F(RateLimitManagerTest, TestDeleteBanByID) {
         {"max_requests_1m", 3},
         {"max_requests_1h", -1},
         {"apply_limit_per_entity", true},
-        {"auto_ban_threshold_num", 1},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 1},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
     EXPECT_FALSE(manager->is_rate_limited({RateLimitedEntityType::api_key, "test"}, {RateLimitedEntityType::ip, "0.0.0.1"}));
@@ -640,8 +640,8 @@ TEST_F(RateLimitManagerTest, TestInvalidRules) {
         {"max_requests_1m", 3},
         {"max_requests_1h", -1},
         {"apply_limit_per_entity", true},
-        {"auto_ban_threshold_num", 1},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 1},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
     EXPECT_FALSE(res.ok());
@@ -654,8 +654,8 @@ TEST_F(RateLimitManagerTest, TestInvalidRules) {
         {"max_requests_1m", 3},
         {"max_requests_1h", -1},
         {"apply_limit_per_entity", true},
-        {"auto_ban_threshold_num", 1},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 1},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
     EXPECT_FALSE(res.ok());
@@ -669,8 +669,8 @@ TEST_F(RateLimitManagerTest, TestInvalidRules) {
         {"max_requests_1m", 3},
         {"max_requests_1h", -1},
         {"apply_limit_per_entity", true},
-        {"auto_ban_threshold_num", 1},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 1},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
     EXPECT_FALSE(res.ok());
@@ -684,8 +684,8 @@ TEST_F(RateLimitManagerTest, TestInvalidRules) {
         {"max_requests_1m", 3},
         {"max_requests_1h", -1},
         {"apply_limit_per_entity", true},
-        {"auto_ban_threshold_num", 1},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 1},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
     EXPECT_FALSE(res.ok());
@@ -720,8 +720,8 @@ TEST_F(RateLimitManagerTest, TestInvalidRules) {
         {"max_requests_1m", 3},
         {"max_requests_1h", 3},
         {"apply_limit_per_entity", true},
-        {"auto_ban_threshold_num", 1},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 1},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
     EXPECT_FALSE(res.ok());
@@ -738,8 +738,8 @@ TEST_F(RateLimitManagerTest, TestOneToManyRule) {
         {"max_requests_1m", 2},
         {"max_requests_1h", -1},
         {"apply_limit_per_entity", true},
-        {"auto_ban_threshold_num", 1},
-        {"auto_ban_num_hours", 1}
+        {"auto_ban_1m_threshold", 1},
+        {"auto_ban_1m_duration_hours", 1}
     });
 
     EXPECT_FALSE(manager->is_rate_limited({RateLimitedEntityType::api_key, "test1"}, {RateLimitedEntityType::ip, "0.0.0.1"}));

@@ -62,8 +62,8 @@ struct rate_limit_rule_t {
     RateLimitAction action;
     std::vector<rate_limit_entity_t> entities;
     rate_limit_max_requests_t max_requests;
-    int64_t auto_ban_threshold_num = -1;
-    int64_t auto_ban_num_hours = -1;
+    int64_t auto_ban_1m_threshold = -1;
+    int64_t auto_ban_1m_duration_hours = -1;
     bool apply_limit_per_entity = false;
     uint32_t priority = 0;
 

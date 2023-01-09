@@ -101,7 +101,7 @@ bool RateLimitManager::is_rate_limited(const rate_limit_entity_t& api_key_entity
     auto current_rate_for_minute = (60 - (get_current_time() - request_counts.last_reset_time_minute)) / 60  * request_counts.previous_requests_count_minute;
     current_rate_for_minute += request_counts.current_requests_count_minute;
     if(rule.max_requests.minute_threshold >= 0 && current_rate_for_minute >= rule.max_requests.minute_threshold) {
-        bool auto_ban_is_enabled = (rule.auto_ban_threshold_num > 0 && rule.auto_ban_num_hours > 0);
+        bool auto_ban_is_enabled = (rule.auto_ban_1m_threshold > 0 && rule.auto_ban_1m_duration_hours > 0);
         // If key is not in exceed map that means, it is a new exceed, not a continued exceed
         if(rate_limit_exceeds.count(request_counter_key) == 0) {
             rate_limit_exceeds.insert({request_counter_key, rate_limit_exceed_t{last_throttle_id++, request_counter_key, 1}});
@@ -112,8 +112,8 @@ bool RateLimitManager::is_rate_limited(const rate_limit_entity_t& api_key_entity
         }
         // If auto ban is enabled, check if threshold is exceeded
         if(auto_ban_is_enabled) {
-            if(request_counts.threshold_exceed_count_minute > rule.auto_ban_threshold_num) {
-                temp_ban_entity_wrapped(request_counter_key.substr(0, request_counter_key.find("_")) == ".*" ? WILDCARD_API_KEY : api_key_entity, rule.auto_ban_num_hours, (request_counter_key.substr((request_counter_key.find("_") + 1)) == ".*" && !rule.apply_limit_per_entity) ? nullptr : &ip_entity);
+            if(request_counts.threshold_exceed_count_minute > rule.auto_ban_1m_threshold) {
+                temp_ban_entity_wrapped(request_counter_key.substr(0, request_counter_key.find("_")) == ".*" ? WILDCARD_API_KEY : api_key_entity, rule.auto_ban_1m_duration_hours, (request_counter_key.substr((request_counter_key.find("_") + 1)) == ".*" && !rule.apply_limit_per_entity) ? nullptr : &ip_entity);
             }
         } 
         return true;
@@ -279,11 +279,11 @@ const nlohmann::json rate_limit_rule_t::to_json() const {
     if(max_requests.hour_threshold >= 0) {
         rule["max_requests"]["hour_threshold"] = max_requests.hour_threshold;
     }
-    if(auto_ban_threshold_num >= 0) {
-        rule["auto_ban_threshold_num"] = auto_ban_threshold_num;
+    if(auto_ban_1m_threshold >= 0) {
+        rule["auto_ban_1m_threshold"] = auto_ban_1m_threshold;
     }
-    if(auto_ban_num_hours >= 0) {
-        rule["auto_ban_num_hours"] = auto_ban_num_hours;
+    if(auto_ban_1m_duration_hours >= 0) {
+        rule["auto_ban_1m_duration_hours"] = auto_ban_1m_duration_hours;
     }
     if(!api_keys_json.empty()) {
         rule["api_keys"] = api_keys_json;
@@ -430,16 +430,16 @@ Option<bool> RateLimitManager::is_valid_rule(const nlohmann::json &rule_json) {
         if(rule_json.count("max_requests_1h") > 0 && !rule_json["max_requests_1h"].is_number_integer()) {
             return Option<bool>(400, "Parameter `max_requests_1h` must be an integer.");
         }
-        if((rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_hours") == 0) || (rule_json.count("auto_ban_threshold_num") == 0 && rule_json.count("auto_ban_num_hours") > 0)) {
-            return Option<bool>(400, "Both `auto_ban_threshold_num` and `auto_ban_num_hours` are required ifeither is specified.");
+        if((rule_json.count("auto_ban_1m_threshold") > 0 && rule_json.count("auto_ban_1m_duration_hours") == 0) || (rule_json.count("auto_ban_1m_threshold") == 0 && rule_json.count("auto_ban_1m_duration_hours") > 0)) {
+            return Option<bool>(400, "Both `auto_ban_1m_threshold` and `auto_ban_1m_duration_hours` are required ifeither is specified.");
 
         }
-        if(rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_hours") > 0) {
-            if(!rule_json["auto_ban_threshold_num"].is_number_integer() || !rule_json["auto_ban_num_hours"].is_number_integer()) {
-                return Option<bool>(400, "Parameters `auto_ban_threshold_num` and `auto_ban_num_hours` must be integers.");
+        if(rule_json.count("auto_ban_1m_threshold") > 0 && rule_json.count("auto_ban_1m_duration_hours") > 0) {
+            if(!rule_json["auto_ban_1m_threshold"].is_number_integer() || !rule_json["auto_ban_1m_duration_hours"].is_number_integer()) {
+                return Option<bool>(400, "Parameters `auto_ban_1m_threshold` and `auto_ban_1m_duration_hours` must be integers.");
             }
-            if(rule_json["auto_ban_threshold_num"].get<int>() < 0 || rule_json["auto_ban_num_hours"].get<int>() < 0) {
-                return Option<bool>(400, "Both `auto_ban_threshold_num` and `auto_ban_num_hours` must be greater than 0.");
+            if(rule_json["auto_ban_1m_threshold"].get<int>() < 0 || rule_json["auto_ban_1m_duration_hours"].get<int>() < 0) {
+                return Option<bool>(400, "Both `auto_ban_1m_threshold` and `auto_ban_1m_duration_hours` must be greater than 0.");
             }
         }
     } else {
@@ -468,9 +468,9 @@ Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rul
     if(rule_json.count("max_requests_1h") > 0) {
         new_rule.max_requests.hour_threshold = rule_json["max_requests_1h"];
     }
-    if(rule_json.count("auto_ban_threshold_num") > 0 && rule_json.count("auto_ban_num_hours") > 0) {
-        new_rule.auto_ban_threshold_num = rule_json["auto_ban_threshold_num"];
-        new_rule.auto_ban_num_hours = rule_json["auto_ban_num_hours"];
+    if(rule_json.count("auto_ban_1m_threshold") > 0 && rule_json.count("auto_ban_1m_duration_hours") > 0) {
+        new_rule.auto_ban_1m_threshold = rule_json["auto_ban_1m_threshold"];
+        new_rule.auto_ban_1m_duration_hours = rule_json["auto_ban_1m_duration_hours"];
     }
     if(rule_json.count("apply_limit_per_entity") > 0) {
         new_rule.apply_limit_per_entity = rule_json["apply_limit_per_entity"].get<bool>();
@@ -659,8 +659,11 @@ bool RateLimitManager::delete_ban_by_id(const uint64_t id) {
 }
 
 void RateLimitManager::fill_bucket(const rate_limit_entity_t& target_entity, const rate_limit_entity_t& other_entity, std::vector<rate_limit_rule_t*> &rules_bucket) {
-    if(rate_limit_entities.find(target_entity) != rate_limit_entities.end()) {
-        for(const auto& rule: rate_limit_entities[target_entity]) {
+    auto it = rate_limit_entities.find(target_entity);
+    if(it == rate_limit_entities.end()) {
+        return;
+    }
+    for(const auto& rule: it->second) {
             // Skip if rule already exists in bucket
             if(std::find(rules_bucket.begin(), rules_bucket.end(), rule) != rules_bucket.end()) {
                 continue;
@@ -680,7 +683,6 @@ void RateLimitManager::fill_bucket(const rate_limit_entity_t& target_entity, con
             }
             if(!has_other_entity) {
                 rules_bucket.push_back(rule);
-            }
         }
     }
 }
