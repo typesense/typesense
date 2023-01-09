@@ -354,6 +354,4 @@ TEST(TokenizerTest, ShouldTokenizeWithDifferentSymbolConfigs) {
     ASSERT_EQ("ความ", tokens[0]);
     ASSERT_EQ("เหลื่อม", tokens[1]);
     ASSERT_EQ("ล้ํา", tokens[2]);
-
-    LOG(INFO) << "here";
 }

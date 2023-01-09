@@ -306,10 +306,6 @@ bool CollectionManager::auth_key_matches(const string& req_auth_key, const strin
                                          std::vector<nlohmann::json>& embedded_params_vec) const {
     std::shared_lock lock(mutex);
 
-    if(req_auth_key.empty()) {
-        return false;
-    }
-
     // check with bootstrap auth key
     if(bootstrap_auth_key == req_auth_key) {
         return true;
@@ -697,6 +693,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
     const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
 
+    const char *TEXT_MATCH_TYPE = "text_match_type";
+
     const char *ENABLE_HIGHLIGHT_V1 = "enable_highlight_v1";
 
     const char *FACET_SAMPLE_PERCENT = "facet_sample_percent";
@@ -778,6 +776,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
+    text_match_type_t match_type;
 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
@@ -865,6 +864,13 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 if(enable_op.has_value()) {
                     split_join_tokens = enable_op.value();
                 }
+            }
+        }
+
+        else if(key == TEXT_MATCH_TYPE) {
+            auto match_op = magic_enum::enum_cast<text_match_type_t>(val);
+            if(match_op.has_value()) {
+                match_type = match_op.value();
             }
         }
 
@@ -998,6 +1004,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           vector_query,
                                                           enable_highlight_v1,
                                                           start_ts,
+                                                          match_type,
                                                           facet_sample_percent,
                                                           facet_sample_threshold
                                                         );

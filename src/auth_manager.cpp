@@ -153,6 +153,14 @@ bool AuthManager::authenticate(const std::string& action,
     size_t num_keys_matched = 0;
     for(size_t i = 0; i < collection_keys.size(); i++) {
         const auto& coll_key = collection_keys[i];
+        if(coll_key.api_key.empty()) {
+            return false;
+        }
+
+        if(coll_key.api_key == bootstrap_auth_key) {
+            return true;
+        }
+
         const auto& key_it = api_keys.find(coll_key.api_key);
         nlohmann::json embedded_params;
 

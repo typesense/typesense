@@ -964,6 +964,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const std::string& vector_query_str,
                                   const bool enable_highlight_v1,
                                   const uint64_t search_time_start_us,
+                                  const text_match_type_t match_type,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold) const {
 
@@ -1398,6 +1399,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     size_t index_id = 0;
     search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
+                                                 match_type,
                                                  filter_tree_root, facets, included_ids, excluded_ids,
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                  per_page, page, token_order, prefixes,
@@ -1708,8 +1710,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 }
             }
 
-            prune_doc(document, include_fields_full, exclude_fields_full);
             remove_flat_fields(document);
+            prune_doc(document, include_fields_full, exclude_fields_full);
 
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
@@ -1721,7 +1723,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
                 wrapper_doc["text_match_info"] = nlohmann::json::object();
                 populate_text_match_info(wrapper_doc["text_match_info"],
-                                         field_order_kv->scores[field_order_kv->match_score_index]);
+                                         field_order_kv->scores[field_order_kv->match_score_index], match_type);
             }
 
             nlohmann::json geo_distances;
@@ -1754,6 +1756,13 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     
     // populate facets
     for(facet & a_facet: facets) {
+        // check for search cutoff elapse
+        if((std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().
+            time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+            search_cutoff = true;
+            break;
+        }
+
         nlohmann::json facet_result = nlohmann::json::object();
         facet_result["field_name"] = a_facet.field_name;
         facet_result["sampled"] = a_facet.sampled;
@@ -2019,18 +2028,44 @@ void Collection::process_search_field_weights(const std::vector<std::string>& ra
     }
 }
 
-void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_score) const {
-    // [ sign | tokens_matched | best_field_score | best_field_weight | num_field_matches ]
-    // [  1   |       4        |        48       |       8            |         3         ]  (64 bits)
+// lsb_offset is zero-based and inclusive
+uint64_t Collection::extract_bits(uint64_t value, unsigned lsb_offset, unsigned n) {
+    const uint64_t max_n = CHAR_BIT * sizeof(uint64_t);
+    if (lsb_offset >= max_n) {
+        return 0;
+    }
+    value >>= lsb_offset;
+    if (n >= max_n) {
+        return value;
+    }
+    const uint64_t mask = ((uint64_t(1)) << n) - 1; /* n '1's */
+    return value & mask;
+}
 
-    // 0 0001 000000000010000000111111111011001000000000100000 00000110 011
+void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_score,
+                                          const text_match_type_t match_type) const {
+
+    // MAX_SCORE
+    // [ sign | tokens_matched | max_field_score | max_field_weight | num_matching_fields ]
+    // [   1  |        4       |        48       |       8          |         3           ]  (64 bits)
+
+    // MAX_WEIGHT
+    // [ sign | tokens_matched | max_field_weight | max_field_score  | num_matching_fields ]
+    // [   1  |        4       |        8         |      48          |         3           ]  (64 bits)
 
     info["score"] = std::to_string(match_score);
 
-    info["tokens_matched"] = (match_score >> 59);
-    info["best_field_score"] = std::to_string((match_score << 5) >> (8 + 3 + 5));
-    info["best_field_weight"] = ((match_score << 53) >> (3 + 53));
-    info["fields_matched"] = ((match_score << 61) >> (61));
+    if(match_type == max_score) {
+        info["tokens_matched"] = extract_bits(match_score, 59, 4);
+        info["best_field_score"] = std::to_string(extract_bits(match_score, 11, 48));
+        info["best_field_weight"] = extract_bits(match_score, 3, 8);
+        info["fields_matched"] = extract_bits(match_score, 0, 3);
+    } else {
+        info["tokens_matched"] = extract_bits(match_score, 59, 4);
+        info["best_field_weight"] = extract_bits(match_score, 51, 8);
+        info["best_field_score"] = std::to_string(extract_bits(match_score, 3, 48));
+        info["fields_matched"] = extract_bits(match_score, 0, 3);
+    }
 }
 
 void Collection::process_highlight_fields(const std::vector<search_field_t>& search_fields,
@@ -3550,7 +3585,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
 }
 
 void Collection::remove_flat_fields(nlohmann::json& document) {
-    if(document.contains(".flat")) {
+    if(document.count(".flat") != 0) {
         for(const auto& flat_key: document[".flat"].get<std::vector<std::string>>()) {
             document.erase(flat_key);
         }

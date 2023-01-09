@@ -1366,7 +1366,7 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 3, 3, 2, 2, false, "", true, 0, 10, 0).get();
+                             4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 10, 0).get();
 
     ASSERT_EQ(1000, res["found"].get<size_t>());
     ASSERT_EQ(1, res["facet_counts"].size());
@@ -1382,7 +1382,7 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                        4, {off}, 3, 3, 2, 2, false, "", true, 0, 10, 10000).get();
+                        4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 10, 10000).get();
 
     ASSERT_EQ(1000, res["found"].get<size_t>());
     ASSERT_EQ(1, res["facet_counts"].size());
@@ -1404,7 +1404,7 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
                                 spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                                4, {off}, 3, 3, 2, 2, false, "", true, 0, 200, 0);
+                                4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 200, 0);
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Value of `facet_sample_percent` must be less than 100.", res_op.error());
