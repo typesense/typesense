@@ -990,7 +990,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           prioritize_token_position,
                                                           vector_query,
                                                           enable_highlight_v1,
-                                                          start_ts
+                                                          start_ts,
+                                                          match_type
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
