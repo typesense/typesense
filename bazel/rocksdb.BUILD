@@ -28,6 +28,7 @@ cmake(
         "//conditions:default": CMAKE_CACHE_ENTRIES,
     }),
     generate_args = [
+        "-DCMAKE_CXX_FLAGS=-Wno-error=maybe-uninitialized",
         "-DWITH_GFLAGS=OFF",
         "-DWITH_ALL_TESTS=OFF",
         "-DPORTABLE=1",
