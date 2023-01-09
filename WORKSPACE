@@ -1,6 +1,5 @@
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository", "new_git_repository")
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
 git_repository(
     name = "com_grail_bazel_compdb",
@@ -27,7 +26,7 @@ rules_foreign_cc_dependencies()
 # brpc and its dependencies
 git_repository(
     name = "com_github_brpc_brpc",
-    branch = "master",
+    commit = "70d702f1c7c4f663d30cd0ca284bf838a8cf7afb",
     patches = [
         "//bazel/brpc:butil.patch",
         "//bazel/brpc:brpc.patch",
@@ -44,21 +43,14 @@ new_git_repository(
 
 git_repository(
     name = "rules_perl",
-    commit = "71efd8d4ba6c7a1f2d7c7d8c46609518b725524f",
     remote = "https://github.com/bazelbuild/rules_perl.git",
+    commit = "7f10dada09fcba1dc79a6a91da2facc25e72bd7d",
 )
 
 load("@rules_perl//perl:deps.bzl", "perl_register_toolchains", "perl_rules_dependencies")
 
 perl_rules_dependencies()
-
 perl_register_toolchains()
-
-register_toolchains(
-    "@rules_perl//:darwin_toolchain",
-    "@rules_perl//:linux_arm64_toolchain",
-    "@rules_perl//:linux_x86_64_toolchain",
-)
 
 git_repository(
     name = "com_github_brpc_braft",
@@ -168,15 +160,15 @@ new_git_repository(
     name = "rocksdb",
     build_file = "//bazel:rocksdb.BUILD",
     remote = "https://github.com/facebook/rocksdb.git",
-    tag = "v7.5.3",
+    tag = "v7.8.3",
 )
 
 http_archive(
     name = "curl",
     build_file = "//bazel:curl.BUILD",
-    sha256 = "b00d84ffe1219f3b013629840b09dae2df5b7e24fb7447b9b74fad280024c73b",
-    strip_prefix = "curl-7.84.0",
-    urls = ["https://github.com/curl/curl/releases/download/curl-7_84_0/curl-7.84.0.zip"],
+    sha256 = "6147ac0b22f8c11cbd3933d7fec064dee373402c3705193ceb703a5a665f2e0c",
+    strip_prefix = "curl-7.87.0",
+    urls = ["https://github.com/curl/curl/releases/download/curl-7_87_0/curl-7.87.0.zip"],
 )
 
 new_git_repository(
