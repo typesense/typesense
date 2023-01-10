@@ -656,8 +656,7 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
     coll1->add_override(override);
 
     // add synonym
-    synonym_t synonym1{"ipod-synonyms", {}, {{"ipod"}, {"i", "pod"}, {"pod"}} };
-    coll1->add_synonym(synonym1.to_view_json());
+    coll1->add_synonym(R"({"id": "ipod-synonyms", "synonyms": ["ipod", "i pod", "pod"]})"_json);
 
     collectionManager.drop_collection("coll1");
 
