@@ -4350,3 +4350,55 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, WildcardQueryBy) {
+    nlohmann::json schema = R"({
+         "name": "posts",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "username", "type": "string", "facet": true},
+           {"name": "user.rank", "type": "int32", "facet": true},
+           {"name": "user.bio", "type": "string"},
+           {"name": "likes", "type": "int32"},
+           {"name": "content", "type": "object"}
+         ],
+         "default_sorting_field": "likes"
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    std::vector<std::string> json_lines = {
+            R"({"id": "124","username": "user_a","user": {"rank": 100,"bio": "Hi! I'm user_a"},"likes": 5215,"content": {"title": "title 1","body": "body 1"}})",
+            R"({"id": "125","username": "user_b","user": {"rank": 50,"bio": "user_b here, nice to meet you!"},"likes": 5215,"content": {"title": "title 2","body": "body 2"}})"
+    };
+
+    for (auto const& json: json_lines){
+        auto add_op = coll->add(json);
+        if (!add_op.ok()) {
+            std::cout << add_op.error() << std::endl;
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // user* matches username and user.bio
+    auto result = coll->search("user_a", {"user*"}, "", {}, {}, {0}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("Hi! I'm <mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["username"]["snippet"].get<std::string>());
+
+    // user.rank cannot be queried
+    result = coll->search("100", {"user*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"].get<size_t>());
+    ASSERT_EQ(0, result["hits"].size());
+
+    // No matching field for query_by
+    auto error = coll->search("user_a", {"foo*"}, "", {}, {}, {0}).error();
+    ASSERT_EQ("No string or string array field found matching the pattern `foo*` in the schema.",  error);
+}
