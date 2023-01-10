@@ -4398,6 +4398,20 @@ TEST_F(CollectionTest, WildcardQueryBy) {
     ASSERT_EQ(0, result["found"].get<size_t>());
     ASSERT_EQ(0, result["hits"].size());
 
+    // user.* matches user.bio
+    result = coll->search("user_a", {"user.*"}, "", {}, {}, {0}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("Hi! I'm <mark>user_a</mark>",
+              result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+
+    // user.rank cannot be queried
+    result = coll->search("100", {"user*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"].get<size_t>());
+    ASSERT_EQ(0, result["hits"].size());
+
     // No matching field for query_by
     auto error = coll->search("user_a", {"foo*"}, "", {}, {}, {0}).error();
     ASSERT_EQ("No string or string array field found matching the pattern `foo*` in the schema.",  error);
