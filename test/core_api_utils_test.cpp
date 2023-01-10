@@ -559,3 +559,124 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     ASSERT_TRUE(done);
     ASSERT_EQ('}', export_state.res_body->back());
 }
+
+TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "name", "type": "object" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "name": {"first": "John", "last": "Smith"},
+        "points": 100
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "coll1";
+
+    // include fields
+
+    req->params["include_fields"] = "name.last";
+
+    get_export_documents(req, res);
+
+    std::vector<std::string> res_strs;
+    StringUtils::split(res->body, res_strs, "\n");
+    nlohmann::json doc = nlohmann::json::parse(res_strs[0]);
+    ASSERT_EQ(1, doc.size());
+    ASSERT_EQ(1, doc.count("name"));
+    ASSERT_EQ(1, doc["name"].count("last"));
+
+    // exclude fields
+
+    delete dynamic_cast<deletion_state_t*>(req->data);
+    req->data = nullptr;
+    res->body.clear();
+    req->params.erase("include_fields");
+    req->params["exclude_fields"] = "name.last";
+    get_export_documents(req, res);
+
+    res_strs.clear();
+    StringUtils::split(res->body, res_strs, "\n");
+    doc = nlohmann::json::parse(res_strs[0]);
+    ASSERT_EQ(3, doc.size());
+    ASSERT_EQ(1, doc.count("id"));
+    ASSERT_EQ(1, doc.count("points"));
+    ASSERT_EQ(1, doc.count("name"));
+    ASSERT_EQ(1, doc["name"].count("first"));
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFieldsWithFilter) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "name", "type": "object" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "name": {"first": "John", "last": "Smith"},
+        "points": 100
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "coll1";
+
+    // include fields
+
+    req->params["include_fields"] = "name.last";
+    req->params["filter_by"] = "points:>=0";
+
+    get_export_documents(req, res);
+
+    std::vector<std::string> res_strs;
+    StringUtils::split(res->body, res_strs, "\n");
+    nlohmann::json doc = nlohmann::json::parse(res_strs[0]);
+    ASSERT_EQ(1, doc.size());
+    ASSERT_EQ(1, doc.count("name"));
+    ASSERT_EQ(1, doc["name"].count("last"));
+
+    // exclude fields
+
+    delete dynamic_cast<deletion_state_t*>(req->data);
+    req->data = nullptr;
+    res->body.clear();
+    req->params.erase("include_fields");
+    req->params["exclude_fields"] = "name.last";
+    get_export_documents(req, res);
+
+    res_strs.clear();
+    StringUtils::split(res->body, res_strs, "\n");
+    doc = nlohmann::json::parse(res_strs[0]);
+    ASSERT_EQ(3, doc.size());
+    ASSERT_EQ(1, doc.count("id"));
+    ASSERT_EQ(1, doc.count("points"));
+    ASSERT_EQ(1, doc.count("name"));
+    ASSERT_EQ(1, doc["name"].count("first"));
+
+    collectionManager.drop_collection("coll1");
+}

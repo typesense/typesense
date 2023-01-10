@@ -603,6 +603,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         req->data = export_state;
 
         std::string simple_filter_query;
+        spp::sparse_hash_set<std::string> exclude_fields;
+        spp::sparse_hash_set<std::string> include_fields;
 
         if(req->params.count(FILTER_BY) != 0) {
             simple_filter_query = req->params[FILTER_BY];
@@ -611,14 +613,17 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         if(req->params.count(INCLUDE_FIELDS) != 0) {
             std::vector<std::string> include_fields_vec;
             StringUtils::split(req->params[INCLUDE_FIELDS], include_fields_vec, ",");
-            export_state->include_fields = std::set<std::string>(include_fields_vec.begin(), include_fields_vec.end());
+            include_fields = spp::sparse_hash_set<std::string>(include_fields_vec.begin(), include_fields_vec.end());
         }
 
         if(req->params.count(EXCLUDE_FIELDS) != 0) {
             std::vector<std::string> exclude_fields_vec;
             StringUtils::split(req->params[EXCLUDE_FIELDS], exclude_fields_vec, ",");
-            export_state->exclude_fields = std::set<std::string>(exclude_fields_vec.begin(), exclude_fields_vec.end());
+            exclude_fields = spp::sparse_hash_set<std::string>(exclude_fields_vec.begin(), exclude_fields_vec.end());
         }
+
+        collection->populate_include_exclude_fields_lk(include_fields, exclude_fields,
+                                                      export_state->include_fields, export_state->exclude_fields);
 
         if(req->params.count(BATCH_SIZE) != 0 && StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
             export_state->export_batch_size = std::stoul(req->params[BATCH_SIZE]);
@@ -659,20 +664,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 res->body += it->value().ToString();
             } else {
                 nlohmann::json doc = nlohmann::json::parse(it->value().ToString());
-                nlohmann::json filtered_doc;
-                for(const auto& kv: doc.items()) {
-                    bool must_include = export_state->include_fields.empty() ||
-                                        (export_state->include_fields.count(kv.key()) != 0);
-
-                    bool must_exclude = !export_state->exclude_fields.empty() &&
-                                        (export_state->exclude_fields.count(kv.key()) != 0);
-
-                    if(must_include && !must_exclude) {
-                        filtered_doc[kv.key()] = kv.value();
-                    }
-                }
-
-                res->body += filtered_doc.dump();
+                Collection::prune_doc(doc, export_state->include_fields, export_state->exclude_fields);
+                res->body += doc.dump();
             }
 
             it->Next();

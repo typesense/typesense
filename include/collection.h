@@ -215,8 +215,6 @@ private:
 
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type) const;
 
-    static void remove_flat_fields(nlohmann::json& document);
-
     bool handle_highlight_text(std::string& text, bool normalise, const field &search_field,
                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
@@ -250,6 +248,11 @@ private:
                                            std::vector<field>& new_fields);
 
     static uint64_t extract_bits(uint64_t value, unsigned lsb_offset, unsigned n);
+
+    Option<bool> populate_include_exclude_fields(const spp::sparse_hash_set<std::string>& include_fields,
+                                                 const spp::sparse_hash_set<std::string>& exclude_fields,
+                                                 tsl::htrie_set<char>& include_fields_full,
+                                                 tsl::htrie_set<char>& exclude_fields_full) const;
 
 public:
 
@@ -337,6 +340,8 @@ public:
     Option<uint32_t> index_in_memory(nlohmann::json & document, uint32_t seq_id,
                                      const index_operation_t op, const DIRTY_VALUES& dirty_values);
 
+    static void remove_flat_fields(nlohmann::json& document);
+
     static void prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                           const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0);
 
@@ -371,6 +376,11 @@ public:
                             const index_operation_t& operation=CREATE, const std::string& id="",
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
                             const bool& return_doc=false, const bool& return_id=false);
+
+    Option<bool> populate_include_exclude_fields_lk(const spp::sparse_hash_set<std::string>& include_fields,
+                                                     const spp::sparse_hash_set<std::string>& exclude_fields,
+                                                     tsl::htrie_set<char>& include_fields_full,
+                                                     tsl::htrie_set<char>& exclude_fields_full) const;
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & filter_query, const std::vector<std::string> & facet_fields,
