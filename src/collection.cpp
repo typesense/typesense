@@ -4161,7 +4161,7 @@ std::string Collection::get_fallback_field_type() {
 
 bool Collection::get_enable_nested_fields() {
     return enable_nested_fields;
-};
+}
 
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const{
    const std::regex base_pattern("[a-z]+\\(.*\\)");
