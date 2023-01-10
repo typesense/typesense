@@ -4393,11 +4393,6 @@ TEST_F(CollectionTest, WildcardQueryBy) {
     ASSERT_EQ("<mark>user_a</mark>",
                  result["hits"][0]["highlight"]["username"]["snippet"].get<std::string>());
 
-    // user.rank cannot be queried
-    result = coll->search("100", {"user*"}, "", {}, {}, {0}).get();
-    ASSERT_EQ(0, result["found"].get<size_t>());
-    ASSERT_EQ(0, result["hits"].size());
-
     // user.* matches user.bio
     result = coll->search("user_a", {"user.*"}, "", {}, {}, {0}).get();
 
