@@ -4521,3 +4521,73 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
     ASSERT_EQ(1, result["hits"].size());
     ASSERT_EQ(0, result["hits"][0]["highlight"].size());
 }
+
+TEST_F(CollectionTest, WildcardHighlightFullFields) {
+    nlohmann::json schema = R"({
+         "name": "posts",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "user_name", "type": "string", "facet": true},
+           {"name": "user.rank", "type": "int32", "facet": true},
+           {"name": "user.phone", "type": "string"},
+           {"name": "user.bio", "type": "string"}
+         ]
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto add_op = coll->add(R"({
+                                                      "id": "124",
+                                                      "user_name": "user_a",
+                                                      "user": {
+                                                        "rank": 100,
+                                                        "phone": "+91 123123123",
+                                                        "bio": "Once there was a middle-aged boy named User_a who was an avid swimmer. He had been swimming competitively for most of his life, and had even competed in several national competitions. However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal. Determined to change that, User_a began training harder than ever before. He woke up early every morning to swim laps before work and spent his evenings at the pool as well. Despite the grueling schedule, he never once complained. Instead, he reminded himself of his goal: to become a national champion."
+                                                      }
+                                                    })");
+    if (!add_op.ok()) {
+        std::cout << add_op.error() << std::endl;
+    }
+    ASSERT_TRUE(add_op.ok());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    std::string highlight_full_fields = "user*";
+    // user* matches user_name, user.bio
+    auto result = coll->search("user_a", {"*"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                               30, 4, highlight_full_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("a middle-aged boy named <mark>User_a</mark> who was an avid",
+              result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+    ASSERT_EQ("Once there was a middle-aged boy named <mark>User_a</mark> who was an avid swimmer. He had been swimming competitively for most of his life, and had even competed in several national competitions. However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal. Determined to change that, <mark>User_a</mark> began training harder than ever before. He woke up early every morning to swim laps before work and spent his evenings at the pool as well. Despite the grueling schedule, he never once complained. Instead, he reminded himself of his goal: to become a national champion.",
+              result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
+    ASSERT_EQ("<mark>user_a</mark>",
+              result["hits"][0]["highlight"]["user_name"]["value"].get<std::string>());
+
+    highlight_full_fields = "user.*";
+    // user.* matches user.bio
+    result = coll->search("user_a", {"*"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, highlight_full_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("Once there was a middle-aged boy named <mark>User_a</mark> who was an avid swimmer. He had been swimming competitively for most of his life, and had even competed in several national competitions. However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal. Determined to change that, <mark>User_a</mark> began training harder than ever before. He woke up early every morning to swim laps before work and spent his evenings at the pool as well. Despite the grueling schedule, he never once complained. Instead, he reminded himself of his goal: to become a national champion.",
+              result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
+    ASSERT_EQ(0, result["hits"][0]["highlight"]["user_name"].count("value"));
+
+    highlight_full_fields = "foo*";
+    // No matching field for highlight_fields
+    result = coll->search("user_a", {"*"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, highlight_full_fields).get();
+
+    ASSERT_EQ(0, result["hits"][0]["highlight"]["user"]["bio"].count("value"));
+    ASSERT_EQ(0, result["hits"][0]["highlight"]["user_name"].count("value"));
+}
