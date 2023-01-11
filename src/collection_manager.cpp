@@ -776,7 +776,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
-    text_match_type_t match_type;
+    text_match_type_t match_type = max_score;
 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
