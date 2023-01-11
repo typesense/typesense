@@ -141,6 +141,15 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
     ASSERT_EQ(3, (int) res["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_STREQ("Omega", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("<mark>Omeg</mark>a", res["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    // Wildcard group_by is not allowed
+    auto error = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"foo*"}, 2).error();
+    ASSERT_EQ("Pattern `foo*` is not allowed.",  error);
 }
 
 TEST_F(CollectionGroupingTest, GroupingCompoundKey) {

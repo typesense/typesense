@@ -229,7 +229,8 @@ private:
                                            const tsl::htrie_map<char, field>& search_schema,
                                            std::vector<std::string>& processed_search_fields,
                                            bool extract_only_string_fields,
-                                           bool enable_nested_fields);
+                                           bool enable_nested_fields,
+                                           const bool handle_wildcard = true);
 
     bool is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const;
 

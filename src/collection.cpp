@@ -884,13 +884,19 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
                                             const tsl::htrie_map<char, field>& search_schema,
                                             std::vector<std::string>& processed_search_fields,
                                             const bool extract_only_string_fields,
-                                            const bool enable_nested_fields) {
+                                            const bool enable_nested_fields,
+                                            const bool handle_wildcard) {
     if(field_name == "id") {
         processed_search_fields.push_back(field_name);
         return Option<bool>(true);
     }
 
-    auto prefix_it = search_schema.equal_prefix_range(field_name);
+    bool is_wildcard = field_name.find('*') != std::string::npos;
+    if (is_wildcard && !handle_wildcard) {
+        return Option<bool>(400, "Pattern `" + field_name + "` is not allowed.");
+    }
+    // If wildcard, remove *
+    auto prefix_it = search_schema.equal_prefix_range(field_name.substr(0, field_name.size() - is_wildcard));
     bool field_found = false;
 
     for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
@@ -898,7 +904,7 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
         bool exact_primitive_match = exact_key_match && !kv.value().is_object();
 
         if(extract_only_string_fields && !kv.value().is_string()) {
-            if(exact_primitive_match) {
+            if(exact_primitive_match && !is_wildcard) {
                 // upstream needs to be returned an error
                 return Option<bool>(400, "Field `" + field_name + "` should be a string or a string array.");
             }
@@ -906,16 +912,19 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
             continue;
         }
 
-        // field_name prefix must be followed by a "." to indicate an object search
-        if (exact_primitive_match || (enable_nested_fields && kv.key().size() > field_name.size() &&
-                                      kv.key()[field_name.size()] == '.')) {
+        if (exact_primitive_match || is_wildcard ||
+            // field_name prefix must be followed by a "." to indicate an object search
+            (enable_nested_fields && kv.key().size() > field_name.size() && kv.key()[field_name.size()] == '.')) {
             processed_search_fields.push_back(kv.key());
             field_found = true;
         }
     }
 
-    if(!field_found) {
-        std::string error = "Could not find a field named `" + field_name + "` in the schema.";
+    if (is_wildcard && extract_only_string_fields && !field_found) {
+        std::string error = "No string or string array field found matching the pattern `" + field_name + "` in the schema.";
+        return Option<bool>(404, error);
+    } else if (!field_found) {
+        std::string error = is_wildcard ? "No field found matching the pattern `" : "Could not find a field named `" + field_name + "` in the schema.";
         return Option<bool>(404, error);
     }
 
@@ -1092,7 +1101,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<std::string> group_by_fields;
 
     for(const std::string& field_name: raw_group_by_fields) {
-        auto field_op = extract_field_name(field_name, search_schema, group_by_fields, false, enable_nested_fields);
+        auto field_op = extract_field_name(field_name, search_schema, group_by_fields, false, enable_nested_fields, false);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(404, field_op.error());
         }
