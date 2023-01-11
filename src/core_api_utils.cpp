@@ -66,20 +66,9 @@ Option<bool> stateful_export_docs(export_state_t* export_state, size_t batch_siz
                 if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
                     export_state->res_body->append(doc.dump());
                 } else {
-                    nlohmann::json filtered_doc;
-                    for(const auto& kv: doc.items()) {
-                        bool must_include = export_state->include_fields.empty() ||
-                                            (export_state->include_fields.count(kv.key()) != 0);
-
-                        bool must_exclude = !export_state->exclude_fields.empty() &&
-                                            (export_state->exclude_fields.count(kv.key()) != 0);
-
-                        if(must_include && !must_exclude) {
-                            filtered_doc[kv.key()] = kv.value();
-                        }
-                    }
-
-                    export_state->res_body->append(filtered_doc.dump());
+                    Collection::remove_flat_fields(doc);
+                    Collection::prune_doc(doc, export_state->include_fields, export_state->exclude_fields);
+                    export_state->res_body->append(doc.dump());
                 }
 
                 export_state->res_body->append("\n");

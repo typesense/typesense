@@ -774,8 +774,7 @@ TEST_F(CollectionSynonymsTest, SynonymSingleTokenExactMatch) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    synonym_t synonym1{"syn-1", {"lulu", "lemon"}, {{"lululemon"}}};
-    coll1->add_synonym(synonym1.to_view_json());
+    coll1->add_synonym(R"({"id": "syn-1", "root": "lulu lemon", "synonyms": ["lululemon"]})"_json);
 
     auto res = coll1->search("lulu lemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
@@ -813,8 +812,6 @@ TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
 
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
-
-    nlohmann::json foo = R"({"id": "syn-1", "root": "lululemon", "synonyms": ["lulu lemon"]})"_json;
 
     coll1->add_synonym(R"({"id": "syn-1", "root": "lululemon", "synonyms": ["lulu lemon"]})"_json);
 
@@ -871,7 +868,6 @@ TEST_F(CollectionSynonymsTest, SynonymQueriesMustHavePrefixEnabled) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    synonym_t synonym1{"syn-1", {"ns"}, {{"nonstick"}}};
     coll1->add_synonym(R"({"id": "syn-1", "root": "ns", "synonyms": ["nonstick"]})"_json);
 
     auto res = coll1->search("ns cook", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();

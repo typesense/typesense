@@ -1113,48 +1113,15 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         }
     }
 
-    std::vector<std::string> include_fields_vec;
-    std::vector<std::string> exclude_fields_vec;
     tsl::htrie_set<char> include_fields_full;
     tsl::htrie_set<char> exclude_fields_full;
 
-    for(auto& f_name: include_fields) {
-        auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false, enable_nested_fields);
-        if(!field_op.ok()) {
-            if(field_op.code() == 404) {
-                // field need not be part of schema to be included (could be a stored value in the doc)
-                include_fields_vec.push_back(f_name);
-                continue;
-            }
-            return Option<nlohmann::json>(field_op.code(), field_op.error());
-        }
+    auto include_exclude_op = populate_include_exclude_fields(include_fields, exclude_fields,
+                                                              include_fields_full, exclude_fields_full);
+
+    if(!include_exclude_op.ok()) {
+        return Option<nlohmann::json>(include_exclude_op.code(), include_exclude_op.error());
     }
-
-    for(auto& f_name: exclude_fields) {
-        if(f_name == "out_of") {
-            // `out_of` is strictly a meta-field, but we handle it since it's useful
-            continue;
-        }
-
-        auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields);
-        if(!field_op.ok()) {
-            if(field_op.code() == 404) {
-                // field need not be part of schema to be excluded (could be a stored value in the doc)
-                exclude_fields_vec.push_back(f_name);
-                continue;
-            }
-            return Option<nlohmann::json>(field_op.code(), field_op.error());
-        }
-    }
-
-    for(auto& f_name: include_fields_vec) {
-        include_fields_full.insert(f_name);
-    }
-
-    for(auto& f_name: exclude_fields_vec) {
-        exclude_fields_full.insert(f_name);
-    }
-
 
     // process weights for search fields
     std::vector<std::string> reordered_search_fields;
@@ -4194,7 +4161,7 @@ std::string Collection::get_fallback_field_type() {
 
 bool Collection::get_enable_nested_fields() {
     return enable_nested_fields;
-};
+}
 
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const{
    const std::regex base_pattern("[a-z]+\\(.*\\)");
@@ -4327,4 +4294,60 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         }
 
     return Option<bool>(true);
+}
+
+Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_set<std::string>& include_fields,
+                                                         const spp::sparse_hash_set<std::string>& exclude_fields,
+                                                         tsl::htrie_set<char>& include_fields_full,
+                                                         tsl::htrie_set<char>& exclude_fields_full) const {
+
+    std::vector<std::string> include_fields_vec;
+    std::vector<std::string> exclude_fields_vec;
+
+    for(auto& f_name: include_fields) {
+        auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false, enable_nested_fields);
+        if(!field_op.ok()) {
+            if(field_op.code() == 404) {
+                // field need not be part of schema to be included (could be a stored value in the doc)
+                include_fields_vec.push_back(f_name);
+                continue;
+            }
+            return Option<bool>(field_op.code(), field_op.error());
+        }
+    }
+
+    for(auto& f_name: exclude_fields) {
+        if(f_name == "out_of") {
+            // `out_of` is strictly a meta-field, but we handle it since it's useful
+            continue;
+        }
+
+        auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields);
+        if(!field_op.ok()) {
+            if(field_op.code() == 404) {
+                // field need not be part of schema to be excluded (could be a stored value in the doc)
+                exclude_fields_vec.push_back(f_name);
+                continue;
+            }
+            return Option<bool>(field_op.code(), field_op.error());
+        }
+    }
+
+    for(auto& f_name: include_fields_vec) {
+        include_fields_full.insert(f_name);
+    }
+
+    for(auto& f_name: exclude_fields_vec) {
+        exclude_fields_full.insert(f_name);
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::populate_include_exclude_fields_lk(const spp::sparse_hash_set<std::string>& include_fields,
+                                                            const spp::sparse_hash_set<std::string>& exclude_fields,
+                                                            tsl::htrie_set<char>& include_fields_full,
+                                                            tsl::htrie_set<char>& exclude_fields_full) const {
+    std::shared_lock lock(mutex);
+    return populate_include_exclude_fields(include_fields, exclude_fields, include_fields_full, exclude_fields_full);
 }

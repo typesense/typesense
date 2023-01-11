@@ -2238,8 +2238,7 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
     ASSERT_EQ(0, results["hits"].size());
 
     // with synonym for expensive: should NOT match as synonyms are resolved after override substitution
-    synonym_t synonym1{"costly-expensive", {"costly"}, {{"expensive"}} };
-    coll1->add_synonym(synonym1.to_view_json());
+    coll1->add_synonym(R"({"id": "costly-expensive", "root": "costly", "synonyms": ["expensive"]})"_json);
 
     results = coll1->search("costly", {"name"}, "",
                             {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();

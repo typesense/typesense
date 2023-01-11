@@ -28,15 +28,19 @@ cmake(
         "//conditions:default": CMAKE_CACHE_ENTRIES,
     }),
     generate_args = [
-        "-DCMAKE_CXX_FLAGS=-Wno-error=maybe-uninitialized",
         "-DWITH_GFLAGS=OFF",
         "-DWITH_ALL_TESTS=OFF",
         "-DPORTABLE=1",
+        "-DWITH_SNAPPY=1",
         "-DROCKSDB_BUILD_SHARED=OFF",
         "-DWITH_TESTS=OFF",
         "-DWITH_TOOLS=OFF",
         "-DUSE_RTTI=1",
-    ],
+    ] + select({
+         "@platforms//os:macos": ["-DCMAKE_CXX_FLAGS=-Wno-error=uninitialized"],
+         "//conditions:default": ["-DCMAKE_CXX_FLAGS=-Wno-error=maybe-uninitialized"],
+    }),
     lib_source = "//:all_srcs",
     out_static_libs = ["librocksdb.a"],
+    deps = ["@com_github_google_snappy//:snappy"],
 )
