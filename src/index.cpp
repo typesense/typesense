@@ -1274,6 +1274,13 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         single_val_facet_map_t::iterator single_facet_map_it;
         uint64_t fhash = 0;
         size_t facet_hash_count = 1;
+        const auto& field_facet_mapping_it = facet_index_v3.find(a_facet.field_name);
+        const auto& field_single_val_facet_mapping_it = single_val_facet_index_v3.find(a_facet.field_name);
+
+        if((field_facet_mapping_it == facet_index_v3.end()) 
+            && (field_single_val_facet_mapping_it == single_val_facet_index_v3.end())) {
+                continue;
+        }
 
         for(size_t i = 0; i < results_size; i++) {
             // if sampling is enabled, we will skip a portion of the results to speed up things
@@ -1285,11 +1292,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
     
             uint32_t doc_seq_id = result_ids[i];
             if(facet_field.is_array()) {
-                const auto& field_facet_mapping_it = facet_index_v3.find(a_facet.field_name);
-                if(field_facet_mapping_it == facet_index_v3.end()) {
-                    continue;
-                }
-    
                 const auto& field_facet_mapping = field_facet_mapping_it->second;
                 facet_map_it = field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->find(doc_seq_id);
     
@@ -1298,21 +1300,17 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
                 facet_hash_count = facet_map_it->second.size();
             } else {
-                const auto& field_facet_mapping_it = single_val_facet_index_v3.find(a_facet.field_name);
-                if(field_facet_mapping_it == single_val_facet_index_v3.end()) {
-                    continue;
-                }
-    
                 const auto& field_facet_mapping = field_facet_mapping_it->second;
                 single_facet_map_it = field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->find(doc_seq_id);
     
                 if(single_facet_map_it == field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->end()) {
                     continue;
                 }
+                facet_hash_count = 1;
+                fhash = single_facet_map_it->second;
             }
             
             const auto& facet_hashes = facet_map_it->second;
-            fhash = single_facet_map_it->second;
 
             const uint64_t distinct_id = group_limit ? get_distinct_id(group_by_fields, doc_seq_id) : 0;
 
