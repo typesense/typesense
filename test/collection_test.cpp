@@ -4377,7 +4377,7 @@ TEST_F(CollectionTest, WildcardQueryBy) {
     for (auto const& json: json_lines){
         auto add_op = coll->add(json);
         if (!add_op.ok()) {
-            std::cout << add_op.error() << std::endl;
+            LOG(INFO) << add_op.error();
         }
         ASSERT_TRUE(add_op.ok());
     }
@@ -4441,7 +4441,7 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
 
     auto add_op = coll->add(R"({"id": "124","user_name": "user_a","user": {"rank": 100,"phone": "+91 123123123"}})");
     if (!add_op.ok()) {
-        std::cout << add_op.error() << std::endl;
+        LOG(INFO) << add_op.error();
     }
     ASSERT_TRUE(add_op.ok());
 
@@ -4538,17 +4538,26 @@ TEST_F(CollectionTest, WildcardHighlightFullFields) {
     ASSERT_TRUE(op.ok());
     Collection* coll = op.get();
 
-    auto add_op = coll->add(R"({
-                                                      "id": "124",
-                                                      "user_name": "user_a",
-                                                      "user": {
-                                                        "rank": 100,
-                                                        "phone": "+91 123123123",
-                                                        "bio": "Once there was a middle-aged boy named User_a who was an avid swimmer. He had been swimming competitively for most of his life, and had even competed in several national competitions. However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal. Determined to change that, User_a began training harder than ever before. He woke up early every morning to swim laps before work and spent his evenings at the pool as well. Despite the grueling schedule, he never once complained. Instead, he reminded himself of his goal: to become a national champion."
-                                                      }
-                                                    })");
+    auto json = R"({
+                        "id": "124",
+                        "user_name": "user_a",
+                        "user": {
+                            "rank": 100,
+                            "phone": "+91 123123123"
+                        }
+                    })"_json;
+    std::string bio = "Once there was a middle-aged boy named User_a who was an avid swimmer."
+                      "He had been swimming competitively for most of his life, and had even competed in several national competitions."
+                      "However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal."
+                      "Determined to change that, User_a began training harder than ever before."
+                      "He woke up early every morning to swim laps before work and spent his evenings at the pool as well."
+                      "Despite the grueling schedule, he never once complained."
+                      "Instead, he reminded himself of his goal: to become a national champion.";
+    json["user"]["bio"] = bio;
+
+    auto add_op = coll->add(json.dump());
     if (!add_op.ok()) {
-        std::cout << add_op.error() << std::endl;
+        LOG(INFO) << add_op.error();
     }
     ASSERT_TRUE(add_op.ok());
 
@@ -4564,8 +4573,15 @@ TEST_F(CollectionTest, WildcardHighlightFullFields) {
 
     ASSERT_EQ("a middle-aged boy named <mark>User_a</mark> who was an avid",
               result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
-    ASSERT_EQ("Once there was a middle-aged boy named <mark>User_a</mark> who was an avid swimmer. He had been swimming competitively for most of his life, and had even competed in several national competitions. However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal. Determined to change that, <mark>User_a</mark> began training harder than ever before. He woke up early every morning to swim laps before work and spent his evenings at the pool as well. Despite the grueling schedule, he never once complained. Instead, he reminded himself of his goal: to become a national champion.",
-              result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
+
+    std::string highlighted_value = "Once there was a middle-aged boy named <mark>User_a</mark> who was an avid swimmer."
+                                    "He had been swimming competitively for most of his life, and had even competed in several national competitions."
+                                    "However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal."
+                                    "Determined to change that, <mark>User_a</mark> began training harder than ever before."
+                                    "He woke up early every morning to swim laps before work and spent his evenings at the pool as well."
+                                    "Despite the grueling schedule, he never once complained."
+                                    "Instead, he reminded himself of his goal: to become a national champion.";
+    ASSERT_EQ( highlighted_value, result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
     ASSERT_EQ("<mark>user_a</mark>",
               result["hits"][0]["highlight"]["user_name"]["value"].get<std::string>());
 
@@ -4578,8 +4594,7 @@ TEST_F(CollectionTest, WildcardHighlightFullFields) {
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
 
-    ASSERT_EQ("Once there was a middle-aged boy named <mark>User_a</mark> who was an avid swimmer. He had been swimming competitively for most of his life, and had even competed in several national competitions. However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal. Determined to change that, <mark>User_a</mark> began training harder than ever before. He woke up early every morning to swim laps before work and spent his evenings at the pool as well. Despite the grueling schedule, he never once complained. Instead, he reminded himself of his goal: to become a national champion.",
-              result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
+    ASSERT_EQ(highlighted_value, result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
     ASSERT_EQ(0, result["hits"][0]["highlight"]["user_name"].count("value"));
 
     highlight_full_fields = "foo*";

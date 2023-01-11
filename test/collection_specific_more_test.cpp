@@ -1618,7 +1618,7 @@ TEST_F(CollectionSpecificMoreTest, WildcardIncludeExclude) {
     for (auto const& json: json_lines){
         auto add_op = coll->add(json);
         if (!add_op.ok()) {
-            std::cout << add_op.error() << std::endl;
+            LOG(INFO) << add_op.error();
         }
         ASSERT_TRUE(add_op.ok());
     }
