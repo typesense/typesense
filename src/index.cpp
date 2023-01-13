@@ -99,19 +99,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         }
 
         if(a_field.facet) {
-            if(a_field.is_array()) {
-                array_mapped_facet_t facet_array;
-                for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
-                    facet_array[i] = new facet_map_t();
-                }
-                facet_index_v3.emplace(a_field.name, facet_array);
-            } else {
-                array_mapped_single_val_facet_t facet_array;
-                for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
-                    facet_array[i] = new single_val_facet_map_t();
-                }
-                single_val_facet_index_v3.emplace(a_field.name, facet_array);
-            }
+            initialize_facet_indexes(a_field);
         }
 
         // initialize for non-string facet fields
@@ -1217,6 +1205,21 @@ void Index::tokenize_string_array_with_facets(const std::vector<std::string>& st
 
         // push 0 for the last occurring token (used for exact match ranking)
         token_to_offsets[last_token].push_back(0);
+    }
+}
+void Index::initialize_facet_indexes(const field& facet_field) {
+    if(facet_field.is_array()) {
+        array_mapped_facet_t facet_array;
+        for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
+            facet_array[i] = new facet_map_t();
+        }
+        facet_index_v3.emplace(facet_field.name, facet_array);
+    } else {
+        array_mapped_single_val_facet_t facet_array;
+        for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
+            facet_array[i] = new single_val_facet_map_t();
+        }
+        single_val_facet_index_v3.emplace(facet_field.name, facet_array);
     }
 }
 
@@ -5541,20 +5544,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
         if(new_field.is_facet()) {
 
-            if(new_field.is_array()) {
-                array_mapped_facet_t facet_array;
-                for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
-                    facet_array[i] = new facet_map_t();
-                }
-
-                facet_index_v3.emplace(new_field.name, facet_array);
-            } else {
-                array_mapped_single_val_facet_t facet_array;
-                for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
-                    facet_array[i] = new single_val_facet_map_t();
-                }
-                single_val_facet_index_v3.emplace(new_field.name, facet_array);
-            }
+            initialize_facet_indexes(new_field);
 
             // initialize for non-string facet fields
             if(!new_field.is_string()) {
