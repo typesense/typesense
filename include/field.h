@@ -47,6 +47,7 @@ namespace fields {
     static const std::string nested_array = "nested_array";
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
+    static const std::string reference = "reference";
 }
 
 enum vector_distance_type_t {
@@ -76,13 +77,15 @@ struct field {
 
     static constexpr int VAL_UNKNOWN = 2;
 
+    std::string reference;      // Reference to another collection.
+
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine) :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "") :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference) {
 
         set_computed_defaults(sort, infix);
     }
