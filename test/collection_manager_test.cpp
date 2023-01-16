@@ -36,7 +36,8 @@ protected:
                 {"name": "not_stored", "type": "string", "optional": true, "index": false},
                 {"name": "points", "type": "int32"},
                 {"name": "person", "type": "object", "optional": true},
-                {"name": "vec", "type": "float[]", "num_dim": 128, "optional": true}
+                {"name": "vec", "type": "float[]", "num_dim": 128, "optional": true},
+                {"name": "product_id", "type": "string", "reference": "Products.product_id"}
             ],
             "default_sorting_field": "points",
             "symbols_to_index":["+"],
@@ -44,7 +45,9 @@ protected:
         })"_json;
 
         sort_fields = { sort_by("points", "DESC") };
-        collection1 = collectionManager.create_collection(schema).get();
+        auto op = collectionManager.create_collection(schema);
+        ASSERT_TRUE(op.ok());
+        collection1 = op.get();
     }
 
     virtual void SetUp() {
@@ -210,6 +213,18 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "sort":false,
               "type":"float[]",
               "vec_dist":"cosine"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"product_id",
+              "nested":false,
+              "optional":false,
+              "sort":false,
+              "type":"string",
+              "reference":"Products.product_id"
             }
           ],
           "id":0,

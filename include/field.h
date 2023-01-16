@@ -310,6 +310,10 @@ struct field {
                 field_val[fields::vec_dist] = field.vec_dist == ip ? "ip" : "cosine";
             }
 
+            if (!field.reference.empty()) {
+                field_val[fields::reference] = field.reference;
+            }
+
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {
