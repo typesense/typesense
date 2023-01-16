@@ -525,6 +525,12 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
+    if (field_json.count(fields::reference) != 0 && !field_json.at(fields::reference).is_string()) {
+        return Option<bool>(400, "Reference should be a string.");
+    } else if (field_json.count(fields::reference) == 0) {
+        field_json[fields::reference] = "";
+    }
+
     if(field_json["name"] == ".*") {
         if(field_json.count(fields::facet) == 0) {
             field_json[fields::facet] = false;
@@ -560,6 +566,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
         if(field_json[fields::index] == false) {
             return Option<bool>(400, "Field `.*` must be an index field.");
+        }
+
+        if (field_json.count(fields::reference) != 0) {
+            return Option<bool>(400, "Field `.*` cannot be a reference field.");
         }
 
         field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
@@ -659,6 +669,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     bool is_obj = field_json[fields::type] == field_types::OBJECT || field_json[fields::type] == field_types::OBJECT_ARRAY;
     bool is_regexp_name = field_json[fields::name].get<std::string>().find(".*") != std::string::npos;
 
+    if (is_regexp_name && field_json.count(fields::reference) != 0) {
+        return Option<bool>(400, "Wildcard field cannot have a reference.");
+    }
+
     if(is_obj || (!is_regexp_name && enable_nested_fields &&
                    field_json[fields::name].get<std::string>().find('.') != std::string::npos)) {
         field_json[fields::nested] = true;
@@ -679,7 +693,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
-                  field_json[fields::nested_array], field_json[fields::num_dim], vec_dist)
+                  field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
+                  field_json[fields::reference])
     );
 
     return Option<bool>(true);
