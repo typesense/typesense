@@ -175,6 +175,10 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::num_dim] = coll_field.num_dim;
         }
 
+        if (!coll_field.reference.empty()) {
+            field_json[fields::reference] = coll_field.reference;
+        }
+
         fields_arr.push_back(field_json);
     }
 

@@ -568,7 +568,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             return Option<bool>(400, "Field `.*` must be an index field.");
         }
 
-        if (field_json.count(fields::reference) != 0) {
+        if (!field_json[fields::reference].get<std::string>().empty()) {
             return Option<bool>(400, "Field `.*` cannot be a reference field.");
         }
 
@@ -669,7 +669,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     bool is_obj = field_json[fields::type] == field_types::OBJECT || field_json[fields::type] == field_types::OBJECT_ARRAY;
     bool is_regexp_name = field_json[fields::name].get<std::string>().find(".*") != std::string::npos;
 
-    if (is_regexp_name && field_json.count(fields::reference) != 0) {
+    if (is_regexp_name && !field_json[fields::reference].get<std::string>().empty()) {
         return Option<bool>(400, "Wildcard field cannot have a reference.");
     }
 
