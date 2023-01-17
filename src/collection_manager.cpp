@@ -261,8 +261,15 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     iter = store->scan(preset_prefix_key, &preset_upper_bound);
     while(iter->Valid() && iter->key().starts_with(preset_prefix_key)) {
         std::vector<std::string> parts;
-        StringUtils::split(iter->key().ToString(), parts, preset_prefix_key);
-        preset_configs[parts[0]] = iter->value().ToString();
+        std::string preset_name = iter->key().ToString().substr(preset_prefix_key.size());
+        nlohmann::json preset_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
+
+        if(!preset_obj.is_discarded() && preset_obj.is_object()) {
+            preset_configs[preset_name] = preset_obj;
+        } else {
+            LOG(INFO) << "Invalid value for preset " << preset_name;
+        }
+
         iter->Next();
     }
 
