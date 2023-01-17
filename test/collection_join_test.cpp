@@ -92,5 +92,10 @@ TEST_F(CollectionJoinTest, SchemaReferenceField) {
 
     ASSERT_EQ(schema.at("customer_name").reference, "");
     ASSERT_EQ(schema.at("product_id").reference, "Products.product_id");
+    ASSERT_EQ(schema.count("product_id_sequence_id"), 1);
+
+    auto field = schema.at("product_id_sequence_id");
+    ASSERT_TRUE(field.index);
+
     collectionManager.drop_collection("Customers");
 }

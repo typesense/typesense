@@ -697,6 +697,13 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::reference])
     );
 
+    if (!field_json[fields::reference].get<std::string>().empty()) {
+        the_fields.emplace_back(
+                field(field_json[fields::name].get<std::string>() + "_sequence_id", "string", false,
+                      false, true)
+        );
+    }
+
     return Option<bool>(true);
 }
 
