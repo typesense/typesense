@@ -221,7 +221,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "locale":"",
               "name":"product_id",
               "nested":false,
-              "optional":false,
+              "optional":true,
               "sort":false,
               "type":"string",
               "reference":"Products.product_id"
@@ -351,7 +351,11 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     std::string json_line;
 
     while (std::getline(infile, json_line)) {
-        collection1->add(json_line);
+        auto op = collection1->add(json_line);
+        if (!op.ok()) {
+            LOG(INFO) << op.error();
+        }
+        ASSERT_TRUE(op.ok());
     }
 
     infile.close();
@@ -434,6 +438,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(4, results["hits"].size());
 
     tsl::htrie_map<char, field> schema = collection1->get_schema();
+    ASSERT_EQ(schema.count("product_id_sequence_id"), 1);
 
     // recreate collection manager to ensure that it restores the records from the disk backed store
     collectionManager.dispose();
@@ -472,6 +477,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_TRUE(restored_schema.at("person").nested);
     ASSERT_EQ(2, restored_schema.at("person").nested_array);
     ASSERT_EQ(128, restored_schema.at("vec").num_dim);
+    ASSERT_EQ(restored_schema.count("product_id_sequence_id"), 1);
 
     ASSERT_TRUE(collection1->get_enable_nested_fields());
 
