@@ -37,7 +37,7 @@ protected:
                 {"name": "points", "type": "int32"},
                 {"name": "person", "type": "object", "optional": true},
                 {"name": "vec", "type": "float[]", "num_dim": 128, "optional": true},
-                {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                {"name": "product_id", "type": "string", "reference": "Products.product_id", "optional": true}
             ],
             "default_sorting_field": "points",
             "symbols_to_index":["+"],
