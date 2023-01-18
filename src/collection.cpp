@@ -159,8 +159,14 @@ nlohmann::json Collection::get_summary_json() const {
     }
 
     nlohmann::json fields_arr;
+    const std::regex sequence_id_pattern(".*_sequence_id$");
 
     for(const field & coll_field: fields) {
+        if (std::regex_match(coll_field.name, sequence_id_pattern)) {
+            // Don't add foo_sequence_id field.
+            continue;
+        }
+
         nlohmann::json field_json;
         field_json[fields::name] = coll_field.name;
         field_json[fields::type] = coll_field.type;
