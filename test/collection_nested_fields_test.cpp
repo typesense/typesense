@@ -2125,6 +2125,32 @@ TEST_F(CollectionNestedFieldsTest, ErrorWhenObjectTypeUsedWithoutEnablingNestedF
               "enable_nested_fields` to true.", op.error());
 }
 
+TEST_F(CollectionNestedFieldsTest, FieldsWithDotsButNotNested) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "name.first", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "name.first": "Alpha Beta Gamma"
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("beta", {"name.first"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("Alpha <mark>Beta</mark> Gamma",
+              results["hits"][0]["highlight"]["name.first"]["snippet"].get<std::string>());
+}
+
 TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
     nlohmann::json schema = R"({
         "name": "coll1",

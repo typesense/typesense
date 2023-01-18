@@ -93,6 +93,17 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
                         coll_name = el["collection"].get<std::string>();
                     } else if(req_params.count("collection") != 0) {
                         coll_name = req_params["collection"];
+                    } else {
+                        // if preset exists, that should be the lowest priority
+                        if(el.count("preset") != 0) {
+                            nlohmann::json preset_obj;
+                            auto preset_op = CollectionManager::get_instance().
+                                    get_preset(el["preset"].get<std::string>(), preset_obj);
+                            if(preset_op.ok() && preset_obj.count("collection") != 0  &&
+                                preset_obj["collection"].is_string()) {
+                                coll_name = preset_obj["collection"].get<std::string>();
+                            }
+                        }
                     }
 
                     const std::string& access_key = (el.count("x-typesense-api-key") != 0 &&
@@ -520,6 +531,27 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             if(!populated) {
                 res->set_400("One or more search parameters are malformed.");
                 return false;
+            }
+        }
+
+        if(search_params.count("preset") != 0) {
+            nlohmann::json preset;
+            auto preset_op = CollectionManager::get_instance().get_preset(search_params["preset"].get<std::string>(),
+                                                                          preset);
+            if(preset_op.ok()) {
+                if(!search_params.is_object()) {
+                    res->set_400("Search preset is not an object.");
+                    return false;
+                }
+
+                for(const auto& search_item: preset.items()) {
+                    // overwrite = false since req params will contain embedded params and so has higher priority
+                    bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
+                    if(!populated) {
+                        res->set_400("One or more search parameters are malformed.");
+                        return false;
+                    }
+                }
             }
         }
 
