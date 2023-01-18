@@ -23,6 +23,7 @@
 #include <or_iterator.h>
 #include <timsort.hpp>
 #include "logger.h"
+#include <collection_manager.h>
 
 #define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
                   std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
@@ -429,6 +430,49 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
 
         if((a_field.optional || op == UPDATE || op == EMPLACE) && document.count(field_name) == 0) {
             continue;
+        }
+
+        if (!a_field.reference.empty()) {
+            // Add foo_sequence_id field in the document.
+
+            std::vector<std::string> tokens;
+            StringUtils::split(a_field.reference, tokens, ".");
+
+            if (tokens.size() < 2) {
+                return Option<>(400, "Invalid reference `" + a_field.reference  + "`.");
+            }
+
+            auto& cm = CollectionManager::get_instance();
+            auto collection = cm.get_collection(tokens[0]);
+            if (collection == nullptr) {
+                return Option<>(400, "Referenced collection `" + tokens[0]  + "` not found.");
+            }
+
+            if (collection->get_schema().count(tokens[1]) == 0) {
+                return Option<>(400, "Referenced field `" + tokens[1]  + "` not found in the collection `"
+                                                    + tokens[0] + "`.");
+            }
+
+            auto referenced_field_name = tokens[1];
+            if (!collection->get_schema().at(referenced_field_name).index) {
+                return Option<>(400, "Referenced field `" + tokens[1]  + "` in the collection `"
+                                     + tokens[0] + "` must be indexed.");
+            }
+
+            std::vector<std::pair<size_t, uint32_t*>> documents;
+            auto value = document[a_field.name].get<std::string>();
+            collection->get_filter_ids(referenced_field_name + ":=" + value, documents);
+
+            if (documents[0].first != 1) {
+                auto match = " `" + referenced_field_name  + "` = `" + value + "` ";
+                return  Option<>(400, documents[0].first < 1 ?
+                "Referenced document having" + match + "not found in the collection `" + tokens[0] + "`." :
+                "Multiple documents having" + match + "found in the collection `" + tokens[0] + "`.");
+            }
+
+            document[a_field.name + "_sequence_id"] = collection->get_seq_id_collection_prefix() + std::to_string(*(documents[0].second));
+
+            delete [] documents[0].second;
         }
 
         if(document.count(field_name) == 0) {
