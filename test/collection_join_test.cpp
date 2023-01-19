@@ -255,13 +255,28 @@ TEST_F(CollectionJoinTest, IndexReferenceField) {
         }
         ASSERT_TRUE(add_op.ok());
     }
-
+    collectionManager.drop_collection("Customers");
+    customers_schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(customers_schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
     add_op = customer_collection->add(customer_json.dump());
     ASSERT_TRUE(add_op.ok());
+    ASSERT_EQ(customer_collection->get("0").get().count("product_id_sequence_id"), 1);
 
-    auto result = customer_collection->search("*", {"customer_id"}, "", {}, {}, {0}).get();
-    ASSERT_EQ(result["hits"][0]["document"].count("product_id"), 1);
-//    ASSERT_EQ(result["hits"][0]["document"].count("product_id_sequence_id"), 0);
+    nlohmann::json document;
+    auto get_op = customer_collection->get_document_from_store(customer_collection->get("0").get()["product_id_sequence_id"].get<std::string>(), document);
+    ASSERT_TRUE(get_op.ok());
+    ASSERT_EQ(document.count("product_id"), 1);
+    ASSERT_EQ(document["product_id"], "product_a");
 
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
