@@ -464,6 +464,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
             collection->get_filter_ids(referenced_field_name + ":=" + value, documents);
 
             if (documents[0].first != 1) {
+                delete [] documents[0].second;
                 auto match = " `" + referenced_field_name  + "` = `" + value + "` ";
                 return  Option<>(400, documents[0].first < 1 ?
                 "Referenced document having" + match + "not found in the collection `" + tokens[0] + "`." :
