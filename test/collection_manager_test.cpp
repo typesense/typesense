@@ -227,6 +227,17 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "sort":false,
               "type":"string",
               "reference":"Products.product_id"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"product_id_sequence_id",
+              "nested":false,
+              "optional":true,
+              "sort":true,
+              "type":"int64"
             }
           ],
           "id":0,
@@ -464,9 +475,11 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(18, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
-    ASSERT_EQ(2, collection1->get_sort_fields().size());
+    // product_id_sequence_id is also included
+    ASSERT_EQ(3, collection1->get_sort_fields().size());
     ASSERT_EQ("location", collection1->get_sort_fields()[0].name);
-    ASSERT_EQ("points", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("product_id_sequence_id", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("points", collection1->get_sort_fields()[2].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
 
