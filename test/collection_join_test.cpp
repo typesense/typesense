@@ -265,7 +265,6 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
         }
         ASSERT_TRUE(add_op.ok());
     }
-
     collectionManager.drop_collection("Customers");
     customers_schema_json =
             R"({
