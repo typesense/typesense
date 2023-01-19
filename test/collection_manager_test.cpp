@@ -225,6 +225,17 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "sort":false,
               "type":"string",
               "reference":"Products.product_id"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"product_id_sequence_id",
+              "nested":false,
+              "optional":true,
+              "sort":false,
+              "type":"string"
             }
           ],
           "id":0,

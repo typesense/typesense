@@ -9,7 +9,6 @@
 #include <sparsepp.h>
 #include <tsl/htrie_map.h>
 #include "json.hpp"
-#include <regex>
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -279,17 +278,11 @@ struct field {
                                               const std::string & default_sorting_field,
                                               nlohmann::json& fields_json) {
         bool found_default_sorting_field = false;
-        const std::regex sequence_id_pattern(".*_sequence_id$");
 
         // Check for duplicates in field names
         std::map<std::string, std::vector<const field*>> unique_fields;
 
         for(const field & field: fields) {
-            if (std::regex_match(field.name, sequence_id_pattern)) {
-                // Don't add foo_sequence_id field.
-                continue;
-            }
-
             unique_fields[field.name].push_back(&field);
 
             if(field.name == "id") {
