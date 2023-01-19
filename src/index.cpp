@@ -470,7 +470,8 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 "Multiple documents having" + match + "found in the collection `" + tokens[0] + "`.");
             }
 
-            document[a_field.name + "_sequence_id"] = collection->get_seq_id_collection_prefix() + std::to_string(*(documents[0].second));
+            document[a_field.name + "_sequence_id"] = collection->get_seq_id_collection_prefix() + "_" +
+                                                            StringUtils::serialize_uint32_t(*(documents[0].second));
 
             delete [] documents[0].second;
         }
