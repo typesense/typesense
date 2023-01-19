@@ -80,10 +80,6 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         }
 
         fields.push_back(f);
-
-        if (!f.reference.empty()) {
-            fields.emplace_back(field(f.name + "_sequence_id", "string", false, f.optional, true));
-        }
     }
 
     std::string default_sorting_field = collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
