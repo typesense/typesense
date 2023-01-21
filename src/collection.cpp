@@ -3508,8 +3508,9 @@ void Collection::prune_doc(nlohmann::json& doc,
         }
 
         if(it.value().is_object()) {
+            bool is_orig_empty = it.value().empty();
             prune_doc(it.value(), include_names, exclude_names, nested_name, depth+1);
-            if(it.value().empty()) {
+            if(!is_orig_empty && it.value().empty()) {
                 it = doc.erase(it);
             } else {
                 it++;
@@ -3526,8 +3527,9 @@ void Collection::prune_doc(nlohmann::json& doc,
                 // NOTE: we will not support array of array of nested objects
                 primitive_array = primitive_array && !arr_it.value().is_object();
                 if(arr_it.value().is_object()) {
+                    bool orig_ele_empty = arr_it.value().empty();
                     prune_doc(arr_it.value(), include_names, exclude_names, nested_name, depth+1);
-                    if(arr_it.value().empty()) {
+                    if(!orig_ele_empty && arr_it.value().empty()) {
                         arr_it = it.value().erase(arr_it);
                         continue;
                     }

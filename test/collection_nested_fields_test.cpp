@@ -645,6 +645,23 @@ TEST_F(CollectionNestedFieldsTest, IncludeExcludeFieldsPruning) {
     ASSERT_EQ(R"({"locations":[{"address":{"products":["shoes","tshirts"]}},{"address":{"products":["sneakers","shoes"]}}]})", doc.dump());
 }
 
+TEST_F(CollectionNestedFieldsTest, ShouldNotPruneEmptyFields) {
+    auto doc_str = R"({
+        "name": "Foo",
+        "obj": {},
+        "obj_arr": [{}],
+        "price": {
+            "per_unit": {},
+            "items": [{}]
+        }
+    })";
+
+    auto doc = nlohmann::json::parse(doc_str);
+    auto expected_doc = doc;
+    Collection::prune_doc(doc, tsl::htrie_set<char>(), tsl::htrie_set<char>());
+    ASSERT_EQ(expected_doc.dump(), doc.dump());
+}
+
 TEST_F(CollectionNestedFieldsTest, IncludeFieldsSearch) {
     nlohmann::json schema = R"({
         "name": "coll1",
