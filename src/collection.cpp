@@ -169,11 +169,6 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::sort] = coll_field.sort;
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
-        field_json[fields::nested] = coll_field.nested;
-
-        if(coll_field.nested) {
-            field_json[fields::nested_array] = coll_field.nested_array;
-        }
 
         if(coll_field.num_dim > 0) {
             field_json[fields::num_dim] = coll_field.num_dim;

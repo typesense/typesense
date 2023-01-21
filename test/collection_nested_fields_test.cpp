@@ -1165,6 +1165,11 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     nlohmann::json coll_summary = coll1->get_summary_json();
     ASSERT_EQ(1, coll_summary.count("enable_nested_fields"));
 
+    for(auto& f: coll_summary["fields"]) {
+        ASSERT_EQ(0, f.count(fields::nested));
+        ASSERT_EQ(0, f.count(fields::nested_array));
+    }
+
     auto doc = R"({
         "company_names": ["Quick brown fox jumped.", "The red fox was not fast."],
         "details": {
