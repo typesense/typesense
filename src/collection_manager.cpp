@@ -331,7 +331,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
                                                          const bool enable_nested_fields) {
-    std::unique_lock lock(mutex);
+    std::unique_lock lock(coll_create_mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
@@ -382,7 +382,6 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         return Option<Collection*>(500, "Could not write to on-disk storage.");
     }
 
-    lock.unlock();
     add_to_collections(new_collection);
 
     return Option<Collection*>(new_collection);
