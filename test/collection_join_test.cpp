@@ -284,6 +284,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_TRUE(add_doc_op.ok());
     ASSERT_EQ(customer_collection->get("0").get().count("reference_id_sequence_id"), 1);
 
+    // Referenced document should be accessible from Customers collection.
+    auto sequence_id = collectionManager.get_collection("Products")->get_seq_id_collection_prefix() + "_" +
+                                customer_collection->get("0").get()["product_id_sequence_id"].get<std::string>();
     nlohmann::json document;
     // Referenced document's sequence_id must be valid.
     auto get_op = collectionManager.get_collection("Products")->get_document_from_store(
