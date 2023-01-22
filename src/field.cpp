@@ -2,6 +2,7 @@
 #include "field.h"
 #include "magic_enum.hpp"
 #include <stack>
+#include <collection_manager.h>
 
 Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
                                                  const std::string& format_err_msg,
@@ -408,9 +409,32 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             filter_node = new filter_node_t(expression == "&&" ? AND : OR, operandA, operandB);
         } else {
             filter filter_exp;
-            Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
-            if (!toFilter_op.ok()) {
-                return toFilter_op;
+
+            // Expected value: $Collection(...)
+            bool is_referenced_filter = (expression[0] == '$' && expression[expression.size() - 1] == ')');
+            if (is_referenced_filter) {
+                size_t parenthesis_index = expression.find('(');
+
+                std::string collection_name = expression.substr(1, parenthesis_index - 1);
+                auto& cm = CollectionManager::get_instance();
+                auto collection = cm.get_collection(collection_name);
+                if (collection == nullptr) {
+                    return Option<bool>(400, "Referenced collection `" + collection_name + "` not found.");
+                }
+
+                filter_exp = {expression.substr(parenthesis_index + 1, expression.size() - parenthesis_index - 2)};
+                filter_exp.referenced_collection_name = collection_name;
+
+                auto op = collection->validate_reference_filter(filter_exp.field_name);
+                if (!op.ok()) {
+                    return Option<bool>(400, "Failed to parse reference filter on `" + collection_name +
+                                                "` collection: " + op.error());
+                }
+            } else {
+                Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
+                if (!toFilter_op.ok()) {
+                    return toFilter_op;
+                }
             }
 
             filter_node = new filter_node_t(filter_exp);

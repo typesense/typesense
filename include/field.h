@@ -77,7 +77,7 @@ struct field {
 
     static constexpr int VAL_UNKNOWN = 2;
 
-    std::string reference;      // Reference to another collection.
+    std::string reference;      // Foo.bar (reference to bar field in Foo collection).
 
     field() {}
 
@@ -447,6 +447,9 @@ struct filter {
     // case of int and float fields. During filtering, all the results of matching the field against the values are
     // aggregated and then this flag is checked if negation on the aggregated result is required.
     bool apply_not_equals = false;
+
+    // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
+    std::string referenced_collection_name;
 
     static const std::string RANGE_OPERATOR() {
         return "..";

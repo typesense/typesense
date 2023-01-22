@@ -393,4 +393,8 @@ TEST(StringUtilsTest, TokenizeFilterQuery) {
     filter_query = "((age:<5||age:>10)&&location:(48.906,2.343,5mi))||tags:AT&T";
     tokenList = {"(", "(", "age:<5", "||", "age:>10", ")", "&&", "location:(48.906,2.343,5mi)", ")", "||", "tags:AT&T"};
     tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "((age: <5 || age: >10) && category:= [shoes]) && $Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
+    tokenList = {"(", "(", "age: <5", "||", "age: >10", ")", "&&", "category:= [shoes]", ")", "&&", "$Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))"};
+    tokenizeTestHelper(filter_query, tokenList);
 }
