@@ -93,14 +93,14 @@ TEST_F(CollectionJoinTest, SchemaReferenceField) {
     ASSERT_EQ(schema.at("customer_name").reference, "");
     ASSERT_EQ(schema.at("product_id").reference, "Products.product_id");
 
-    // Index a `foo_sequence_id` field for `foo` reference field.
+    // Add a `foo_sequence_id` field in the schema for `foo` reference field.
     ASSERT_EQ(schema.count("product_id_sequence_id"), 1);
     ASSERT_TRUE(schema.at("product_id_sequence_id").index);
 
     collectionManager.drop_collection("Customers");
 }
 
-TEST_F(CollectionJoinTest, IndexReferenceField) {
+TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     auto products_schema_json =
             R"({
                 "name": "Products",
@@ -272,12 +272,123 @@ TEST_F(CollectionJoinTest, IndexReferenceField) {
     ASSERT_TRUE(add_op.ok());
     ASSERT_EQ(customer_collection->get("0").get().count("product_id_sequence_id"), 1);
 
+    // Referenced document should be accessible from Customers collection.
+    auto sequence_id = collectionManager.get_collection("Products")->get_seq_id_collection_prefix() + "_" +
+                                customer_collection->get("0").get()["product_id_sequence_id"].get<std::string>();
     nlohmann::json document;
-    auto get_op = customer_collection->get_document_from_store(customer_collection->get("0").get()["product_id_sequence_id"].get<std::string>(), document);
+    auto get_op = customer_collection->get_document_from_store(sequence_id, document);
     ASSERT_TRUE(get_op.ok());
     ASSERT_EQ(document.count("product_id"), 1);
     ASSERT_EQ(document["product_id"], "product_a");
+    ASSERT_EQ(document["product_name"], "shampoo");
 
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
+}
+
+TEST_F(CollectionJoinTest, FilterByReferenceField) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string"},
+                    {"name": "product_description", "type": "string"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair."
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients."
+            })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 143,
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 73.5,
+                "product_id": "product_b"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 75,
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 140,
+                "product_id": "product_b"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto coll = collectionManager.get_collection("Products");
+    auto search_op = coll->search("s", {"product_name"}, "$foo:=customer_a", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(search_op.error(), "Could not parse the reference filter.");
+
+    search_op = coll->search("s", {"product_name"}, "$foo(:=customer_a", {}, {}, {0},
+                                  10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(search_op.error(), "Could not parse the reference filter.");
+
+    search_op = coll->search("s", {"product_name"}, "$foo(:=customer_a)", {}, {}, {0},
+                                  10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(search_op.error(), "Referenced collection `foo` not found.");
+
+    search_op = coll->search("s", {"product_name"}, "$Customers(foo:=customer_a)", {}, {}, {0},
+                             10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ(search_op.error(), "Failed to parse reference filter on `Customers` collection: Could not find a filter field named `foo` in the schema.");
+
+    auto result = coll->search("s", {"product_name"}, "$Customers(customer_id:=customer_a && product_price:<100)", {}, {}, {0},
+                             10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("soap", result["hits"][0]["document"]["product_name"].get<std::string>());
 }

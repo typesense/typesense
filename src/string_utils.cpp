@@ -349,9 +349,40 @@ size_t StringUtils::get_num_chars(const std::string& s) {
     return j;
 }
 
+Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index) {
+    auto error = Option<bool>(400, "Could not parse the reference filter.");
+    if (filter_query[index] != '$') {
+        return error;
+    }
+
+    int start_index = index;
+    auto size = filter_query.size();
+    while(++index < size && filter_query[index] != '(') {}
+
+    if (index >= size) {
+        return error;
+    }
+
+    int parenthesis_count = 1;
+    while (++index < size && parenthesis_count > 0) {
+        if (filter_query[index] == '(') {
+            parenthesis_count++;
+        } else if (filter_query[index] == ')') {
+            parenthesis_count--;
+        }
+    }
+
+    if (parenthesis_count != 0) {
+        return error;
+    }
+
+    tokens.push(filter_query.substr(start_index, index - start_index));
+    return Option<bool>(true);
+}
+
 Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
     auto size = filter_query.size();
-    for (auto i = 0; i < size;) {
+    for (size_t i = 0; i < size;) {
         auto c = filter_query[i];
         if (c == ' ') {
             i++;
@@ -377,6 +408,15 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
             tokens.push("||");
             i += 2;
         } else {
+            // Reference filter would start with $ symbol.
+            if (c == '$') {
+                auto op = parse_reference_filter(filter_query, tokens, i);
+                if (!op.ok()) {
+                    return op;
+                }
+                continue;
+            }
+
             std::stringstream ss;
             bool inBacktick = false;
             bool preceding_colon = false;

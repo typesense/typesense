@@ -471,8 +471,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 "Multiple documents having" + match + "found in the collection `" + tokens[0] + "`.");
             }
 
-            document[a_field.name + "_sequence_id"] = collection->get_seq_id_collection_prefix() + "_" +
-                                                            StringUtils::serialize_uint32_t(*(documents[0].second));
+            document[a_field.name + "_sequence_id"] = StringUtils::serialize_uint32_t(*(documents[0].second));
 
             delete [] documents[0].second;
         }
@@ -1685,6 +1684,57 @@ void Index::do_filtering(uint32_t*& filter_ids,
                          filter_node_t const* const root) const {
     // auto begin = std::chrono::high_resolution_clock::now();
     const filter a_filter = root->filter_exp;
+
+    bool is_referenced_filter = !a_filter.referenced_collection_name.empty();
+    if (is_referenced_filter) {
+        // Apply filter on referenced collection and get the sequence ids of current collection from the filtered documents.
+        auto& cm = CollectionManager::get_instance();
+        auto collection = cm.get_collection(a_filter.referenced_collection_name);
+
+        std::vector<std::pair<size_t, uint32_t*>> documents;
+        auto op = collection->get_filter_ids(a_filter.field_name, documents);
+        if (!op.ok()) {
+            return;
+        }
+
+        if (documents[0].first > 0) {
+            const field* reference_field = nullptr;
+            for (auto const& f: collection->get_fields()) {
+                auto this_collection_name = cm.get_collection_with_id(collection_id)->get_name();
+                if (!f.reference.empty() &&
+                    f.reference.find(this_collection_name) == 0 &&
+                    f.reference.find('.') == this_collection_name.size()) {
+                        reference_field = &f;
+                        break;
+                }
+            }
+
+            if (reference_field == nullptr) {
+                return;
+            }
+
+            std::vector<uint32> result_ids;
+            for (size_t i = 0; i < documents[0].first; i++) {
+                uint32_t seq_id = *(documents[0].second + i);
+
+                nlohmann::json document;
+                auto op = collection->get_document_from_store(seq_id, document);
+                if (!op.ok()) {
+                    return;
+                }
+
+                result_ids.push_back(StringUtils::deserialize_uint32_t(document[reference_field->name + "_sequence_id"].get<std::string>()));
+            }
+
+            filter_ids = new uint32[result_ids.size()];
+            std::sort(result_ids.begin(), result_ids.end());
+            std::copy(result_ids.begin(), result_ids.end(), filter_ids);
+            filter_ids_length = result_ids.size();
+        }
+
+        delete [] documents[0].second;
+        return;
+    }
 
     if (a_filter.field_name == "id") {
         // we handle `ids` separately

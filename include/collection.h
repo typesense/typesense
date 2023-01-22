@@ -436,6 +436,8 @@ public:
     Option<bool> get_filter_ids(const std::string & filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids) const;
 
+    Option<bool> validate_reference_filter(const std::string& filter_query) const;
+
     Option<nlohmann::json> get(const std::string & id) const;
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
