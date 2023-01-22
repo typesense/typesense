@@ -388,24 +388,27 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          int& and_operator_count,
                          int& or_operator_count) {
     std::stack<filter_node_t*> nodeStack;
+    bool is_successful = true;
+    std::string error_message;
 
     while (!postfix.empty()) {
         const std::string expression = postfix.front();
         postfix.pop();
 
-        filter_node_t* filter_node = nullptr;
+        filter_node_t *filter_node = nullptr;
         if (isOperator(expression)) {
-            auto message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
-
             if (nodeStack.empty()) {
-                return Option<bool>(400, message);
+                is_successful = false;
+                error_message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
+                break;
             }
             auto operandB = nodeStack.top();
             nodeStack.pop();
 
             if (nodeStack.empty()) {
-                delete operandB;
-                return Option<bool>(400, message);
+                is_successful = false;
+                error_message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
+                break;
             }
             auto operandA = nodeStack.top();
             nodeStack.pop();
@@ -414,7 +417,6 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             filter_node = new filter_node_t(expression == "&&" ? AND : OR, operandA, operandB);
         } else {
             filter filter_exp;
-<<<<<<< HEAD
 
             // Expected value: $Collection(...)
             bool is_referenced_filter = (expression[0] == '$' && expression[expression.size() - 1] == ')');
@@ -439,7 +441,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
                 if (!toFilter_op.ok()) {
-		    while(!nodeStack.empty()) {
+		            while(!nodeStack.empty()) {
                         auto filterNode = nodeStack.top();
                         delete filterNode;
                         nodeStack.pop();
@@ -448,17 +450,60 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 }
             }
 
-            filter_node = new filter_node_t(filter_exp);
+            // Expected value: $Collection(...)
+            bool is_referenced_filter = (expression[0] == '$' && expression[expression.size() - 1] == ')');
+            if (is_referenced_filter) {
+                size_t parenthesis_index = expression.find('(');
+
+                std::string collection_name = expression.substr(1, parenthesis_index - 1);
+                auto &cm = CollectionManager::get_instance();
+                auto collection = cm.get_collection(collection_name);
+                if (collection == nullptr) {
+                    is_successful = false;
+                    error_message = "Referenced collection `" + collection_name + "` not found.";
+                    break;
+                }
+
+                filter_exp = {expression.substr(parenthesis_index + 1, expression.size() - parenthesis_index - 2)};
+                filter_exp.referenced_collection_name = collection_name;
+
+                auto op = collection->validate_reference_filter(filter_exp.field_name);
+                if (!op.ok()) {
+                    is_successful = false;
+                    error_message = "Failed to parse reference filter on `" + collection_name + "` collection: " +
+                                        op.error();
+                    break;
+                }
+            } else {
+                Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
+                if (!toFilter_op.ok()) {
+                    is_successful = false;
+                    error_message = toFilter_op.error();
+                    break;
+                }
+
+                filter_node = new filter_node_t(filter_exp);
+            }
         }
 
         nodeStack.push(filter_node);
     }
 
+    if (!is_successful) {
+        while (!nodeStack.empty()) {
+            auto filterNode = nodeStack.top();
+            delete filterNode;
+            nodeStack.pop();
+        }
+
+        return Option<bool>(400, error_message);
+    }
+
     if (nodeStack.empty()) {
         return Option<bool>(400, "Filter query cannot be empty.");
     }
-
     root = nodeStack.top();
+
     return Option<bool>(true);
 }
 

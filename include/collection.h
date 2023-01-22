@@ -463,6 +463,8 @@ public:
 
     Option<bool> validate_reference_filter(const std::string& filter_query) const;
 
+    Option<bool> validate_reference_filter(const std::string& filter_query) const;
+
     Option<nlohmann::json> get(const std::string & id) const;
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
