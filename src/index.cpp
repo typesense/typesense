@@ -1497,7 +1497,7 @@ Option<bool> Index::do_filtering(filter_node_t* const root,
                                  const uint32_t& context_ids_length,
                                  const uint32_t* context_ids) const {
     // auto begin = std::chrono::high_resolution_clock::now();
-    const filter a_filter = root->filter_exp;
+/**/    const filter a_filter = root->filter_exp;
 
     bool is_referenced_filter = !a_filter.referenced_collection_name.empty();
     if (is_referenced_filter) {

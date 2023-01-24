@@ -2580,6 +2580,41 @@ Option<bool> Collection::validate_reference_filter(const std::string& filter_que
     return Option<bool>(true);
 }
 
+Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
+                                                  const std::string & collection_name,
+                                                  std::pair<uint32_t, uint32_t*>& reference_index_ids) const {
+    std::shared_lock lock(mutex);
+
+    std::string reference_field_name;
+    for (auto const& field: fields) {
+        if (!field.reference.empty() &&
+            field.reference.find(collection_name) == 0 &&
+            field.reference.find('.') == collection_name.size()) {
+            reference_field_name = field.name;
+            break;
+        }
+    }
+
+    if (reference_field_name.empty()) {
+        return Option<bool>(400, "Could not find any field in `" + name + "` referencing the collection `"
+                                                    + collection_name + "`.");
+    }
+
+    const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
+                                                        store, doc_id_prefix, filter_tree_root);
+    if(!filter_op.ok()) {
+        return filter_op;
+    }
+
+    reference_field_name += "_sequence_id";
+    index->do_reference_filtering_with_lock(reference_index_ids, filter_tree_root, reference_field_name);
+
+    delete filter_tree_root;
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::validate_reference_filter(const std::string& filter_query) const {
     std::shared_lock lock(mutex);
 
