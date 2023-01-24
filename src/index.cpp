@@ -471,7 +471,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 "Multiple documents having" + match + "found in the collection `" + tokens[0] + "`.");
             }
 
-            document[a_field.name + "_sequence_id"] = StringUtils::serialize_uint32_t(*(documents[0].second));
+            document[a_field.name + "_sequence_id"] = *(documents[0].second);
 
             delete [] documents[0].second;
         }
@@ -1683,7 +1683,7 @@ void Index::do_filtering(uint32_t*& filter_ids,
                          uint32_t& filter_ids_length,
                          filter_node_t const* const root) const {
     // auto begin = std::chrono::high_resolution_clock::now();
-    const filter a_filter = root->filter_exp;
+/**/    const filter a_filter = root->filter_exp;
 
     bool is_referenced_filter = !a_filter.referenced_collection_name.empty();
     if (is_referenced_filter) {
@@ -1691,48 +1691,16 @@ void Index::do_filtering(uint32_t*& filter_ids,
         auto& cm = CollectionManager::get_instance();
         auto collection = cm.get_collection(a_filter.referenced_collection_name);
 
-        std::vector<std::pair<size_t, uint32_t*>> documents;
-        auto op = collection->get_filter_ids(a_filter.field_name, documents);
+        std::pair<uint32_t, uint32_t*> documents;
+        auto op = collection->get_reference_filter_ids(a_filter.field_name,
+                                                       cm.get_collection_with_id(collection_id)->get_name(),
+                                                       documents);
         if (!op.ok()) {
             return;
         }
 
-        if (documents[0].first > 0) {
-            const field* reference_field = nullptr;
-            for (auto const& f: collection->get_fields()) {
-                auto this_collection_name = cm.get_collection_with_id(collection_id)->get_name();
-                if (!f.reference.empty() &&
-                    f.reference.find(this_collection_name) == 0 &&
-                    f.reference.find('.') == this_collection_name.size()) {
-                        reference_field = &f;
-                        break;
-                }
-            }
-
-            if (reference_field == nullptr) {
-                return;
-            }
-
-            std::vector<uint32> result_ids;
-            for (size_t i = 0; i < documents[0].first; i++) {
-                uint32_t seq_id = *(documents[0].second + i);
-
-                nlohmann::json document;
-                auto op = collection->get_document_from_store(seq_id, document);
-                if (!op.ok()) {
-                    return;
-                }
-
-                result_ids.push_back(StringUtils::deserialize_uint32_t(document[reference_field->name + "_sequence_id"].get<std::string>()));
-            }
-
-            filter_ids = new uint32[result_ids.size()];
-            std::sort(result_ids.begin(), result_ids.end());
-            std::copy(result_ids.begin(), result_ids.end(), filter_ids);
-            filter_ids_length = result_ids.size();
-        }
-
-        delete [] documents[0].second;
+        filter_ids_length = documents.first;
+        filter_ids = documents.second;
         return;
     }
 
@@ -2115,6 +2083,26 @@ void Index::do_filtering_with_lock(uint32_t*& filter_ids,
                                    filter_node_t const* const& filter_tree_root) const {
     std::shared_lock lock(mutex);
     recursive_filter(filter_ids, filter_ids_length, filter_tree_root, false);
+}
+
+void Index::do_reference_filtering_with_lock(std::pair<uint32_t, uint32_t*>& reference_index_ids,
+                                             filter_node_t const* const& filter_tree_root,
+                                             const std::string& reference_field_name) const {
+    std::shared_lock lock(mutex);
+    recursive_filter(reference_index_ids.second, reference_index_ids.first, filter_tree_root, false);
+
+    std::vector<uint32> vector;
+    vector.reserve(reference_index_ids.first);
+
+    for (uint32_t i = 0; i < reference_index_ids.first; i++) {
+        auto filtered_doc_id = *(reference_index_ids.second + i);
+
+        // Extract the sequence_id from the reference field.
+        vector.push_back(sort_index.at(reference_field_name)->at(filtered_doc_id));
+    }
+
+    std::sort(vector.begin(), vector.end());
+    std::copy(vector.begin(), vector.end(), reference_index_ids.second);
 }
 
 void Index::run_search(search_args* search_params) {

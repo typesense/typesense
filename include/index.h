@@ -715,6 +715,10 @@ public:
             uint32_t& filter_ids_length,
             filter_node_t const* const& filter_tree_root) const;
 
+    void do_reference_filtering_with_lock(std::pair<uint32_t, uint32_t*>& reference_index_ids,
+                                          filter_node_t const* const& filter_tree_root,
+                                          const std::string& reference_field_name) const;
+
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 
     // the following methods are not synchronized because their parent calls are synchronized or they are const/static
