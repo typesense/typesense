@@ -2581,22 +2581,6 @@ Option<bool> Collection::validate_reference_filter(const std::string& filter_que
     return Option<bool>(true);
 }
 
-Option<bool> Collection::validate_reference_filter(const std::string& filter_query) const {
-    std::shared_lock lock(mutex);
-
-    const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                        store, doc_id_prefix, filter_tree_root);
-
-    if(!filter_op.ok()) {
-        return filter_op;
-    }
-
-    delete filter_tree_root;
-    return Option<bool>(true);
-}
-
 bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
                                        const nlohmann::json &document, std::string &value) const {
 
