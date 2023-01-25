@@ -35,6 +35,8 @@ void AppMetrics::get(const std::string& rps_key, const std::string& latency_key,
     auto DOC_DELETE_RPS_KEY = DOC_DELETE_LABEL + "_" + rps_key;
     auto DOC_DELETE_LATENCY_KEY = DOC_DELETE_LABEL + "_" + latency_key;
 
+    auto OVERLOADED_RPS_KEY = OVERLOADED_LABEL + "_" + rps_key;
+
     result[rps_key] = nlohmann::json::object();
     for(const auto& kv: *counts) {
         if(kv.first == SEARCH_LABEL) {
@@ -51,6 +53,10 @@ void AppMetrics::get(const std::string& rps_key, const std::string& latency_key,
 
         else if(kv.first == DOC_DELETE_LABEL) {
             result[DOC_DELETE_RPS_KEY] = double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000);
+        }
+
+        else if(kv.first == OVERLOADED_LABEL) {
+            result[OVERLOADED_RPS_KEY] = double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000);
         }
 
         else {
@@ -90,7 +96,8 @@ void AppMetrics::get(const std::string& rps_key, const std::string& latency_key,
 
     std::vector<std::string> keys_to_check = {
         SEARCH_RPS_KEY, IMPORT_RPS_KEY, DOC_WRITE_RPS_KEY, DOC_DELETE_RPS_KEY,
-        SEARCH_LATENCY_KEY, IMPORT_LATENCY_KEY, DOC_WRITE_LATENCY_KEY, DOC_DELETE_LATENCY_KEY
+        SEARCH_LATENCY_KEY, IMPORT_LATENCY_KEY, DOC_WRITE_LATENCY_KEY, DOC_DELETE_LATENCY_KEY,
+        OVERLOADED_RPS_KEY
     };
 
     for(auto& key: keys_to_check) {

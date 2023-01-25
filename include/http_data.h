@@ -235,6 +235,9 @@ struct http_req {
     // timestamp from the underlying http library
     uint64_t conn_ts;
 
+    // was the request aborted *without a result* because of wait time exceeding search cutoff threshold?
+    bool overloaded = false;
+
     std::mutex mcv;
     std::condition_variable cv;
     bool ready;
@@ -301,7 +304,9 @@ struct http_req {
             bool log_slow_requests = config.get_log_slow_requests_time_ms() >= 0 &&
                                      int(ms_since_start) >= config.get_log_slow_requests_time_ms();
 
-            if(log_slow_searches || log_slow_requests) {
+            if(overloaded) {
+                AppMetrics::get_instance().increment_count(AppMetrics::OVERLOADED_LABEL, 1);
+            } else if(log_slow_searches || log_slow_requests) {
                 // log slow request if logging is enabled
                 std::string query_string = "?";
                 bool is_multi_search_query = (path_without_query == "/multi_search");

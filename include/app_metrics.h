@@ -50,6 +50,7 @@ public:
     static inline const std::string DOC_WRITE_LABEL = "write";
     static inline const std::string IMPORT_LABEL = "import";
     static inline const std::string DOC_DELETE_LABEL = "delete";
+    static inline const std::string OVERLOADED_LABEL = "overloaded";
 
     static const uint64_t METRICS_REFRESH_INTERVAL_MS = 10 * 1000;
 
