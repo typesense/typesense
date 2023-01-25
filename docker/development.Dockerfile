@@ -62,10 +62,10 @@ RUN tar -C /opt -xf /opt/leveldb-1.22.tar.gz
 RUN mkdir -p /opt/leveldb-1.22/build && cd /opt/leveldb-1.22/build && cmake -DCMAKE_BUILD_TYPE=Release .. && \
     cmake --build . && make install && rm -rf /usr/local/lib/*.so*
 
-ADD https://github.com/google/glog/archive/0a2e593.tar.gz /opt/glog-0a2e593.tar.gz
-RUN tar -C /opt -xf /opt/glog-0a2e593.tar.gz
-RUN mkdir -p /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
-    cd /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
+ADD https://github.com/google/glog/archive/b33e3ba.tar.gz /opt/glog-b33e3ba.tar.gz
+RUN tar -C /opt -xf /opt/glog-b33e3ba.tar.gz
+RUN mkdir -p /opt/glog-b33e3bad4c46c8a6345525fd822af355e5ef9446/bld && \
+    cd /opt/glog-b33e3bad4c46c8a6345525fd822af355e5ef9446/bld && \
     cmake -DBUILD_TESTING=0 -DWITH_GFLAGS=ON -DWITH_TLS=OFF -DWITH_UNWIND=OFF .. && \
     cmake --build . && make install && rm -rf /usr/local/lib/*.so*
 
