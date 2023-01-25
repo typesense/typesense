@@ -392,6 +392,9 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
     if(!search_op.ok()) {
         res->set(search_op.code(), search_op.error());
+        if(search_op.code() == 529) {
+            req->overloaded = true;
+        }
         return false;
     }
 
@@ -562,6 +565,11 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(search_op.ok()) {
             response["results"].push_back(nlohmann::json::parse(results_json_str));
         } else {
+            if(search_op.code() == 529) {
+                res->set(search_op.code(), search_op.error());
+                req->overloaded = true;
+                return false;
+            }
             nlohmann::json err_res;
             err_res["error"] = search_op.error();
             err_res["code"] = search_op.code();
