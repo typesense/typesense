@@ -1859,12 +1859,13 @@ TEST_F(CollectionSpecificMoreTest, SearchCutoffTest) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto res = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
-                             spp::sparse_hash_set<std::string>(),
-                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1).get();
+    auto coll_op = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1);
 
-    ASSERT_TRUE(res["search_cutoff"].get<bool>());
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("Site is overloaded", coll_op.error());
 }
 
 TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {
