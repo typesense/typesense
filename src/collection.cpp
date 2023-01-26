@@ -1302,7 +1302,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     if(search_cutoff && total_found == 0) {
         // this can happen if other requests stopped this request from being processed
         // we should return an error so that request can be retried by client
-        return Option<nlohmann::json>(529, "Site is overloaded");
+        return Option<nlohmann::json>(408, "Request Timeout");
     }
 
     if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 1) {
