@@ -1298,48 +1298,48 @@ static inline void rotate(int &i, int &j, int &k) {
 
 // -1: return without adding, 0 : continue iteration, 1: return after adding
 static inline int fuzzy_search_state(const bool prefix, int key_index, bool last_key_char,
-                                     int term_len, const int* cost_row, int min_cost, int max_cost) {
+                                     const int query_len, const int* cost_row, int min_cost, int max_cost) {
 
-    // a) iter_len < term_len: "pltninum" (term) on "pst" (key)
-    // b) term_len < iter_len: "pst" (term) on "pltninum" (key)
+    // There are 2 scenarios:
+    // a) key_len < query_len: "pltninum" (query) on "pst" (key)
+    // b) query_len < key_len: "pst" (query) on "pltninum" (key)
 
-    int cost = 0;
+    int key_len = last_key_char ? key_index : key_index + 1;
 
-    // a) because key's null character will appear first
     if(last_key_char) {
-        int key_len = key_index;
-        cost = cost_row[term_len];
-
-        if(cost >= min_cost && cost <= max_cost) {
+        // Last char, so have to return 1 or -1
+        if(cost_row[query_len] >= min_cost && cost_row[query_len] <= max_cost) {
             return 1;
         }
 
-        cost = cost_row[key_len];
-
-        // used to match q=strawberries on key=strawberry, but limit to larger keys to prevent eager matches
-        if(key_len > 5 && term_len > key_len && (term_len - key_len) <= max_cost &&
-           cost >= min_cost-1 && cost <= max_cost-1) {
+        // Special case used to match q=strawberries on key=strawberry (query_len > key_len)
+        // but limit to larger keys to prevent eager matches
+        if(key_len > 5 && query_len > key_len && (query_len - key_len) <= max_cost &&
+           cost_row[key_len] >= min_cost && cost_row[key_len] <= max_cost-1) {
             return 1;
         }
 
         return -1;
     }
 
-    int key_len = key_index + 1;
+    // `key_len` can't exceed `query_len` since length of `cost_row` is `query_len + 1`
+    int cost = cost_row[std::min(key_len, query_len)];
 
-    // b) we might iterate past term_len to catch trailing typos
-    if(key_len >= term_len && prefix) {
-        cost = cost_row[term_len];
+    if(key_len >= query_len && prefix) {
+        // Case b)
+        // For prefix queries
+        // - we can return early if key_len reaches query_len and cost is within bounds.
+        // - might have to iterate past prefix query length to catch trailing typos.
         if(cost >= min_cost && cost <= max_cost) {
             return 1;
         }
-    } else {
-        // `key_len` can't exceed `term_len` since length of `cost_row` is `term_len + 1`
-        cost = cost_row[std::min(key_len, term_len)];
     }
 
-    int bounded_cost = (max_cost == 0) ? max_cost : (max_cost + 1);
-    return (cost > bounded_cost) ? -1 : 0;
+    // Terminate the search early or continue iterating on the key?
+    // We have to account for the case that `cost` could momentarily exceed max_cost but resolve later.
+    // e.g. key=example, query=exZZample, after 5 chars, cost is 3 but drops to 2 at the end.
+    // But we will limit this for longer keys for performance.
+    return cost > max_cost && (key_len > 3 ? cost > (max_cost * 2) : true) ? -1 : 0;
 }
 
 static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *n, int depth, const unsigned char *term,
