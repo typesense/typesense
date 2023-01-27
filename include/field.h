@@ -536,6 +536,7 @@ struct filter_node_t {
     bool isOperator;
     filter_node_t* left;
     filter_node_t* right;
+    std::pair<uint32_t, uint32_t*> match_index_ids;
 
     filter_node_t(filter filter_exp)
             : filter_exp(std::move(filter_exp)),
@@ -552,6 +553,7 @@ struct filter_node_t {
               right(right) {}
 
     ~filter_node_t() {
+        delete[] match_index_ids.second;
         delete left;
         delete right;
     }

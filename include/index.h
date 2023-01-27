@@ -99,7 +99,7 @@ struct search_args {
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<search_field_t> search_fields;
     const text_match_type_t match_type;
-    const filter_node_t* filter_tree_root;
+    filter_node_t* filter_tree_root;
     std::vector<facet>& facets;
     std::vector<std::pair<uint32_t, uint32_t>>& included_ids;
     std::vector<uint32_t> excluded_ids;
@@ -484,14 +484,16 @@ private:
                                    uint32_t*& ids,
                                    size_t& ids_len) const;
 
-    void do_filtering(uint32_t*& filter_ids,
-                      uint32_t& filter_ids_length,
-                      filter_node_t const* const root) const;
+    void do_filtering(filter_node_t* const root) const;
+
+    void rearranging_recursive_filter (uint32_t*& filter_ids, uint32_t& filter_ids_length, filter_node_t* const root) const;
 
     void recursive_filter(uint32_t*& filter_ids,
                           uint32_t& filter_ids_length,
-                          filter_node_t const* const root,
-                          const bool enable_short_circuit) const;
+                          filter_node_t* const root,
+                          const bool enable_short_circuit = false) const;
+
+    void get_filter_matches(filter_node_t* const root, std::vector<std::pair<uint32_t, filter_node_t*>>& vec) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -653,7 +655,7 @@ public:
 
     void search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
-                filter_node_t const* const& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
+                filter_node_t* filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                 const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
@@ -713,10 +715,10 @@ public:
     void do_filtering_with_lock(
             uint32_t*& filter_ids,
             uint32_t& filter_ids_length,
-            filter_node_t const* const& filter_tree_root) const;
+            filter_node_t* filter_tree_root) const;
 
     void do_reference_filtering_with_lock(std::pair<uint32_t, uint32_t*>& reference_index_ids,
-                                          filter_node_t const* const& filter_tree_root,
+                                          filter_node_t* filter_tree_root,
                                           const std::string& reference_field_name) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
