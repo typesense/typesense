@@ -383,7 +383,9 @@ Option<bool> toFilter(const std::string expression,
 Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const tsl::htrie_map<char, field>& search_schema,
                          const Store* store,
-                         const std::string& doc_id_prefix) {
+                         const std::string& doc_id_prefix,
+                         int& and_operator_count,
+                         int& or_operator_count) {
     std::stack<filter_node_t*> nodeStack;
 
     while (!postfix.empty()) {
@@ -406,6 +408,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             auto operandA = nodeStack.top();
             nodeStack.pop();
 
+            expression == "&&" ? and_operator_count++ : or_operator_count++;
             filter_node = new filter_node_t(expression == "&&" ? AND : OR, operandA, operandB);
         } else {
             filter filter_exp;
@@ -478,10 +481,21 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
         return toPostfix_op;
     }
 
-    Option<bool> toParseTree_op = toParseTree(postfix, root, search_schema, store, doc_id_prefix);
+    int postfix_size = (int) postfix.size(), and_operator_count = 0, or_operator_count = 0;
+    Option<bool> toParseTree_op = toParseTree(postfix,
+                                              root,
+                                              search_schema,
+                                              store,
+                                              doc_id_prefix,
+                                              and_operator_count,
+                                              or_operator_count);
     if (!toParseTree_op.ok()) {
         return toParseTree_op;
     }
+
+    root->metrics = new filter_tree_metrics{static_cast<int>(postfix_size - (and_operator_count + or_operator_count)),
+                     and_operator_count,
+                     or_operator_count};
 
     return Option<bool>(true);
 }

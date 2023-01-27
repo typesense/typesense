@@ -493,6 +493,11 @@ private:
                           filter_node_t* const root,
                           const bool enable_short_circuit = false) const;
 
+    void adaptive_filter(uint32_t*& filter_ids,
+                         uint32_t& filter_ids_length,
+                         filter_node_t* const filter_tree_root,
+                         const bool enable_short_circuit = false) const;
+
     void get_filter_matches(filter_node_t* const root, std::vector<std::pair<uint32_t, filter_node_t*>>& vec) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
