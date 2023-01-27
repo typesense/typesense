@@ -1830,7 +1830,6 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
     if (root == nullptr) {
         return Option(true);
     }
-
     if (root->isOperator) {
         uint32_t l_filter_ids_length = 0;
         if (root->left != nullptr) {

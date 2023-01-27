@@ -606,6 +606,7 @@ struct filter_node_t {
     bool isOperator;
     filter_node_t* left = nullptr;
     filter_node_t* right = nullptr;
+    filter_tree_metrics* metrics = nullptr;
 
     filter_node_t(filter filter_exp)
             : filter_exp(std::move(filter_exp)),
