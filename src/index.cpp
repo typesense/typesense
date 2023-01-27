@@ -2031,13 +2031,13 @@ void Index::get_filter_matches(filter_node_t* const root, std::vector<std::pair<
         uint32_t* l_filter_ids = nullptr;
         uint32_t l_filter_ids_length = 0;
         if (root->left != nullptr) {
-            recursive_filter(l_filter_ids, l_filter_ids_length, root->left);
+            rearranging_recursive_filter(l_filter_ids, l_filter_ids_length, root->left);
         }
 
         uint32_t* r_filter_ids = nullptr;
         uint32_t r_filter_ids_length = 0;
         if (root->right != nullptr) {
-            recursive_filter(r_filter_ids, r_filter_ids_length, root->right);
+            rearranging_recursive_filter(r_filter_ids, r_filter_ids_length, root->right);
         }
 
         root->match_index_ids.first = ArrayUtils::or_scalar(
@@ -2120,12 +2120,14 @@ void Index::recursive_filter(uint32_t*& filter_ids,
         recursive_filter(l_filter_ids, l_filter_ids_length, root->left,
                          enable_short_circuit);
     }
+
     uint32_t* r_filter_ids = nullptr;
     uint32_t r_filter_ids_length = 0;
     if (root->right != nullptr) {
         recursive_filter(r_filter_ids, r_filter_ids_length, root->right,
                          enable_short_circuit);
     }
+
     if (root->isOperator) {
         uint32_t* filtered_results = nullptr;
         if (root->filter_operator == AND) {
@@ -2152,18 +2154,37 @@ void Index::recursive_filter(uint32_t*& filter_ids,
     }
 }
 
+void Index::adaptive_filter(uint32_t*& filter_ids,
+                            uint32_t& filter_ids_length,
+                            filter_node_t* const filter_tree_root,
+                            const bool enable_short_circuit) const {
+    if (filter_tree_root == nullptr) {
+        return;
+    }
+
+    if (filter_tree_root->metrics != nullptr &&
+    (*filter_tree_root->metrics).filter_exp_count > 2 &&
+    (*filter_tree_root->metrics).and_operator_count > 0 &&
+    // If there are more || in the filter tree than &&, we'll not gain much by rearranging the filter tree.
+    ((float) (*filter_tree_root->metrics).or_operator_count / (float) (*filter_tree_root->metrics).and_operator_count < 0.5)) {
+        rearranging_recursive_filter(filter_ids, filter_ids_length, filter_tree_root);
+    } else {
+        recursive_filter(filter_ids, filter_ids_length, filter_tree_root, false);
+    }
+}
+
 void Index::do_filtering_with_lock(uint32_t*& filter_ids,
                                    uint32_t& filter_ids_length,
                                    filter_node_t* filter_tree_root) const {
     std::shared_lock lock(mutex);
-    recursive_filter(filter_ids, filter_ids_length, filter_tree_root, false);
+    adaptive_filter(filter_ids, filter_ids_length, filter_tree_root, false);
 }
 
 void Index::do_reference_filtering_with_lock(std::pair<uint32_t, uint32_t*>& reference_index_ids,
                                              filter_node_t* filter_tree_root,
                                              const std::string& reference_field_name) const {
     std::shared_lock lock(mutex);
-    recursive_filter(reference_index_ids.second, reference_index_ids.first, filter_tree_root, false);
+    adaptive_filter(reference_index_ids.second, reference_index_ids.first, filter_tree_root, false);
 
     std::vector<uint32> vector;
     vector.reserve(reference_index_ids.first);
@@ -2671,7 +2692,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
     std::shared_lock lock(mutex);
 
-    recursive_filter(filter_ids, filter_ids_length, filter_tree_root, true);
+    adaptive_filter(filter_ids, filter_ids_length, filter_tree_root, true);
 
     if (filter_tree_root != nullptr && filter_ids_length == 0) {
         delete [] filter_ids;
@@ -4767,7 +4788,7 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             field_values[i] = &seq_id_sentinel_value;
         } else if (sort_fields_std[i].name == sort_field_const::eval) {
             field_values[i] = &eval_sentinel_value;
-            recursive_filter(sort_fields_std[i].eval.ids, sort_fields_std[i].eval.size, sort_fields_std[i].eval.filter_tree_root, true);
+            adaptive_filter(sort_fields_std[i].eval.ids, sort_fields_std[i].eval.size, sort_fields_std[i].eval.filter_tree_root, true);
         } else if (search_schema.count(sort_fields_std[i].name) != 0 && search_schema.at(sort_fields_std[i].name).sort) {
             if (search_schema.at(sort_fields_std[i].name).type == field_types::GEOPOINT_ARRAY) {
                 geopoint_indices.push_back(i);
