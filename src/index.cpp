@@ -2024,6 +2024,9 @@ void Index::get_filter_matches(filter_node_t* const root, std::vector<std::pair<
         return;
     }
 
+    get_filter_matches(root->left, vec);
+    get_filter_matches(root->right, vec);
+
     if (root->isOperator && root->filter_operator == OR) {
         uint32_t* l_filter_ids = nullptr;
         uint32_t l_filter_ids_length = 0;
@@ -2049,53 +2052,42 @@ void Index::get_filter_matches(filter_node_t* const root, std::vector<std::pair<
         do_filtering(root);
         vec.emplace_back(root->match_index_ids.first, root);
     } else {
-        get_filter_matches(root->left, vec);
-        get_filter_matches(root->right, vec);
+        // malformed
     }
 }
 
-void evaluate_filter_tree(uint32_t*& filter_ids,
-                          uint32_t& filter_ids_length,
-                          filter_node_t* const root,
-                          bool is_rearranged,
-                          std::vector<std::pair<uint32_t, filter_node_t*>>& vec,
-                          size_t& index) {
+void evaluate_rearranged_filter_tree(uint32_t*& filter_ids,
+                                     uint32_t& filter_ids_length,
+                                     filter_node_t* const root,
+                                     std::vector<std::pair<uint32_t, filter_node_t*>>& vec,
+                                     size_t& index) {
     if (root == nullptr) {
         return;
     }
 
-    if (root->isOperator) {
-        if (root->filter_operator == AND) {
+    if (root->isOperator && root->filter_operator == AND) {
+        uint32_t* l_filter_ids = nullptr;
+        uint32_t l_filter_ids_length = 0;
+        if (root->left != nullptr) {
+            evaluate_rearranged_filter_tree(l_filter_ids, l_filter_ids_length, root->left, vec, index);
+        }
 
-            uint32_t* l_filter_ids = nullptr;
-            uint32_t l_filter_ids_length = 0;
-            if (root->left != nullptr) {
-                evaluate_filter_tree(l_filter_ids, l_filter_ids_length, root->left, is_rearranged, vec, index);
-            }
+        uint32_t* r_filter_ids = nullptr;
+        uint32_t r_filter_ids_length = 0;
+        if (root->right != nullptr) {
+            evaluate_rearranged_filter_tree(r_filter_ids, r_filter_ids_length, root->right, vec, index);
+        }
 
-            uint32_t* r_filter_ids = nullptr;
-            uint32_t r_filter_ids_length = 0;
-            if (root->right != nullptr) {
-                evaluate_filter_tree(r_filter_ids, r_filter_ids_length, root->right, is_rearranged, vec, index);
-            }
-
-            root->match_index_ids.first = ArrayUtils::and_scalar(
+        root->match_index_ids.first = ArrayUtils::and_scalar(
                 l_filter_ids, l_filter_ids_length, r_filter_ids,
                 r_filter_ids_length, &(root->match_index_ids.second));
 
-            filter_ids_length = root->match_index_ids.first;
-            filter_ids = root->match_index_ids.second;
-        } else {
-            filter_ids_length = is_rearranged ? vec[index].first : root->match_index_ids.first;
-            filter_ids = is_rearranged ? vec[index].second->match_index_ids.second : root->match_index_ids.second;
-            index++;
-        }
-    } else if (root->left == nullptr && root->right == nullptr) {
-        filter_ids_length = is_rearranged ? vec[index].first : root->match_index_ids.first;
-        filter_ids = is_rearranged ? vec[index].second->match_index_ids.second : root->match_index_ids.second;
-        index++;
+        filter_ids_length = root->match_index_ids.first;
+        filter_ids = root->match_index_ids.second;
     } else {
-        // malformed
+        filter_ids_length = vec[index].first;
+        filter_ids = vec[index].second->match_index_ids.second;
+        index++;
     }
 }
 
@@ -2103,16 +2095,16 @@ void Index::rearranging_recursive_filter(uint32_t*& filter_ids, uint32_t& filter
     std::vector<std::pair<uint32_t, filter_node_t*>> vec;
     get_filter_matches(root, vec);
 
-    bool should_rearrange = vec.size() > 2;
-    if (should_rearrange) {
-        std::sort(vec.begin(), vec.end(),
-                  [](const std::pair<uint32_t, filter_node_t*>& lhs, const std::pair<uint32_t, filter_node_t*>& rhs) {
-                      return lhs.first < rhs.first;
-                  });
-    }
+    std::sort(vec.begin(), vec.end(),
+              [](const std::pair<uint32_t, filter_node_t*>& lhs, const std::pair<uint32_t, filter_node_t*>& rhs) {
+                  return lhs.first < rhs.first;
+              });
 
     size_t index = 0;
-    evaluate_filter_tree(filter_ids, filter_ids_length, root, should_rearrange, vec, index);
+    evaluate_rearranged_filter_tree(filter_ids, filter_ids_length, root, vec, index);
+
+    // To disable deletion of filter_ids when filter tree is destructed.
+    root->match_index_ids.second = nullptr;
 }
 
 void Index::recursive_filter(uint32_t*& filter_ids,
