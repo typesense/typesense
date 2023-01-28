@@ -1328,7 +1328,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             }
 
             // sort again based on bucketed match score
-            std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv_group);
+            std::partial_sort(raw_result_kvs.begin(), raw_result_kvs.begin() + max_kvs_bucketed, raw_result_kvs.end(),
+                              Topster::is_greater_kv_group);
 
             // restore original scores
             for(i = 0; i < max_kvs_bucketed; i++) {
