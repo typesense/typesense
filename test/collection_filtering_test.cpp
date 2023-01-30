@@ -2590,17 +2590,17 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-//    results = coll->search("Jeremy", {"name"}, "years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
-//                           {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
-//    ASSERT_EQ(1, results["hits"].size());
-//
-//    ids = {"2"};
-//    for (size_t i = 0; i < results["hits"].size(); i++) {
-//        nlohmann::json result = results["hits"].at(i);
-//        std::string result_id = result["document"]["id"];
-//        std::string id = ids.at(i);
-//        ASSERT_STREQ(id.c_str(), result_id.c_str());
-//    }
+    results = coll->search("Jeremy", {"name"}, "years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
+                           {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    ids = {"2"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 
     collectionManager.drop_collection("ComplexFilterQueryCollection");
 }

@@ -2024,9 +2024,6 @@ void Index::get_filter_matches(filter_node_t* const root, std::vector<std::pair<
         return;
     }
 
-    get_filter_matches(root->left, vec);
-    get_filter_matches(root->right, vec);
-
     if (root->isOperator && root->filter_operator == OR) {
         uint32_t* l_filter_ids = nullptr;
         uint32_t l_filter_ids_length = 0;
@@ -2052,7 +2049,8 @@ void Index::get_filter_matches(filter_node_t* const root, std::vector<std::pair<
         do_filtering(root);
         vec.emplace_back(root->match_index_ids.first, root);
     } else {
-        // malformed
+        get_filter_matches(root->left, vec);
+        get_filter_matches(root->right, vec);
     }
 }
 
