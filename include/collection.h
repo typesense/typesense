@@ -30,10 +30,11 @@ struct highlight_field_t {
     std::string name;
     bool fully_highlighted;
     bool infix;
+    bool is_string;
     tsl::htrie_map<char, token_leaf> qtoken_leaves;
 
-    highlight_field_t(const std::string& name, bool fully_highlighted, bool infix):
-            name(name), fully_highlighted(fully_highlighted), infix(infix) {
+    highlight_field_t(const std::string& name, bool fully_highlighted, bool infix, bool is_string):
+            name(name), fully_highlighted(fully_highlighted), infix(infix), is_string(is_string) {
 
     }
 };
@@ -56,12 +57,30 @@ private:
         uint64_t match_score;
         std::vector<std::vector<std::string>> matched_tokens;
 
-        highlight_t() {
+        highlight_t(): field_index(0), match_score(0)  {
 
         }
 
         bool operator<(const highlight_t& a) const {
             return std::tie(match_score, field_index) > std::tie(a.match_score, field_index);
+        }
+    };
+
+    struct match_index_t {
+        Match match;
+        uint64_t match_score = 0;
+        size_t index;
+
+        match_index_t(Match match, uint64_t match_score, size_t index): match(match), match_score(match_score),
+                                                                        index(index) {
+
+        }
+
+        bool operator<(const match_index_t& a) const {
+            if(match_score != a.match_score) {
+                return match_score > a.match_score;
+            }
+            return index < a.index;
         }
     };
 
@@ -80,7 +99,7 @@ private:
 
     std::vector<field> fields;
 
-    std::unordered_map<std::string, field> search_schema;
+    tsl::htrie_map<char, field> search_schema;
 
     std::map<std::string, override_t> overrides;
 
@@ -91,6 +110,10 @@ private:
     std::string fallback_field_type;
 
     std::unordered_map<std::string, field> dynamic_fields;
+
+    tsl::htrie_map<char, field> nested_fields;
+
+    bool enable_nested_fields;
 
     std::vector<char> symbols_to_index;
 
@@ -106,12 +129,12 @@ private:
 
     std::string get_seq_id_key(uint32_t seq_id) const;
 
-    void highlight_result(const std::string& raw_query,
+    void highlight_result(const std::string& h_obj,
                           const field &search_field,
                           const size_t search_field_index,
                           const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
-                          const std::vector<std::string>& q_tokens,
                           const KV* field_order_kv, const nlohmann::json &document,
+                          nlohmann::json& highlight_doc,
                           StringUtils & string_utils,
                           const size_t snippet_threshold,
                           const size_t highlight_affix_num_tokens,
@@ -120,11 +143,13 @@ private:
                           const std::string& highlight_start_tag,
                           const std::string& highlight_end_tag,
                           const uint8_t* index_symbols,
-                          highlight_t &highlight) const;
+                          highlight_t &highlight,
+                          bool& found_highlight,
+                          bool& found_full_highlight) const;
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
-    void curate_results(string& actual_query, bool enable_overrides, bool already_segmented,
+    void curate_results(string& actual_query, const string& filter_query, bool enable_overrides, bool already_segmented,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
@@ -134,10 +159,13 @@ private:
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
-                                          const std::unordered_map<std::string, field>& schema,
+                                          const tsl::htrie_map<char, field>& schema,
                                           const std::unordered_map<std::string, field>& dyn_fields,
+                                          tsl::htrie_map<char, field>& nested_fields,
                                           const std::string& fallback_field_type,
-                                          std::vector<field>& new_fields);
+                                          bool is_update,
+                                          std::vector<field>& new_fields,
+                                          bool enable_nested_fields);
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
                                     const std::pair<uint64_t, facet_count_t>& b) {
@@ -163,23 +191,68 @@ private:
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
-                                                      std::vector<sort_by>& sort_fields_std) const;
+                                                      std::vector<sort_by>& sort_fields_std,
+                                                      bool is_wildcard_query) const;
 
     Option<bool> persist_collection_meta();
 
-    Option<bool> batch_alter_data(const std::unordered_map<std::string, field>& schema_additions,
-                                  const std::unordered_map<std::string, field>& new_dynamic_fields,
+    Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
                                   const std::vector<field>& del_fields,
-                                  const std::string& this_fallback_field_type,
-                                  const bool do_validation);
+                                  const std::string& this_fallback_field_type);
 
     Option<bool> validate_alter_payload(nlohmann::json& schema_changes,
-                                        std::unordered_map<std::string, field>& schema_additions,
-                                        std::unordered_map<std::string, field>& schema_reindex,
-                                        std::unordered_map<std::string, field>& addition_dynamic_fields,
-                                        std::unordered_map<std::string, field>& reindex_dynamic_fields,
+                                        std::vector<field>& addition_fields,
+                                        std::vector<field>& reindex_fields,
                                         std::vector<field>& del_fields,
                                         std::string& fallback_field_type);
+
+    void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
+                                  std::vector<std::string>& q_include_tokens,
+                                  token_ordering token_order,
+                                  filter_node_t*& filter_tree_root,
+                                  std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                                  std::vector<uint32_t>& excluded_ids) const;
+
+    void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type) const;
+
+    bool handle_highlight_text(std::string& text, bool normalise, const field &search_field,
+                               const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                               highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
+                               const size_t highlight_affix_num_tokens,
+                               const tsl::htrie_map<char, token_leaf>& qtoken_leaves, int last_valid_offset_index,
+                               const size_t prefix_token_num_chars, bool highlight_fully, const size_t snippet_threshold,
+                               bool is_infix_search, std::vector<std::string>& raw_query_tokens, size_t last_valid_offset,
+                               const std::string& highlight_start_tag, const std::string& highlight_end_tag,
+                               const uint8_t* index_symbols, const match_index_t& match_index) const;
+
+    static Option<bool> extract_field_name(const std::string& field_name,
+                                           const tsl::htrie_map<char, field>& search_schema,
+                                           std::vector<std::string>& processed_search_fields,
+                                           bool extract_only_string_fields,
+                                           bool enable_nested_fields);
+
+    bool is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const;
+
+    template<class T>
+    static bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
+                                       std::vector<std::string>& path_parts, size_t path_index,
+                                       bool is_arr_obj_ele, int array_index, T func);
+
+    static Option<bool> resolve_field_type(field& new_field,
+                                           nlohmann::detail::iter_impl<nlohmann::basic_json<>>& kv,
+                                           nlohmann::json& document,
+                                           const DIRTY_VALUES& dirty_values,
+                                           const bool found_dynamic_field,
+                                           const std::string& fallback_field_type,
+                                           bool enable_nested_fields,
+                                           std::vector<field>& new_fields);
+
+    static uint64_t extract_bits(uint64_t value, unsigned lsb_offset, unsigned n);
+
+    Option<bool> populate_include_exclude_fields(const spp::sparse_hash_set<std::string>& include_fields,
+                                                 const spp::sparse_hash_set<std::string>& exclude_fields,
+                                                 tsl::htrie_set<char>& include_fields_full,
+                                                 tsl::htrie_set<char>& exclude_fields_full) const;
 
 public:
 
@@ -203,6 +276,7 @@ public:
     static constexpr const char* COLLECTION_CREATED = "created_at";
     static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
     static constexpr const char* COLLECTION_FALLBACK_FIELD_TYPE = "fallback_field_type";
+    static constexpr const char* COLLECTION_ENABLE_NESTED_FIELDS = "enable_nested_fields";
 
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
@@ -215,7 +289,8 @@ public:
                const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
                const std::string& default_sorting_field,
                const float max_memory_ratio, const std::string& fallback_field_type,
-               const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators);
+               const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
+               const bool enable_nested_fields);
 
     ~Collection();
 
@@ -245,7 +320,9 @@ public:
 
     std::unordered_map<std::string, field> get_dynamic_fields();
 
-    std::unordered_map<std::string, field> get_schema();
+    tsl::htrie_map<char, field> get_schema();
+
+    tsl::htrie_map<char, field> get_nested_fields();
 
     std::string get_default_sorting_field();
 
@@ -256,15 +333,17 @@ public:
 
     static uint32_t get_seq_id_from_key(const std::string & key);
 
-    Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document) const;
+    Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document, bool raw_doc = false) const;
 
-    Option<bool> get_document_from_store(const uint32_t& seq_id, nlohmann::json & document) const;
+    Option<bool> get_document_from_store(const uint32_t& seq_id, nlohmann::json & document, bool raw_doc = false) const;
 
     Option<uint32_t> index_in_memory(nlohmann::json & document, uint32_t seq_id,
                                      const index_operation_t op, const DIRTY_VALUES& dirty_values);
 
-    static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
-                               const spp::sparse_hash_set<std::string> & exclude_fields);
+    static void remove_flat_fields(nlohmann::json& document);
+
+    static void prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
+                          const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0);
 
     const Index* _get_index() const;
 
@@ -273,7 +352,8 @@ public:
 
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs);
 
-    void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed, const bool& write_docs, const bool& write_id);
+    void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed,
+                     const bool& return_doc, const bool& return_id);
 
     bool is_exceeding_memory_threshold() const;
 
@@ -295,10 +375,15 @@ public:
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                             const index_operation_t& operation=CREATE, const std::string& id="",
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
-                            const bool& write_docs=false, const bool& write_id=false);
+                            const bool& return_doc=false, const bool& return_id=false);
+
+    Option<bool> populate_include_exclude_fields_lk(const spp::sparse_hash_set<std::string>& include_fields,
+                                                     const spp::sparse_hash_set<std::string>& exclude_fields,
+                                                     tsl::htrie_set<char>& include_fields_full,
+                                                     tsl::htrie_set<char>& exclude_fields_full) const;
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
-                                  const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
+                                  const std::string & filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   size_t per_page = 10, size_t page = 1,
                                   token_ordering token_order = FREQUENCY, const std::vector<bool>& prefixes = {true},
@@ -317,7 +402,7 @@ public:
                                   size_t group_limit = 3,
                                   const std::string& highlight_start_tag="<mark>",
                                   const std::string& highlight_end_tag="</mark>",
-                                  std::vector<uint32_t> query_by_weights={},
+                                  std::vector<uint32_t> raw_query_by_weights={},
                                   size_t limit_hits=UINT32_MAX,
                                   bool prioritize_exact_match=true,
                                   bool pre_segmented_query=false,
@@ -334,7 +419,11 @@ public:
                                   const size_t max_extra_suffix = INT16_MAX,
                                   const size_t facet_query_num_typos = 2,
                                   const size_t filter_curated_hits_option = 2,
-                                  const bool prioritize_token_position = false) const;
+                                  const bool prioritize_token_position = false,
+                                  const std::string& vector_query_str = "",
+                                  const bool enable_highlight_v1 = true,
+                                  const uint64_t search_time_start_us = 0,
+                                  const text_match_type_t match_type = max_score) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);
@@ -355,6 +444,8 @@ public:
 
     std::string get_fallback_field_type();
 
+    bool get_enable_nested_fields();
+
     // Override operations
 
     Option<uint32_t> add_override(const override_t & override);
@@ -372,12 +463,14 @@ public:
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
-    Option<bool> add_synonym(const synonym_t& synonym);
+    Option<bool> add_synonym(const nlohmann::json& syn_json);
 
     Option<bool> remove_synonym(const std::string & id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
                            std::vector<std::vector<std::string>>& results) const;
+
+    SynonymIndex* get_synonym_index();
 
     // highlight ops
 
@@ -389,16 +482,56 @@ public:
                    const uint8_t* index_symbols,
                    size_t snippet_start_offset) ;
 
-    void process_highlight_fields(const std::vector<std::string>& search_fields,
-                                  const spp::sparse_hash_set<std::string>& exclude_fields,
-                                  const spp::sparse_hash_set<std::string>& include_fields,
-                                  const string& highlight_fields,
-                                  const std::string& highlight_full_fields,
+    void process_highlight_fields(const std::vector<search_field_t>& search_fields,
+                                  const std::vector<std::string>& raw_search_fields,
+                                  const tsl::htrie_set<char>& exclude_fields,
+                                  const tsl::htrie_set<char>& include_fields,
+                                  const std::vector<std::string>& highlight_field_names,
+                                  const std::vector<std::string>& highlight_full_field_names,
                                   const std::vector<enable_t>& infixes,
                                   std::vector<std::string>& q_tokens,
                                   const tsl::htrie_map<char, token_leaf>& qtoken_set,
                                   std::vector<highlight_field_t>& highlight_items) const;
 
+    static void copy_highlight_doc(std::vector<highlight_field_t>& hightlight_items, const nlohmann::json& src,
+                                   nlohmann::json& dst);
+
     Option<bool> alter(nlohmann::json& alter_payload);
+
+    void
+    process_search_field_weights(const std::vector<std::string>& raw_search_fields,
+                                 std::vector<uint32_t>& query_by_weights,
+                                 std::vector<search_field_t>& weighted_search_fields,
+                                 std::vector<std::string>& reordered_search_fields) const;
 };
+
+template<class T>
+bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
+                                        std::vector<std::string>& path_parts, size_t path_index,
+                                        bool is_arr_obj_ele, int array_index, T func) {
+    if(path_index == path_parts.size()) {
+        func(hobj, is_arr_obj_ele, array_index);
+        return true;
+    }
+
+    const std::string& fragment = path_parts[path_index];
+    const auto& it = hobj.find(fragment);
+
+    if(it != hobj.end()) {
+        if(it.value().is_array()) {
+            bool resolved = false;
+            for(size_t i = 0; i < it.value().size(); i++) {
+                auto& h_ele = it.value().at(i);
+                is_arr_obj_ele = is_arr_obj_ele || h_ele.is_object();
+                resolved = highlight_nested_field(hdoc, h_ele, path_parts, path_index + 1,
+                                                  is_arr_obj_ele, i, func) || resolved;
+            }
+            return resolved;
+        } else {
+            return highlight_nested_field(hdoc, it.value(), path_parts, path_index + 1, is_arr_obj_ele, 0, func);
+        }
+    } {
+        return false;
+    }
+}
 

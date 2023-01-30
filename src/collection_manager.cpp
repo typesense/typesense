@@ -42,9 +42,31 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::infix] = -1;
         }
 
+        if(field_obj.count(fields::nested) == 0) {
+            field_obj[fields::nested] = false;
+        }
+
+        if(field_obj.count(fields::nested_array) == 0) {
+            field_obj[fields::nested_array] = 0;
+        }
+
+        if(field_obj.count(fields::num_dim) == 0) {
+            field_obj[fields::num_dim] = 0;
+        }
+
+        vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
+
+        if(field_obj.count(fields::vec_dist) != 0) {
+            auto vec_dist_type_op = magic_enum::enum_cast<vector_distance_type_t>(fields::vec_dist);
+            if(vec_dist_type_op.has_value()) {
+                vec_dist_type = vec_dist_type_op.value();
+            }
+        }
+
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
-                -1, field_obj[fields::infix]);
+                -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
+                field_obj[fields::num_dim], vec_dist_type);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -69,6 +91,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                               collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE].get<std::string>() :
                               "";
 
+    bool enable_nested_fields = collection_meta.count(Collection::COLLECTION_ENABLE_NESTED_FIELDS) != 0 ?
+                                 collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS].get<bool>() :
+                                 false;
+
     std::vector<std::string> symbols_to_index;
     std::vector<std::string> token_separators;
 
@@ -92,7 +118,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             max_memory_ratio,
                                             fallback_field_type,
                                             symbols_to_index,
-                                            token_separators);
+                                            token_separators,
+                                            enable_nested_fields);
 
     return collection;
 }
@@ -153,7 +180,9 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
               << document_batch_size << " documents at a time.";
 
     std::vector<std::string> collection_meta_jsons;
-    store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
+    store->scan_fill(std::string(Collection::COLLECTION_META_PREFIX) + "_",
+                     std::string(Collection::COLLECTION_META_PREFIX) + "`",
+                     collection_meta_jsons);
 
     const size_t num_collections = collection_meta_jsons.size();
     LOG(INFO) << "Found " << num_collections << " collection(s) on disk.";
@@ -210,7 +239,10 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     // load aliases
 
     std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
-    rocksdb::Iterator* iter = store->scan(symlink_prefix_key);
+    std::string upper_bound_key = std::string(SYMLINK_PREFIX) + "`";  // cannot inline this
+    rocksdb::Slice upper_bound(upper_bound_key);
+
+    rocksdb::Iterator* iter = store->scan(symlink_prefix_key, &upper_bound);
     while(iter->Valid() && iter->key().starts_with(symlink_prefix_key)) {
         std::vector<std::string> parts;
         StringUtils::split(iter->key().ToString(), parts, symlink_prefix_key);
@@ -223,11 +255,21 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     // load presets
 
     std::string preset_prefix_key = std::string(PRESET_PREFIX) + "_";
-    iter = store->scan(preset_prefix_key);
+    std::string preset_upper_bound_key = std::string(PRESET_PREFIX) + "`"; // cannot inline this
+    rocksdb::Slice preset_upper_bound(preset_upper_bound_key);
+
+    iter = store->scan(preset_prefix_key, &preset_upper_bound);
     while(iter->Valid() && iter->key().starts_with(preset_prefix_key)) {
         std::vector<std::string> parts;
-        StringUtils::split(iter->key().ToString(), parts, preset_prefix_key);
-        preset_configs[parts[0]] = iter->value().ToString();
+        std::string preset_name = iter->key().ToString().substr(preset_prefix_key.size());
+        nlohmann::json preset_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
+
+        if(!preset_obj.is_discarded() && preset_obj.is_object()) {
+            preset_configs[preset_name] = preset_obj;
+        } else {
+            LOG(INFO) << "Invalid value for preset " << preset_name;
+        }
+
         iter->Next();
     }
 
@@ -271,10 +313,6 @@ bool CollectionManager::auth_key_matches(const string& req_auth_key, const strin
                                          std::vector<nlohmann::json>& embedded_params_vec) const {
     std::shared_lock lock(mutex);
 
-    if(req_auth_key.empty()) {
-        return false;
-    }
-
     // check with bootstrap auth key
     if(bootstrap_auth_key == req_auth_key) {
         return true;
@@ -291,7 +329,9 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const uint64_t created_at,
                                                          const std::string& fallback_field_type,
                                                          const std::vector<std::string>& symbols_to_index,
-                                                         const std::vector<std::string>& token_separators) {
+                                                         const std::vector<std::string>& token_separators,
+                                                         const bool enable_nested_fields) {
+    std::unique_lock lock(coll_create_mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
@@ -323,11 +363,13 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE] = fallback_field_type;
     collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
+    collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
                                                 default_sorting_field,
                                                 this->max_memory_ratio, fallback_field_type,
-                                                symbols_to_index, token_separators);
+                                                symbols_to_index, token_separators,
+                                                enable_nested_fields);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
@@ -394,8 +436,7 @@ std::vector<Collection*> CollectionManager::get_collections() const {
 }
 
 Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
-    std::unique_lock lock(mutex);
-
+    std::shared_lock s_lock(mutex);
     auto collection = get_collection_unsafe(collection_name);
 
     if(collection == nullptr) {
@@ -409,18 +450,18 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
     if(remove_from_store) {
         const std::string& del_key_prefix = std::to_string(collection->get_collection_id()) + "_";
-
-        rocksdb::Iterator* iter = store->scan(del_key_prefix);
-        while(iter->Valid() && iter->key().starts_with(del_key_prefix)) {
-            store->remove(iter->key().ToString());
-            iter->Next();
-        }
-        delete iter;
+        const std::string& del_end_prefix = std::to_string(collection->get_collection_id()) + "`";
+        store->delete_range(del_key_prefix, del_end_prefix);
+        store->flush();
 
         // delete overrides
         const std::string& del_override_prefix =
                 std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + actual_coll_name + "_";
-        iter = store->scan(del_override_prefix);
+        std::string upper_bound_key = std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" +
+                                      actual_coll_name + "`";  // cannot inline this
+        rocksdb::Slice upper_bound(upper_bound_key);
+
+        rocksdb::Iterator* iter = store->scan(del_override_prefix, &upper_bound);
         while(iter->Valid() && iter->key().starts_with(del_override_prefix)) {
             store->remove(iter->key().ToString());
             iter->Next();
@@ -430,7 +471,12 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         // delete synonyms
         const std::string& del_synonym_prefix =
                 std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
-        iter = store->scan(del_synonym_prefix);
+
+        std::string syn_upper_bound_key = std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" +
+                                      actual_coll_name + "`";  // cannot inline this
+        rocksdb::Slice syn_upper_bound(syn_upper_bound_key);
+
+        iter = store->scan(del_synonym_prefix, &syn_upper_bound);
         while(iter->Valid() && iter->key().starts_with(del_synonym_prefix)) {
             store->remove(iter->key().ToString());
             iter->Next();
@@ -441,9 +487,14 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         store->remove(Collection::get_meta_key(actual_coll_name));
     }
 
+    s_lock.unlock();
+
+    std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
+    u_lock.unlock();
 
+    // don't hold any collection manager locks here, since this can take some time
     delete collection;
 
     return Option<nlohmann::json>(collection_json);
@@ -581,7 +632,9 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
 
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
                                           nlohmann::json& embedded_params,
-                                          std::string& results_json_str) {
+                                          std::string& results_json_str,
+                                          uint64_t start_ts) {
+
     auto begin = std::chrono::high_resolution_clock::now();
 
     const char *NUM_TYPOS = "num_typos";
@@ -601,6 +654,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_QUERY = "facet_query";
     const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
     const char *MAX_FACET_VALUES = "max_facet_values";
+
+    const char *VECTOR_QUERY = "vector_query";
 
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
@@ -644,6 +699,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
     const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
 
+    const char *TEXT_MATCH_TYPE = "text_match_type";
+
+    const char *ENABLE_HIGHLIGHT_V1 = "enable_highlight_v1";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -686,6 +745,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t page = 1;
     token_ordering token_order = NOT_SET;
 
+    std::string vector_query;
+
     std::vector<std::string> include_fields_vec;
     std::vector<std::string> exclude_fields_vec;
     spp::sparse_hash_set<std::string> include_fields;
@@ -712,12 +773,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t filter_curated_hits_option = 2;
     std::string highlight_fields;
     bool exhaustive_search = false;
-    size_t search_cutoff_ms = 3600000;
+    size_t search_cutoff_ms = 30 * 1000;
     enable_t split_join_tokens = fallback;
     size_t max_candidates = 0;
     std::vector<enable_t> infixes;
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
+    bool enable_highlight_v1 = true;
+    text_match_type_t match_type = max_score;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -741,6 +804,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     std::unordered_map<std::string, std::string*> str_values = {
         {FILTER, &simple_filter_query},
+        {VECTOR_QUERY, &vector_query},
         {FACET_QUERY, &simple_facet_query},
         {HIGHLIGHT_FIELDS, &highlight_fields},
         {HIGHLIGHT_FULL_FIELDS, &highlight_full_fields},
@@ -756,6 +820,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {PRE_SEGMENTED_QUERY, &pre_segmented_query},
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
         {ENABLE_OVERRIDES, &enable_overrides},
+        {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -798,6 +863,13 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 if(enable_op.has_value()) {
                     split_join_tokens = enable_op.value();
                 }
+            }
+        }
+
+        else if(key == TEXT_MATCH_TYPE) {
+            auto match_op = magic_enum::enum_cast<text_match_type_t>(val);
+            if(match_op.has_value()) {
+                match_type = match_op.value();
             }
         }
 
@@ -881,7 +953,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     if(!max_candidates) {
-        max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::MAX_CANDIDATES_DEFAULT;
+        max_candidates = exhaustive_search ? Index::COMBINATION_MAX_LIMIT :
+                         (collection->get_num_documents() < 500000 ? Index::NUM_CANDIDATES_DEFAULT_MAX :
+                          Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
@@ -919,7 +993,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           max_extra_suffix,
                                                           facet_query_num_typos,
                                                           filter_curated_hits_option,
-                                                          prioritize_token_position
+                                                          prioritize_token_position,
+                                                          vector_query,
+                                                          enable_highlight_v1,
+                                                          start_ts,
+                                                          match_type
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -968,6 +1046,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     const char* NUM_MEMORY_SHARDS = "num_memory_shards";
     const char* SYMBOLS_TO_INDEX = "symbols_to_index";
     const char* TOKEN_SEPARATORS = "token_separators";
+    const char* ENABLE_NESTED_FIELDS = "enable_nested_fields";
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
 
     // validate presence of mandatory fields
@@ -990,6 +1069,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(req_json.count(TOKEN_SEPARATORS) == 0) {
         req_json[TOKEN_SEPARATORS] = std::vector<std::string>();
+    }
+
+    if(req_json.count(ENABLE_NESTED_FIELDS) == 0) {
+        req_json[ENABLE_NESTED_FIELDS] = false;
     }
 
     if(req_json.count("fields") == 0) {
@@ -1015,6 +1098,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(!req_json[TOKEN_SEPARATORS].is_array()) {
         return Option<Collection*>(400, std::string("`") + TOKEN_SEPARATORS + "` should be an array of character symbols.");
+    }
+
+    if(!req_json[ENABLE_NESTED_FIELDS].is_boolean()) {
+        return Option<Collection*>(400, std::string("`") + ENABLE_NESTED_FIELDS + "` should be a boolean.");
     }
 
     for (auto it = req_json[SYMBOLS_TO_INDEX].begin(); it != req_json[SYMBOLS_TO_INDEX].end(); ++it) {
@@ -1045,7 +1132,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     std::string fallback_field_type;
     std::vector<field> fields;
-    auto parse_op = field::json_fields_to_fields(req_json["fields"], fallback_field_type, fields);
+    auto parse_op = field::json_fields_to_fields(req_json[ENABLE_NESTED_FIELDS].get<bool>(),
+                                                 req_json["fields"], fallback_field_type, fields);
 
     if(!parse_op.ok()) {
         return Option<Collection*>(parse_op.code(), parse_op.error());
@@ -1057,7 +1145,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 fields, default_sorting_field, created_at,
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
-                                                                req_json[TOKEN_SEPARATORS]);
+                                                                req_json[TOKEN_SEPARATORS],
+                                                                req_json[ENABLE_NESTED_FIELDS]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
@@ -1115,7 +1204,9 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // initialize overrides
     std::vector<std::string> collection_override_jsons;
-    cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""), collection_override_jsons);
+    cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""),
+                        std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + this_collection_name + "`",
+                        collection_override_jsons);
 
     for(const auto & collection_override_json: collection_override_jsons) {
         nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
@@ -1130,18 +1221,21 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // initialize synonyms
     std::vector<std::string> collection_synonym_jsons;
-    cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""), collection_synonym_jsons);
+    cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""),
+                        std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "`",
+                        collection_synonym_jsons);
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-        synonym_t synonym(collection_synonym);
-        collection->add_synonym(synonym);
+        collection->add_synonym(collection_synonym);
     }
 
     // Fetch records from the store and re-create memory index
     const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+    std::string upper_bound_key = collection->get_seq_id_collection_prefix() + "`";  // cannot inline this
+    rocksdb::Slice upper_bound(upper_bound_key);
 
-    rocksdb::Iterator* iter = cm.store->scan(seq_id_prefix);
+    rocksdb::Iterator* iter = cm.store->scan(seq_id_prefix, &upper_bound);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
     std::vector<index_record> index_records;
@@ -1149,6 +1243,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     size_t num_found_docs = 0;
     size_t num_valid_docs = 0;
     size_t num_indexed_docs = 0;
+    size_t batch_doc_str_size = 0;
 
     auto begin = std::chrono::high_resolution_clock::now();
 
@@ -1157,12 +1252,20 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 
         nlohmann::json document;
+        const std::string& doc_string = iter->value().ToString();
 
         try {
-            document = nlohmann::json::parse(iter->value().ToString());
+            document = nlohmann::json::parse(doc_string);
         } catch(const std::exception& e) {
             LOG(ERROR) << "JSON error: " << e.what();
-            return Option<bool>(false, "Bad JSON.");
+            return Option<bool>(400, "Bad JSON.");
+        }
+
+        batch_doc_str_size += doc_string.size();
+
+        if(collection->get_enable_nested_fields()) {
+            std::vector<field> flattened_fields;
+            field::flatten_doc(document, collection->get_nested_fields(), true, flattened_fields);
         }
 
         auto dirty_values = DIRTY_VALUES::DROP;
@@ -1176,15 +1279,19 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         iter->Next();
         bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
 
+        // if expected memory usage exceeds 250M, we index the accumulated set without caring about batch size
+        bool exceeds_batch_mem_threshold = ((batch_doc_str_size * 7) > (250 * 1014 * 1024));
+
         // batch must match atleast the number of shards
-        if((num_valid_docs % batch_size == 0) || last_record) {
+         if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
             size_t num_indexed = collection->batch_index_in_memory(index_records);
+            batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {
                 const Option<std::string> & index_error_op = get_first_index_error(index_records);
                 if(!index_error_op.ok()) {
-                    return Option<bool>(false, index_error_op.get());
+                    return Option<bool>(400, index_error_op.get());
                 }
             }
 
@@ -1259,4 +1366,64 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
 
     preset_configs.erase(preset_name);
     return Option<bool>(true);
+}
+
+Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json) {
+    std::shared_lock lock(mutex);
+
+    if(collections.count(existing_name) == 0) {
+        return Option<Collection*>(400, "Collection with name `" + existing_name + "` not found.");
+    }
+
+    if(req_json.count("name") == 0 || !req_json["name"].is_string()) {
+        return Option<Collection*>(400, "Collection name must be provided.");
+    }
+
+    const std::string& new_name = req_json["name"].get<std::string>();
+
+    if(collections.count(new_name) != 0) {
+        return Option<Collection*>(400, "Collection with name `" + new_name + "` already exists.");
+    }
+
+    Collection* existing_coll = collections[existing_name];
+
+    std::vector<std::string> symbols_to_index;
+    std::vector<std::string> token_separators;
+
+    for(auto c: existing_coll->get_symbols_to_index()) {
+        symbols_to_index.emplace_back(1, c);
+    }
+
+    for(auto c: existing_coll->get_token_separators()) {
+        token_separators.emplace_back(1, c);
+    }
+
+    lock.unlock();
+
+    auto coll_create_op = create_collection(new_name, DEFAULT_NUM_MEMORY_SHARDS, existing_coll->get_fields(),
+                              existing_coll->get_default_sorting_field(), static_cast<uint64_t>(std::time(nullptr)),
+                              existing_coll->get_fallback_field_type(), symbols_to_index, token_separators,
+                              existing_coll->get_enable_nested_fields());
+
+    lock.lock();
+
+    if(!coll_create_op.ok()) {
+        return Option<Collection*>(coll_create_op.code(), coll_create_op.error());
+    }
+
+    Collection* new_coll = coll_create_op.get();
+
+    // copy synonyms
+    auto synonyms = existing_coll->get_synonyms();
+    for(const auto& synonym: synonyms) {
+        new_coll->get_synonym_index()->add_synonym(new_name, synonym.second);
+    }
+
+    // copy overrides
+    auto overrides = existing_coll->get_overrides();
+    for(const auto& override: overrides) {
+        new_coll->add_override(override.second);
+    }
+
+    return Option<Collection*>(new_coll);
 }

@@ -124,8 +124,8 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
 
     auto coll_fields = coll1->get_fields();
     ASSERT_EQ(7, coll_fields.size());
-    ASSERT_EQ("age", coll_fields[5].name);
-    ASSERT_EQ(".*_bool", coll_fields[6].name);
+    ASSERT_EQ(".*_bool", coll_fields[5].name);
+    ASSERT_EQ("age", coll_fields[6].name);
 
     doc["id"] = "1";
     doc["title"] = "The one";
@@ -801,6 +801,33 @@ TEST_F(CollectionSchemaChangeTest, DropFieldNotExistingInDocuments) {
     ASSERT_TRUE(alter_op.ok());
 }
 
+TEST_F(CollectionSchemaChangeTest, ChangeFieldToCoercableTypeIsNotAllowed) {
+    // optional title field
+    std::vector<field> fields = {field("title", field_types::STRING, false, true, true, "", 1, 1),
+                                 field("points", field_types::INT32, true),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, "").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // coerce field from int to string
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "points", "drop": true},
+            {"name": "points", "type": "string"}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
+              "Existing data for field `points` cannot be coerced into a string.", alter_op.error());
+}
+
 TEST_F(CollectionSchemaChangeTest, ChangeFromPrimitiveToDynamicField) {
     nlohmann::json req_json = R"({
         "name": "coll1",
@@ -982,4 +1009,440 @@ TEST_F(CollectionSchemaChangeTest, ChangeFromStringStarToAutoField) {
     ASSERT_EQ(1, coll1->get_schema().size());
     ASSERT_EQ(2, coll1->get_fields().size());
     ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, OrderOfDropShouldNotMatter) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "loc", "type": "geopoint"}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["loc"] = {1, 2};
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // try to alter to a bad type (int32)
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "loc", "type": "int32"},
+            {"name": "loc", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "loc", "drop": true},
+            {"name": "loc", "type": "int32"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+}
+
+TEST_F(CollectionSchemaChangeTest, IndexFalseToTrue) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string", "index": false, "facet": false, "optional": true}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Typesense";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // make field indexable
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "title", "drop": true},
+            {"name": "title", "type": "string", "index": true, "facet": true, "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    auto res_op = coll1->search("type", {"title"}, "", {"title"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+    ASSERT_EQ(1, res_op.get()["facet_counts"].size());
+}
+
+TEST_F(CollectionSchemaChangeTest, AddingFieldWithExistingNullValue) {
+    // when a value is `null` initially, and is altered, subsequent updates should not fail
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["num"] = nullptr;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "num", "type": "int32", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    // now try updating the doc
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["num"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+
+    auto res = coll1->search("*", {}, "num:100", {}, {}, {2}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, res["hits"].size());
+}
+
+TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // index a label field as integer
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["label"] = 1000;
+    doc["title"] = "Foo";
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // drop this field from schema
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "label", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    // add new document with a string label
+    doc["id"] = "1";
+    doc["label"] = "abcdef";
+    doc["title"] = "Bar";
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // now we have documents which have both string and integer for the same field :BOOM:
+    // schema change operation should not be allowed at this point
+    schema_changes = R"({
+        "fields": [
+            {"name": "year", "type": "int32", "optional": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
+              "Existing data for field `label` cannot be coerced into a string.", alter_op.error());
+
+    // but should allow the problematic field to be dropped
+    schema_changes = R"({
+        "fields": [
+            {"name": "label", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    // add document with another field
+    doc["id"] = "2";
+    doc["label"] = "xyz";
+    doc["year"] = 1947;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // try searching for string label
+    auto res_op = coll1->search("xyz", {"label"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+}
+
+TEST_F(CollectionSchemaChangeTest, NestedFieldExplicitSchemaDropping) {
+    // Plain object field
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "person", "type": "object"},
+            {"name": "school.city", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Test";
+    doc["person"] = nlohmann::json::object();
+    doc["person"]["name"] = "Jack";
+    doc["school"] = nlohmann::json::object();
+    doc["school"]["city"] = "NYC";
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto fields = coll1->get_fields();
+    auto schema_map = coll1->get_schema();
+
+    ASSERT_EQ(4, fields.size());
+    ASSERT_EQ(4, schema_map.size());
+    ASSERT_EQ(2, coll1->get_nested_fields().size());
+
+    // drop object field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "person", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    fields = coll1->get_fields();
+    schema_map = coll1->get_schema();
+
+    ASSERT_EQ(2, fields.size());
+    ASSERT_EQ(2, schema_map.size());
+    ASSERT_EQ(1, coll1->get_nested_fields().size());
+
+    // drop primitive nested field
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "school.city", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    fields = coll1->get_fields();
+    schema_map = coll1->get_schema();
+
+    ASSERT_EQ(1, fields.size());
+    ASSERT_EQ(1, schema_map.size());
+    ASSERT_EQ(0, coll1->get_nested_fields().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, NestedFieldSchemaAdditions) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Test";
+    doc["person"] = nlohmann::json::object();
+    doc["person"]["name"] = "Jack";
+    doc["school"] = nlohmann::json::object();
+    doc["school"]["city"] = "NYC";
+    doc["school"]["state"] = "NY";
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto fields = coll1->get_fields();
+    auto schema_map = coll1->get_schema();
+
+    ASSERT_EQ(1, fields.size());
+    ASSERT_EQ(1, schema_map.size());
+    ASSERT_EQ(0, coll1->get_nested_fields().size());
+
+    // add plain object field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "person", "type": "object"}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    fields = coll1->get_fields();
+    schema_map = coll1->get_schema();
+
+    ASSERT_EQ(3, fields.size());
+    ASSERT_EQ(3, schema_map.size());
+    ASSERT_EQ(1, coll1->get_nested_fields().size());
+
+    // nested primitive field
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "school.city", "type": "string"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    fields = coll1->get_fields();
+    schema_map = coll1->get_schema();
+
+    ASSERT_EQ(4, fields.size());
+    ASSERT_EQ(4, schema_map.size());
+    ASSERT_EQ(2, coll1->get_nested_fields().size());
+
+    // try searching on new fields
+    auto res_op = coll1->search("jack", {"person.name"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    res_op = coll1->search("nyc", {"school.city"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+}
+
+TEST_F(CollectionSchemaChangeTest, DropAndReAddNestedObject) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "person", "type": "object"},
+            {"name": "school.city", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Test";
+    doc["person"] = nlohmann::json::object();
+    doc["person"]["name"] = "Jack";
+    doc["school"] = nlohmann::json::object();
+    doc["school"]["city"] = "NYC";
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto fields = coll1->get_fields();
+    auto schema_map = coll1->get_schema();
+
+    ASSERT_EQ(4, fields.size());
+    ASSERT_EQ(4, schema_map.size());
+
+    // drop + re-add object field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "person", "drop": true},
+            {"name": "person", "type": "object"}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    fields = coll1->get_fields();
+    schema_map = coll1->get_schema();
+
+    auto res_op = coll1->search("jack", {"person.name"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    ASSERT_EQ(4, fields.size());
+    ASSERT_EQ(4, schema_map.size());
+
+    // drop + re-add school
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "school.city", "drop": true},
+            {"name": "school.city", "type": "string"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    fields = coll1->get_fields();
+    schema_map = coll1->get_schema();
+
+    ASSERT_EQ(4, fields.size());
+    ASSERT_EQ(4, schema_map.size());
+}
+
+TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Title 1";
+    doc["location"] = {22.847641, 89.5405279};
+
+    coll1->add(doc.dump());
+    doc["title"] = "Title 2";
+    doc["location"] = {22.8951791, 89.5125549};
+    coll1->add(doc.dump());
+
+    // add location field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "location", "type": "geopoint"}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    // try searching on new fields
+    auto res_op = coll1->search("*", {}, "location:(22.848641, 89.5406279, 50 km)", {}, {}, {0}, 3, 1, FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(2, res_op.get()["found"].get<size_t>());
 }

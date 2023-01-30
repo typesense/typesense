@@ -14,7 +14,9 @@
 #include <rocksdb/merge_operator.h>
 #include <rocksdb/transaction_log.h>
 #include <butil/file_util.h>
+#include <mutex>
 #include <rocksdb/utilities/checkpoint.h>
+#include <rocksdb/utilities/table_properties_collectors.h>
 #include "string_utils.h"
 #include "logger.h"
 #include "file_utils.h"
@@ -91,7 +93,12 @@ public:
         options.max_write_buffer_number = 2;
         options.merge_operator.reset(new UInt64AddOperator);
         options.compression = rocksdb::CompressionType::kSnappyCompression;
-        //options.bottommost_compression = rocksdb::CompressionType::kSnappyCompression;
+
+        options.max_log_file_size = 4*1048576;
+        options.keep_log_file_num = 5;
+
+        /*options.table_properties_collector_factories.emplace_back(
+                rocksdb::NewCompactOnDeletionCollectorFactory(10000, 7500, 0.5));*/
 
         // these need to be high for replication scenarios
         options.WAL_ttl_seconds = wal_ttl_secs;
@@ -164,9 +171,13 @@ public:
         return status.ok();
     }
 
-    rocksdb::Iterator* scan(const std::string & prefix) {
+    rocksdb::Iterator* scan(const std::string & prefix, const rocksdb::Slice* iterate_upper_bound) {
         std::shared_lock lock(mutex);
-        rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
+        rocksdb::ReadOptions read_opts;
+        if(iterate_upper_bound) {
+            read_opts.iterate_upper_bound = iterate_upper_bound;
+        }
+        rocksdb::Iterator *iter = db->NewIterator(read_opts);
         iter->Seek(prefix);
         return iter;
     }
@@ -177,10 +188,14 @@ public:
         return it;
     };
 
-    void scan_fill(const std::string & prefix, std::vector<std::string> & values) {
+    void scan_fill(const std::string& prefix_start, const std::string& prefix_end, std::vector<std::string> & values) {
+        rocksdb::ReadOptions read_opts;
+        rocksdb::Slice upper_bound(prefix_end);
+        read_opts.iterate_upper_bound = &upper_bound;
+
         std::shared_lock lock(mutex);
-        rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
-        for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
+        rocksdb::Iterator *iter = db->NewIterator(read_opts);
+        for (iter->Seek(prefix_start); iter->Valid() && iter->key().starts_with(prefix_start); iter->Next()) {
             values.push_back(iter->value().ToString());
         }
 
@@ -313,6 +328,11 @@ public:
         std::shared_lock lock(mutex);
         rocksdb::FlushOptions options;
         db->Flush(options);
+    }
+
+    rocksdb::Status compact_all() {
+        std::shared_lock lock(mutex);
+        return db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
     }
 
     rocksdb::Status create_check_point(rocksdb::Checkpoint** checkpoint_ptr, const std::string& db_snapshot_path) {

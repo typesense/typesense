@@ -51,13 +51,13 @@ TEST(StringUtilsTest, ShouldSplitString) {
 
     // restrict list of max_values
     std::vector<std::string> lines_limited;
-    size_t end_index = StringUtils::split("a b c d e f", lines_limited, " ", false, 0, 3);
+    size_t end_index = StringUtils::split("a b c d e f", lines_limited, " ", false, true, 0, 3);
     ASSERT_EQ(3, lines_limited.size());
     ASSERT_EQ(6, end_index);
 
     // start from an arbitrary position in string
     std::vector<std::string> lines_custom_start;
-    end_index = StringUtils::split("a b c d e f", lines_custom_start, " ", false, 2, 100);
+    end_index = StringUtils::split("a b c d e f", lines_custom_start, " ", false, true, 2, 100);
     ASSERT_EQ(5, lines_custom_start.size());
     ASSERT_EQ(11, end_index);
 
@@ -66,6 +66,14 @@ TEST(StringUtilsTest, ShouldSplitString) {
     StringUtils::split(comma_and_space, comma_space_parts, ",");
     ASSERT_STREQ("foo", comma_space_parts[0].c_str());
     ASSERT_STREQ("bar", comma_space_parts[1].c_str());
+
+    // preserve trailing space
+    std::string str_trailing_space = "foo\nbar ";
+    std::vector<std::string> trailing_space_parts;
+    StringUtils::split(str_trailing_space, trailing_space_parts, "\n", false, false);
+    ASSERT_EQ(2, trailing_space_parts.size());
+    ASSERT_EQ("foo", trailing_space_parts[0]);
+    ASSERT_EQ("bar ", trailing_space_parts[1]);
 }
 
 TEST(StringUtilsTest, ShouldTrimString) {
@@ -99,6 +107,19 @@ TEST(StringUtilsTest, ShouldComputeSHA256) {
 
     ASSERT_STREQ("6613f67d3d78d48e2678faf55c33fabc5895c538ce70ea10218ce9b7eccbf394",
                   StringUtils::hash_sha256("791a27668b3e01fc6ab3482b6e6a36255154df3ecd7dcec").c_str());
+}
+
+TEST(StringUtilsTest, ShouldCheckFloat) {
+    ASSERT_TRUE(StringUtils::is_float("0.23"));
+    ASSERT_TRUE(StringUtils::is_float("9.872019290924072e-07"));
+
+    ASSERT_FALSE(StringUtils::is_float("4.2f"));
+    ASSERT_FALSE(StringUtils::is_float("-5.3f"));
+    ASSERT_FALSE(StringUtils::is_float("+6.2f"));
+    ASSERT_FALSE(StringUtils::is_float("0.x87"));
+    ASSERT_FALSE(StringUtils::is_float("1.0.0"));
+    ASSERT_FALSE(StringUtils::is_float("2f"));
+    ASSERT_FALSE(StringUtils::is_float("2.0f1"));
 }
 
 TEST(StringUtilsTest, ShouldParseQueryString) {
@@ -295,4 +316,52 @@ TEST(StringUtilsTest, ContainsWord) {
     ASSERT_FALSE(StringUtils::contains_word("foobar baz", "bar"));
     ASSERT_FALSE(StringUtils::contains_word("foobar baz", "bar baz"));
     ASSERT_FALSE(StringUtils::contains_word("baz foobar", "foo"));
+}
+
+void tokenizeTestHelper(const std::string& filter_query, const std::vector<std::string>& tokenList) {
+    std::queue<std::string> tokenizeOutput;
+    auto tokenize_op = StringUtils::tokenize_filter_query(filter_query, tokenizeOutput);
+    ASSERT_TRUE(tokenize_op.ok());
+    for (auto const& token: tokenList) {
+        ASSERT_EQ(token, tokenizeOutput.front());
+        tokenizeOutput.pop();
+    }
+    ASSERT_TRUE(tokenizeOutput.empty());
+}
+
+TEST(StringUtilsTest, TokenizeFilterQuery) {
+    std::string filter_query;
+    std::vector<std::string> tokenList;
+
+    filter_query = "name: Steve Smith";
+    tokenList = {"name: Steve Smith"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "name: `Toccata & Fugue`";
+    tokenList = {"name: `Toccata & Fugue`"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "name: [Steve Smith, `Jack & Jill`]";
+    tokenList = {"name: [Steve Smith, `Jack & Jill`]"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "age:[10..100]";
+    tokenList = {"age:[10..100]"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "age:>20 && category:= [`Running Shoes, Men`, Sneaker]";
+    tokenList = {"age:>20", "&&", "category:= [`Running Shoes, Men`, Sneaker]"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "location:(48.906, 2.343, 5 mi)";
+    tokenList = {"location:(48.906, 2.343, 5 mi)"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "((age: <5 || age: >10) && category:= [shoes]) || is_curated: true";
+    tokenList = {"(", "(", "age: <5", "||", "age: >10", ")", "&&", "category:= [shoes]", ")", "||", "is_curated: true"};
+    tokenizeTestHelper(filter_query, tokenList);
+
+    filter_query = "((age:<5||age:>10)&&location:(48.906,2.343,5mi))||tags:AT&T";
+    tokenList = {"(", "(", "age:<5", "||", "age:>10", ")", "&&", "location:(48.906,2.343,5mi)", ")", "||", "tags:AT&T"};
+    tokenizeTestHelper(filter_query, tokenList);
 }

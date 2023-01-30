@@ -344,7 +344,6 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
       "BXbsk+xLT1gxOjDyip6+PE4MtOzOm/H7kbkN1d/j/s4=Admi{\"filter_by\": \"user_id:1080\"}"
     );
     ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll2", scoped_key2)}, empty_params, embedded_params));
-    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll2", "bootstrap-key")}, empty_params, embedded_params));
 
     // expiration of scoped api key
 

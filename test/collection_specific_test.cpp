@@ -656,18 +656,19 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
     coll1->add_override(override);
 
     // add synonym
-    synonym_t synonym1{"ipod-synonyms", {}, {{"ipod"}, {"i", "pod"}, {"pod"}} };
-    coll1->add_synonym(synonym1);
+    coll1->add_synonym(R"({"id": "ipod-synonyms", "synonyms": ["ipod", "i pod", "pod"]})"_json);
 
     collectionManager.drop_collection("coll1");
 
     // overrides should have been deleted from the store
     std::vector<std::string> stored_values;
-    store->scan_fill(Collection::COLLECTION_OVERRIDE_PREFIX, stored_values);
+    store->scan_fill(Collection::COLLECTION_OVERRIDE_PREFIX, std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "`",
+                     stored_values);
     ASSERT_TRUE(stored_values.empty());
 
     // synonyms should also have been deleted from the store
-    store->scan_fill(SynonymIndex::COLLECTION_SYNONYM_PREFIX, stored_values);
+    store->scan_fill(SynonymIndex::COLLECTION_SYNONYM_PREFIX, std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "`",
+                     stored_values);
     ASSERT_TRUE(stored_values.empty());
 }
 
@@ -1505,7 +1506,6 @@ TEST_F(CollectionSpecificTest, MultiFieldVerbatimMatchesShouldBeWeighted) {
 }
 
 TEST_F(CollectionSpecificTest, ZeroWeightedField) {
-    // 2 matches on low weighted fields should not overpower a single match on high weighted field
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("category", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
@@ -1527,16 +1527,16 @@ TEST_F(CollectionSpecificTest, ZeroWeightedField) {
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
 
-    auto results = coll1->search("kids", {"name", "category"},
+    auto results = coll1->search("kids", {"category", "name"},
                                  "", {}, {}, {0, 0}, 10,
                                  1, FREQUENCY, {false, false},
                                  2, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {0, 1}).get();
+                                 "<mark>", "</mark>", {1, 0}).get();
 
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -2594,13 +2594,13 @@ TEST_F(CollectionSpecificTest, HandleLargeWeights) {
     doc1["id"] = "0";
     doc1["title"] = "foo same";
     doc1["description"] = "bar same";
-    doc1["points"] = 100;
+    doc1["points"] = 200;
 
     nlohmann::json doc2;
     doc2["id"] = "1";
     doc2["title"] = "bar same";
     doc2["description"] = "foo same";
-    doc2["points"] = 200;
+    doc2["points"] = 100;
 
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
@@ -2615,17 +2615,19 @@ TEST_F(CollectionSpecificTest, HandleLargeWeights) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(results["hits"][0]["text_match"].get<size_t>() > results["hits"][1]["text_match"].get<size_t>());
 
     results = coll1->search("foo same", {"title", "description"},
                             "", {}, {}, {2, 2}, 10,
                             1, FREQUENCY, {true, true},
                             10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {1, 128}, 1000, true).get();
+                            "<mark>", "</mark>", {128, 130}, 1000, true).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(results["hits"][0]["text_match"].get<size_t>() > results["hits"][1]["text_match"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }

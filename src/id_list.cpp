@@ -30,16 +30,25 @@ uint32_t id_list_t::block_t::erase(const uint32_t id) {
 
 /* iterator_t operations */
 
-id_list_t::iterator_t::iterator_t(id_list_t::block_t* start, id_list_t::block_t* end):
-        curr_block(start), curr_index(0), end_block(end) {
+id_list_t::iterator_t::iterator_t(id_list_t::block_t* start, id_list_t::block_t* end,
+                                  std::map<last_id_t, block_t*>* id_block_map, bool reverse):
+        curr_block(start), curr_index(0), end_block(end), id_block_map(id_block_map), reverse(reverse) {
 
     if(curr_block != end_block) {
         ids = curr_block->ids.uncompress();
+
+        if(reverse) {
+            curr_index = curr_block->ids.getLength()-1;
+        }
     }
 }
 
 bool id_list_t::iterator_t::valid() const {
-    return (curr_block != end_block) && (curr_index < curr_block->size());
+    if(reverse) {
+        return (curr_block != end_block) && (curr_index >= 0);
+    } else {
+        return (curr_block != end_block) && (curr_index < curr_block->size());
+    }
 }
 
 void id_list_t::iterator_t::next() {
@@ -53,6 +62,25 @@ void id_list_t::iterator_t::next() {
 
         if(curr_block != end_block) {
             ids = curr_block->ids.uncompress();
+        }
+    }
+}
+
+void id_list_t::iterator_t::previous() {
+    curr_index--;
+    if(curr_index < 0) {
+        // since block stores only the next pointer, we have to use `id_block_map` for reverse iteration
+        auto last_ele = ids[curr_block->size()-1];
+        auto it = id_block_map->find(last_ele);
+        if(it != id_block_map->end() && it != id_block_map->begin()) {
+            it--;
+            curr_block = it->second;
+            curr_index = curr_block->size()-1;
+
+            delete [] ids;
+            ids = curr_block->ids.uncompress();
+        } else {
+            curr_block = end_block;
         }
     }
 }
@@ -103,10 +131,13 @@ id_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     curr_index = rhs.curr_index;
     end_block = rhs.end_block;
     ids = rhs.ids;
+    id_block_map = rhs.id_block_map;
+    reverse = rhs.reverse;
 
     rhs.curr_block = nullptr;
     rhs.end_block = nullptr;
     rhs.ids = nullptr;
+    rhs.id_block_map = nullptr;
 }
 
 /* id_list_t operations */
@@ -457,7 +488,17 @@ bool id_list_t::equals2(std::vector<id_list_t::iterator_t>& its) {
 
 id_list_t::iterator_t id_list_t::new_iterator(block_t* start_block, block_t* end_block) {
     start_block = (start_block == nullptr) ? &root_block : start_block;
-    return id_list_t::iterator_t(start_block, end_block);
+    return id_list_t::iterator_t(start_block, end_block, &id_block_map, false);
+}
+
+id_list_t::iterator_t id_list_t::new_rev_iterator() {
+    block_t* start_block = nullptr;
+    if(!id_block_map.empty()) {
+        start_block = id_block_map.rbegin()->second;
+    }
+
+    auto rev_it = id_list_t::iterator_t(start_block, nullptr, &id_block_map, true);
+    return rev_it;
 }
 
 void id_list_t::advance_all(std::vector<id_list_t::iterator_t>& its) {
@@ -583,6 +624,16 @@ bool id_list_t::take_id(result_iter_state_t& istate, uint32_t id) {
     }
 
     return true;
+}
+
+void id_list_t::uncompress(std::vector<uint32_t>& data) {
+    auto it = new_iterator();
+    data.reserve(data.size() + ids_length);
+
+    while(it.valid()) {
+        data.push_back(it.id());
+        it.next();
+    }
 }
 
 uint32_t* id_list_t::uncompress() {

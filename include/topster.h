@@ -7,11 +7,9 @@
 #include <unordered_map>
 
 struct KV {
-    uint8_t field_id{};
-    uint8_t match_score_index{};
+    int8_t match_score_index{};
     uint16_t query_index{};
     uint16_t array_index{};
-    uint32_t token_bits{};
     uint64_t key{};
     uint64_t distinct_key{};
     int64_t scores[3]{};  // match score + 2 custom attributes
@@ -19,10 +17,8 @@ struct KV {
     // to be used only in final aggregation
     uint64_t* query_indices = nullptr;
 
-    KV(uint8_t field_id, uint16_t queryIndex, uint32_t token_bits, uint64_t key, uint64_t distinct_key,
-       uint8_t match_score_index, const int64_t *scores):
-            field_id(field_id), match_score_index(match_score_index),
-            query_index(queryIndex), array_index(0), token_bits(token_bits), key(key),
+    KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, uint8_t match_score_index, const int64_t *scores):
+            match_score_index(match_score_index), query_index(queryIndex), array_index(0), key(key),
             distinct_key(distinct_key) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
@@ -33,8 +29,8 @@ struct KV {
 
     KV(KV& kv) = default;
 
-    KV(KV&& kv) noexcept : field_id(kv.field_id), match_score_index(kv.match_score_index),
-                 query_index(kv.query_index), array_index(kv.array_index), token_bits(kv.token_bits),
+    KV(KV&& kv) noexcept : match_score_index(kv.match_score_index),
+                 query_index(kv.query_index), array_index(kv.array_index),
                  key(kv.key), distinct_key(kv.distinct_key) {
 
         scores[0] = kv.scores[0];
@@ -47,11 +43,9 @@ struct KV {
 
     KV& operator=(KV&& kv) noexcept  {
         if (this != &kv) {
-            field_id = kv.field_id;
             match_score_index = kv.match_score_index;
             query_index = kv.query_index;
             array_index = kv.array_index;
-            token_bits = kv.token_bits;
             key = kv.key;
             distinct_key = kv.distinct_key;
 
@@ -69,11 +63,9 @@ struct KV {
 
     KV& operator=(KV& kv) noexcept  {
         if (this != &kv) {
-            field_id = kv.field_id;
             match_score_index = kv.match_score_index;
             query_index = kv.query_index;
             array_index = kv.array_index;
-            token_bits = kv.token_bits;
             key = kv.key;
             distinct_key = kv.distinct_key;
 
@@ -120,11 +112,9 @@ struct Topster {
         kvs = new KV*[capacity];
 
         for(size_t i=0; i<capacity; i++) {
-            data[i].field_id = 0;
             data[i].match_score_index = 0;
             data[i].query_index = 0;
             data[i].array_index = i;
-            data[i].token_bits = 0;
             data[i].key = 0;
             data[i].distinct_key = 0;
             kvs[i] = &data[i];

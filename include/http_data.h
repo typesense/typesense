@@ -200,6 +200,11 @@ struct ip_addr_str_t {
     char ip[IP_MAX_LEN];
 };
 
+struct req_state_t {
+public:
+    virtual ~req_state_t() = default;
+};
+
 struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* AGENT_HEADER = "user-agent";
@@ -220,12 +225,18 @@ struct http_req {
     size_t body_index;
     std::string metadata;
 
-    void* data;
+    req_state_t* data;
 
     // for deffered processing of async handlers
     h2o_custom_timer_t defer_timer;
 
     uint64_t start_ts;
+
+    // timestamp from the underlying http library
+    uint64_t conn_ts;
+
+    // was the request aborted *without a result* because of wait time exceeding search cutoff threshold?
+    bool overloaded = false;
 
     std::mutex mcv;
     std::condition_variable cv;
@@ -245,6 +256,8 @@ struct http_req {
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
+        conn_ts = start_ts;
+
     }
 
     http_req(h2o_req_t* _req, const std::string & http_method, const std::string & path_without_query, uint64_t route_hash,
@@ -256,12 +269,17 @@ struct http_req {
             chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
             log_index(0), is_diposed(false), client_ip(client_ip) {
 
+        if(_req != nullptr) {
+            const auto& tv = _req->processed_at.at;
+            conn_ts = (tv.tv_sec * 1000 * 1000) + tv.tv_usec;
+            is_http_v1 = (_req->version < 0x200);
+        } else {
+            conn_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+        }
+
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
-
-        if(_req != nullptr) {
-            is_http_v1 = (_req->version < 0x200);
-        }
     }
 
     ~http_req() {
@@ -274,23 +292,47 @@ struct http_req {
                     std::chrono::system_clock::now().time_since_epoch()).count();
             uint64_t ms_since_start = (now - start_ts) / 1000;
 
-            std::string metric_identifier = http_method + " " + path_without_query;
+            const std::string metric_identifier = http_method + " " + path_without_query;
             AppMetrics::get_instance().increment_duration(metric_identifier, ms_since_start);
             AppMetrics::get_instance().increment_write_metrics(route_hash, ms_since_start);
 
-            if(config.get_log_slow_requests_time_ms() >= 0 && int(ms_since_start) >= config.get_log_slow_requests_time_ms()) {
+            bool log_slow_searches = config.get_log_slow_searches_time_ms() >= 0 &&
+                                     int(ms_since_start) >= config.get_log_slow_searches_time_ms() &&
+                                     (path_without_query == "/multi_search" ||
+                                      StringUtils::ends_with(path_without_query, "/documents/search"));
+
+            bool log_slow_requests = config.get_log_slow_requests_time_ms() >= 0 &&
+                                     int(ms_since_start) >= config.get_log_slow_requests_time_ms();
+
+            if(overloaded) {
+                AppMetrics::get_instance().increment_count(AppMetrics::OVERLOADED_LABEL, 1);
+            } else if(log_slow_searches || log_slow_requests) {
                 // log slow request if logging is enabled
                 std::string query_string = "?";
-                for(const auto& kv: params) {
-                    if(kv.first != AUTH_HEADER) {
-                        query_string += kv.first + "=" + kv.second + "&";
+                bool is_multi_search_query = (path_without_query == "/multi_search");
+
+                if(is_multi_search_query) {
+                    StringUtils::erase_char(body, '\n');
+                } else {
+                    // ignore params map of multi_search since it is mutated for every search object in the POST body
+                    for(const auto& kv: params) {
+                        if(kv.first != AUTH_HEADER) {
+                            query_string += kv.first + "=" + kv.second + "&";
+                        }
                     }
                 }
+
                 std::string full_url_path = metric_identifier + query_string;
-                LOG(INFO) << "SLOW REQUEST: " << "(" + std::to_string(ms_since_start) + " ms) "
-                          << client_ip << " " << full_url_path;
+
+                // NOTE: we log the `body` ONLY for multi-search query
+                LOG(INFO) << "event=slow_request, time=" << ms_since_start << " ms"
+                          << ", client_ip=" << client_ip << ", endpoint=" << full_url_path
+                          << ", body=" << (is_multi_search_query ? body : "");
             }
         }
+
+        delete data;
+        data = nullptr;
     }
 
     void wait() {

@@ -10,6 +10,7 @@
 #include <app_metrics.h>
 #include "raft_server.h"
 #include "logger.h"
+#include "ratelimit_manager.h"
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
@@ -453,6 +454,13 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     const std::string & body = std::string(req->entity.base, req->entity.len);
     std::vector<nlohmann::json> embedded_params_vec;
+
+
+    if(RateLimitManager::getInstance()->is_rate_limited({{RateLimitedEntityType::api_key, api_auth_key_sent}, {RateLimitedEntityType::ip, client_ip}})) {
+        std::string message = "{ \"message\": \"Rate limit exceeded or blocked\"}";
+        return send_response(req, 429, message);
+    }
+
 
     if(root_resource != "multi_search") {
         // multi_search needs to be handled later because the API key could be part of request body and

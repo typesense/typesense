@@ -10,83 +10,23 @@
 
 struct synonym_t {
     std::string id;
+
+    std::string raw_root;
+    // used in code and differs from API + storage format
     std::vector<std::string> root;
+
+    std::vector<std::string> raw_synonyms;
+    // used in code and differs from API + storage format
     std::vector<std::vector<std::string>> synonyms;
+
+    std::string locale;
+    std::vector<char> symbols;
 
     synonym_t() = default;
 
-    synonym_t(const std::string& id, const std::vector<std::string>& root,
-              const std::vector<std::vector<std::string>>& synonyms):
-            id(id), root(root), synonyms(synonyms) {
+    nlohmann::json to_view_json() const;
 
-    }
-
-    explicit synonym_t(const nlohmann::json& synonym) {
-        id = synonym["id"].get<std::string>();
-        if(synonym.count("root") != 0) {
-            root = synonym["root"].get<std::vector<std::string>>();
-        }
-        synonyms = synonym["synonyms"].get<std::vector<std::vector<std::string>>>();
-    }
-
-    nlohmann::json to_json() const {
-        nlohmann::json obj;
-        obj["id"] = id;
-        obj["root"] = root;
-        obj["synonyms"] = synonyms;
-        return obj;
-    }
-
-    nlohmann::json to_view_json() const {
-        nlohmann::json obj;
-        obj["id"] = id;
-        obj["root"] = StringUtils::join(root, " ");
-
-        obj["synonyms"] = nlohmann::json::array();
-
-        for(const auto& synonym: synonyms) {
-            obj["synonyms"].push_back(StringUtils::join(synonym, " "));
-        }
-
-        return obj;
-    }
-
-    static Option<bool> parse(const nlohmann::json& synonym_json, synonym_t& syn) {
-        if(synonym_json.count("id") == 0) {
-            return Option<bool>(400, "Missing `id` field.");
-        }
-
-        if(synonym_json.count("synonyms") == 0) {
-            return Option<bool>(400, "Could not find an array of `synonyms`");
-        }
-
-        if(synonym_json.count("root") != 0 && !synonym_json["root"].is_string()) {
-            return Option<bool>(400, "Key `root` should be a string.");
-        }
-
-        if (!synonym_json["synonyms"].is_array() || synonym_json["synonyms"].empty()) {
-            return Option<bool>(400, "Could not find an array of `synonyms`");
-        }
-
-        for(const auto& synonym: synonym_json["synonyms"]) {
-            if(!synonym.is_string() || synonym == "") {
-                return Option<bool>(400, "Could not find a valid string array of `synonyms`");
-            }
-
-            std::vector<std::string> tokens;
-            Tokenizer(synonym, true).tokenize(tokens);
-            syn.synonyms.push_back(tokens);
-        }
-
-        if(synonym_json.count("root") != 0) {
-            std::vector<std::string> tokens;
-            Tokenizer(synonym_json["root"], true).tokenize(tokens);
-            syn.root = tokens;
-        }
-
-        syn.id = synonym_json["id"];
-        return Option<bool>(true);
-    }
+    static Option<bool> parse(const nlohmann::json& synonym_json, synonym_t& syn);
 
     static uint64_t get_hash(const std::vector<std::string>& tokens) {
         uint64_t hash = 1;

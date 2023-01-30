@@ -370,6 +370,18 @@ uint32_t* ids_t::uncompress(void*& obj) {
     }
 }
 
+void ids_t::uncompress(void*& obj, std::vector<uint32_t>& ids) {
+    if(IS_COMPACT_IDS(obj)) {
+        compact_id_list_t* list = COMPACT_IDS_PTR(obj);
+        for(size_t i = 0; i < list->length; i++) {
+            ids.push_back(list->ids[i]);
+        }
+    } else {
+        id_list_t* list = (id_list_t*)(obj);
+        list->uncompress(ids);
+    }
+}
+
 void ids_t::block_intersector_t::split_lists(size_t concurrency,
                                              std::vector<std::vector<id_list_t::iterator_t>>& partial_its_vec) {
     const size_t num_blocks = this->id_lists[0]->num_blocks();
@@ -412,7 +424,7 @@ void ids_t::block_intersector_t::split_lists(size_t concurrency,
                     }
                 }
 
-                partial_its.emplace_back(p_start_block, p_end_block);
+                partial_its.emplace_back(p_start_block, p_end_block, nullptr, false);
             }
 
             start_block = curr_block->next;

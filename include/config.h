@@ -5,6 +5,7 @@
 #include "option.h"
 #include "string_utils.h"
 #include "INIReader.h"
+#include "json.hpp"
 
 class Config {
 private:
@@ -54,6 +55,11 @@ private:
     bool enable_access_logging;
 
     int disk_used_max_percentage;
+    int memory_used_max_percentage;
+
+    std::atomic<bool> skip_writes;
+
+    std::atomic<int> log_slow_searches_time_ms;
 
 protected:
 
@@ -74,6 +80,9 @@ protected:
         this->ssl_refresh_interval_seconds = 8 * 60 * 60;
         this->enable_access_logging = false;
         this->disk_used_max_percentage = 100;
+        this->memory_used_max_percentage = 100;
+        this->skip_writes = false;
+        this->log_slow_searches_time_ms = 30 * 1000;
     }
 
     Config(Config const&) {
@@ -136,12 +145,20 @@ public:
         this->log_slow_requests_time_ms = log_slow_requests_time_ms;
     }
 
+    void set_log_slow_searches_time_ms(int log_slow_searches_time_ms) {
+        this->log_slow_searches_time_ms = log_slow_searches_time_ms;
+    }
+
     void set_healthy_read_lag(size_t healthy_read_lag) {
         this->healthy_read_lag = healthy_read_lag;
     }
 
     void set_healthy_write_lag(size_t healthy_write_lag) {
         this->healthy_write_lag = healthy_write_lag;
+    }
+
+    void set_skip_writes(bool skip_writes) {
+        this->skip_writes = skip_writes;
     }
 
     // getters
@@ -235,6 +252,10 @@ public:
         return this->log_slow_requests_time_ms;
     }
 
+    int get_log_slow_searches_time_ms() const {
+        return this->log_slow_searches_time_ms;
+    }
+
     size_t get_num_collections_parallel_load() const {
         return this->num_collections_parallel_load;
     }
@@ -259,12 +280,20 @@ public:
         return this->disk_used_max_percentage;
     }
 
+    int get_memory_used_max_percentage() const {
+        return this->memory_used_max_percentage;
+    }
+
     std::string get_access_log_path() const {
         if(this->log_dir.empty()) {
             return "";
         }
 
         return this->log_dir + "/typesense-access.log";
+    }
+
+    const std::atomic<bool>& get_skip_writes() const {
+        return skip_writes;
     }
 
     // loaders
@@ -346,6 +375,10 @@ public:
             this->log_slow_requests_time_ms = std::stoi(get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS"));
         }
 
+        if(!get_env("TYPESENSE_LOG_SLOW_SEARCHES_TIME_MS").empty()) {
+            this->log_slow_searches_time_ms = std::stoi(get_env("TYPESENSE_LOG_SLOW_SEARCHES_TIME_MS"));
+        }
+
         if(!get_env("TYPESENSE_NUM_COLLECTIONS_PARALLEL_LOAD").empty()) {
             this->num_collections_parallel_load = std::stoi(get_env("TYPESENSE_NUM_COLLECTIONS_PARALLEL_LOAD"));
         }
@@ -371,6 +404,12 @@ public:
         if(!get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE").empty()) {
             this->disk_used_max_percentage = std::stoi(get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE"));
         }
+
+        if(!get_env("TYPESENSE_MEMORY_USED_MAX_PERCENTAGE").empty()) {
+            this->memory_used_max_percentage = std::stoi(get_env("TYPESENSE_MEMORY_USED_MAX_PERCENTAGE"));
+        }
+
+        this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
     }
 
     void load_config_file(cmdline::parser & options) {
@@ -392,7 +431,7 @@ public:
         }
 
         config_file_validity = 1;
-        
+
         if(reader.Exists("server", "data-dir")) {
             this->data_dir = reader.Get("server", "data-dir", "");
         }
@@ -489,6 +528,10 @@ public:
             this->log_slow_requests_time_ms = (int) reader.GetInteger("server", "log-slow-requests-time-ms", -1);
         }
 
+        if(reader.Exists("server", "log-slow-searches-time-ms")) {
+            this->log_slow_searches_time_ms = (int) reader.GetInteger("server", "log-slow-searches-time-ms", 30*1000);
+        }
+
         if(reader.Exists("server", "num-collections-parallel-load")) {
             this->num_collections_parallel_load = (int) reader.GetInteger("server", "num-collections-parallel-load", 0);
         }
@@ -512,6 +555,15 @@ public:
 
         if(reader.Exists("server", "disk-used-max-percentage")) {
             this->disk_used_max_percentage = (int) reader.GetInteger("server", "disk-used-max-percentage", 100);
+        }
+
+        if(reader.Exists("server", "memory-used-max-percentage")) {
+            this->memory_used_max_percentage = (int) reader.GetInteger("server", "memory-used-max-percentage", 100);
+        }
+
+        if(reader.Exists("server", "skip-writes")) {
+            auto skip_writes_str = reader.Get("server", "skip-writes", "false");
+            this->skip_writes = (skip_writes_str == "true");
         }
     }
 
@@ -610,6 +662,10 @@ public:
             this->log_slow_requests_time_ms = options.get<int>("log-slow-requests-time-ms");
         }
 
+        if(options.exist("log-slow-searches-time-ms")) {
+            this->log_slow_searches_time_ms = options.get<int>("log-slow-searches-time-ms");
+        }
+
         if(options.exist("num-collections-parallel-load")) {
             this->num_collections_parallel_load = options.get<uint32_t>("num-collections-parallel-load");
         }
@@ -632,6 +688,14 @@ public:
 
         if(options.exist("disk-used-max-percentage")) {
             this->disk_used_max_percentage = options.get<int>("disk-used-max-percentage");
+        }
+
+        if(options.exist("memory-used-max-percentage")) {
+            this->memory_used_max_percentage = options.get<int>("memory-used-max-percentage");
+        }
+
+        if(options.exist("skip-writes")) {
+            this->skip_writes = options.get<bool>("skip-writes");
         }
     }
 
@@ -659,4 +723,6 @@ public:
 
         return Option<bool>(true);
     }
+
+    Option<bool> update_config(const nlohmann::json& req_json);
 };

@@ -53,6 +53,8 @@ class CollectionManager {
 private:
     mutable std::shared_mutex mutex;
 
+    mutable std::mutex coll_create_mutex;
+
     Store *store;
     ThreadPool* thread_pool;
 
@@ -118,6 +120,8 @@ public:
                                         const StoreStatus& next_coll_id_status,
                                         const std::atomic<bool>& quit);
 
+    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
+
     void add_to_collections(Collection* collection);
 
     std::vector<Collection*> get_collections() const;
@@ -150,7 +154,8 @@ public:
                                           const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)),
                                           const std::string& fallback_field_type = "",
                                           const std::vector<std::string>& symbols_to_index = {},
-                                          const std::vector<std::string>& token_separators = {});
+                                          const std::vector<std::string>& token_separators = {},
+                                          const bool enable_nested_fields = false);
 
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 
@@ -174,7 +179,8 @@ public:
 
     static Option<bool> do_search(std::map<std::string, std::string>& req_params,
                                   nlohmann::json& embedded_params,
-                                  std::string& results_json_str);
+                                  std::string& results_json_str,
+                                  uint64_t start_ts);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 

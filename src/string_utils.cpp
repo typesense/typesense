@@ -9,7 +9,6 @@
 #include <arpa/inet.h>
 #include "logger.h"
 
-
 StringUtils::StringUtils() {
     UErrorCode errcode = U_ZERO_ERROR;
     nfkd = icu::Normalizer2::getNFKDInstance(errcode);
@@ -218,6 +217,10 @@ void StringUtils::replace_all(std::string& subject, const std::string& search, c
     }
 }
 
+void StringUtils::erase_char(std::string& str, const char c) {
+    str.erase(std::remove(str.begin(), str.end(), c), str.cend());
+}
+
 std::string StringUtils::trim_curly_spaces(const std::string& str) {
     std::string left_trimmed;
     int i = 0;
@@ -331,6 +334,83 @@ char* StringUtils::get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen)
     }
 
     return s;
+}
+
+size_t StringUtils::get_num_chars(const std::string& s) {
+    // finds number of unicode points in given string
+    size_t i = 0, j = 0;
+    while (s[i]) {
+        if ((s[i] & 0xC0) != 0x80) {
+            j++;
+        }
+        i++;
+    }
+
+    return j;
+}
+
+Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
+    auto size = filter_query.size();
+    for (auto i = 0; i < size;) {
+        auto c = filter_query[i];
+        if (c == ' ') {
+            i++;
+            continue;
+        }
+
+        if (c == '(') {
+            tokens.push("(");
+            i++;
+        } else if (c == ')') {
+            tokens.push(")");
+            i++;
+        } else if (c == '&') {
+            if (i + 1 >= size || filter_query[i + 1] != '&') {
+                return Option<bool>(400, "Could not parse the filter filter_query.");
+            }
+            tokens.push("&&");
+            i += 2;
+        } else if (c == '|') {
+            if (i + 1 >= size || filter_query[i + 1] != '|') {
+                return Option<bool>(400, "Could not parse the filter filter_query.");
+            }
+            tokens.push("||");
+            i += 2;
+        } else {
+            std::stringstream ss;
+            bool inBacktick = false;
+            bool preceding_colon = false;
+            bool is_geo_value = false;
+
+            do {
+                if (c == ':') {
+                    preceding_colon = true;
+                }
+                if (c == ')' && is_geo_value) {
+                    is_geo_value = false;
+                }
+
+                ss << c;
+                c = filter_query[++i];
+
+                if (c == '`') {
+                    inBacktick = !inBacktick;
+                }
+                if (preceding_colon && c == '(') {
+                    is_geo_value = true;
+                    preceding_colon = false;
+                } else if (preceding_colon && c != ' ') {
+                    preceding_colon = false;
+                }
+            } while (i < size && (inBacktick || is_geo_value ||
+                                  (c != '(' && c != ')' && !(c == '&' && filter_query[i + 1] == '&') &&
+                                   !(c == '|' && filter_query[i + 1] == '|'))));
+            auto token = ss.str();
+            trim(token);
+            tokens.push(token);
+        }
+    }
+    return Option<bool>(true);
 }
 
 /*size_t StringUtils::unicode_length(const std::string& bytes) {

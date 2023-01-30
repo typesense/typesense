@@ -5,6 +5,7 @@
 #include "sorted_array.h"
 #include "array.h"
 #include "match_score.h"
+#include "thread_local_vars.h"
 
 typedef uint32_t last_id_t;
 
@@ -17,7 +18,6 @@ struct result_iter_state_t {
 
     size_t excluded_result_ids_index = 0;
     size_t filter_ids_index = 0;
-    size_t index = 0;
 
     result_iter_state_t() = default;
 
@@ -188,6 +188,11 @@ public:
                                    const uint32_t* ids, const uint32_t num_ids,
                                    uint32_t*& phrase_ids, size_t& num_phrase_ids);
 
+    static bool has_phrase_match(const std::vector<token_positions_t>& token_positions);
+
+    static bool found_token_sequence(const std::vector<token_positions_t>& token_positions, const size_t token_index,
+                              const uint16_t target_pos);
+
     static void get_matching_array_indices(uint32_t id, std::vector<iterator_t>& its,
                                            std::vector<size_t>& indices);
 
@@ -198,13 +203,22 @@ template<class T>
 bool posting_list_t::block_intersect(std::vector<posting_list_t::iterator_t>& its, result_iter_state_t& istate,
                                      T func) {
 
+    size_t num_processed = 0;
+
     switch (its.size()) {
         case 0:
             break;
         case 1:
             while(its[0].valid()) {
+                num_processed++;
+                if (num_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+                    search_cutoff = true;
+                    break;
+                }
+
                 if(posting_list_t::take_id(istate, its[0].id())) {
-                    func(its[0].id(), its, istate.index);
+                    func(its[0].id(), its);
                 }
 
                 its[0].next();
@@ -212,9 +226,16 @@ bool posting_list_t::block_intersect(std::vector<posting_list_t::iterator_t>& it
             break;
         case 2:
             while(!at_end2(its)) {
+                num_processed++;
+                if (num_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+                    search_cutoff = true;
+                    break;
+                }
+
                 if(equals2(its)) {
                     if(posting_list_t::take_id(istate, its[0].id())) {
-                        func(its[0].id(), its, istate.index);
+                        func(its[0].id(), its);
                     }
 
                     advance_all2(its);
@@ -225,10 +246,17 @@ bool posting_list_t::block_intersect(std::vector<posting_list_t::iterator_t>& it
             break;
         default:
             while(!at_end(its)) {
+                num_processed++;
+                if (num_processed % 65536 == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+                    search_cutoff = true;
+                    break;
+                }
+
                 if(equals(its)) {
                     //LOG(INFO) << its[0].id();
                     if(posting_list_t::take_id(istate, its[0].id())) {
-                        func(its[0].id(), its, istate.index);
+                        func(its[0].id(), its);
                     }
 
                     advance_all(its);

@@ -6,6 +6,7 @@
 #include "http_data.h"
 #include "threadpool.h"
 #include "http_server.h"
+#include "config.h"
 
 class BatchedIndexer {
 private:
@@ -67,16 +68,27 @@ private:
     rocksdb::Iterator* skip_index_iter = nullptr;
     static constexpr const char* SKIP_INDICES_PREFIX = "$XP";
 
+    std::string skip_index_upper_bound_key = std::string(SKIP_INDICES_PREFIX) + "`";  // cannot inline this
+    rocksdb::Slice* skip_index_iter_upper_bound = nullptr;
+
+    // When set, all writes (both live and log serialized) are skipped with 422 response
+    const std::atomic<bool>& skip_writes;
+
+    const Config& config;
+
     static const size_t GC_INTERVAL_SECONDS = 60;
     static const size_t GC_PRUNE_MAX_SECONDS = 3600;
 
     static std::string get_req_prefix_key(uint64_t req_id);
 
+    static std::string get_req_suffix_key(uint64_t req_id);
+
 public:
 
     static const constexpr char* RAFT_REQ_LOG_PREFIX = "$RL_";
 
-    BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, size_t num_threads);
+    BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, size_t num_threads,
+                   const Config& config, const std::atomic<bool>& skip_writes);
 
     ~BatchedIndexer();
 

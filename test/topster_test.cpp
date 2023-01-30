@@ -8,28 +8,26 @@ TEST(TopsterTest, MaxIntValues) {
     Topster topster(5);
 
     struct {
-        uint8_t field_id;
         uint16_t query_index;
-        uint32_t token_bits;
         uint64_t key;
         uint64_t match_score;
         int64_t primary_attr;
         int64_t secondary_attr;
     } data[14] = {
-        {1, 0, 255,  1, 11, 20, 30},
-        {1, 0, 255,  1, 12, 20, 32},
-        {1, 0, 255,  2, 4, 20, 30},
-        {1, 2, 255,  3, 7, 20, 30},
-        {1, 0, 255,  4, 14, 20, 30},
-        {1, 1, 255,  5, 9, 20, 30},
-        {1, 1, 255,  5, 10, 20, 32},
-        {1, 1, 255,  5, 9, 20, 30},
-        {1, 0, 255,  6, 6, 20, 30},
-        {1, 2, 255,  7, 6, 22, 30},
-        {1, 2, 255,  7, 6, 22, 30},
-        {1, 1, 255,  8, 9, 20, 30},
-        {1, 0, 255,  9, 8, 20, 30},
-        {1, 3, 255,  10, 5, 20, 30},
+        {0, 1, 11, 20, 30},
+        {0, 1, 12, 20, 32},
+        {0, 2, 4, 20, 30},
+        {2, 3, 7, 20, 30},
+        {0, 4, 14, 20, 30},
+        {1, 5, 9, 20, 30},
+        {1, 5, 10, 20, 32},
+        {1, 5, 9, 20, 30},
+        {0, 6, 6, 20, 30},
+        {2, 7, 6, 22, 30},
+        {2, 7, 6, 22, 30},
+        {1, 8, 9, 20, 30},
+        {0, 9, 8, 20, 30},
+        {3, 10, 5, 20, 30},
     };
 
     for(int i = 0; i < 14; i++) {
@@ -38,7 +36,7 @@ TEST(TopsterTest, MaxIntValues) {
         scores[1] = data[i].primary_attr;
         scores[2] = data[i].secondary_attr;
 
-        KV kv(data[i].field_id, data[i].query_index, data[i].token_bits, data[i].key, data[i].key, 0, scores);
+        KV kv(data[i].query_index, data[i].key, data[i].key, 0, scores);
         topster.add(&kv);
     }
 
@@ -79,7 +77,7 @@ TEST(TopsterTest, StableSorting) {
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
-        KV kv(0, 0, 0, id_score.first, id_score.first, 0, scores);
+        KV kv(0, id_score.first, id_score.first, 0, scores);
         topster1K.add(&kv);
     }
 
@@ -96,7 +94,7 @@ TEST(TopsterTest, StableSorting) {
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
-        KV kv(0, 0, 0, id_score.first, id_score.first, 0, scores);
+        KV kv(0, id_score.first, id_score.first, 0, scores);
         topster250.add(&kv);
     }
 
@@ -111,7 +109,7 @@ TEST(TopsterTest, StableSorting) {
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
-        KV kv(0, 0, 0, id_score.first, id_score.first, 0, scores);
+        KV kv(0, id_score.first, id_score.first, 0, scores);
         topster500.add(&kv);
     }
 
@@ -126,7 +124,7 @@ TEST(TopsterTest, StableSorting) {
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
-        KV kv(0, 0, 0, id_score.first, id_score.first, 0, scores);
+        KV kv(0, id_score.first, id_score.first, 0, scores);
         topster750.add(&kv);
     }
 
@@ -141,35 +139,33 @@ TEST(TopsterTest, MaxFloatValues) {
     Topster topster(5);
 
     struct {
-        uint8_t field_id;
         uint16_t query_index;
-        uint32_t token_bits;
         uint64_t key;
         uint64_t match_score;
         float primary_attr;
         int64_t secondary_attr;
     } data[12] = {
-            {1, 0,  255, 1, 11, 1.09, 30},
-            {1, 0,  255, 2, 11, -20, 30},
-            {1, 2,  255, 3, 11, -20, 30},
-            {1, 0,  255, 4, 11, 7.812, 30},
-            {1, 0,  255, 4, 11, 7.912, 30},
-            {1, 1,  255, 5, 11, 0.0, 34},
-            {1, 0,  255, 6, 11, -22, 30},
-            {1, 2,  255, 7, 11, -22, 30},
-            {1, 1,  255, 8, 11, -9.998, 30},
-            {1, 1,  255, 8, 11, -9.998, 30},
-            {1, 0,  255, 9, 11, -9.999, 30},
-            {1, 3,  255, 10, 11, -20, 30},
+        {0, 1, 11, 1.09, 30},
+        {0, 2, 11, -20, 30},
+        {2, 3, 11, -20, 30},
+        {0, 4, 11, 7.812, 30},
+        {0, 4, 11, 7.912, 30},
+        {1, 5, 11, 0.0, 34},
+        {0, 6, 11, -22, 30},
+        {2, 7, 11, -22, 30},
+        {1, 8, 11, -9.998, 30},
+        {1, 8, 11, -9.998, 30},
+        {0, 9, 11, -9.999, 30},
+        {3, 10, 11, -20, 30},
     };
 
     for(int i = 0; i < 12; i++) {
         int64_t scores[3];
         scores[0] = int64_t(data[i].match_score);
-        scores[1] = Index::float_to_in64_t(data[i].primary_attr);
+        scores[1] = Index::float_to_int64_t(data[i].primary_attr);
         scores[2] = data[i].secondary_attr;
 
-        KV kv(data[i].field_id, data[i].query_index, data[i].token_bits, data[i].key, data[i].key, 0, scores);
+        KV kv(data[i].query_index, data[i].key, data[i].key, 0, scores);
         topster.add(&kv);
     }
 
@@ -186,28 +182,26 @@ TEST(TopsterTest, DistinctIntValues) {
     Topster dist_topster(5, 2);
 
     struct {
-        uint8_t field_id;
         uint16_t query_index;
-        uint32_t token_bits;
         uint64_t distinct_key;
         uint64_t match_score;
         int64_t primary_attr;
         int64_t secondary_attr;
     } data[14] = {
-            {1, 0, 255, 1, 11, 20, 30},
-            {1, 0, 255, 1, 12, 20, 32},
-            {1, 0, 255, 2, 4, 20, 30},
-            {1, 2, 255, 3, 7, 20, 30},
-            {1, 0, 255, 4, 14, 20, 30},
-            {1, 1, 255, 5, 9, 20, 30},
-            {1, 1, 255, 5, 10, 20, 32},
-            {1, 1, 255, 5, 9, 20, 30},
-            {1, 0, 255, 6, 6, 20, 30},
-            {1, 2, 255, 7, 6, 22, 30},
-            {1, 2, 255, 7, 6, 22, 30},
-            {1, 1, 255, 8, 9, 20, 30},
-            {1, 0, 255, 9, 8, 20, 30},
-            {1, 3, 255, 10,  5, 20, 30},
+        {0, 1, 11, 20, 30},
+        {0, 1, 12, 20, 32},
+        {0, 2, 4, 20, 30},
+        {2, 3, 7, 20, 30},
+        {0, 4, 14, 20, 30},
+        {1, 5, 9, 20, 30},
+        {1, 5, 10, 20, 32},
+        {1, 5, 9, 20, 30},
+        {0, 6, 6, 20, 30},
+        {2, 7, 6, 22, 30},
+        {2, 7, 6, 22, 30},
+        {1, 8, 9, 20, 30},
+        {0, 9, 8, 20, 30},
+        {3, 10,  5, 20, 30},
     };
 
     for(int i = 0; i < 14; i++) {
@@ -216,7 +210,7 @@ TEST(TopsterTest, DistinctIntValues) {
         scores[1] = data[i].primary_attr;
         scores[2] = data[i].secondary_attr;
 
-        KV kv(data[i].field_id, data[i].query_index, data[i].token_bits, i+100, data[i].distinct_key, 0, scores);
+        KV kv(data[i].query_index, i+100, data[i].distinct_key, 0, scores);
         dist_topster.add(&kv);
     }
 

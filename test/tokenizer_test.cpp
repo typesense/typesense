@@ -237,11 +237,11 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
 
     tokens.clear();
     str = "จิ้งจอกสีน้ำตาลด่วน";
-    Tokenizer(str, false, false, "th").tokenize(tokens);
+    Tokenizer(str, true, false, "th").tokenize(tokens);
     ASSERT_EQ(4, tokens.size());
     ASSERT_EQ("จิ้งจอก", tokens[0]);
     ASSERT_EQ("สี", tokens[1]);
-    ASSERT_EQ("น้ำตาล", tokens[2]);
+    ASSERT_EQ("น้ําตาล", tokens[2]);
     ASSERT_EQ("ด่วน", tokens[3]);
 
     tokens.clear();
@@ -324,4 +324,34 @@ TEST(TokenizerTest, ShouldTokenizeLocaleTextWithEnglishText) {
     ASSERT_EQ(14, ttokens.size());
     ASSERT_EQ("discrete", ttokens[7]);
     ASSERT_EQ("math", ttokens[8]);
+}
+
+TEST(TokenizerTest, ShouldTokenizeWithDifferentSymbolConfigs) {
+    std::string str1 = "ความ-เหลื่อมล้ำ";
+
+    // '-' in symbols_to_index: "ความ", "-", "เหลื่อม", "ล้ำ"
+    // '-' in separators: "ความ", "เหลื่อม", "ล้ำ"
+    // 'none: "ความ", "เหลื่อม", "ล้ำ"
+
+    std::vector<std::string> tokens;
+    Tokenizer(str1, true, false, "th", {'-'}, {}).tokenize(tokens);
+    ASSERT_EQ(4, tokens.size());
+    ASSERT_EQ("ความ", tokens[0]);
+    ASSERT_EQ("-", tokens[1]);
+    ASSERT_EQ("เหลื่อม", tokens[2]);
+    ASSERT_EQ("ล้ํา", tokens[3]);
+
+    tokens.clear();
+    Tokenizer(str1, true, false, "th", {}, {'-'}).tokenize(tokens);
+    ASSERT_EQ(3, tokens.size());
+    ASSERT_EQ("ความ", tokens[0]);
+    ASSERT_EQ("เหลื่อม", tokens[1]);
+    ASSERT_EQ("ล้ํา", tokens[2]);
+
+    tokens.clear();
+    Tokenizer(str1, true, false, "th", {}, {}).tokenize(tokens);
+    ASSERT_EQ(3, tokens.size());
+    ASSERT_EQ("ความ", tokens[0]);
+    ASSERT_EQ("เหลื่อม", tokens[1]);
+    ASSERT_EQ("ล้ํา", tokens[2]);
 }
