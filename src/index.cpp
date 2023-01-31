@@ -1086,10 +1086,11 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
             std::string raw_str = document[afield.name].get<std::string>();
             Tokenizer str_tokenizer("", true, false, "", {' '});
-            std::string processed_str;
             str_tokenizer.tokenize(raw_str);
 
-            str_tree->index(seq_id, raw_str);
+            if(!raw_str.empty()) {
+                str_tree->index(seq_id, raw_str.substr(0, 2000));
+            }
         }
     }
 }

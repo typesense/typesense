@@ -12,6 +12,7 @@ This is a selection of sites and apps using Typesense.
 | ----------- | ----------- |
 | [Read This Twice](https://www.readthistwice.com/) | Book discovery platform uses typesense to power the book/people search |
 | [Oddle Eats](https://eats.oddle.me) | Food Delivery Service in Singapore | 
+| [DiscMaster](http://discmaster.textfiles.com/search) | Search 94 million vintage computer files from archive.org |
 | [Dave & Adams Card World](https://www.dacardworld.com) | E-commerce platform for collectibles like sports cards, gaming cards, comics, or autographed memorabilia |
 | [Echidna Sewing](https://www.echidnasewing.com.au) | Echidna Sewing is one of Australia’s largest sewing machine dealers |
 | [Trading Strategy](https://tradingstrategy.ai/blog/world-fastest-token-search) | Algorithmic trading protocol for decentralised markets |
@@ -44,6 +45,8 @@ This is a selection of sites and apps using Typesense.
 | [OpenTacos](https://tacos.openbeta.io) | Free and open source rock climbing route wiki |
 | [Bikifi](https://bikifi.com/) | A free education platform that brings premium educational content to anyone, anywhere in Turkey |
 | [MyHearty](https://myhearty.my) | A one-stop charity website to fundraise, donate, volunteer and apply for aids. It comes with a full-featured search UI (instant search, geosearch) for campaigns, volunteer events and aids. |
+| [Neolace](https://www.neolace.com) | Knowledge graph platform (combines a wiki and a graph database) |
+| [Project Seldon](https://projectseldon.org) | A free and unbiased analysis platform for understanding societies and systems of government. |
 
 ### Typesense Demos
 

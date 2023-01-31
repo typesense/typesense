@@ -1865,7 +1865,8 @@ TEST_F(CollectionSpecificMoreTest, SearchCutoffTest) {
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1);
 
     ASSERT_FALSE(coll_op.ok());
-    ASSERT_EQ("Site is overloaded", coll_op.error());
+    ASSERT_EQ("Request Timeout", coll_op.error());
+    ASSERT_EQ(408, coll_op.code());
 }
 
 TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {

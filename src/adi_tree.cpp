@@ -2,9 +2,6 @@
 #include <vector>
 #include "adi_tree.h"
 #include "logger.h"
-#include <set>
-
-//std::set<adi_node_t*> nodes;
 
 struct adi_node_t {
     uint16_t num_children;
