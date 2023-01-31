@@ -1,11 +1,15 @@
 .idea
 *.iml
 external*
-build*
+external
+/build*
 test-build*
 cmake-build*
 cmake-build-debug
 cmake-build-release
 *.pem
 .DS_Store
+/bazel-*
 typesense-server-data/
+.clwb/.bazelproject
+.vscode/settings.json

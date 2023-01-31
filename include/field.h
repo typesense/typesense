@@ -436,6 +436,10 @@ struct filter {
     std::string field_name;
     std::vector<std::string> values;
     std::vector<NUM_COMPARATOR> comparators;
+    // Would be set when `field: != ...` is encountered with a string field or `field: != [ ... ]` is encountered in the
+    // case of int and float fields. During filtering, all the results of matching the field against the values are
+    // aggregated and then this flag is checked if negation on the aggregated result is required.
+    bool apply_not_equals = false;
 
     static const std::string RANGE_OPERATOR() {
         return "..";
@@ -473,6 +477,10 @@ struct filter {
             num_comparator = GREATER_THAN_EQUALS;
         }
 
+        else if(comp_and_value.compare(0, 2, "!=") == 0) {
+            num_comparator = NOT_EQUALS;
+        }
+
         else if(comp_and_value.compare(0, 1, "<") == 0) {
             num_comparator = LESS_THAN;
         }
@@ -491,7 +499,7 @@ struct filter {
 
         if(num_comparator == LESS_THAN || num_comparator == GREATER_THAN) {
             comp_and_value = comp_and_value.substr(1);
-        } else if(num_comparator == LESS_THAN_EQUALS || num_comparator == GREATER_THAN_EQUALS) {
+        } else if(num_comparator == LESS_THAN_EQUALS || num_comparator == GREATER_THAN_EQUALS || num_comparator == NOT_EQUALS) {
             comp_and_value = comp_and_value.substr(2);
         }
 
@@ -505,7 +513,7 @@ struct filter {
                                                     std::string& processed_filter_val,
                                                     NUM_COMPARATOR& num_comparator);
 
-    static Option<bool> parse_filter_query(const std::string& simple_filter_query,
+    static Option<bool> parse_filter_query(const std::string& filter_query,
                                            const tsl::htrie_map<char, field>& search_schema,
                                            const Store* store,
                                            const std::string& doc_id_prefix,
@@ -606,20 +614,6 @@ struct sort_by {
         missing_values = other.missing_values;
         eval = other.eval;
         return *this;
-    }
-};
-
-struct vector_query_t {
-    std::string field_name;
-    size_t k = 0;
-    size_t flat_search_cutoff = 0;
-    std::vector<float> values;
-
-    void _reset() {
-        // used for testing only
-        field_name.clear();
-        k = 0;
-        values.clear();
     }
 };
 

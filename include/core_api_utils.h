@@ -22,8 +22,9 @@ struct export_state_t: public req_state_t {
     Collection* collection;
     std::vector<std::pair<size_t, uint32_t*>> index_ids;
     std::vector<size_t> offsets;
-    std::set<std::string> include_fields;
-    std::set<std::string> exclude_fields;
+    tsl::htrie_set<char> include_fields;
+    tsl::htrie_set<char> exclude_fields;
+    size_t export_batch_size = 100;
     std::string* res_body;
 
     bool filtered_export = false;

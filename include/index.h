@@ -27,11 +27,14 @@
 #include "id_list.h"
 #include "synonym_index.h"
 #include "override.h"
+#include "vector_query_ops.h"
 #include "hnswlib/hnswlib.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
+using single_val_facet_map_t = spp::sparse_hash_map<uint32_t, uint64_t>;
 using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
+using array_mapped_single_val_facet_t = std::array<single_val_facet_map_t*, ARRAY_FACET_DIM>;
 
 static constexpr size_t ARRAY_INFIX_DIM = 4;
 using array_mapped_infix_t = std::vector<tsl::htrie_set<char>*>;
@@ -87,9 +90,15 @@ enum enable_t {
     off
 };
 
+enum text_match_type_t {
+    max_score,
+    max_weight
+};
+
 struct search_args {
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<search_field_t> search_fields;
+    const text_match_type_t match_type;
     const filter_node_t* filter_tree_root;
     std::vector<facet>& facets;
     std::vector<std::pair<uint32_t, uint32_t>>& included_ids;
@@ -136,6 +145,7 @@ struct search_args {
     size_t facet_sample_threshold;
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
+                const text_match_type_t match_type,
                 filter_node_t* filter_tree_root, std::vector<facet>& facets,
                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by>& sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
@@ -150,7 +160,7 @@ struct search_args {
                 const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
                 size_t facet_sample_percent, size_t facet_sample_threshold) :
             field_query_tokens(field_query_tokens),
-            search_fields(search_fields), filter_tree_root(filter_tree_root), facets(facets),
+            search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
             facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values), per_page(per_page),
             page(page), token_order(token_order), prefixes(prefixes),
@@ -314,6 +324,9 @@ private:
     // facet_field => (seq_id => values)
     spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
 
+    // facet_field => (seq_id => hash)
+    spp::sparse_hash_map<std::string, array_mapped_single_val_facet_t> single_val_facet_index_v3;
+
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
 
@@ -411,6 +424,7 @@ private:
                       size_t max_candidates) const;
 
     void search_all_candidates(const size_t num_search_fields,
+                               const text_match_type_t match_type,
                                const std::vector<search_field_t>& the_fields,
                                const uint32_t* filter_ids, size_t filter_ids_length,
                                const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
@@ -464,6 +478,11 @@ private:
                                         const std::vector<search_field_t>& the_fields,
                                         const size_t num_search_fields,
                                         std::vector<size_t>& popular_field_ids);
+
+    void numeric_not_equals_filter(num_tree_t* const num_tree,
+                                   const int64_t value,
+                                   uint32_t*& ids,
+                                   size_t& ids_len) const;
 
     void do_filtering(uint32_t*& filter_ids,
                       uint32_t& filter_ids_length,
@@ -533,6 +552,8 @@ private:
     static void remove_facet_token(const field& search_field, spp::sparse_hash_map<std::string, art_tree*>& search_index,
                                    const std::string& token, uint32_t seq_id);
 
+    void initialize_facet_indexes(const field& facet_field);
+    
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};
@@ -631,6 +652,7 @@ public:
     void run_search(search_args* search_params);
 
     void search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
+                const text_match_type_t match_type,
                 filter_node_t const* const& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
@@ -762,6 +784,7 @@ public:
                          spp::sparse_hash_set<uint64_t>& groups_processed) const;
 
     void do_synonym_search(const std::vector<search_field_t>& the_fields,
+                           const text_match_type_t match_type,
                            filter_node_t const* const& filter_tree_root,
                            const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
                            const std::vector<sort_by>& sort_fields_std, Topster* curated_topster,
@@ -794,6 +817,7 @@ public:
 
     void fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                              const std::vector<token_t>& query_tokens,
+                             const text_match_type_t match_type,
                              const bool dropped_tokens,
                              const uint32_t* exclude_token_ids,
                              size_t exclude_token_ids_size,
@@ -836,6 +860,7 @@ public:
                               const std::vector<bool>& prefixes,
                               const std::vector<search_field_t>& the_fields,
                               const size_t num_search_fields,
+                              const text_match_type_t match_type,
                               const std::vector<sort_by>& sort_fields,
                               Topster* topster,
                               spp::sparse_hash_set<uint64_t>& groups_processed,

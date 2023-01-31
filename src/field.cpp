@@ -122,6 +122,40 @@ Option<bool> toPostfix(std::queue<std::string>& tokens, std::queue<std::string>&
     return Option<bool>(true);
 }
 
+Option<bool> toMultiValueNumericFilter(std::string& raw_value, filter& filter_exp, const field& _field) {
+    std::vector<std::string> filter_values;
+    StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+    filter_exp = {_field.name, {}, {}};
+    for (std::string& filter_value: filter_values) {
+        Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(filter_value);
+        if (!op_comparator.ok()) {
+            return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
+        }
+        if (op_comparator.get() == RANGE_INCLUSIVE) {
+            // split the value around range operator to extract bounds
+            std::vector<std::string> range_values;
+            StringUtils::split(filter_value, range_values, filter::RANGE_OPERATOR());
+            for (const std::string& range_value: range_values) {
+                auto validate_op = filter::validate_numerical_filter_value(_field, range_value);
+                if (!validate_op.ok()) {
+                    return validate_op;
+                }
+                filter_exp.values.push_back(range_value);
+                filter_exp.comparators.push_back(op_comparator.get());
+            }
+        } else {
+            auto validate_op = filter::validate_numerical_filter_value(_field, filter_value);
+            if (!validate_op.ok()) {
+                return validate_op;
+            }
+            filter_exp.values.push_back(filter_value);
+            filter_exp.comparators.push_back(op_comparator.get());
+        }
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> toFilter(const std::string expression,
                       filter& filter_exp,
                       const tsl::htrie_map<char, field>& search_schema,
@@ -204,34 +238,9 @@ Option<bool> toFilter(const std::string expression,
     if (_field.is_integer() || _field.is_float()) {
         // could be a single value or a list
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
-            std::vector<std::string> filter_values;
-            StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-            filter_exp = {field_name, {}, {}};
-            for (std::string& filter_value: filter_values) {
-                Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(filter_value);
-                if (!op_comparator.ok()) {
-                    return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
-                }
-                if (op_comparator.get() == RANGE_INCLUSIVE) {
-                    // split the value around range operator to extract bounds
-                    std::vector<std::string> range_values;
-                    StringUtils::split(filter_value, range_values, filter::RANGE_OPERATOR());
-                    for (const std::string& range_value: range_values) {
-                        auto validate_op = filter::validate_numerical_filter_value(_field, range_value);
-                        if (!validate_op.ok()) {
-                            return validate_op;
-                        }
-                        filter_exp.values.push_back(range_value);
-                        filter_exp.comparators.push_back(op_comparator.get());
-                    }
-                } else {
-                    auto validate_op = filter::validate_numerical_filter_value(_field, filter_value);
-                    if (!validate_op.ok()) {
-                        return validate_op;
-                    }
-                    filter_exp.values.push_back(filter_value);
-                    filter_exp.comparators.push_back(op_comparator.get());
-                }
+            Option<bool> op = toMultiValueNumericFilter(raw_value, filter_exp, _field);
+            if (!op.ok()) {
+                return op;
             }
         } else {
             Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
@@ -251,6 +260,12 @@ Option<bool> toFilter(const std::string expression,
                     filter_exp.values.push_back(range_value);
                     filter_exp.comparators.push_back(op_comparator.get());
                 }
+            } else if (op_comparator.get() == NOT_EQUALS && raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                Option<bool> op = toMultiValueNumericFilter(raw_value, filter_exp, _field);
+                if (!op.ok()) {
+                    return op;
+                }
+                filter_exp.apply_not_equals = true;
             } else {
                 auto validate_op = filter::validate_numerical_filter_value(_field, raw_value);
                 if (!validate_op.ok()) {
@@ -353,6 +368,8 @@ Option<bool> toFilter(const std::string expression,
         } else {
             filter_exp = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
         }
+
+        filter_exp.apply_not_equals = (str_comparator == NOT_EQUALS);
     } else {
         return Option<bool>(400, "Error with filter field `" + _field.name +
                                  "`: Unidentified field data type, see docs for supported data types.");

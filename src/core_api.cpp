@@ -94,6 +94,17 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
                         coll_name = el["collection"].get<std::string>();
                     } else if(req_params.count("collection") != 0) {
                         coll_name = req_params["collection"];
+                    } else {
+                        // if preset exists, that should be the lowest priority
+                        if(el.count("preset") != 0) {
+                            nlohmann::json preset_obj;
+                            auto preset_op = CollectionManager::get_instance().
+                                    get_preset(el["preset"].get<std::string>(), preset_obj);
+                            if(preset_op.ok() && preset_obj.count("collection") != 0  &&
+                                preset_obj["collection"].is_string()) {
+                                coll_name = preset_obj["collection"].get<std::string>();
+                            }
+                        }
                     }
 
                     const std::string& access_key = (el.count("x-typesense-api-key") != 0 &&
@@ -377,10 +388,14 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     }
 
     std::string results_json_str;
-    Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0], results_json_str);
+    Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0],
+                                                          results_json_str, req->conn_ts);
 
     if(!search_op.ok()) {
         res->set(search_op.code(), search_op.error());
+        if(search_op.code() == 408) {
+            req->overloaded = true;
+        }
         return false;
     }
 
@@ -540,12 +555,39 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
         }
 
+        if(search_params.count("preset") != 0) {
+            nlohmann::json preset;
+            auto preset_op = CollectionManager::get_instance().get_preset(search_params["preset"].get<std::string>(),
+                                                                          preset);
+            if(preset_op.ok()) {
+                if(!search_params.is_object()) {
+                    res->set_400("Search preset is not an object.");
+                    return false;
+                }
+
+                for(const auto& search_item: preset.items()) {
+                    // overwrite = false since req params will contain embedded params and so has higher priority
+                    bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
+                    if(!populated) {
+                        res->set_400("One or more search parameters are malformed.");
+                        return false;
+                    }
+                }
+            }
+        }
+
         std::string results_json_str;
-        Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i], results_json_str);
+        Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i],
+                                                              results_json_str, req->conn_ts);
 
         if(search_op.ok()) {
             response["results"].push_back(nlohmann::json::parse(results_json_str));
         } else {
+            if(search_op.code() == 408) {
+                res->set(search_op.code(), search_op.error());
+                req->overloaded = true;
+                return false;
+            }
             nlohmann::json err_res;
             err_res["error"] = search_op.error();
             err_res["code"] = search_op.code();
@@ -606,6 +648,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     const char* FILTER_BY = "filter_by";
     const char* INCLUDE_FIELDS = "include_fields";
     const char* EXCLUDE_FIELDS = "exclude_fields";
+    const char* BATCH_SIZE = "batch_size";
 
     export_state_t* export_state = nullptr;
 
@@ -618,6 +661,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         req->data = export_state;
 
         std::string simple_filter_query;
+        spp::sparse_hash_set<std::string> exclude_fields;
+        spp::sparse_hash_set<std::string> include_fields;
 
         if(req->params.count(FILTER_BY) != 0) {
             simple_filter_query = req->params[FILTER_BY];
@@ -626,13 +671,20 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         if(req->params.count(INCLUDE_FIELDS) != 0) {
             std::vector<std::string> include_fields_vec;
             StringUtils::split(req->params[INCLUDE_FIELDS], include_fields_vec, ",");
-            export_state->include_fields = std::set<std::string>(include_fields_vec.begin(), include_fields_vec.end());
+            include_fields = spp::sparse_hash_set<std::string>(include_fields_vec.begin(), include_fields_vec.end());
         }
 
         if(req->params.count(EXCLUDE_FIELDS) != 0) {
             std::vector<std::string> exclude_fields_vec;
             StringUtils::split(req->params[EXCLUDE_FIELDS], exclude_fields_vec, ",");
-            export_state->exclude_fields = std::set<std::string>(exclude_fields_vec.begin(), exclude_fields_vec.end());
+            exclude_fields = spp::sparse_hash_set<std::string>(exclude_fields_vec.begin(), exclude_fields_vec.end());
+        }
+
+        collection->populate_include_exclude_fields_lk(include_fields, exclude_fields,
+                                                      export_state->include_fields, export_state->exclude_fields);
+
+        if(req->params.count(BATCH_SIZE) != 0 && StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
+            export_state->export_batch_size = std::stoul(req->params[BATCH_SIZE]);
         }
 
         if(simple_filter_query.empty()) {
@@ -662,26 +714,16 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
 
     if(export_state->it != nullptr) {
         rocksdb::Iterator* it = export_state->it;
+        size_t batch_counter = 0;
+        res->body.clear();
 
-        if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
+        while(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
             if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
-                res->body = it->value().ToString();
+                res->body += it->value().ToString();
             } else {
                 nlohmann::json doc = nlohmann::json::parse(it->value().ToString());
-                nlohmann::json filtered_doc;
-                for(const auto& kv: doc.items()) {
-                    bool must_include = export_state->include_fields.empty() ||
-                                        (export_state->include_fields.count(kv.key()) != 0);
-
-                    bool must_exclude = !export_state->exclude_fields.empty() &&
-                                        (export_state->exclude_fields.count(kv.key()) != 0);
-
-                    if(must_include && !must_exclude) {
-                        filtered_doc[kv.key()] = kv.value();
-                    }
-                }
-
-                res->body = filtered_doc.dump();
+                Collection::prune_doc(doc, export_state->include_fields, export_state->exclude_fields);
+                res->body += doc.dump();
             }
 
             it->Next();
@@ -695,10 +737,15 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 req->last_chunk_aggregate = true;
                 res->final = true;
             }
+
+            batch_counter++;
+            if(batch_counter == export_state->export_batch_size) {
+                break;
+            }
         }
     } else {
         bool done;
-        stateful_export_docs(export_state, 100, done);
+        stateful_export_docs(export_state, export_state->export_batch_size, done);
 
         if(!done) {
             req->last_chunk_aggregate = false;
@@ -946,6 +993,38 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
 
     res->set_201(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
+}
+
+bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char *FILTER_BY = "filter_by";
+    std::string filter_query;
+    if(req->params.count(FILTER_BY) == 0) {
+        res->set_400("Parameter `" + std::string(FILTER_BY) + "` must be provided.");
+        return false;
+    } else {
+        filter_query = req->params[FILTER_BY];
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+    if(collection == nullptr) {
+        res->set_404();
+        return false;
+    }
+
+    const char* DIRTY_VALUES_PARAM = "dirty_values";
+    if(req->params.count(DIRTY_VALUES_PARAM) == 0) {
+        req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
+    }
+
+    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM]);
+    if(update_op.ok()) {
+        res->set_200(update_op.get().dump());
+    } else {
+        res->set(update_op.code(), update_op.error());
+    }
+
+    return update_op.ok();
 }
 
 bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -1581,6 +1660,27 @@ bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     if(!syn_json.is_object()) {
         res->set_400("Bad JSON.");
         return false;
+    }
+
+    // These checks should be inside `add_synonym` but older versions of Typesense wrongly persisted
+    // `root` as an array, so we have to do it here so that on-disk synonyms are loaded properly
+    if(syn_json.count("root") != 0 && !syn_json["root"].is_string()) {
+        res->set_400("Key `root` should be a string.");
+        return false;
+    }
+
+    if(syn_json.count("synonyms") && syn_json["synonyms"].is_array()) {
+        if(syn_json["synonyms"].empty()) {
+            res->set_400("Could not find a valid string array of `synonyms`");
+            return false;
+        }
+
+        for(const auto& synonym: syn_json["synonyms"]) {
+            if (!synonym.is_string() || synonym.empty()) {
+                res->set_400("Could not find a valid string array of `synonyms`");
+                return false;
+            }
+        }
     }
 
     syn_json["id"] = synonym_id;

@@ -153,6 +153,14 @@ bool AuthManager::authenticate(const std::string& action,
     size_t num_keys_matched = 0;
     for(size_t i = 0; i < collection_keys.size(); i++) {
         const auto& coll_key = collection_keys[i];
+        if(coll_key.api_key.empty()) {
+            return false;
+        }
+
+        if(coll_key.api_key == bootstrap_auth_key) {
+            return true;
+        }
+
         const auto& key_it = api_keys.find(coll_key.api_key);
         nlohmann::json embedded_params;
 
@@ -394,7 +402,13 @@ bool AuthManager::add_item_to_params(std::map<std::string, std::string>& req_par
     if(req_params.count(item.key()) == 0) {
         req_params[item.key()] = str_value;
     } else if(item.key() == "filter_by") {
-        req_params[item.key()] = "(" + req_params[item.key()] + ") && (" + str_value + ")";
+        if(!req_params[item.key()].empty() && !str_value.empty()) {
+            req_params[item.key()] = "(" + req_params[item.key()] + ") && (" + str_value + ")";
+        } else if(req_params[item.key()].empty() && !str_value.empty()) {
+            req_params[item.key()] = "(" + str_value + ")";
+        } else if(!req_params[item.key()].empty() && str_value.empty()) {
+            req_params[item.key()] = "(" + req_params[item.key()] + ")";
+        }
     } else if(overwrite) {
         req_params[item.key()] = str_value;
     }

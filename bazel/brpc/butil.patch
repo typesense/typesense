@@ -1,0 +1,130 @@
+--- src/butil/logging.cc
++++ src/butil/logging.cc
+@@ -121,9 +121,9 @@ DEFINE_bool(crash_on_fatal_log, false,
+ DEFINE_bool(print_stack_on_check, true,
+             "Print the stack trace when a CHECK was failed");
+ 
+-DEFINE_int32(v, 0, "Show all VLOG(m) messages for m <= this."
++DEFINE_int32(v_butil, 0, "Show all VLOG(m) messages for m <= this."
+              " Overridable by --vmodule.");
+-DEFINE_string(vmodule, "", "per-module verbose level."
++DEFINE_string(vmodule_butil, "", "per-module verbose level."
+               " Argument is a comma-separated list of MODULE_NAME=LOG_LEVEL."
+               " MODULE_NAME is a glob pattern, matched against the filename base"
+               " (that is, name ignoring .cpp/.h)."
+@@ -131,7 +131,7 @@ DEFINE_string(vmodule, "", "per-module verbose level."
+ 
+ DEFINE_bool(log_pid, false, "Log process id");
+ 
+-DEFINE_int32(minloglevel, 0, "Any log at or above this level will be "
++DEFINE_int32(minloglevel_butil, 0, "Any log at or above this level will be "
+              "displayed. Anything below this level will be silently ignored. "
+              "0=INFO 1=NOTICE 2=WARNING 3=ERROR 4=FATAL");
+ 
+@@ -437,11 +437,11 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
+ }
+ 
+ void SetMinLogLevel(int level) {
+-    FLAGS_minloglevel = std::min(BLOG_FATAL, level);
++    FLAGS_minloglevel_butil = std::min(BLOG_FATAL, level);
+ }
+ 
+ int GetMinLogLevel() {
+-    return FLAGS_minloglevel;
++    return FLAGS_minloglevel_butil;
+ }
+ 
+ void SetShowErrorDialogs(bool enable_dialogs) {
+@@ -1104,7 +1104,7 @@ void CloseLogFile() {
+ }
+ 
+ void RawLog(int level, const char* message) {
+-    if (level >= FLAGS_minloglevel) {
++    if (level >= FLAGS_minloglevel_butil) {
+         size_t bytes_written = 0;
+         const size_t message_len = strlen(message);
+         int rv;
+@@ -1355,12 +1355,12 @@ private:
+ // vlog_site_list. To keep the critical area small, we use optimistic
+ // locking : Assign local site w/o locking, then insert the site into
+ // global list w/ locking, if local_module_list != global_vmodule_list or
+-// local_default_v != FLAGS_v, repeat the assigment.
++// local_default_v != FLAGS_v_butil, repeat the assigment.
+ // An important property of vlog_site_list is that: It does not remove sites.
+ // When we need to iterate the list, we don't have to hold the lock. What we
+ // do is to get the head of the list inside lock and iterate the list w/o
+ // lock. If new sites is inserted during the iteration, it should see and
+-// use the updated vmodule_list and FLAGS_v, nothing will be missed.
++// use the updated vmodule_list and FLAGS_v_butil, nothing will be missed.
+ 
+ static int vlog_site_list_add(VLogSite* site,
+                               VModuleList** expected_module_list,
+@@ -1370,8 +1370,8 @@ static int vlog_site_list_add(VLogSite* site,
+         *expected_module_list = vmodule_list;
+         return -1;
+     }
+-    if (*expected_default_v != FLAGS_v) {
+-        *expected_default_v = FLAGS_v;
++    if (*expected_default_v != FLAGS_v_butil) {
++        *expected_default_v = FLAGS_v_butil;
+         return -1;
+     }
+     site->set_next(vlog_site_list);
+@@ -1386,7 +1386,7 @@ bool add_vlog_site(const int** v, const char* filename, int line_no,
+         return false;
+     }
+     VModuleList* module_list = vmodule_list;
+-    int default_v = FLAGS_v;
++    int default_v = FLAGS_v_butil;
+     do {
+         site->v() = default_v;
+         if (module_list) {
+@@ -1414,7 +1414,7 @@ void print_vlog_sites(VLogSitePrinter* printer) {
+     }
+ }
+ 
+-// [Thread-safe] Reset FLAGS_vmodule.
++// [Thread-safe] Reset FLAGS_vmodule_butil.
+ static int on_reset_vmodule(const char* vmodule) {
+     // resetting must be serialized.
+     BAIDU_SCOPED_LOCK(reset_vmodule_and_v_mutex);
+@@ -1440,7 +1440,7 @@ static int on_reset_vmodule(const char* vmodule) {
+             old_vlog_site_list = vlog_site_list;
+         }
+         for (VLogSite* p = old_vlog_site_list; p; p = p->next()) {
+-            p->v() = FLAGS_v;
++            p->v() = FLAGS_v_butil;
+             module_list->find_verbose_level(
+                 p->module(), p->full_module(), &p->v());
+         }
+@@ -1469,9 +1469,9 @@ static bool validate_vmodule(const char*, const std::string& vmodule) {
+ }
+ 
+ const bool ALLOW_UNUSED validate_vmodule_dummy = GFLAGS_NS::RegisterFlagValidator(
+-    &FLAGS_vmodule, &validate_vmodule);
++    &FLAGS_vmodule_butil, &validate_vmodule);
+ 
+-// [Thread-safe] Reset FLAGS_v.
++// [Thread-safe] Reset FLAGS_v_butil.
+ static void on_reset_verbose(int default_v) {
+     VModuleList* cur_module_list = NULL;
+     VLogSite* cur_vlog_site_list = NULL;
+@@ -1499,7 +1499,7 @@ static bool validate_v(const char*, int32_t v) {
+ }
+ 
+ const bool ALLOW_UNUSED validate_v_dummy = GFLAGS_NS::RegisterFlagValidator(
+-    &FLAGS_v, &validate_v);
++    &FLAGS_v_butil, &validate_v);
+ 
+ static bool PassValidate(const char*, bool) {
+     return true;
+@@ -1516,7 +1516,7 @@ static bool NonNegativeInteger(const char*, int32_t v) {
+ }
+ 
+ const bool ALLOW_UNUSED validate_min_log_level = GFLAGS_NS::RegisterFlagValidator(
+-    &FLAGS_minloglevel, NonNegativeInteger);
++    &FLAGS_minloglevel_butil, NonNegativeInteger);
+ 
+ }  // namespace logging
+ 
+

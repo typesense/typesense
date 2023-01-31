@@ -8,10 +8,10 @@
 #include <chrono>
 #include <posting.h>
 
-#define words_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/words.txt").c_str()
-#define uuid_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/uuid.txt").c_str()
-#define skus_file_path std::string(std::string(ROOT_DIR)+"/test/skus.txt").c_str()
-#define ill_file_path std::string(std::string(ROOT_DIR)+"/test/ill.txt").c_str()
+#define words_file_path (std::string(ROOT_DIR) + std::string("external/libart/tests/words.txt")).c_str()
+#define uuid_file_path (std::string(ROOT_DIR) + std::string("external/libart/tests/uuid.txt")).c_str()
+#define skus_file_path (std::string(ROOT_DIR) + std::string("test/skus.txt")).c_str()
+#define ill_file_path (std::string(ROOT_DIR) + std::string("test/ill.txt")).c_str()
 
 art_document get_document(uint32_t id) {
     art_document document(id, id, {0});
@@ -744,10 +744,9 @@ TEST(ArtTest, test_art_fuzzy_search) {
     }
 
     std::vector<art_leaf*> leaves;
-
-    leaves.clear();
     auto begin = std::chrono::high_resolution_clock::now();
 
+    leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) "pltinum", strlen("pltinum"), 0, 1, 10, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(2, leaves.size());
     ASSERT_STREQ("platinumsmith", (const char *)leaves.at(0)->key);
@@ -800,7 +799,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
     art_fuzzy_search(&t, (const unsigned char *) "hown", strlen("hown") + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(10, leaves.size());
 
-    std::set<std::string> expected_words = {"town", "sown", "shown", "own", "mown", "lown", "howl", "howk", "howe", "how"};
+    std::set<std::string> expected_words = {"town", "sown", "mown", "lown", "howl", "howk", "howe", "how", "horn", "hoon"};
 
     for(size_t leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
         art_leaf*& leaf = leaves.at(leaf_index);
@@ -859,6 +858,29 @@ TEST(ArtTest, test_art_fuzzy_search_unicode_chars) {
         art_fuzzy_search(&t, (unsigned char *)key, strlen(key), 0, 0, 10, FREQUENCY, true, nullptr, 0, leaves);
         ASSERT_EQ(1, leaves.size());
     }
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_art_fuzzy_search_extra_chars) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    std::vector<const char*> keys = {
+        "abbviation"
+    };
+
+    for(const char* key: keys) {
+        art_document doc = get_document((uint32_t) 1);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc));
+    }
+
+    const char* query = "abbreviation";
+    std::vector<art_leaf*> leaves;
+    art_fuzzy_search(&t, (unsigned char *)query, strlen(query), 0, 2, 10, FREQUENCY, true, nullptr, 0, leaves);
+    ASSERT_EQ(1, leaves.size());
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);

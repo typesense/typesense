@@ -194,10 +194,6 @@ Option<bool> synonym_t::parse(const nlohmann::json& synonym_json, synonym_t& syn
         return Option<bool>(400, "Could not find an array of `synonyms`");
     }
 
-    if(synonym_json.count("root") != 0 && !synonym_json["root"].is_string()) {
-        return Option<bool>(400, "Key `root` should be a string.");
-    }
-
     if (!synonym_json["synonyms"].is_array() || synonym_json["synonyms"].empty()) {
         return Option<bool>(400, "Could not find an array of `synonyms`");
     }
@@ -228,17 +224,51 @@ Option<bool> synonym_t::parse(const nlohmann::json& synonym_json, synonym_t& syn
 
     if(synonym_json.count("root") != 0) {
         std::vector<std::string> tokens;
-        Tokenizer(synonym_json["root"], true, false, syn.locale, syn.symbols).tokenize(tokens);
+
+        if(synonym_json["root"].is_string()) {
+            Tokenizer(synonym_json["root"].get<std::string>(), true, false, syn.locale, syn.symbols).tokenize(tokens);
+            syn.raw_root = synonym_json["root"].get<std::string>();
+        } else if(synonym_json["root"].is_array()) {
+            // Typesense 0.23.1 and below incorrectly stored root as array
+            for(const auto& root_ele: synonym_json["root"]) {
+                if(!root_ele.is_string()) {
+                    return Option<bool>(400, "Synonym root is not valid.");
+                }
+
+                tokens.push_back(root_ele.get<std::string>());
+            }
+
+            syn.raw_root = StringUtils::join(tokens, " ");
+        } else {
+            return Option<bool>(400, "Key `root` should be a string.");
+        }
+
         syn.root = tokens;
     }
 
     for(const auto& synonym: synonym_json["synonyms"]) {
-        if(!synonym.is_string() || synonym == "") {
+        std::vector<std::string> tokens;
+        if(synonym.is_string()) {
+            Tokenizer(synonym.get<std::string>(), true, false, syn.locale, syn.symbols).tokenize(tokens);
+            syn.raw_synonyms.push_back(synonym.get<std::string>());
+        } else if(synonym.is_array()) {
+            // Typesense 0.23.1 and below incorrectly stored synonym as array
+            if(synonym.empty()) {
+                return Option<bool>(400, "Could not find a valid string array of `synonyms`");
+            }
+
+            for(const auto& ele: synonym) {
+                if(!ele.is_string() || ele.get<std::string>().empty()) {
+                    return Option<bool>(400, "Could not find a valid string array of `synonyms`");
+                }
+                tokens.push_back(ele.get<std::string>());
+            }
+
+            syn.raw_synonyms.push_back(StringUtils::join(tokens, " "));
+        } else {
             return Option<bool>(400, "Could not find a valid string array of `synonyms`");
         }
 
-        std::vector<std::string> tokens;
-        Tokenizer(synonym, true, false, syn.locale, syn.symbols).tokenize(tokens);
         syn.synonyms.push_back(tokens);
     }
 
@@ -249,12 +279,12 @@ Option<bool> synonym_t::parse(const nlohmann::json& synonym_json, synonym_t& syn
 nlohmann::json synonym_t::to_view_json() const {
     nlohmann::json obj;
     obj["id"] = id;
-    obj["root"] = StringUtils::join(root, " ");
+    obj["root"] = raw_root;
 
     obj["synonyms"] = nlohmann::json::array();
 
-    for(const auto& synonym: synonyms) {
-        obj["synonyms"].push_back(StringUtils::join(synonym, " "));
+    for(const auto& synonym: raw_synonyms) {
+        obj["synonyms"].push_back(synonym);
     }
 
     if(!locale.empty()) {
@@ -262,9 +292,9 @@ nlohmann::json synonym_t::to_view_json() const {
     }
 
     if(!symbols.empty()) {
-        obj["symbols"] = nlohmann::json::array();
+        obj["symbols_to_index"] = nlohmann::json::array();
         for(char c: symbols) {
-            obj["symbols"].push_back(std::string(1, c));
+            obj["symbols_to_index"].push_back(std::string(1, c));
         }
     }
 

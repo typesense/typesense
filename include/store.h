@@ -5,6 +5,7 @@
 #include <string>
 #include <sstream>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <shared_mutex>
 #include <option.h>

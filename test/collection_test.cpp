@@ -392,7 +392,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10).get();
 
-    ids = {"8", "1", "17"};
+    ids = {"1", "13", "8"};
 
     ASSERT_EQ(3, results["hits"].size());
 
@@ -667,20 +667,20 @@ TEST_F(CollectionTest, PrefixSearching) {
 }
 
 TEST_F(CollectionTest, TypoTokensThreshold) {
-    // Query expansion should happen only based on the `typo_tokens_threshold` value
-    auto results = collection->search("launch", {"title"}, "", {}, sort_fields, {2}, 10, 1,
+    // Typo correction should happen only based on the `typo_tokens_threshold` value
+    auto results = collection->search("redundant", {"title"}, "", {}, sort_fields, {2}, 10, 1,
                        token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 0).get();
 
-    ASSERT_EQ(5, results["hits"].size());
-    ASSERT_EQ(5, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
 
-    results = collection->search("launch", {"title"}, "", {}, sort_fields, {2}, 10, 1,
+    results = collection->search("redundant", {"title"}, "", {}, sort_fields, {2}, 10, 1,
                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 10).get();
 
-    ASSERT_EQ(7, results["hits"].size());
-    ASSERT_EQ(7, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionTest, MultiOccurrenceString) {
@@ -712,7 +712,7 @@ TEST_F(CollectionTest, MultiOccurrenceString) {
 TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     Collection *coll_array_text;
 
-    std::ifstream infile(std::string(ROOT_DIR) + "test/array_text_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/array_text_documents.jsonl");
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("tags", field_types::STRING_ARRAY, false),
@@ -2528,6 +2528,124 @@ TEST_F(CollectionTest, UpdateDocument) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, UpdateDocuments) {
+    nlohmann::json schema = R"({
+        "name": "update_docs_collection",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "user_name", "type": "string", "facet": true},
+          {"name": "likes", "type": "int32"},
+          {"name": "content", "type": "object"}
+        ],
+        "default_sorting_field": "likes"
+    })"_json;
+
+    Collection *update_docs_collection = collectionManager.get_collection("update_docs_collection").get();
+    if (update_docs_collection == nullptr) {
+        auto op = CollectionManager::create_collection(schema);
+        ASSERT_TRUE(op.ok());
+        update_docs_collection = op.get();
+    }
+
+    std::vector<std::string> json_lines = {
+        R"({"user_name": "fat_cat","likes": 5215,"content": {"title": "cat data 1", "body": "cd1"}})",
+        R"({"user_name": "fast_dog","likes": 273,"content": {"title": "dog data 1", "body": "dd1"}})",
+        R"({"user_name": "fat_cat","likes": 2133,"content": {"title": "cat data 2", "body": "cd2"}})",
+        R"({"user_name": "fast_dog","likes": 9754,"content": {"title": "dog data 2", "body": "dd2"}})",
+        R"({"user_name": "fast_dog","likes": 576,"content": {"title": "dog data 3", "body": "dd3"}})"
+    };
+
+    for (auto const& json: json_lines){
+        auto add_op = update_docs_collection->add(json);
+        if (!add_op.ok()) {
+            std::cout << add_op.error() << std::endl;
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("likes", "DESC") };
+
+    auto res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fat_cat", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    nlohmann::json document;
+    document["user_name"] = "slim_cat";
+    std::string dirty_values;
+
+    auto update_op = update_docs_collection->update_matching_filter("user_name:=fat_cat", document.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(2, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("slim_cat", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    // Test batching
+    res = update_docs_collection->search("dog data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(3, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fast_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    document["user_name"] = "lazy_dog";
+    update_op = update_docs_collection->update_matching_filter("user_name:=fast_dog", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(3, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("dog data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(3, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("lazy_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    // Test nested fields updation
+    res = update_docs_collection->search("*", {}, "user_name:=slim_cat", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("cat data " + std::to_string(i + 1), res["hits"][i]["document"]["content"]["title"].get<std::string>());
+    }
+
+    document.clear();
+    document["content"]["title"] = "fancy cat title";
+
+    update_op = update_docs_collection->update_matching_filter("user_name:=slim_cat", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(2, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("*", {}, "user_name:=slim_cat", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fancy cat title", res["hits"][i]["document"]["content"]["title"].get<std::string>());
+    }
+
+    // Test all document updation
+    res = update_docs_collection->search("*", {}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(5, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_NE(0, res["hits"][i]["document"]["likes"].get<int>());
+    }
+
+    document.clear();
+    document["likes"] = 0;
+
+    update_op = update_docs_collection->update_matching_filter("*", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(5, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("*", {}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(5, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ(0, res["hits"][i]["document"]["likes"].get<int>());
+    }
+
+    collectionManager.drop_collection("update_docs_collection");
+}
+
 TEST_F(CollectionTest, UpdateDocumentSorting) {
     Collection *coll1;
 
@@ -4231,4 +4349,260 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     ASSERT_EQ("token", q_exclude_tokens[1][0]);
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, WildcardQueryBy) {
+    nlohmann::json schema = R"({
+         "name": "posts",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "username", "type": "string", "facet": true},
+           {"name": "user.rank", "type": "int32", "facet": true},
+           {"name": "user.bio", "type": "string"},
+           {"name": "likes", "type": "int32"},
+           {"name": "content", "type": "object"}
+         ],
+         "default_sorting_field": "likes"
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    std::vector<std::string> json_lines = {
+            R"({"id": "124","username": "user_a","user": {"rank": 100,"bio": "Hi! I'm user_a"},"likes": 5215,"content": {"title": "title 1","body": "body 1 user_a"}})",
+            R"({"id": "125","username": "user_b","user": {"rank": 50,"bio": "user_b here, nice to meet you!"},"likes": 5215,"content": {"title": "title 2","body": "body 2 user_b"}})"
+    };
+
+    for (auto const& json: json_lines){
+        auto add_op = coll->add(json);
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // * matches username, user.bio, content.title, content.body
+    auto result = coll->search("user_a", {"*"}, "", {}, {}, {0}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("Hi! I'm <mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["username"]["snippet"].get<std::string>());
+//    ASSERT_EQ("body 1 <mark>user_a</mark>",
+//              result["hits"][0]["highlight"]["content"]["body"]["snippet"].get<std::string>());
+
+    // user* matches username and user.bio
+    result = coll->search("user_a", {"user*"}, "", {}, {}, {0}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("Hi! I'm <mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["username"]["snippet"].get<std::string>());
+
+    // user.* matches user.bio
+    result = coll->search("user_a", {"user.*"}, "", {}, {}, {0}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("Hi! I'm <mark>user_a</mark>",
+              result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+
+    // user.rank cannot be queried
+    result = coll->search("100", {"user*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"].get<size_t>());
+    ASSERT_EQ(0, result["hits"].size());
+
+    // No matching field for query_by
+    auto error = coll->search("user_a", {"foo*"}, "", {}, {}, {0}).error();
+    ASSERT_EQ("No string or string array field found matching the pattern `foo*` in the schema.",  error);
+}
+
+TEST_F(CollectionTest, WildcardHighlightFields) {
+    nlohmann::json schema = R"({
+         "name": "posts",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "user_name", "type": "string", "facet": true},
+           {"name": "user", "type": "object"}
+         ]
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto add_op = coll->add(R"({"id": "124","user_name": "user_a","user": {"rank": 100,"phone": "+91 123123123"}})");
+    if (!add_op.ok()) {
+        LOG(INFO) << add_op.error();
+    }
+    ASSERT_TRUE(add_op.ok());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    std::string highlight_fields = "user*";
+    // user* matches user_name, user.rank and user.phone
+    auto result = coll->search("+91", {"user"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                               30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                               true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+//    ASSERT_EQ("+<mark>91</mark> 123123123",
+//              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
+//    ASSERT_EQ("100",
+//              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
+    ASSERT_EQ("user_a",
+              result["hits"][0]["highlight"]["user_name"]["snippet"].get<std::string>());
+
+    highlight_fields = "user.*";
+    // user.* matches user.rank and user.phone
+    result = coll->search("+91", {"user"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                               30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                               true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("+<mark>91</mark> 123123123",
+              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
+//    ASSERT_EQ("100",
+//              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
+
+    highlight_fields = "user*";
+    // user* matches user_name, user.rank and user.phone
+    result = coll->search("user_a", {"user_name"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                               30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                               true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+//    ASSERT_EQ("+91 123123123",
+//              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
+//    ASSERT_EQ("100",
+//              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>user_a</mark>",
+              result["hits"][0]["highlight"]["user_name"]["snippet"].get<std::string>());
+
+    highlight_fields = "user.*";
+    // user.* matches user.rank and user.phone
+    result = coll->search("user_a", {"user_name"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                          true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("+91 123123123",
+              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
+    ASSERT_EQ("100",
+              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
+
+    highlight_fields = "foo*";
+    // No matching field for highlight_fields
+    result = coll->search("user_a", {"user_name"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                          true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ(0, result["hits"][0]["highlight"].size());
+}
+
+TEST_F(CollectionTest, WildcardHighlightFullFields) {
+    nlohmann::json schema = R"({
+         "name": "posts",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "user_name", "type": "string", "facet": true},
+           {"name": "user.rank", "type": "int32", "facet": true},
+           {"name": "user.phone", "type": "string"},
+           {"name": "user.bio", "type": "string"}
+         ]
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto json = R"({
+                        "id": "124",
+                        "user_name": "user_a",
+                        "user": {
+                            "rank": 100,
+                            "phone": "+91 123123123"
+                        }
+                    })"_json;
+    std::string bio = "Once there was a middle-aged boy named User_a who was an avid swimmer."
+                      "He had been swimming competitively for most of his life, and had even competed in several national competitions."
+                      "However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal."
+                      "Determined to change that, User_a began training harder than ever before."
+                      "He woke up early every morning to swim laps before work and spent his evenings at the pool as well."
+                      "Despite the grueling schedule, he never once complained."
+                      "Instead, he reminded himself of his goal: to become a national champion.";
+    json["user"]["bio"] = bio;
+
+    auto add_op = coll->add(json.dump());
+    if (!add_op.ok()) {
+        LOG(INFO) << add_op.error();
+    }
+    ASSERT_TRUE(add_op.ok());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    std::string highlight_full_fields = "user*";
+    // user* matches user_name, user.bio
+    auto result = coll->search("user_a", {"*"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                               30, 4, highlight_full_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("a middle-aged boy named <mark>User_a</mark> who was an avid",
+              result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+
+    std::string highlighted_value = "Once there was a middle-aged boy named <mark>User_a</mark> who was an avid swimmer."
+                                    "He had been swimming competitively for most of his life, and had even competed in several national competitions."
+                                    "However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal."
+                                    "Determined to change that, <mark>User_a</mark> began training harder than ever before."
+                                    "He woke up early every morning to swim laps before work and spent his evenings at the pool as well."
+                                    "Despite the grueling schedule, he never once complained."
+                                    "Instead, he reminded himself of his goal: to become a national champion.";
+    ASSERT_EQ( highlighted_value, result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
+    ASSERT_EQ("<mark>user_a</mark>",
+              result["hits"][0]["highlight"]["user_name"]["value"].get<std::string>());
+
+    highlight_full_fields = "user.*";
+    // user.* matches user.bio
+    result = coll->search("user_a", {"*"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, highlight_full_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ(highlighted_value, result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
+    ASSERT_EQ(0, result["hits"][0]["highlight"]["user_name"].count("value"));
+
+    highlight_full_fields = "foo*";
+    // No matching field for highlight_fields
+    result = coll->search("user_a", {"*"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, highlight_full_fields).get();
+
+    ASSERT_EQ(0, result["hits"][0]["highlight"]["user"]["bio"].count("value"));
+    ASSERT_EQ(0, result["hits"][0]["highlight"]["user_name"].count("value"));
 }

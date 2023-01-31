@@ -4,7 +4,7 @@
 #include <string>
 #include <iostream>
 #include <cmdline.h>
-#include "config.h"
+#include "tsconfig.h"
 #include "store.h"
 #include "collection_manager.h"
 #include <csignal>

@@ -97,9 +97,9 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     ASSERT_STREQ("#", synonym_plus.synonyms[1][0].c_str());
 
     nlohmann::json view_json = synonym_plus.to_view_json();
-    ASSERT_EQ(2, view_json["symbols"].size());
-    ASSERT_EQ("+", view_json["symbols"][0].get<std::string>());
-    ASSERT_EQ("#", view_json["symbols"][1].get<std::string>());
+    ASSERT_EQ(2, view_json["symbols_to_index"].size());
+    ASSERT_EQ("+", view_json["symbols_to_index"][0].get<std::string>());
+    ASSERT_EQ("#", view_json["symbols_to_index"][1].get<std::string>());
 
     // when `id` is not given
     nlohmann::json syn_json_without_id = {
@@ -123,25 +123,15 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
 
     // synonyms bad type
 
-    nlohmann::json syn_json_bad_type1 = {
-        {"id", "syn-1"},
-        {"root", "Ocean"},
-        {"synonyms", {"Sea", 1} }
-    };
+    nlohmann::json syn_json_bad_type1 = R"({
+        "id": "syn-1",
+        "root": "Ocean",
+        "synonyms": [["Sea", 1]]
+    })"_json;
 
     syn_op = synonym_t::parse(syn_json_bad_type1, synonym);
     ASSERT_FALSE(syn_op.ok());
     ASSERT_STREQ("Could not find a valid string array of `synonyms`", syn_op.error().c_str());
-
-    nlohmann::json syn_json_bad_type2 = {
-        {"id", "syn-1"},
-        {"root", "Ocean"},
-        {"synonyms", "foo" }
-    };
-
-    syn_op = synonym_t::parse(syn_json_bad_type2, synonym);
-    ASSERT_FALSE(syn_op.ok());
-    ASSERT_STREQ("Could not find an array of `synonyms`", syn_op.error().c_str());
 
     nlohmann::json syn_json_bad_type3 = {
         {"id", "syn-1"},
@@ -154,11 +144,11 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     ASSERT_STREQ("Could not find an array of `synonyms`", syn_op.error().c_str());
 
     // empty string in synonym list
-    nlohmann::json syn_json_bad_type4 = {
-        {"id", "syn-1"},
-        {"root", "Ocean"},
-        {"synonyms", {""} }
-    };
+    nlohmann::json syn_json_bad_type4 = R"({
+        "id": "syn-1",
+        "root": "Ocean",
+        "synonyms": [["Foo", ""]]
+    })"_json;
 
     syn_op = synonym_t::parse(syn_json_bad_type4, synonym);
     ASSERT_FALSE(syn_op.ok());
@@ -707,10 +697,8 @@ TEST_F(CollectionSynonymsTest, SynonymFieldOrdering) {
 }
 
 TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
-    synonym_t synonym1{"ipod-synonyms", {}, {{"ipod"}, {"i", "pod"}, {"pod"}}};
-    synonym_t synonym2{"samsung-synonyms", {}, {{"s3"}, {"s3", "phone"}, {"samsung"}}};
-    coll_mul_fields->add_synonym(synonym1.to_view_json());
-    coll_mul_fields->add_synonym(synonym2.to_view_json());
+    coll_mul_fields->add_synonym(R"({"id": "ipod-synonyms", "root": "ipod", "synonyms": ["i pod", "ipod"]})"_json);
+    coll_mul_fields->add_synonym(R"({"id": "samsung-synonyms", "root": "s3", "synonyms": ["s3 phone", "samsung"]})"_json);
 
     ASSERT_EQ(2, coll_mul_fields->get_synonyms().size());
     coll_mul_fields->remove_synonym("ipod-synonyms");
@@ -720,14 +708,14 @@ TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
 
     // try to upsert synonym with same ID
 
-    synonym2.root = {"s3", "smartphone"};
-    auto upsert_op = coll_mul_fields->add_synonym(synonym2.to_view_json());
+    auto upsert_op = coll_mul_fields->add_synonym(R"({"id": "samsung-synonyms", "root": "s3 smartphone",
+                                                    "synonyms": ["s3 phone", "samsung"]})"_json);
     ASSERT_TRUE(upsert_op.ok());
 
     ASSERT_EQ(1, coll_mul_fields->get_synonyms().size());
 
     synonym_t synonym2_updated;
-    coll_mul_fields->get_synonym(synonym2.id, synonym2_updated);
+    coll_mul_fields->get_synonym("samsung-synonyms", synonym2_updated);
 
     ASSERT_EQ("s3", synonym2_updated.root[0]);
     ASSERT_EQ("smartphone", synonym2_updated.root[1]);
@@ -737,7 +725,16 @@ TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
 }
 
 TEST_F(CollectionSynonymsTest, SynonymJsonSerialization) {
-    synonym_t synonym1{"ipod-synonyms", {"apple", "ipod"}, {{"ipod"}, {"i", "pod"}, {"pod"}}};
+    synonym_t synonym1;
+    synonym1.id = "ipod-synonyms";
+    synonym1.root = {"apple", "ipod"};
+    synonym1.raw_root = "apple ipod";
+
+    synonym1.raw_synonyms = {"ipod", "i pod", "pod"};
+    synonym1.synonyms.push_back({"ipod"});
+    synonym1.synonyms.push_back({"i", "pod"});
+    synonym1.synonyms.push_back({"pod"});
+
     nlohmann::json obj = synonym1.to_view_json();
     ASSERT_STREQ("ipod-synonyms", obj["id"].get<std::string>().c_str());
     ASSERT_STREQ("apple ipod", obj["root"].get<std::string>().c_str());
@@ -777,8 +774,7 @@ TEST_F(CollectionSynonymsTest, SynonymSingleTokenExactMatch) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    synonym_t synonym1{"syn-1", {"lulu", "lemon"}, {{"lululemon"}}};
-    coll1->add_synonym(synonym1.to_view_json());
+    coll1->add_synonym(R"({"id": "syn-1", "root": "lulu lemon", "synonyms": ["lululemon"]})"_json);
 
     auto res = coll1->search("lulu lemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
@@ -817,8 +813,7 @@ TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    synonym_t synonym1{"syn-1", {"lululemon"}, {{"lulu", "lemon"}}};
-    coll1->add_synonym(synonym1.to_view_json());
+    coll1->add_synonym(R"({"id": "syn-1", "root": "lululemon", "synonyms": ["lulu lemon"]})"_json);
 
     auto res = coll1->search("lululemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(2, res["hits"].size());
@@ -832,9 +827,7 @@ TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
     ASSERT_EQ(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
 
     // now with compression synonym
-    synonym1.root = {"lulu", "lemon"};
-    synonym1.synonyms = {{"lululemon"}};
-    coll1->add_synonym(synonym1.to_view_json());
+    coll1->add_synonym(R"({"id": "syn-1", "root": "lulu lemon", "synonyms": ["lululemon"]})"_json);
 
     res = coll1->search("lulu lemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(2, res["hits"].size());
@@ -875,8 +868,7 @@ TEST_F(CollectionSynonymsTest, SynonymQueriesMustHavePrefixEnabled) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    synonym_t synonym1{"syn-1", {"ns"}, {{"nonstick"}}};
-    coll1->add_synonym(synonym1.to_view_json());
+    coll1->add_synonym(R"({"id": "syn-1", "root": "ns", "synonyms": ["nonstick"]})"_json);
 
     auto res = coll1->search("ns cook", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(1, res["hits"].size());

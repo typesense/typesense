@@ -1,0 +1,33 @@
+
+
+--- BUILD.bazel
++++ BUILD.bazel
+@@ -48,7 +48,7 @@ LINKOPTS = [
+     "-pthread",
+     "-ldl",
+ ] + select({
+-    "@bazel_tools//tools/osx:darwin": [
++    "@platforms//os:macos": [
+         "-framework CoreFoundation",
+         "-framework CoreGraphics",
+         "-framework CoreData",
+@@ -206,7 +206,7 @@ BUTIL_SRCS = [
+     "src/butil/recordio.cc",
+     "src/butil/popen.cpp",
+ ] + select({
+-    "@bazel_tools//tools/osx:darwin": [
++    "@platforms//os:macos": [
+         "src/butil/time/time_mac.cc",
+         "src/butil/mac/scoped_mach_port.cc",
+     ],
+@@ -322,7 +322,7 @@ cc_library(
+         "//bazel/config:brpc_with_glog": ["@com_github_google_glog//:glog"],
+         "//conditions:default": [],
+     }) + select({
+-        "@bazel_tools//tools/osx:darwin": [":macos_lib"],
++        "@platforms//os:macos": [":macos_lib"],
+         "//conditions:default": [],
+     }),
+ )
+
+

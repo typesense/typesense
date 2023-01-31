@@ -1592,6 +1592,93 @@ TEST_F(CollectionSpecificMoreTest, IncludeExcludeUnIndexedField) {
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, WildcardIncludeExclude) {
+    nlohmann::json schema = R"({
+         "name": "posts",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "username", "type": "string", "facet": true},
+           {"name": "user.rank", "type": "int32", "facet": true},
+           {"name": "user.bio", "type": "string"},
+           {"name": "likes", "type": "int32"},
+           {"name": "content", "type": "object"}
+         ],
+         "default_sorting_field": "likes"
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    std::vector<std::string> json_lines = {
+            R"({"id": "124","username": "user_a","user": {"rank": 100,"bio": "Hi! I'm user_a"},"likes": 5215,"content": {"title": "title 1","body": "body 1"}})",
+            R"({"id": "125","username": "user_b","user": {"rank": 50,"bio": "user_b here, nice to meet you!"},"likes": 5215,"content": {"title": "title 2","body": "body 2"}})"
+    };
+
+    for (auto const& json: json_lines){
+        auto add_op = coll->add(json);
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // include test: user* matches username, user.bio and user.rank
+    auto result = coll->search("user_a", {"username"}, "", {}, {}, {0},
+                                        10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, {"user*"}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ(0, result["hits"][0]["document"].count("id"));
+    ASSERT_EQ(0, result["hits"][0]["document"].count("likes"));
+    ASSERT_EQ(0, result["hits"][0]["document"].count("content"));
+    ASSERT_EQ(1, result["hits"][0]["document"].count("user"));
+    ASSERT_EQ(1, result["hits"][0]["document"]["user"].count("bio"));
+    ASSERT_EQ(1, result["hits"][0]["document"]["user"].count("rank"));
+    ASSERT_EQ(1, result["hits"][0]["document"].count("username"));
+
+    spp::sparse_hash_set<std::string> include_fields;
+    // exclude test: user.* matches user.rank and user.bio
+    result = coll->search("user_a", {"username"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, include_fields, {"user.*"}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ(1, result["hits"][0]["document"].count("id"));
+    ASSERT_EQ(1, result["hits"][0]["document"].count("likes"));
+    ASSERT_EQ(1, result["hits"][0]["document"].count("content"));
+    ASSERT_EQ(1, result["hits"][0]["document"]["content"].count("title"));
+    ASSERT_EQ(1, result["hits"][0]["document"]["content"].count("body"));
+    ASSERT_EQ(0, result["hits"][0]["document"].count("user"));
+    ASSERT_EQ(1, result["hits"][0]["document"].count("username"));
+
+    // No matching field for include_fields/exclude_fields
+    result = coll->search("user_a", {"username"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, {"foo.*"}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ(0, result["hits"][0]["document"].size());
+
+    result = coll->search("user_a", {"username"}, "", {}, {}, {0},
+                         10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, include_fields, {"foo.*"}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ(1, result["hits"][0]["document"].count("id"));
+    ASSERT_EQ(1, result["hits"][0]["document"].count("likes"));
+    ASSERT_EQ(1, result["hits"][0]["document"].count("content"));
+    ASSERT_EQ(1, result["hits"][0]["document"]["content"].count("title"));
+    ASSERT_EQ(1, result["hits"][0]["document"]["content"].count("body"));
+    ASSERT_EQ(1, result["hits"][0]["document"].count("user"));
+    ASSERT_EQ(1, result["hits"][0]["document"]["user"].count("bio"));
+    ASSERT_EQ(1, result["hits"][0]["document"]["user"].count("rank"));
+    ASSERT_EQ(1, result["hits"][0]["document"].count("username"));
+}
+
 TEST_F(CollectionSpecificMoreTest, PhraseMatchRepeatingTokens) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -1668,6 +1755,49 @@ TEST_F(CollectionSpecificMoreTest, PhraseMatchMultipleFields) {
     ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, WeightTakingPrecendeceOverMatch) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "brand", "type": "string"},
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Healthy Mayo";
+    doc["brand"] = "Light Plus";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "Healthy Light Mayo";
+    doc["brand"] = "Vegabond";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("light mayo", {"brand", "title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_weight).get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("1108091338752", res["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ(15, res["hits"][0]["text_match_info"]["best_field_weight"].get<size_t>());
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["fields_matched"].get<size_t>());
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
+
+    ASSERT_EQ("2211897868288", res["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ(14, res["hits"][1]["text_match_info"]["best_field_weight"].get<size_t>());
+    ASSERT_EQ(1, res["hits"][1]["text_match_info"]["fields_matched"].get<size_t>());
+    ASSERT_EQ(2, res["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
+}
+
 TEST_F(CollectionSpecificMoreTest, HighlightOnFieldNameWithDot) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -1729,12 +1859,14 @@ TEST_F(CollectionSpecificMoreTest, SearchCutoffTest) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto res = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
-                             spp::sparse_hash_set<std::string>(),
-                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1).get();
+    auto coll_op = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1);
 
-    ASSERT_TRUE(res["search_cutoff"].get<bool>());
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("Request Timeout", coll_op.error());
+    ASSERT_EQ(408, coll_op.code());
 }
 
 TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {

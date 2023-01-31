@@ -105,6 +105,8 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<int>("memory-used-max-percentage", '\0', "Reject writes when memory usage exceeds this percentage. Default: 100 (never reject).", false, 100);
     options.add<bool>("skip-writes", '\0', "Skip all writes except config changes. Default: false.", false, false);
 
+    options.add<int>("log-slow-searches-time-ms", '\0', "When >= 0, searches that take longer than this duration are logged.", false, 30*1000);
+
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "[DEPRECATED: use `api-port`] Port on which Typesense API service listens.", false, 8108);
@@ -290,9 +292,6 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         exit(-1);
     }
 
-    // NOTE: braft uses `election_timeout_ms / 2` as the brpc channel `timeout_ms` configuration,
-    // which in turn is the upper bound for brpc `connect_timeout_ms` value.
-    // Reference: https://github.com/apache/incubator-brpc/blob/122770d/docs/en/client.md#timeout
     size_t election_timeout_ms = 5000;
 
     if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
@@ -407,6 +406,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     LOG(INFO) << "Thread pool size: " << num_threads;
     ThreadPool app_thread_pool(num_threads);
     ThreadPool server_thread_pool(num_threads);
+    ThreadPool replication_thread_pool(num_threads);
 
     // primary DB used for storing the documents: we will not use WAL since Raft provides that
     Store store(db_dir);
@@ -455,14 +455,14 @@ int run_server(const Config & config, const std::string & version, void (*master
     // first we start the peering service
 
     ReplicationState replication_state(server, batch_indexer, &store,
-                                       &app_thread_pool, server->get_message_dispatcher(),
+                                       &replication_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled,
                                        &config,
                                        num_collections_parallel_load,
                                        config.get_num_documents_parallel_load());
 
     std::thread raft_thread([&replication_state, &config, &state_dir,
-                             &app_thread_pool, &server_thread_pool, batch_indexer]() {
+                             &app_thread_pool, &server_thread_pool, &replication_thread_pool, batch_indexer]() {
 
         std::thread batch_indexing_thread([batch_indexer]() {
             batch_indexer->run();
@@ -490,6 +490,10 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Shutting down app_thread_pool.";
 
         app_thread_pool.shutdown();
+
+        LOG(INFO) << "Shutting down replication_thread_pool.";
+
+        replication_thread_pool.shutdown();
 
         server->stop();
     });

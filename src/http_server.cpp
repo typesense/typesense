@@ -474,8 +474,6 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
-
-
     std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,
                                                                    route_hash, query_map, embedded_params_vec,
                                                                    api_auth_key_sent, body, client_ip);
@@ -523,7 +521,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
         req->write_req.cb = async_req_cb;
         req->write_req.ctx = custom_gen;
-        req->proceed_req(req, req->entity.len, H2O_SEND_STATE_IN_PROGRESS);
+        req->proceed_req(req, NULL);
     }
 
     return 0;
@@ -545,13 +543,15 @@ bool HttpServer::is_write_request(const std::string& root_resource, const std::s
     return false;
 }
 
-int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
+int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     // NOTE: this callback is triggered multiple times by HTTP 2 but only once by HTTP 1
     // This quirk is because of the underlying buffer/window sizes. We will have to deal with both cases.
     h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(ctx);
 
     const std::shared_ptr<http_req>& request = custom_generator->req();
     const std::shared_ptr<http_res>& response = custom_generator->res();
+
+    h2o_iovec_t chunk = request->_req->entity;
 
     /*
     LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len
@@ -646,15 +646,13 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
 
     if(request->is_http_v1) {
         // http v1 callbacks fire on small chunk sizes, so fetch more to match window size of http v2 buffer
-        size_t written = chunk.len;
-        request->_req->proceed_req(request->_req, written, H2O_SEND_STATE_IN_PROGRESS);
+        request->_req->proceed_req(request->_req, NULL);
     }
 
     if(!async_req) {
         // progress ONLY non-streaming type request body since
         // streaming requests will call proceed_req in an async fashion
-        size_t written = chunk.len;
-        request->_req->proceed_req(request->_req, written, H2O_SEND_STATE_IN_PROGRESS);
+        request->_req->proceed_req(request->_req, NULL);
     }
 
     return 0;
@@ -1003,7 +1001,7 @@ bool HttpServer::on_request_proceed_message(void *data) {
         req_res->req->chunk_len = 0;
 
         if(req_res->req->_req && req_res->req->_req->proceed_req) {
-            req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
+            req_res->req->_req->proceed_req(req_res->req->_req, NULL);
         }
     }
 

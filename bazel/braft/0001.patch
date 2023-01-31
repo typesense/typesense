@@ -1,0 +1,49 @@
+
+
+--- BUILD
++++ BUILD
+@@ -18,14 +18,12 @@ cc_library(
+     defines = [],
+     copts = [
+         "-DGFLAGS=gflags",
+-        "-DOS_LINUX",
+         "-DSNAPPY",
+         "-DHAVE_SSE42",
+         "-DNDEBUG",
+         "-D__STDC_FORMAT_MACROS",
+         "-fno-omit-frame-pointer",
+         "-momit-leaf-frame-pointer",
+-        "-msse4.2",
+         "-pthread",
+         "-Wsign-compare",
+         "-Wno-unused-parameter",
+@@ -33,9 +31,18 @@ cc_library(
+         "-Woverloaded-virtual",
+         "-Wnon-virtual-dtor",
+         "-Wno-missing-field-initializers",
+-        "-std=c++11",
+         "-DGFLAGS_NS=google",
+-    ],
++    ] + select({
++        "@platforms//os:macos": [
++            "-DOS_MACOSX",
++        ],
++        "//conditions:default": [
++            "-DOS_LINUX",
++        ],
++    }) + select({
++        "@platforms//cpu:x86_64": [ "-msse4.2" ],
++        "//conditions:default": [],
++    }),
+     linkopts = [
+         "-lm",
+         "-lpthread",
+@@ -44,7 +51,7 @@ cc_library(
+         "@com_github_brpc_brpc//:brpc",
+         "@com_github_gflags_gflags//:gflags",
+         "@com_github_google_glog//:glog",
+-        "@com_google_protobuf//:protobuf",        
++        "@com_google_protobuf//:protobuf",
+         "@zlib//:zlib",
+         ":cc_braft_internal_proto",
+     ],

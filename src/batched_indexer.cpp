@@ -201,8 +201,10 @@ void BatchedIndexer::run() {
                                                                     config.get_memory_used_max_percentage());
 
                         if (resource_check != cached_resource_stat_t::OK && orig_req->http_method != "DELETE") {
-                            orig_res->set_422("Rejecting write: running out of resource type: " +
-                                              std::string(magic_enum::enum_name(resource_check)));
+                            const std::string& err_msg = "Rejecting write: running out of resource type: " +
+                                                          std::string(magic_enum::enum_name(resource_check));
+                            LOG(ERROR) << err_msg;
+                            orig_res->set_422(err_msg);
                             async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
                             server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
                             break;

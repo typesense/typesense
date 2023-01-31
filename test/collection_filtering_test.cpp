@@ -598,6 +598,18 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    // not equals
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= 24", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"3", "1", "4", "2"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
     // multiple filters
     results = coll_array_fields->search("Jeremy", query_fields, "years:<2005 && years:>1987", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
@@ -625,6 +637,42 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     // alternative `:=` syntax
     results = coll_array_fields->search("Jeremy", query_fields, "age:= [21, 24, 63]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
+
+    // individual comparators can still be applied.
+    results = coll_array_fields->search("Jeremy", query_fields, "age: [!=21, >30]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"3", "1", "4", "0"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
+    // negate multiple search values (works like SQL's NOT IN) against a single int field
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24, 63]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"1", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
+    // individual comparators can still be applied.
+    results = coll_array_fields->search("Jeremy", query_fields, "age: != [<30, >60]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"1", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
 
     // multiple search values against an int32 array field - also use extra padding between symbols
     results = coll_array_fields->search("Jeremy", query_fields, "years : [ 2015, 1985 , 1999]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
@@ -753,6 +801,17 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str()); //?
     }
 
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:!=0", facets, sort_fields_asc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"0", "4", "2", "1"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str()); //?
+    }
+
     // Searching on a float field, sorted desc by rating
     results = coll_array_fields->search("Jeremy", query_fields, "rating:>0.0", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(4, results["hits"].size());
@@ -800,6 +859,30 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
         std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // negate multiple search values (works like SQL's NOT IN operator) against a single float field
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:!= [1.09, 7.812]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"1", "4", "3"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
+    // individual comparators can still be applied.
+    results = coll_array_fields->search("Jeremy", query_fields, "rating: != [<5.4, >9]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"2", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
     }
 
     // multiple search values against a float array field - also use extra padding between symbols
@@ -897,7 +980,7 @@ TEST_F(CollectionFilteringTest, FilterOnNegativeNumericalFields) {
 TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
     Collection *coll_array_fields;
 
-    std::ifstream infile(std::string(ROOT_DIR) + "test/numeric_array_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {
             field("name", field_types::STRING, false),
             field("age", field_types::INT32, false),

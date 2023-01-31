@@ -10,18 +10,19 @@
 
 struct synonym_t {
     std::string id;
+
+    std::string raw_root;
+    // used in code and differs from API + storage format
     std::vector<std::string> root;
+
+    std::vector<std::string> raw_synonyms;
+    // used in code and differs from API + storage format
     std::vector<std::vector<std::string>> synonyms;
+
     std::string locale;
     std::vector<char> symbols;
 
     synonym_t() = default;
-
-    synonym_t(const std::string& id, const std::vector<std::string>& root,
-              const std::vector<std::vector<std::string>>& synonyms):
-            id(id), root(root), synonyms(synonyms) {
-
-    }
 
     nlohmann::json to_view_json() const;
 

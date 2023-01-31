@@ -33,6 +33,8 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
 
 bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

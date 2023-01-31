@@ -406,13 +406,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     collection1->remove_override("deleted-rule");
 
     // make some synonym operation
-    synonym_t synonym1("id1", {"smart", "phone"}, {{"iphone"}});
-    synonym_t synonym2("id2", {"mobile", "phone"}, {{"samsung", "phone"}});
-    synonym_t synonym3("id3", {}, {{"football"}, {"foot", "ball"}});
-
-    ASSERT_TRUE(collection1->add_synonym(synonym1.to_view_json()).ok());
-    ASSERT_TRUE(collection1->add_synonym(synonym2.to_view_json()).ok());
-    ASSERT_TRUE(collection1->add_synonym(synonym3.to_view_json()).ok());
+    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id1", "root": "smart phone", "synonyms": ["iphone"]})"_json).ok());
+    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id2", "root": "mobile phone", "synonyms": ["samsung phone"]})"_json).ok());
+    ASSERT_TRUE(collection1->add_synonym(R"({"id": "id3", "synonyms": ["football", "foot ball"]})"_json).ok());
 
     collection1->remove_synonym("id2");
 
@@ -526,7 +522,10 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     embedded_params["filter_by"] = "points: 200";
 
     std::string json_res;
-    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res);
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
     nlohmann::json res_obj = nlohmann::json::parse(json_res);
@@ -540,7 +539,7 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     req_params["filter_by"] = "year: 1922";
     req_params["q"] = "*";
 
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res);
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
     res_obj = nlohmann::json::parse(json_res);
 
@@ -661,6 +660,32 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     collectionManager2.drop_collection("coll1");
 }
 
+TEST_F(CollectionManagerTest, RestorePresetsOnRestart) {
+    auto preset_value = R"(
+        {"q":"*", "per_page": "12"}
+    )"_json;
+
+    collectionManager.upsert_preset("single_preset", preset_value);
+
+    // create a new collection manager to ensure that it restores the records from the disk backed store
+    CollectionManager& collectionManager2 = CollectionManager::get_instance();
+    collectionManager2.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager2.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+
+    ASSERT_TRUE(load_op.ok());
+
+    nlohmann::json preset;
+    collectionManager2.get_preset("single_preset", preset);
+    ASSERT_EQ("*", preset["q"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+    collectionManager2.drop_collection("coll1");
+}
+
 TEST_F(CollectionManagerTest, RestoreNestedDocsOnRestart) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -763,6 +788,39 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     ASSERT_EQ(1, collectionManager.get_next_collection_id());
 
     delete it;
+}
+
+TEST_F(CollectionManagerTest, AuthWithMultiSearchKeys) {
+    api_key_t key1("api_key", "some key", {"documents:create"}, {"foo"}, 64723363199);
+    collectionManager.getAuthManager().create_key(key1);
+
+    std::vector<collection_key_t> collection_keys = {
+        collection_key_t("foo", "api_key")
+    };
+
+    std::vector<nlohmann::json> embedded_params_vec = { nlohmann::json::object() };
+    std::map<std::string, std::string> params;
+
+    // empty req auth key (present in header / GET param)
+    ASSERT_TRUE(collectionManager.auth_key_matches("", "documents:create", collection_keys, params,
+                                                   embedded_params_vec));
+
+    // should work with bootstrap key
+    collection_keys = {
+        collection_key_t("foo", "auth_key")
+    };
+
+    ASSERT_TRUE(collectionManager.auth_key_matches("", "documents:create", collection_keys, params,
+                                                   embedded_params_vec));
+
+    // bad key
+
+    collection_keys = {
+        collection_key_t("foo", "")
+    };
+
+    ASSERT_FALSE(collectionManager.auth_key_matches("", "documents:create", collection_keys, params,
+                                                   embedded_params_vec));
 }
 
 TEST_F(CollectionManagerTest, Symlinking) {
@@ -987,43 +1045,6 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str(",,", sort_fields);
     ASSERT_FALSE(sort_by_parsed);
-}
-
-TEST_F(CollectionManagerTest, ParseVectorQueryString) {
-    vector_query_t vector_query;
-    bool parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
-    ASSERT_TRUE(parsed);
-    ASSERT_EQ("vec", vector_query.field_name);
-    ASSERT_EQ(10, vector_query.k);
-    std::vector<float> fvs = {0.34, 0.66, 0.12, 0.68};
-    ASSERT_EQ(fvs.size(), vector_query.values.size());
-    for(size_t i = 0; i < fvs.size(); i++) {
-        ASSERT_EQ(fvs[i], vector_query.values[i]);
-    }
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
-    ASSERT_TRUE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:[0.34, 0.66, 0.12, 0.68], k: 10)", vector_query);
-    ASSERT_FALSE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], k: 10", vector_query);
-    ASSERT_TRUE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:(0.34, 0.66, 0.12, 0.68, k: 10)", vector_query);
-    ASSERT_FALSE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec:([0.34, 0.66, 0.12, 0.68], )", vector_query);
-    ASSERT_FALSE(parsed);
-
-    vector_query._reset();
-    parsed = CollectionManager::parse_vector_query_str("vec([0.34, 0.66, 0.12, 0.68])", vector_query);
-    ASSERT_FALSE(parsed);
 }
 
 TEST_F(CollectionManagerTest, Presets) {

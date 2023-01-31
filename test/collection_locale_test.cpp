@@ -774,6 +774,28 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicLargeText) {
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 }
 
+TEST_F(CollectionLocaleTest, SearchOnArabicText) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, ""),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::string data = "جهينة";
+    std::string q = "جوهينة";
+
+    auto dchars = data.c_str();
+    auto qchars = q.c_str();
+
+    nlohmann::json doc;
+    doc["title"] = "جهينة";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("جوهينة", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}).get();
+    LOG(INFO) << results;
+
+    ASSERT_STREQ("<mark>جهينة</mark>",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+}
+
 /*
 TEST_F(CollectionLocaleTest, TranslitPad) {
     UErrorCode translit_status = U_ZERO_ERROR;

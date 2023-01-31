@@ -261,8 +261,15 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     iter = store->scan(preset_prefix_key, &preset_upper_bound);
     while(iter->Valid() && iter->key().starts_with(preset_prefix_key)) {
         std::vector<std::string> parts;
-        StringUtils::split(iter->key().ToString(), parts, preset_prefix_key);
-        preset_configs[parts[0]] = iter->value().ToString();
+        std::string preset_name = iter->key().ToString().substr(preset_prefix_key.size());
+        nlohmann::json preset_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
+
+        if(!preset_obj.is_discarded() && preset_obj.is_object()) {
+            preset_configs[preset_name] = preset_obj;
+        } else {
+            LOG(INFO) << "Invalid value for preset " << preset_name;
+        }
+
         iter->Next();
     }
 
@@ -306,10 +313,6 @@ bool CollectionManager::auth_key_matches(const string& req_auth_key, const strin
                                          std::vector<nlohmann::json>& embedded_params_vec) const {
     std::shared_lock lock(mutex);
 
-    if(req_auth_key.empty()) {
-        return false;
-    }
-
     // check with bootstrap auth key
     if(bootstrap_auth_key == req_auth_key) {
         return true;
@@ -328,7 +331,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
                                                          const bool enable_nested_fields) {
-    std::unique_lock lock(mutex);
+    std::unique_lock lock(coll_create_mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
@@ -379,7 +382,6 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         return Option<Collection*>(500, "Could not write to on-disk storage.");
     }
 
-    lock.unlock();
     add_to_collections(new_collection);
 
     return Option<Collection*>(new_collection);
@@ -630,7 +632,9 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
 
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
                                           nlohmann::json& embedded_params,
-                                          std::string& results_json_str) {
+                                          std::string& results_json_str,
+                                          uint64_t start_ts) {
+
     auto begin = std::chrono::high_resolution_clock::now();
 
     const char *NUM_TYPOS = "num_typos";
@@ -694,6 +698,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *SEARCH_CUTOFF_MS = "search_cutoff_ms";
     const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
     const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
+
+    const char *TEXT_MATCH_TYPE = "text_match_type";
+
+    const char *ENABLE_HIGHLIGHT_V1 = "enable_highlight_v1";
 
     const char *FACET_SAMPLE_PERCENT = "facet_sample_percent";
     const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
@@ -767,12 +775,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t filter_curated_hits_option = 2;
     std::string highlight_fields;
     bool exhaustive_search = false;
-    size_t search_cutoff_ms = 3600000;
+    size_t search_cutoff_ms = 30 * 1000;
     enable_t split_join_tokens = fallback;
     size_t max_candidates = 0;
     std::vector<enable_t> infixes;
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
+    bool enable_highlight_v1 = true;
+    text_match_type_t match_type = max_score;
 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
@@ -817,6 +827,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {PRE_SEGMENTED_QUERY, &pre_segmented_query},
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
         {ENABLE_OVERRIDES, &enable_overrides},
+        {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -859,6 +870,13 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 if(enable_op.has_value()) {
                     split_join_tokens = enable_op.value();
                 }
+            }
+        }
+
+        else if(key == TEXT_MATCH_TYPE) {
+            auto match_op = magic_enum::enum_cast<text_match_type_t>(val);
+            if(match_op.has_value()) {
+                match_type = match_op.value();
             }
         }
 
@@ -990,6 +1008,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           filter_curated_hits_option,
                                                           prioritize_token_position,
                                                           vector_query,
+                                                          enable_highlight_v1,
+                                                          start_ts,
+                                                          match_type,
                                                           facet_sample_percent,
                                                           facet_sample_threshold
                                                         );
@@ -1237,6 +1258,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     size_t num_found_docs = 0;
     size_t num_valid_docs = 0;
     size_t num_indexed_docs = 0;
+    size_t batch_doc_str_size = 0;
 
     auto begin = std::chrono::high_resolution_clock::now();
 
@@ -1245,13 +1267,16 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 
         nlohmann::json document;
+        const std::string& doc_string = iter->value().ToString();
 
         try {
-            document = nlohmann::json::parse(iter->value().ToString());
+            document = nlohmann::json::parse(doc_string);
         } catch(const std::exception& e) {
             LOG(ERROR) << "JSON error: " << e.what();
             return Option<bool>(400, "Bad JSON.");
         }
+
+        batch_doc_str_size += doc_string.size();
 
         if(collection->get_enable_nested_fields()) {
             std::vector<field> flattened_fields;
@@ -1269,10 +1294,14 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         iter->Next();
         bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
 
+        // if expected memory usage exceeds 250M, we index the accumulated set without caring about batch size
+        bool exceeds_batch_mem_threshold = ((batch_doc_str_size * 7) > (250 * 1014 * 1024));
+
         // batch must match atleast the number of shards
-        if((num_valid_docs % batch_size == 0) || last_record) {
+         if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
             size_t num_indexed = collection->batch_index_in_memory(index_records);
+            batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {
                 const Option<std::string> & index_error_op = get_first_index_error(index_records);
@@ -1412,113 +1441,4 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     }
 
     return Option<Collection*>(new_coll);
-}
-
-bool CollectionManager::parse_vector_query_str(std::string vector_query_str, vector_query_t& vector_query) {
-    // FORMAT:
-    // field_name([0.34, 0.66, 0.12, 0.68], exact: false, k: 10)
-    size_t i = 0;
-    while(i < vector_query_str.size()) {
-        if(vector_query_str[i] != ':') {
-            vector_query.field_name += vector_query_str[i];
-            i++;
-        } else {
-            if(vector_query_str[i] != ':') {
-                // missing ":"
-                return false;
-            }
-
-            // field name is done
-            i++;
-
-            StringUtils::trim(vector_query.field_name);
-
-            while(i < vector_query_str.size() && vector_query_str[i] != '(') {
-                i++;
-            }
-
-            if(vector_query_str[i] != '(') {
-                // missing "("
-                return false;
-            }
-
-            i++;
-
-            while(i < vector_query_str.size() && vector_query_str[i] != '[') {
-                i++;
-            }
-
-            if(vector_query_str[i] != '[') {
-                // missing opening "["
-                return false;
-            }
-
-            i++;
-
-            std::string values_str;
-            while(i < vector_query_str.size() && vector_query_str[i] != ']') {
-                values_str += vector_query_str[i];
-                i++;
-            }
-
-            if(vector_query_str[i] != ']') {
-                // missing closing "]"
-                return false;
-            }
-
-            i++;
-
-            std::vector<std::string> svalues;
-            StringUtils::split(values_str, svalues, ",");
-
-            for(auto& svalue: svalues) {
-                if(!StringUtils::is_float(svalue)) {
-                    return false;
-                }
-
-                vector_query.values.push_back(std::stof(svalue));
-            }
-
-            if(i == vector_query_str.size()-1) {
-                // missing params
-                return true;
-            }
-
-            std::string param_str = vector_query_str.substr(i, (vector_query_str.size() - i));
-            std::vector<std::string> param_kvs;
-            StringUtils::split(param_str, param_kvs, ",");
-
-            for(auto& param_kv_str: param_kvs) {
-                if(param_kv_str.back() == ')') {
-                    param_kv_str.pop_back();
-                }
-
-                std::vector<std::string> param_kv;
-                StringUtils::split(param_kv_str, param_kv, ":");
-                if(param_kv.size() != 2) {
-                    return false;
-                }
-
-                if(param_kv[0] == "k") {
-                    if(!StringUtils::is_uint32_t(param_kv[1])) {
-                        return false;
-                    }
-
-                    vector_query.k = std::stoul(param_kv[1]);
-                }
-
-                if(param_kv[0] == "flat_search_cutoff") {
-                    if(!StringUtils::is_uint32_t(param_kv[1])) {
-                        return false;
-                    }
-
-                    vector_query.flat_search_cutoff = std::stoi(param_kv[1]);
-                }
-            }
-
-            return true;
-        }
-    }
-
-    return false;
 }

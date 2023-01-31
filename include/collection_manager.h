@@ -53,6 +53,8 @@ class CollectionManager {
 private:
     mutable std::shared_mutex mutex;
 
+    mutable std::mutex coll_create_mutex;
+
     Store *store;
     ThreadPool* thread_pool;
 
@@ -177,11 +179,10 @@ public:
 
     static Option<bool> do_search(std::map<std::string, std::string>& req_params,
                                   nlohmann::json& embedded_params,
-                                  std::string& results_json_str);
+                                  std::string& results_json_str,
+                                  uint64_t start_ts);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
-
-    static bool parse_vector_query_str(std::string vector_query_str, vector_query_t& vector_query);
 
     // symlinks
     Option<std::string> resolve_symlink(const std::string & symlink_name) const;

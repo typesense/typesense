@@ -6,7 +6,7 @@
 #include "http_data.h"
 #include "threadpool.h"
 #include "http_server.h"
-#include "config.h"
+#include "tsconfig.h"
 
 class BatchedIndexer {
 private:

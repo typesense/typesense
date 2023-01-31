@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: typesense/typesense-development:29-DEC-2021-1
+      - image: typesense/typesense-development:03-JAN-2023-1
     environment:
       - PROJECT_DIR: /typesense
       - TYPESENSE_VERSION: $CIRCLE_BRANCH-$CIRCLE_SHA1
