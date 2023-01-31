@@ -646,6 +646,47 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     ASSERT_EQ('}', export_state.res_body->back());
 }
 
+TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {
+    // format <length of api key>:<api key><ip address>
+    std::string valid_metadata = "4:abcd127.0.0.1";
+    std::string invalid_ip = "4:abcd127.0.0.1:1234";
+    std::string invalid_api_key = "3:abcd127.0.0.1";
+    std::string no_length = "abcd127.0.0.1";
+    std::string no_colon = "4abcd127.0.0.1";
+    std::string no_ip = "4:abcd";
+    std::string only_length = "4:";
+    std::string only_colon = ":";
+    std::string only_ip = "127.0.0.1";
+
+    Option<std::pair<std::string, std::string>> res = get_api_key_and_ip(valid_metadata);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("127.0.0.1", res.get().second);
+
+    res = get_api_key_and_ip(invalid_ip);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(invalid_api_key);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(no_length);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(no_colon);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(no_ip);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(only_length);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(only_colon);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(only_ip);
+    EXPECT_FALSE(res.ok());
+}
 TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     nlohmann::json schema = R"({
         "name": "coll1",

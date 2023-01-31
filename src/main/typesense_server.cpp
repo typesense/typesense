@@ -79,11 +79,14 @@ void master_server_routes() {
     server->post("/operations/db/compact", post_compact_db, false, false);
 
     server->get("/limits", get_rate_limits);
+    server->get("/limits/active", get_active_throttles);
+    server->get("/limits/exceeds", get_limit_exceed_counts);
     server->get("/limits/:id", get_rate_limit);
     server->post("/limits", post_rate_limit);
     server->put("/limits/:id", put_rate_limit);
     server->del("/limits/:id", del_rate_limit);
-
+    server->del("/limits/active/:id", del_throttle);
+    server->del("/limits/exceeds/:id", del_exceed);
     server->post("/config", post_config, false, false);
 }
 
