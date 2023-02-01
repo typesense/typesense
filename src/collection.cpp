@@ -3381,6 +3381,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
     std::vector<std::string> nested_field_names;
 
+    std::unique_lock ulock(mutex);
     for(auto& f: alter_fields) {
         if(f.name == ".*") {
             fields.push_back(f);
@@ -3402,6 +3403,9 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         fields.push_back(f);
     }
+    ulock.unlock();
+
+    std::shared_lock shlock(mutex);
 
     index->refresh_schemas(new_fields, {});
 
@@ -3474,7 +3478,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     }
 
     LOG(INFO) << "Finished altering " << num_found_docs << " document(s).";
-
+    shlock.unlock();
+    ulock.lock();
     for(auto& del_field: del_fields) {
         search_schema.erase(del_field.name);
         auto new_end = std::remove_if(fields.begin(), fields.end(), [&del_field](const field& f) {
@@ -3499,7 +3504,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             default_sorting_field = "";
         }
     }
-
+    ulock.unlock();
+    shlock.lock();
     index->refresh_schemas({}, del_fields);
 
     auto persist_op = persist_collection_meta();
@@ -3507,11 +3513,12 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         return persist_op;
     }
 
+    shlock.unlock();
     return Option<bool>(true);
 }
 
 Option<bool> Collection::alter(nlohmann::json& alter_payload) {
-    std::unique_lock lock(mutex);
+    std::shared_lock shlock(mutex);
 
     // Validate that all stored documents are compatible with the proposed schema changes.
     std::vector<field> del_fields;
@@ -3529,8 +3536,10 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     if(!this_fallback_field_type.empty() && !fallback_field_type.empty()) {
         return Option<bool>(400, "The schema already contains a `.*` field.");
     }
-
+    shlock.unlock();
+    
     if(!this_fallback_field_type.empty() && fallback_field_type.empty()) {
+        std::unique_lock ulock(mutex);
         fallback_field_type = this_fallback_field_type;
     }
 

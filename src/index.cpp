@@ -740,6 +740,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
 
 void Index::index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch) {
     // indexes a given field of all documents in the batch
+    std::unique_lock ulock(mutex);
 
     if(afield.name == "id") {
         for(const auto& record: iter_batch) {
