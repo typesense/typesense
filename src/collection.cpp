@@ -100,6 +100,56 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
         // for UPSERT, EMPLACE or CREATE, if a document does not have an ID, we will treat it as a new doc
         uint32_t seq_id = get_next_seq_id();
         document["id"] = std::to_string(seq_id);
+
+        // Add reference helper fields in the document.
+        for (auto const& pair: reference_fields) {
+            auto field_name = pair.first;
+            auto optional = get_schema().at(field_name).optional;
+            if (!optional && document.count(field_name) != 1) {
+                return Option<doc_seq_id_t>(400, "Missing the required reference field `" + field_name
+                                                                + "` in the document.");
+            } else if (document.count(field_name) != 1) {
+                continue;
+            }
+
+            auto reference_pair = pair.second;
+            auto reference_collection_name = reference_pair.collection;
+            auto reference_field_name = reference_pair.field;
+            auto& cm = CollectionManager::get_instance();
+            auto collection = cm.get_collection(reference_collection_name);
+            if (collection == nullptr) {
+                return Option<doc_seq_id_t>(400, "Referenced collection `" + reference_collection_name
+                                                                + "` not found.");
+            }
+
+            if (collection->get_schema().count(reference_field_name) == 0) {
+                return Option<doc_seq_id_t>(400, "Referenced field `" + reference_field_name +
+                                                    "` not found in the collection `" + reference_collection_name + "`.");
+            }
+
+            if (!collection->get_schema().at(reference_field_name).index) {
+                return Option<doc_seq_id_t>(400, "Referenced field `" + reference_field_name +
+                                                    "` in the collection `" + reference_collection_name + "` must be indexed.");
+            }
+
+            std::vector<std::pair<size_t, uint32_t*>> documents;
+            auto value = document[field_name].get<std::string>();
+            collection->get_filter_ids(reference_field_name + ":=" + value, documents);
+
+            if (documents[0].first != 1) {
+                delete [] documents[0].second;
+                auto match = " `" + reference_field_name + ": " + value + "` ";
+                return  Option<doc_seq_id_t>(400, documents[0].first < 1 ?
+                                                  "Referenced document having" + match + "not found in the collection `"
+                                                  + reference_collection_name + "`." :
+                                                  "Multiple documents having" + match + "found in the collection `" +
+                                                  reference_collection_name + "`.");
+            }
+
+            document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = *(documents[0].second);
+            delete [] documents[0].second;
+        }
+
         return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
     } else {
         if(!document["id"].is_string()) {
@@ -2374,11 +2424,10 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
     std::shared_lock lock(mutex);
 
     std::string reference_field_name;
-    for (auto const& field: fields) {
-        if (!field.reference.empty() &&
-            field.reference.find(collection_name) == 0 &&
-            field.reference.find('.') == collection_name.size()) {
-            reference_field_name = field.name;
+    for (auto const& pair: reference_fields) {
+        auto reference_pair = pair.second;
+        if (reference_pair.collection == collection_name) {
+            reference_field_name = reference_pair.field;
             break;
         }
     }
@@ -2396,7 +2445,8 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
         return filter_op;
     }
 
-    reference_field_name += "_sequence_id";
+    // Reference helper field has the sequence id of other collection's documents.
+    reference_field_name += REFERENCE_HELPER_FIELD_SUFFIX;
     index->do_reference_filtering_with_lock(reference_index_ids, filter_tree_root, reference_field_name);
 
     delete filter_tree_root;
@@ -3406,6 +3456,10 @@ SynonymIndex* Collection::get_synonym_index() {
     return synonym_index;
 }
 
+spp::sparse_hash_map<std::string, reference_pair> Collection::get_reference_fields() {
+    return reference_fields;
+}
+
 Option<bool> Collection::persist_collection_meta() {
     // first compact nested fields (to keep only parents of expanded children)
     field::compact_nested_fields(nested_fields);
@@ -4178,6 +4232,14 @@ Index* Collection::init_index() {
 
         if(field.nested) {
             nested_fields.emplace(field.name, field);
+        }
+
+        if(!field.reference.empty()) {
+            auto dot_index = field.reference.find('.');
+            auto collection_name = field.reference.substr(0, dot_index);
+            auto field_name = field.reference.substr(dot_index + 1);
+
+            reference_fields.emplace(field.name, reference_pair(collection_name, field_name));
         }
     }
 

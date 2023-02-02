@@ -39,6 +39,13 @@ struct highlight_field_t {
     }
 };
 
+struct reference_pair {
+    std::string collection;
+    std::string field;
+
+    reference_pair(std::string collection, std::string field) : collection(std::move(collection)), field(std::move(field)) {}
+};
+
 class Collection {
 private:
 
@@ -119,9 +126,13 @@ private:
 
     std::vector<char> token_separators;
 
-    Index* index;
-
     SynonymIndex* synonym_index;
+
+    // "field name" -> reference_pair
+    spp::sparse_hash_map<std::string, reference_pair> reference_fields;
+
+    // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
+    Index* index;
 
     // methods
 
@@ -281,6 +292,8 @@ public:
 
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
+
+    static constexpr const char* REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
 
     // methods
 
@@ -487,6 +500,8 @@ public:
                            std::vector<std::vector<std::string>>& results) const;
 
     SynonymIndex* get_synonym_index();
+
+    spp::sparse_hash_map<std::string, reference_pair> get_reference_fields();
 
     // highlight ops
 

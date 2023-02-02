@@ -78,20 +78,39 @@ TEST_F(CollectionJoinTest, SchemaReferenceField) {
             R"({
                 "name": "Customers",
                 "fields": [
-                    {"name": "product_id", "type": "string", "reference": "Products.product_id"},
+                    {"name": "product_id", "type": "string", "reference": "foo"},
                     {"name": "customer_name", "type": "string"},
                     {"name": "product_price", "type": "float"}
                 ]
             })"_json;
 
     collection_create_op = collectionManager.create_collection(schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("Invalid reference `foo`.", collection_create_op.error());
 
+    schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
     auto collection = collection_create_op.get();
     auto schema = collection->get_schema();
 
-    ASSERT_EQ(schema.at("customer_name").reference, "");
-    ASSERT_EQ(schema.at("product_id").reference, "Products.product_id");
+    ASSERT_EQ(schema.count("customer_name"), 1);
+    ASSERT_TRUE(schema.at("customer_name").reference.empty());
+    ASSERT_EQ(schema.count("product_id"), 1);
+    ASSERT_FALSE(schema.at("product_id").reference.empty());
+
+    auto reference_fields = collection->get_reference_fields();
+    ASSERT_EQ(reference_fields.count("product_id"), 1);
+    ASSERT_EQ(reference_fields.at("product_id").collection, "Products");
+    ASSERT_EQ(reference_fields.at("product_id").field, "product_id");
 
     // Add a `foo_sequence_id` field in the schema for `foo` reference field.
     ASSERT_EQ(schema.count("product_id_sequence_id"), 1);
@@ -108,11 +127,12 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                     {"name": "customer_id", "type": "string"},
                     {"name": "customer_name", "type": "string"},
                     {"name": "product_price", "type": "float"},
-                    {"name": "product_id", "type": "string", "reference": "foo"}
+                    {"name": "reference_id", "type": "string", "reference": "products.product_id"}
                 ]
             })"_json;
     auto collection_create_op = collectionManager.create_collection(customers_schema_json);
     ASSERT_TRUE(collection_create_op.ok());
+    auto customer_collection = collection_create_op.get();
 
     nlohmann::json customer_json = R"({
                                         "customer_id": "customer_a",
@@ -120,27 +140,17 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                                         "product_price": 143,
                                         "product_id": "a"
                                     })"_json;
-
-    auto customer_collection = collection_create_op.get();
     auto add_doc_op = customer_collection->add(customer_json.dump());
+
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Invalid reference `foo`.", add_doc_op.error());
-    collectionManager.drop_collection("Customers");
+    ASSERT_EQ("Missing the required reference field `reference_id` in the document.", add_doc_op.error());
 
-    customers_schema_json =
-            R"({
-                "name": "Customers",
-                "fields": [
-                    {"name": "customer_id", "type": "string"},
-                    {"name": "customer_name", "type": "string"},
-                    {"name": "product_price", "type": "float"},
-                    {"name": "product_id", "type": "string", "reference": "products.product_id"}
-                ]
-            })"_json;
-    collection_create_op = collectionManager.create_collection(customers_schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
-
-    customer_collection = collection_create_op.get();
+    customer_json = R"({
+                        "customer_id": "customer_a",
+                        "customer_name": "Joe",
+                        "product_price": 143,
+                        "reference_id": "a"
+                    })"_json;
     add_doc_op = customer_collection->add(customer_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
     ASSERT_EQ("Referenced collection `products` not found.", add_doc_op.error());
@@ -153,7 +163,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                     {"name": "customer_id", "type": "string"},
                     {"name": "customer_name", "type": "string"},
                     {"name": "product_price", "type": "float"},
-                    {"name": "product_id", "type": "string", "reference": "Products.id"}
+                    {"name": "reference_id", "type": "string", "reference": "Products.id"}
                 ]
             })"_json;
     collection_create_op = collectionManager.create_collection(customers_schema_json);
@@ -184,7 +194,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                     {"name": "customer_id", "type": "string"},
                     {"name": "customer_name", "type": "string"},
                     {"name": "product_price", "type": "float"},
-                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                    {"name": "reference_id", "type": "string", "reference": "Products.product_id"}
                 ]
             })"_json;
     collection_create_op = collectionManager.create_collection(customers_schema_json);
@@ -209,7 +219,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_TRUE(collection_create_op.ok());
 
     add_doc_op = customer_collection->add(customer_json.dump());
-    ASSERT_EQ("Referenced document having `product_id` = `a` not found in the collection `Products`.", add_doc_op.error());
+    ASSERT_EQ("Referenced document having `product_id: a` not found in the collection `Products`.", add_doc_op.error());
 
     std::vector<nlohmann::json> products = {
             R"({
@@ -231,9 +241,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
         ASSERT_TRUE(add_op.ok());
     }
 
-    customer_json["product_id"] = "product_a";
+    customer_json["reference_id"] = "product_a";
     add_doc_op = customer_collection->add(customer_json.dump());
-    ASSERT_EQ("Multiple documents having `product_id` = `product_a` found in the collection `Products`.", add_doc_op.error());
+    ASSERT_EQ("Multiple documents having `product_id: product_a` found in the collection `Products`.", add_doc_op.error());
 
     collectionManager.drop_collection("Products");
     products[1]["product_id"] = "product_b";
@@ -255,6 +265,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
         }
         ASSERT_TRUE(add_op.ok());
     }
+
     collectionManager.drop_collection("Customers");
     customers_schema_json =
             R"({
@@ -263,7 +274,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                     {"name": "customer_id", "type": "string"},
                     {"name": "customer_name", "type": "string"},
                     {"name": "product_price", "type": "float"},
-                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                    {"name": "reference_id", "type": "string", "reference": "Products.product_id"}
                 ]
             })"_json;
     collection_create_op = collectionManager.create_collection(customers_schema_json);
@@ -272,12 +283,12 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     customer_collection = collection_create_op.get();
     add_doc_op = customer_collection->add(customer_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
-    ASSERT_EQ(customer_collection->get("0").get().count("product_id_sequence_id"), 1);
+    ASSERT_EQ(customer_collection->get("0").get().count("reference_id_sequence_id"), 1);
 
     nlohmann::json document;
     // Referenced document's sequence_id must be valid.
     auto get_op = collectionManager.get_collection("Products")->get_document_from_store(
-            customer_collection->get("0").get()["product_id_sequence_id"].get<uint32_t>(),
+            customer_collection->get("0").get()["reference_id_sequence_id"].get<uint32_t>(),
                     document);
     ASSERT_TRUE(get_op.ok());
     ASSERT_EQ(document.count("product_id"), 1);

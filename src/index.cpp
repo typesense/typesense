@@ -432,50 +432,6 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
             continue;
         }
 
-        if (!a_field.reference.empty()) {
-            // Add foo_sequence_id field in the document.
-
-            std::vector<std::string> tokens;
-            StringUtils::split(a_field.reference, tokens, ".");
-
-            if (tokens.size() < 2) {
-                return Option<>(400, "Invalid reference `" + a_field.reference  + "`.");
-            }
-
-            auto& cm = CollectionManager::get_instance();
-            auto collection = cm.get_collection(tokens[0]);
-            if (collection == nullptr) {
-                return Option<>(400, "Referenced collection `" + tokens[0]  + "` not found.");
-            }
-
-            if (collection->get_schema().count(tokens[1]) == 0) {
-                return Option<>(400, "Referenced field `" + tokens[1]  + "` not found in the collection `"
-                                                    + tokens[0] + "`.");
-            }
-
-            auto referenced_field_name = tokens[1];
-            if (!collection->get_schema().at(referenced_field_name).index) {
-                return Option<>(400, "Referenced field `" + tokens[1]  + "` in the collection `"
-                                     + tokens[0] + "` must be indexed.");
-            }
-
-            std::vector<std::pair<size_t, uint32_t*>> documents;
-            auto value = document[a_field.name].get<std::string>();
-            collection->get_filter_ids(referenced_field_name + ":=" + value, documents);
-
-            if (documents[0].first != 1) {
-                delete [] documents[0].second;
-                auto match = " `" + referenced_field_name  + "` = `" + value + "` ";
-                return  Option<>(400, documents[0].first < 1 ?
-                "Referenced document having" + match + "not found in the collection `" + tokens[0] + "`." :
-                "Multiple documents having" + match + "found in the collection `" + tokens[0] + "`.");
-            }
-
-            document[a_field.name + "_sequence_id"] = *(documents[0].second);
-
-            delete [] documents[0].second;
-        }
-
         if(document.count(field_name) == 0) {
             return Option<>(400, "Field `" + field_name  + "` has been declared in the schema, "
                                                            "but is not found in the document.");
@@ -2186,7 +2142,7 @@ void Index::do_filtering_with_lock(uint32_t*& filter_ids,
 
 void Index::do_reference_filtering_with_lock(std::pair<uint32_t, uint32_t*>& reference_index_ids,
                                              filter_node_t* filter_tree_root,
-                                             const std::string& reference_field_name) const {
+                                             const std::string& reference_helper_field_name) const {
     std::shared_lock lock(mutex);
     adaptive_filter(reference_index_ids.second, reference_index_ids.first, filter_tree_root, false);
 
@@ -2196,8 +2152,8 @@ void Index::do_reference_filtering_with_lock(std::pair<uint32_t, uint32_t*>& ref
     for (uint32_t i = 0; i < reference_index_ids.first; i++) {
         auto filtered_doc_id = reference_index_ids.second[i];
 
-        // Extract the sequence_id from the reference field.
-        vector.push_back(sort_index.at(reference_field_name)->at(filtered_doc_id));
+        // Extract the sequence id.
+        vector.push_back(sort_index.at(reference_helper_field_name)->at(filtered_doc_id));
     }
 
     std::sort(vector.begin(), vector.end());
