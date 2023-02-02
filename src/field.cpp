@@ -727,6 +727,15 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
     auto vec_dist = magic_enum::enum_cast<vector_distance_type_t>(field_json[fields::vec_dist].get<std::string>()).value();
 
+    if (!field_json[fields::reference].get<std::string>().empty()) {
+        std::vector<std::string> tokens;
+        StringUtils::split(field_json[fields::reference].get<std::string>(), tokens, ".");
+
+        if (tokens.size() < 2) {
+            return Option<bool>(400, "Invalid reference `" + field_json[fields::reference].get<std::string>()  + "`.");
+        }
+    }
+
     the_fields.emplace_back(
             field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
@@ -737,8 +746,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
         the_fields.emplace_back(
-                field(field_json[fields::name].get<std::string>() + "_sequence_id", "int64", false,
-                      field_json[fields::optional], true)
+                field(field_json[fields::name].get<std::string>() + Collection::REFERENCE_HELPER_FIELD_SUFFIX,
+                      "int64", false, field_json[fields::optional], true)
         );
     }
 
