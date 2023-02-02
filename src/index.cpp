@@ -2113,13 +2113,6 @@ void copy_reference_ids(filter_result_t& from, filter_result_t& to) {
             }
         }
     }
-
-    do_filtering(root);
-    filter_ids_length = root->match_index_ids.first;
-    filter_ids = root->match_index_ids.second;
-
-    // Prevents double deletion. We'll be deleting this array upstream and when the filter tree is destructed.
-    root->match_index_ids.second = nullptr;
 }
 
 Option<bool> Index::recursive_filter(filter_node_t* const root,
