@@ -2782,7 +2782,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
         // gather up both original query and synonym queries and do drop tokens
 
-        if (all_result_ids_len < drop_tokens_threshold) {
+        if (exhaustive_search || all_result_ids_len < drop_tokens_threshold) {
             for (size_t qi = 0; qi < all_queries.size(); qi++) {
                 auto& orig_tokens = all_queries[qi];
                 size_t num_tokens_dropped = 0;
