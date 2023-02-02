@@ -2586,11 +2586,10 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
     std::shared_lock lock(mutex);
 
     std::string reference_field_name;
-    for (auto const& field: fields) {
-        if (!field.reference.empty() &&
-            field.reference.find(collection_name) == 0 &&
-            field.reference.find('.') == collection_name.size()) {
-            reference_field_name = field.name;
+    for (auto const& pair: reference_fields) {
+        auto reference_pair = pair.second;
+        if (reference_pair.collection == collection_name) {
+            reference_field_name = reference_pair.field;
             break;
         }
     }
@@ -2608,7 +2607,8 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
         return filter_op;
     }
 
-    reference_field_name += "_sequence_id";
+    // Reference helper field has the sequence id of other collection's documents.
+    reference_field_name += REFERENCE_HELPER_FIELD_SUFFIX;
     index->do_reference_filtering_with_lock(reference_index_ids, filter_tree_root, reference_field_name);
 
     delete filter_tree_root;
