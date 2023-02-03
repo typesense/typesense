@@ -1515,7 +1515,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     }
 
     // for grouping we have to re-aggregate
-
     Topster& topster = *search_params->topster;
     Topster& curated_topster = *search_params->curated_topster;
 
