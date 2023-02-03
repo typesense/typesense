@@ -542,7 +542,6 @@ struct filter_node_t {
     bool isOperator;
     filter_node_t* left;
     filter_node_t* right;
-    std::pair<uint32_t, uint32_t*> match_index_ids = {0, nullptr};
     filter_tree_metrics* metrics = nullptr;
 
     filter_node_t(filter filter_exp)
@@ -561,7 +560,6 @@ struct filter_node_t {
 
     ~filter_node_t() {
         delete metrics;
-        delete[] match_index_ids.second;
         delete left;
         delete right;
     }

@@ -484,7 +484,10 @@ private:
                                    uint32_t*& ids,
                                    size_t& ids_len) const;
 
-    void do_filtering(filter_node_t* const root, const std::string& collection_name) const;
+    void do_filtering(uint32_t*& filter_ids,
+                      uint32_t& filter_ids_length,
+                      filter_node_t* const root,
+                      const std::string& collection_name) const;
 
     void rearranging_recursive_filter (uint32_t*& filter_ids,
                                        uint32_t& filter_ids_length,
@@ -501,9 +504,9 @@ private:
                          filter_node_t* const filter_tree_root,
                          const std::string& collection_name = "") const;
 
-    void get_filter_matches(filter_node_t* const root,
-                            std::vector<std::pair<uint32_t,
-                            filter_node_t*>>& vec,
+    void rearrange_filter_tree(uint32_t*& filter_ids,
+                            uint32_t& filter_ids_length,
+                            filter_node_t* const root,
                             const std::string& collection_name) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
