@@ -681,6 +681,10 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 const std::string& filter_exp = sort_field_std.name.substr(paran_start + 1,
                                                                            sort_field_std.name.size() - paran_start -
                                                                            2);
+                if(filter_exp.empty()) {
+                    return Option<bool>(400, "The eval expression in sort_by is empty.");
+                }
+
                 Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
                                                                           store, "", sort_field_std.eval.filter_tree_root);
                 if(!parse_filter_op.ok()) {
