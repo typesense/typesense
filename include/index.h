@@ -484,21 +484,27 @@ private:
                                    uint32_t*& ids,
                                    size_t& ids_len) const;
 
-    void do_filtering(filter_node_t* const root) const;
+    void do_filtering(filter_node_t* const root, const std::string& collection_name) const;
 
-    void rearranging_recursive_filter (uint32_t*& filter_ids, uint32_t& filter_ids_length, filter_node_t* const root) const;
+    void rearranging_recursive_filter (uint32_t*& filter_ids,
+                                       uint32_t& filter_ids_length,
+                                       filter_node_t* const root,
+                                       const std::string& collection_name) const;
 
     void recursive_filter(uint32_t*& filter_ids,
                           uint32_t& filter_ids_length,
                           filter_node_t* const root,
-                          const bool enable_short_circuit = false) const;
+                          const std::string& collection_name) const;
 
     void adaptive_filter(uint32_t*& filter_ids,
                          uint32_t& filter_ids_length,
                          filter_node_t* const filter_tree_root,
-                         const bool enable_short_circuit = false) const;
+                         const std::string& collection_name = "") const;
 
-    void get_filter_matches(filter_node_t* const root, std::vector<std::pair<uint32_t, filter_node_t*>>& vec) const;
+    void get_filter_matches(filter_node_t* const root,
+                            std::vector<std::pair<uint32_t,
+                            filter_node_t*>>& vec,
+                            const std::string& collection_name) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -656,7 +662,7 @@ public:
 
     // Public operations
 
-    void run_search(search_args* search_params);
+    void run_search(search_args* search_params, const std::string& collection_name);
 
     void search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
@@ -679,7 +685,8 @@ public:
                 size_t max_candidates, const std::vector<enable_t>& infixes, const size_t max_extra_prefix,
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, enable_t split_join_tokens,
-                const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold) const;
+                const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
+                const std::string& collection_name) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name);
 
@@ -720,7 +727,8 @@ public:
     void do_filtering_with_lock(
             uint32_t*& filter_ids,
             uint32_t& filter_ids_length,
-            filter_node_t* filter_tree_root) const;
+            filter_node_t* filter_tree_root,
+            const std::string& collection_name) const;
 
     void do_reference_filtering_with_lock(std::pair<uint32_t, uint32_t*>& reference_index_ids,
                                           filter_node_t* filter_tree_root,
