@@ -2013,6 +2013,15 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Error parsing eval expression in sort_by clause.", res_op.error());
 
+    // when eval condition is empty
+    sort_fields = {
+        sort_by("_eval()", "DESC"),
+        sort_by("points", "DESC"),
+    };
+    res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("The eval expression in sort_by is empty.", res_op.error());
+
     // more bad syntax!
     sort_fields = {
         sort_by(")", "DESC"),
