@@ -697,7 +697,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     if(export_state->it != nullptr) {
         rocksdb::Iterator* it = export_state->it;
         size_t batch_counter = 0;
-        res->body.clear();
+        std::string().swap(res->body);
 
         while(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
             if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
