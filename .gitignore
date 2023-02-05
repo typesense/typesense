@@ -15,4 +15,3 @@ typesense-server-data/
 .clwb/.bazelproject
 .vscode/settings.json
 /onnxruntime-prefix
-

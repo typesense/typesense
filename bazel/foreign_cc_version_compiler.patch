@@ -1,18 +1,7 @@
---- a/foreign_cc/private/configure_script.bzl
-+++ b/foreign_cc/private/configure_script.bzl
-@@ -70,7 +70,7 @@
-         ).lstrip())
- 
-     script.append("##mkdirs## $$BUILD_TMPDIR$$/$$INSTALL_PREFIX$$")
--    script.append("{env_vars} {prefix}\"{configure}\" --prefix=$$BUILD_TMPDIR$$/$$INSTALL_PREFIX$$ {user_options}".format(
-+    script.append("{env_vars} {prefix}\"{configure}\" {user_options} --prefix=$$BUILD_TMPDIR$$/$$INSTALL_PREFIX$$".format(
-         env_vars = get_make_env_vars(workspace_name, tools, flags, env_vars, deps, inputs),
-         prefix = configure_prefix,
-         configure = configure_path,
-
-
---- foreign_cc/private/cc_toolchain_util.bzl
-+++ foreign_cc/private/cc_toolchain_util.bzl
+diff --git a/foreign_cc/private/cc_toolchain_util.bzl b/foreign_cc/private/cc_toolchain_util.bzl
+index fd7fa4d..188dc5f 100644
+--- a/foreign_cc/private/cc_toolchain_util.bzl
++++ b/foreign_cc/private/cc_toolchain_util.bzl
 @@ -265,15 +265,24 @@ def get_tools_info(ctx):
          cc_toolchain = cc_toolchain,
      )
@@ -22,11 +11,11 @@
 +            action_name = ACTION_NAMES.cpp_compile,
 +        )
 +    cxx_splitted = cxx.split("/")
-+    if(cxx_splitted[-1].startswith("gcc")):
-+        cxx_splitted[-1] = cxx_splitted[-1].replace("gcc", "g++")
++    if(cxx_splitted[-1] == "gcc"):
++        cxx_splitted[-1] = "g++"
 +        cxx = "/".join(cxx_splitted)
-+    if(cxx_splitted[-1].startswith("clang")):
-+        cxx_splitted[-1] = cxx_splitted[-1].replace("clang", "clang++")
++    if(cxx_splitted[-1] == "clang"):
++        cxx_splitted = "clang++"
 +        cxx = "/".join(cxx_splitted)
 +
      return CxxToolsInfo(
@@ -42,11 +31,10 @@
          cxx_linker_static = cc_common.get_tool_for_action(
              feature_configuration = feature_configuration,
              action_name = ACTION_NAMES.cpp_link_static_library,
-
 diff --git a/toolchains/built_toolchains.bzl b/toolchains/built_toolchains.bzl
 index 5e59e79..ddf63a5 100644
---- toolchains/built_toolchains.bzl
-+++ toolchains/built_toolchains.bzl
+--- a/toolchains/built_toolchains.bzl
++++ b/toolchains/built_toolchains.bzl
 @@ -28,6 +28,7 @@ _CMAKE_SRCS = {
      "3.22.4": [["https://github.com/Kitware/CMake/releases/download/v3.22.4/cmake-3.22.4.tar.gz"], "cmake-3.22.4", "5c55d0b0bc4c191549e3502b8f99a4fe892077611df22b4178cc020626e22a47"],
      "3.23.1": [["https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1.tar.gz"], "cmake-3.23.1", "33fd10a8ec687a4d0d5b42473f10459bb92b3ae7def2b745dc10b192760869f3"],
@@ -76,8 +64,8 @@ index 5e59e79..ddf63a5 100644
              http_archive,
 diff --git a/toolchains/prebuilt_toolchains.bzl b/toolchains/prebuilt_toolchains.bzl
 index dabfb95..d9c38b4 100644
---- toolchains/prebuilt_toolchains.bzl
-+++ toolchains/prebuilt_toolchains.bzl
+--- a/toolchains/prebuilt_toolchains.bzl
++++ b/toolchains/prebuilt_toolchains.bzl
 @@ -67,6 +67,115 @@ def prebuilt_toolchains(cmake_version, ninja_version, register_toolchains):
      _make_toolchains(register_toolchains)
 
@@ -275,8 +263,8 @@ index dabfb95..d9c38b4 100644
              http_archive,
 diff --git a/toolchains/prebuilt_toolchains.py b/toolchains/prebuilt_toolchains.py
 index 5288b27..a193021 100755
---- toolchains/prebuilt_toolchains.py
-+++ toolchains/prebuilt_toolchains.py
+--- a/toolchains/prebuilt_toolchains.py
++++ b/toolchains/prebuilt_toolchains.py
 @@ -10,6 +10,7 @@ CMAKE_SHA256_URL_TEMPLATE = "https://cmake.org/files/v{minor}/cmake-{full}-SHA-2
  CMAKE_URL_TEMPLATE = "https://github.com/Kitware/CMake/releases/download/v{full}/{file}"
 
