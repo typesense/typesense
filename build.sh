@@ -22,7 +22,7 @@ if [[ "$@" == *"--depclean"* ]]; then
 fi
 
 cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION -DCMAKE_BUILD_TYPE=Release -H$PROJECT_DIR -B$PROJECT_DIR/$BUILD_DIR
-make typesense-server typesense-test -C $PROJECT_DIR/$BUILD_DIR
+sudo cmake --build $PROJECT_DIR/$BUILD_DIR --target typesense-server --target typesense-test 
 
 if [[ "$@" == *"--package-binary"* ]]; then
     OS_FAMILY=$(echo `uname` | awk '{print tolower($0)}')

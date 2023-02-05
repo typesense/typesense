@@ -13,7 +13,10 @@ bazel_compdb_deps()
 
 http_archive(
     name = "rules_foreign_cc",
-    patches = ["//bazel:foreign_cc.patch"],
+    patches = ["//bazel:foreign_cc.patch", "//bazel:foreign_cc_version_compiler.patch"],
+    patch_args = [
+        "-p1",
+    ],
     sha256 = "2a4d07cd64b0719b39a7c12218a3e507672b82a97b98c6a89d38565894cf7c51",
     strip_prefix = "rules_foreign_cc-0.9.0",
     url = "https://github.com/bazelbuild/rules_foreign_cc/archive/refs/tags/0.9.0.tar.gz",
@@ -21,7 +24,11 @@ http_archive(
 
 load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
 
-rules_foreign_cc_dependencies()
+# This sets up some common toolchains for building targets. For more details, please see
+# https://bazelbuild.github.io/rules_foreign_cc/0.9.0/flatten.html#rules_foreign_cc_dependencies
+rules_foreign_cc_dependencies(
+    cmake_version="3.25.0",
+    ninja_version="1.11.1")
 
 # brpc and its dependencies
 git_repository(
@@ -32,6 +39,33 @@ git_repository(
         "//bazel/brpc:brpc.patch",
     ],
     remote = "https://github.com/apache/incubator-brpc.git",
+)
+
+_ALL_CONTENT = """\
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+
+
+cc_library(
+    name = "ext_headers",
+    hdrs = glob(["cmake/external/onnxruntime-extensions/includes/**"]),
+    strip_include_prefix = "cmake/external/onnxruntime-extensions/includes",
+    visibility = ["//visibility:public"],
+)
+
+
+"""
+
+new_git_repository(
+    name="onnx_runtime",
+    branch= "main",
+    build_file_content= _ALL_CONTENT,
+    init_submodules= 1,
+    recursive_init_submodules= 1,
+    remote= "https://github.com/microsoft/onnxruntime"
 )
 
 new_git_repository(

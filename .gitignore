@@ -13,3 +13,4 @@ cmake-build-release
 typesense-server-data/
 .clwb/.bazelproject
 .vscode/settings.json
+/onnxruntime-prefix
