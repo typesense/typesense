@@ -721,6 +721,11 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
         // end of path: check if obj matches expected type
         std::string detected_type;
         if(!field::get_type(obj, detected_type)) {
+            if(obj.is_null() && the_field.optional) {
+                // null values are allowed only if field is optional
+                return Option<bool>(false);
+            }
+
             return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
         }
 

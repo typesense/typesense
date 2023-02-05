@@ -1390,7 +1390,8 @@ TEST_F(CollectionNestedFieldsTest, ExplicitSchemaOptionalFieldValidation) {
         "fields": [
           {"name": "details", "type": "object", "optional": true },
           {"name": "company.name", "type": "string", "optional": true },
-          {"name": "locations", "type": "object[]", "optional": true }
+          {"name": "locations", "type": "object[]", "optional": true },
+          {"name": "blocks.text.description", "type": "string[]", "optional": true }
         ]
     })"_json;
 
@@ -1398,12 +1399,29 @@ TEST_F(CollectionNestedFieldsTest, ExplicitSchemaOptionalFieldValidation) {
     ASSERT_TRUE(op.ok());
     Collection* coll1 = op.get();
 
-    // no optional field is present and that should be allowed
+    // when a nested field is null it should be allowed
     auto doc1 = R"({
-        "foo": "bar"
+        "company": {"name": null}
     })"_json;
 
     auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // check the same with nested array type
+
+    doc1 = R"({
+        "blocks": {"text": [{"description": null}]}
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // no optional field is present and that should be allowed
+    doc1 = R"({
+        "foo": "bar"
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
     // some parts of an optional field is present in a subsequent doc indexed
@@ -1421,7 +1439,7 @@ TEST_F(CollectionNestedFieldsTest, ExplicitSchemaOptionalFieldValidation) {
 
     // check fields and their properties
     auto coll_fields = coll1->get_fields();
-    ASSERT_EQ(5, coll_fields.size());
+    ASSERT_EQ(6, coll_fields.size());
     for(auto& coll_field : coll_fields) {
         ASSERT_TRUE(coll_field.optional);
     }
