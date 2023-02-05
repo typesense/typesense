@@ -5557,6 +5557,10 @@ Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const st
     else {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
+                if(a_field.nested && item.is_array()) {
+                    return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+                }
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
             }
 
@@ -5568,6 +5572,10 @@ Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const st
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
         }
     }

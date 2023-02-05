@@ -1445,6 +1445,31 @@ TEST_F(CollectionNestedFieldsTest, ExplicitSchemaOptionalFieldValidation) {
     }
 }
 
+TEST_F(CollectionNestedFieldsTest, ExplicitSchemaForNestedArrayTypeValidation) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "blocks.text", "type": "object[]"},
+            {"name": "blocks.text.description", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "blocks": {"text": [{"description": "Hello world."}]}
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `blocks.text.description` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
+}
+
 TEST_F(CollectionNestedFieldsTest, SortByNestedField) {
     nlohmann::json schema = R"({
         "name": "coll1",
