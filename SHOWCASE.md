@@ -47,6 +47,7 @@ This is a selection of sites and apps using Typesense.
 | [MyHearty](https://myhearty.my) | A one-stop charity website to fundraise, donate, volunteer and apply for aids. It comes with a full-featured search UI (instant search, geosearch) for campaigns, volunteer events and aids. |
 | [Neolace](https://www.neolace.com) | Knowledge graph platform (combines a wiki and a graph database) |
 | [Project Seldon](https://projectseldon.org) | A free and unbiased analysis platform for understanding societies and systems of government. |
+| [Granthappura](https://gpura.org/) | A free-licensed digitized artifacts archive related to Kerala from multiple languages. [Github Link](https://github.com/indic-archive/omeka-typesense-search) |
 
 ### Typesense Demos
 
