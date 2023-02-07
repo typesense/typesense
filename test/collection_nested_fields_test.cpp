@@ -1757,6 +1757,56 @@ TEST_F(CollectionNestedFieldsTest, NestedFieldWithExplicitWeight) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopointArray) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "addresses.geoPoint", "type": "geopoint[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "addresses": [{"geoPoint": [1.91, 23.5]}]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // with nested geopoint array
+
+    auto doc2 = R"({
+        "addresses": [{"geoPoint": [[1.91, 23.5]]}]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc2.dump(), CREATE).ok());
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // data validation
+    auto bad_doc = R"({
+        "addresses": [{"geoPoint": [1.91, "x"]}]
+    })"_json;
+
+    auto create_op = coll1->add(bad_doc.dump(), CREATE);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Field `addresses.geoPoint` has an incorrect type.", create_op.error());
+
+    bad_doc = R"({
+        "addresses": [{"geoPoint": [[1.91, "x"]]}]
+    })"_json;
+
+    create_op = coll1->add(bad_doc.dump(), CREATE);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Field `addresses.geoPoint` must be an array of geopoint.", create_op.error());
+}
+
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false, true),
                                  field("education.name", field_types::STRING_ARRAY, true, true),

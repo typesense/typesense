@@ -494,6 +494,22 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
             }
 
             nlohmann::json::iterator it = document[field_name].begin();
+
+            // Handle a geopoint[] type inside an array of object: it won't be an array of array, so cannot iterate
+            if(a_field.nested && a_field.type == field_types::GEOPOINT_ARRAY &&
+                it->is_number() && document[field_name].size() == 2) {
+                const auto& item = document[field_name];
+                if(!(item[0].is_number() && item[1].is_number())) {
+                    // one or more elements is not an number, try to coerce
+                    Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
+                    if(!coerce_op.ok()) {
+                        return coerce_op;
+                    }
+                }
+
+                continue;
+            }
+
             for(; it != document[field_name].end(); ) {
                 const auto& item = it.value();
                 array_ele_erased = false;
@@ -869,54 +885,54 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 bool value = record.doc[afield.name].get<bool>();
                 num_tree->insert(value, seq_id);
             });
-        } else if(afield.type == field_types::GEOPOINT) {
-            auto geo_index = geopoint_index.at(afield.name);
-
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, geo_index]
-                    (const index_record& record, uint32_t seq_id) {
-                const std::vector<double>& latlong = record.doc[afield.name];
-
-                S2RegionTermIndexer::Options options;
-                options.set_index_contains_points_only(true);
-                S2RegionTermIndexer indexer(options);
-                S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-
-                for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                    (*geo_index)[term].push_back(seq_id);
-                }
-            });
-        } else if(afield.type == field_types::GEOPOINT_ARRAY) {
+        } else if(afield.type == field_types::GEOPOINT || afield.type == field_types::GEOPOINT_ARRAY) {
             auto geo_index = geopoint_index.at(afield.name);
 
             iterate_and_index_numerical_field(iter_batch, afield,
-                                              [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
+            [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
+                // nested geopoint value inside an array of object will be a simple array so must be treated as geopoint
+                bool nested_obj_arr_geopoint = (afield.nested && afield.type == field_types::GEOPOINT_ARRAY &&
+                                    record.doc[afield.name].size() == 2 && record.doc[afield.name][0].is_number());
 
-                                                  const std::vector<std::vector<double>>& latlongs = record.doc[afield.name];
-                                                  S2RegionTermIndexer::Options options;
-                                                  options.set_index_contains_points_only(true);
-                                                  S2RegionTermIndexer indexer(options);
+                if(afield.type == field_types::GEOPOINT || nested_obj_arr_geopoint) {
+                    const std::vector<double>& latlong = record.doc[afield.name];
 
-                                                  int64_t* packed_latlongs = new int64_t[latlongs.size() + 1];
-                                                  packed_latlongs[0] = latlongs.size();
+                    S2RegionTermIndexer::Options options;
+                    options.set_index_contains_points_only(true);
+                    S2RegionTermIndexer indexer(options);
+                    S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
 
-                                                  for(size_t li = 0; li < latlongs.size(); li++) {
-                                                      auto& latlong = latlongs[li];
-                                                      S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-                                                      std::set<std::string> terms;
-                                                      for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                                                          terms.insert(term);
-                                                      }
+                    for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                        (*geo_index)[term].push_back(seq_id);
+                    }
+                } else {
+                    const std::vector<std::vector<double>>& latlongs = record.doc[afield.name];
+                    S2RegionTermIndexer::Options options;
+                    options.set_index_contains_points_only(true);
+                    S2RegionTermIndexer indexer(options);
 
-                                                      for(const auto& term: terms) {
-                                                          (*geo_index)[term].push_back(seq_id);
-                                                      }
+                    int64_t* packed_latlongs = new int64_t[latlongs.size() + 1];
+                    packed_latlongs[0] = latlongs.size();
 
-                                                      int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
-                                                      packed_latlongs[li + 1] = packed_latlong;
-                                                  }
+                    for(size_t li = 0; li < latlongs.size(); li++) {
+                        auto& latlong = latlongs[li];
+                        S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+                        std::set<std::string> terms;
+                        for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                            terms.insert(term);
+                        }
 
-                                                  geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
-                                              });
+                        for(const auto& term: terms) {
+                            (*geo_index)[term].push_back(seq_id);
+                        }
+
+                        int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
+                        packed_latlongs[li + 1] = packed_latlong;
+                    }
+
+                    geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
+                }
+            });
         } else if(afield.is_array()) {
             // handle vector index first
             if(afield.type == field_types::FLOAT_ARRAY && afield.num_dim > 0) {
