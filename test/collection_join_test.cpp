@@ -299,7 +299,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     collectionManager.drop_collection("Products");
 }
 
-TEST_F(CollectionJoinTest, FilterByReferenceField_SingleMatch) {
+TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     auto schema_json =
             R"({
                 "name": "Products",
@@ -377,7 +377,7 @@ TEST_F(CollectionJoinTest, FilterByReferenceField_SingleMatch) {
         ASSERT_TRUE(add_op.ok());
     }
 
-    auto coll = collectionManager.get_collection("Products");
+    auto coll = collectionManager.get_collection_unsafe("Products");
     auto search_op = coll->search("s", {"product_name"}, "$foo:=customer_a", {}, {}, {0},
                                10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
     ASSERT_FALSE(search_op.ok());
@@ -405,11 +405,11 @@ TEST_F(CollectionJoinTest, FilterByReferenceField_SingleMatch) {
     ASSERT_EQ(1, result["hits"].size());
     ASSERT_EQ("soap", result["hits"][0]["document"]["product_name"].get<std::string>());
 
-//    collectionManager.drop_collection("Customers");
-//    collectionManager.drop_collection("Products");
+    collectionManager.drop_collection("Customers");
+    collectionManager.drop_collection("Products");
 }
 
-TEST_F(CollectionJoinTest, FilterByReferenceField_MultipleMatch) {
+TEST_F(CollectionJoinTest, FilterByReference_MultipleMatch) {
     auto schema_json =
             R"({
                 "name": "Users",
@@ -535,7 +535,7 @@ TEST_F(CollectionJoinTest, FilterByReferenceField_MultipleMatch) {
         ASSERT_TRUE(add_op.ok());
     }
 
-    auto coll = collectionManager.get_collection("Users");
+    auto coll = collectionManager.get_collection_unsafe("Users");
 
     // Search for users linked to repo_b
     auto result = coll->search("R", {"user_name"}, "$Links(repo_id:=repo_b)", {}, {}, {0},
@@ -546,7 +546,7 @@ TEST_F(CollectionJoinTest, FilterByReferenceField_MultipleMatch) {
     ASSERT_EQ("user_b", result["hits"][0]["document"]["user_id"].get<std::string>());
     ASSERT_EQ("user_a", result["hits"][1]["document"]["user_id"].get<std::string>());
 
-//    collectionManager.drop_collection("Users");
-//    collectionManager.drop_collection("Repos");
-//    collectionManager.drop_collection("Links");
+    collectionManager.drop_collection("Users");
+    collectionManager.drop_collection("Repos");
+    collectionManager.drop_collection("Links");
 }
