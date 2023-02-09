@@ -1,5 +1,8 @@
+build --incompatible_strict_action_env
 build --action_env=BAZEL_CXXOPTS="-std=c++17"
-build --experimental_strict_action_env
 build --define=TYPESENSE_VERSION=\"nightly\"
-
 build --cxxopt="-std=c++17"
+
+build --enable_platform_specific_config
+
+build:linux --action_env=BAZEL_LINKLIBS="-l%:libstdc++.a -l%:libgcc.a"

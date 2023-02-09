@@ -41,6 +41,7 @@ cmake(
          "//conditions:default": ["-DCMAKE_CXX_FLAGS=-Wno-error=maybe-uninitialized"],
     }),
     lib_source = "//:all_srcs",
+    targets = ["rocksdb"],
     out_static_libs = ["librocksdb.a"],
     deps = ["@com_github_google_snappy//:snappy"],
 )
