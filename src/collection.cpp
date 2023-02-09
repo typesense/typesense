@@ -946,6 +946,12 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
                                             const bool extract_only_string_fields,
                                             const bool enable_nested_fields,
                                             const bool handle_wildcard) {
+    // Reference to other collection
+    if (field_name[0] == '$') {
+        processed_search_fields.push_back(field_name);
+        return Option<bool>(true);
+    }
+
     if(field_name == "id") {
         processed_search_fields.push_back(field_name);
         return Option<bool>(true);
@@ -989,6 +995,19 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     }
 
     return Option<bool>(true);
+}
+
+void get_reference_filters(filter_node_t const* const root, std::map<std::string, std::string>& reference_filter_map) {
+    if (root == nullptr) {
+        return;
+    }
+
+    if (!root->isOperator && !root->filter_exp.referenced_collection_name.empty()) {
+        reference_filter_map[root->filter_exp.referenced_collection_name] = root->filter_exp.field_name;
+    }
+
+    get_reference_filters(root->left, reference_filter_map);
+    get_reference_filters(root->right, reference_filter_map);
 }
 
 Option<nlohmann::json> Collection::search(const std::string & raw_query,
@@ -1747,7 +1766,24 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             }
 
             remove_flat_fields(document);
-            prune_doc(document, include_fields_full, exclude_fields_full);
+            auto doc_id_op = doc_id_to_seq_id(document["id"].get<std::string>());
+            if (!doc_id_op.ok()) {
+                return Option<nlohmann::json>(doc_id_op.code(), doc_id_op.error());
+            }
+
+            std::map<std::string, std::string> reference_filter_map;
+            get_reference_filters(filter_tree_root, reference_filter_map);
+            auto prune_op = prune_doc(document,
+                                        include_fields_full,
+                                        exclude_fields_full,
+                                        "",
+                                        0,
+                                        doc_id_op.get(),
+                                        name,
+                                        reference_filter_map);
+            if (!prune_op.ok()) {
+                return Option<nlohmann::json>(prune_op.code(), prune_op.error());
+            }
 
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
@@ -2412,9 +2448,7 @@ Option<bool> Collection::get_filter_ids(const std::string & filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
-                                                  const std::string & collection_name,
-                                                  std::pair<uint32_t, uint32_t*>& reference_index_ids) const {
+Option<std::string> Collection::get_reference_field(const std::string & collection_name) const {
     std::shared_lock lock(mutex);
 
     std::string reference_field_name;
@@ -2427,9 +2461,22 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
     }
 
     if (reference_field_name.empty()) {
-        return Option<bool>(400, "Could not find any field in `" + name + "` referencing the collection `"
-                                                    + collection_name + "`.");
+        return Option<std::string>(400, "Could not find any field in `" + name + "` referencing the collection `"
+                                 + collection_name + "`.");
     }
+
+    return Option(reference_field_name);
+}
+
+Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
+                                                  const std::string & collection_name,
+                                                  std::pair<uint32_t, uint32_t*>& reference_index_ids) const {
+    auto reference_field_op = get_reference_field(collection_name);
+    if (!reference_field_op.ok()) {
+        return Option<bool>(reference_field_op.code(), reference_field_op.error());
+    }
+
+    std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
@@ -2440,8 +2487,8 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
     }
 
     // Reference helper field has the sequence id of other collection's documents.
-    reference_field_name += REFERENCE_HELPER_FIELD_SUFFIX;
-    index->do_reference_filtering_with_lock(reference_index_ids, filter_tree_root, reference_field_name);
+    auto field_name = reference_field_op.get() + REFERENCE_HELPER_FIELD_SUFFIX;
+    index->do_reference_filtering_with_lock(reference_index_ids, filter_tree_root, field_name);
 
     delete filter_tree_root;
     return Option<bool>(true);
@@ -3684,10 +3731,12 @@ void Collection::remove_flat_fields(nlohmann::json& document) {
     }
 }
 
-void Collection::prune_doc(nlohmann::json& doc,
+Option<bool> Collection::prune_doc(nlohmann::json& doc,
                            const tsl::htrie_set<char>& include_names,
                            const tsl::htrie_set<char>& exclude_names,
-                           const std::string& parent_name, size_t depth) {
+                           const std::string& parent_name, size_t depth,
+                           const uint32_t doc_sequence_id, const std::string& collection_name,
+                           const std::map<std::string, std::string>& reference_filter_map) {
     // doc can only be an object
     auto it = doc.begin();
     while(it != doc.end()) {
@@ -3763,6 +3812,79 @@ void Collection::prune_doc(nlohmann::json& doc,
 
         it++;
     }
+
+    auto reference_it = include_names.equal_prefix_range("$");
+    for (auto reference = reference_it.first; reference != reference_it.second; reference++) {
+        auto ref = reference.key();
+        size_t parenthesis_index = ref.find('(');
+
+        auto ref_collection_name = ref.substr(1, parenthesis_index - 1);
+        auto reference_fields = ref.substr(parenthesis_index + 1, ref.size() - parenthesis_index - 2);
+
+        auto& cm = CollectionManager::get_instance();
+        auto collection = cm.get_collection(ref_collection_name);
+        if (collection == nullptr) {
+            return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` not found.");
+        }
+
+        std::vector<std::string> include_fields_vec;
+        StringUtils::split(reference_fields, include_fields_vec, ",");
+
+        spp::sparse_hash_set<std::string> include_fields, exclude_fields;
+        include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
+
+        tsl::htrie_set<char> include_fields_full, exclude_fields_full;
+        auto include_exclude_op = collection->populate_include_exclude_fields(include_fields, exclude_fields,
+                                                                              include_fields_full, exclude_fields_full);
+        if (!include_exclude_op.ok()) {
+            return include_exclude_op;
+        }
+
+        auto reference_field_op = collection->get_reference_field(collection_name);
+        if (!reference_field_op.ok()) {
+            return Option<bool>(reference_field_op.code(), reference_field_op.error());
+        }
+
+        std::vector<std::pair<size_t, uint32_t*>> documents;
+        auto filter = reference_field_op.get() + REFERENCE_HELPER_FIELD_SUFFIX + ":=" + std::to_string(doc_sequence_id);
+        if (reference_filter_map.count(ref_collection_name) > 0) {
+            filter += "&&";
+            filter += reference_filter_map.at(ref_collection_name);
+        }
+        auto filter_op = collection->get_filter_ids(filter, documents);
+        if (!filter_op.ok()) {
+            return filter_op;
+        }
+
+        if (documents[0].first == 0) {
+            continue;
+        }
+
+        std::vector<nlohmann::json> reference_docs;
+        reference_docs.reserve(documents[0].first);
+        for (size_t i = 0; i < documents[0].first; i++) {
+            auto doc_seq_id = documents[0].second[i];
+
+            nlohmann::json ref_doc;
+            auto get_doc_op = collection->get_document_from_store(doc_seq_id, ref_doc);
+            if (!get_doc_op.ok()) {
+                return get_doc_op;
+            }
+
+            auto prune_op = prune_doc(ref_doc, include_fields_full, exclude_fields_full);
+            if (!prune_op.ok()) {
+                return prune_op;
+            }
+
+            reference_docs.push_back(ref_doc);
+        }
+
+        for (const auto &ref_doc: reference_docs) {
+            doc.update(ref_doc);
+        }
+    }
+
+    return Option<bool>(true);
 }
 
 Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,

@@ -356,8 +356,10 @@ public:
 
     static void remove_flat_fields(nlohmann::json& document);
 
-    static void prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
-                          const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0);
+    static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
+                          const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0,
+                          const uint32_t doc_sequence_id = 0, const std::string& collection_name = "",
+                          const std::map<std::string, std::string>& reference_filter_map = {});
 
     const Index* _get_index() const;
 
@@ -449,6 +451,8 @@ public:
     Option<bool> get_filter_ids(const std::string & filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids) const;
 
+    Option<std::string> get_reference_field(const std::string & collection_name) const;
+
     Option<bool> get_reference_filter_ids(const std::string & filter_query,
                                           const std::string & collection_name,
                                           std::pair<uint32_t, uint32_t*>& reference_index_ids) const;
@@ -515,8 +519,8 @@ public:
 
     void process_highlight_fields(const std::vector<search_field_t>& search_fields,
                                   const std::vector<std::string>& raw_search_fields,
-                                  const tsl::htrie_set<char>& exclude_fields,
                                   const tsl::htrie_set<char>& include_fields,
+                                  const tsl::htrie_set<char>& exclude_fields,
                                   const std::vector<std::string>& highlight_field_names,
                                   const std::vector<std::string>& highlight_full_field_names,
                                   const std::vector<enable_t>& infixes,
