@@ -48,6 +48,7 @@ This is a selection of sites and apps using Typesense.
 | [Neolace](https://www.neolace.com) | Knowledge graph platform (combines a wiki and a graph database) |
 | [Project Seldon](https://projectseldon.org) | A free and unbiased analysis platform for understanding societies and systems of government. |
 | [Granthappura](https://gpura.org/) | A free-licensed digitized artifacts archive related to Kerala from multiple languages. [Github Link](https://github.com/indic-archive/omeka-typesense-search) |
+| [Syracuse University](https://syracuse.edu) | A private research university in Syracuse, New York. [Visit our live typesense demo!](https://typesense-demo.dev3.digitalservices.syr.edu) |
 
 ### Typesense Demos
 
