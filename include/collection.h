@@ -463,6 +463,8 @@ public:
 
     Option<bool> validate_reference_filter(const std::string& filter_query) const;
 
+    Option<std::string> get_reference_field(const std::string & collection_name) const;
+
     Option<bool> get_reference_filter_ids(const std::string & filter_query,
                                           const std::string & collection_name,
                                           std::pair<uint32_t, uint32_t*>& reference_index_ids) const;
