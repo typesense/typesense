@@ -453,6 +453,42 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
     return Option<bool>(true);
 }
 
+Option<bool> StringUtils::split_include_fields(const std::string& include_fields, std::vector<std::string>& tokens) {
+    size_t start = 0, end = 0, size = include_fields.size();
+    std::string include_field;
+
+    while (true) {
+        auto range_pos = include_fields.find('$', start);
+        auto comma_pos = include_fields.find(',', start);
+
+        if (range_pos == std::string::npos && comma_pos == std::string::npos) {
+            if (start < size - 1) {
+                tokens.push_back(include_fields.substr(start, size - start));
+            }
+            break;
+        } else if (range_pos < comma_pos) {
+            end = include_fields.find(')', range_pos);
+            if (end == std::string::npos || end < include_fields.find('(', range_pos)) {
+                return Option<bool>(400, "Invalid reference in include_fields, expected `$CollectionName(fieldA, ...)`.");
+            }
+
+            include_field = include_fields.substr(range_pos, (end - range_pos) + 1);
+        } else {
+            end = comma_pos;
+            include_field = include_fields.substr(start, end - start);
+        }
+
+        include_field = trim(include_field);
+        if (!include_field.empty()) {
+            tokens.push_back(include_field);
+        }
+
+        start = end + 1;
+    }
+
+    return Option<bool>(true);
+}
+
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();
