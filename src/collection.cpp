@@ -3857,6 +3857,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         }
 
         if (documents[0].first == 0) {
+            delete[] documents[0].second;
             continue;
         }
 
@@ -3878,6 +3879,8 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
 
             reference_docs.push_back(ref_doc);
         }
+
+        delete[] documents[0].second;
 
         for (const auto &ref_doc: reference_docs) {
             doc.update(ref_doc);
