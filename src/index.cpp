@@ -215,7 +215,8 @@ int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::st
         // not much value in supporting default sorting field as string, so we will just dummy it out
         points = 0;
     } else {
-        points = document[default_sorting_field];
+        points = document[default_sorting_field].is_boolean() ? int64_t(document[default_sorting_field].get<bool>()) :
+                 document[default_sorting_field].get<int64_t>();
     }
 
     return points;
