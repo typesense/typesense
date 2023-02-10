@@ -5204,15 +5204,27 @@ inline uint32_t Index::next_suggestion2(const std::vector<tok_candidates>& token
         size_t token_size = token_candidates_vec[i].token.value.size();
         q = ldiv(q.quot, token_candidates_vec[i].candidates.size());
         const auto& candidate = token_candidates_vec[i].candidates[q.rem];
+        size_t typo_cost = token_candidates_vec[i].cost;
+
+        if (candidate.size() > 1 && !Tokenizer::is_ascii_char(candidate[0])) {
+            icu::UnicodeString ustr = icu::UnicodeString::fromUTF8(candidate);
+            auto code_point = ustr.char32At(0);
+            if(code_point >= 0x600 && code_point <= 0x6ff) {
+                // adjust typo cost for Arabic strings, since 1 byte difference makes no sense
+                if(typo_cost == 1) {
+                    typo_cost = 2;
+                }
+            }
+        }
 
         // we assume that toke was found via prefix search if candidate is longer than token's typo tolerance
         bool is_prefix_searched = token_candidates_vec[i].prefix_search &&
-                                  (candidate.size() > (token_size + token_candidates_vec[i].cost));
+                                  (candidate.size() > (token_size + typo_cost));
 
-        size_t actual_cost = (2 * token_candidates_vec[i].cost) + uint32_t(is_prefix_searched);
+        size_t actual_cost = (2 * typo_cost) + uint32_t(is_prefix_searched);
         total_cost += actual_cost;
 
-        query_suggestion[i] = token_t(i, candidate, is_prefix_searched, token_size, token_candidates_vec[i].cost);
+        query_suggestion[i] = token_t(i, candidate, is_prefix_searched, token_size, typo_cost);
 
         uint64_t this_hash = StringUtils::hash_wy(query_suggestion[i].value.c_str(), query_suggestion[i].value.size());
         qhash = StringUtils::hash_combine(qhash, this_hash);
