@@ -755,10 +755,14 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
         // handle differences in detection of numerical types
         bool is_numericaly_valid = (detected_type != the_field.type) &&
-                                   ((detected_type == field_types::INT64 &&
-                                     (the_field.type == field_types::INT32 || the_field.type == field_types::FLOAT)) ||
-                                    (detected_type == field_types::INT64_ARRAY &&
-                                     (the_field.type == field_types::INT32_ARRAY || the_field.type == field_types::FLOAT_ARRAY)));
+            ( (detected_type == field_types::INT64 &&
+                (the_field.type == field_types::INT32 || the_field.type == field_types::FLOAT)) ||
+
+              (detected_type == field_types::INT64_ARRAY &&
+                (the_field.type == field_types::INT32_ARRAY || the_field.type == field_types::FLOAT_ARRAY)) ||
+
+              (detected_type == field_types::FLOAT_ARRAY && the_field.type == field_types::GEOPOINT_ARRAY)
+           );
 
         if(detected_type == the_field.type || is_numericaly_valid) {
             if(the_field.is_object()) {
