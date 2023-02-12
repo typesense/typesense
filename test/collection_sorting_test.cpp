@@ -124,6 +124,7 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("tags", field_types::STRING_ARRAY, true),
                                  field("age", field_types::INT32, false),
+                                 field("in_stock", field_types::BOOL, false),
                                  field("average", field_types::INT32, false) };
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
@@ -140,6 +141,19 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
     ASSERT_FALSE(collection_op.ok());
     ASSERT_EQ("Default sorting field is defined as `NOT-DEFINED` but is not found in the schema.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
+
+    // must be able to use boolean field as default sorting field
+    collection_op = collectionManager.create_collection("sample_collection", 4, fields, "in_stock");
+    ASSERT_TRUE(collection_op.ok());
+    auto coll = collection_op.get();
+    nlohmann::json doc;
+    doc["name"] = "Example";
+    doc["tags"] = {"example"};
+    doc["age"] = 100;
+    doc["in_stock"] = true;
+    doc["average"] = 45;
+
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
 }
 
 TEST_F(CollectionSortingTest, NoDefaultSortingField) {

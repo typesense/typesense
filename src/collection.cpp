@@ -3627,10 +3627,7 @@ void Collection::prune_doc(nlohmann::json& doc,
                 if(arr_it.value().is_object()) {
                     bool orig_ele_empty = arr_it.value().empty();
                     prune_doc(arr_it.value(), include_names, exclude_names, nested_name, depth+1);
-                    if(!orig_ele_empty && arr_it.value().empty()) {
-                        arr_it = it.value().erase(arr_it);
-                        continue;
-                    }
+                    // don't remove empty array objects to help frontend
                 }
 
                 arr_it++;
