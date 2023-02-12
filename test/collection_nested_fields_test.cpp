@@ -615,7 +615,8 @@ TEST_F(CollectionNestedFieldsTest, IncludeExcludeFieldsPruning) {
     auto doc = nlohmann::json::parse(doc_str);
 
     Collection::prune_doc(doc, tsl::htrie_set<char>(), {"one_obj_arr.foo"});
-    ASSERT_EQ(0, doc.count("one_obj_arr"));
+    ASSERT_EQ(1, doc.count("one_obj_arr"));
+    ASSERT_EQ(1, doc["one_obj_arr"].size());
 
     // handle non-existing exclude field
     doc = nlohmann::json::parse(doc_str);
@@ -637,7 +638,7 @@ TEST_F(CollectionNestedFieldsTest, IncludeExcludeFieldsPruning) {
     // exclusion takes preference
     doc = nlohmann::json::parse(doc_str);
     Collection::prune_doc(doc, {"locations.address.city"}, {"locations.address.city"});
-    ASSERT_EQ(R"({})", doc.dump());
+    ASSERT_EQ(R"({"locations":[{},{}]})", doc.dump());
 
     // include object, exclude sub-fields
     doc = nlohmann::json::parse(doc_str);
@@ -2327,10 +2328,103 @@ TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {
     results = coll1->search("shaw", {"contributors"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
 
+    results = coll1->search("john", {"contributors.first_name"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
     // should not be able to find the old name
 
     results = coll1->search("galt", {"contributors"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionNestedFieldsTest, UpdateNestedDocumentAutoSchema) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "price": {"now": 3000, "country": "US"}
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // update document partially
+
+    doc1 = R"({
+        "id": "0",
+        "price": {"now": 4000}
+    })"_json;
+
+    add_op = coll1->add(doc1.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("us", {"price.country"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionNestedFieldsTest, HighlightArrayOfObjects) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "details": [
+            {"foo": "John Smith"},
+            {"name": "James Peterson"},
+            {"bar": "John Galt"}
+        ]
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("james", {"details.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                                 {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["highlight"]["details"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["details"][0].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][1].size());
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["details"][2].size());
+
+    results = coll1->search("james", {"details.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                            {true}, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1}, 10000, true, false, true, "details.name").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["details"][0].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][1].size());
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["details"][2].size());
+
+    results = coll1->search("james", {"details.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                            {true}, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1}, 10000, true, false, true, "details").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["highlight"]["details"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][0].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][1].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][2].size());
 }
 
 TEST_F(CollectionNestedFieldsTest, HighlightOnFlatFieldWithSnippeting) {
