@@ -11,3 +11,35 @@
          configure = configure_path,
 
 
+--- foreign_cc/private/cc_toolchain_util.bzl
++++ foreign_cc/private/cc_toolchain_util.bzl
+@@ -265,15 +265,24 @@ def get_tools_info(ctx):
+         cc_toolchain = cc_toolchain,
+     )
+
++    cxx = cc_common.get_tool_for_action(
++            feature_configuration = feature_configuration,
++            action_name = ACTION_NAMES.cpp_compile,
++        )
++    cxx_splitted = cxx.split("/")
++    if(cxx_splitted[-1] == "gcc"):
++        cxx_splitted[-1] = "g++"
++        cxx = "/".join(cxx_splitted)
++    if(cxx_splitted[-1] == "clang"):
++        cxx_splitted[-1] = "clang++"
++        cxx = "/".join(cxx_splitted)
++
+     return CxxToolsInfo(
+         cc = cc_common.get_tool_for_action(
+             feature_configuration = feature_configuration,
+             action_name = ACTION_NAMES.c_compile,
+         ),
+-        cxx = cc_common.get_tool_for_action(
+-            feature_configuration = feature_configuration,
+-            action_name = ACTION_NAMES.cpp_compile,
+-        ),
++        cxx = cxx,
+         cxx_linker_static = cc_common.get_tool_for_action(
+             feature_configuration = feature_configuration,
+             action_name = ACTION_NAMES.cpp_link_static_library,
+

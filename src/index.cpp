@@ -220,7 +220,8 @@ int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::st
         // not much value in supporting default sorting field as string, so we will just dummy it out
         points = 0;
     } else {
-        points = document[default_sorting_field];
+        points = document[default_sorting_field].is_boolean() ? int64_t(document[default_sorting_field].get<bool>()) :
+                 document[default_sorting_field].get<int64_t>();
     }
 
     return points;
@@ -499,6 +500,22 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
             }
 
             nlohmann::json::iterator it = document[field_name].begin();
+
+            // Handle a geopoint[] type inside an array of object: it won't be an array of array, so cannot iterate
+            if(a_field.nested && a_field.type == field_types::GEOPOINT_ARRAY &&
+                it->is_number() && document[field_name].size() == 2) {
+                const auto& item = document[field_name];
+                if(!(item[0].is_number() && item[1].is_number())) {
+                    // one or more elements is not an number, try to coerce
+                    Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
+                    if(!coerce_op.ok()) {
+                        return coerce_op;
+                    }
+                }
+
+                continue;
+            }
+
             for(; it != document[field_name].end(); ) {
                 const auto& item = it.value();
                 array_ele_erased = false;
@@ -886,54 +903,54 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 bool value = record.doc[afield.name].get<bool>();
                 num_tree->insert(value, seq_id);
             });
-        } else if(afield.type == field_types::GEOPOINT) {
-            auto geo_index = geopoint_index.at(afield.name);
-
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, geo_index]
-                    (const index_record& record, uint32_t seq_id) {
-                const std::vector<double>& latlong = record.doc[afield.name];
-
-                S2RegionTermIndexer::Options options;
-                options.set_index_contains_points_only(true);
-                S2RegionTermIndexer indexer(options);
-                S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-
-                for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                    (*geo_index)[term].push_back(seq_id);
-                }
-            });
-        } else if(afield.type == field_types::GEOPOINT_ARRAY) {
+        } else if(afield.type == field_types::GEOPOINT || afield.type == field_types::GEOPOINT_ARRAY) {
             auto geo_index = geopoint_index.at(afield.name);
 
             iterate_and_index_numerical_field(iter_batch, afield,
-                                              [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
+            [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
+                // nested geopoint value inside an array of object will be a simple array so must be treated as geopoint
+                bool nested_obj_arr_geopoint = (afield.nested && afield.type == field_types::GEOPOINT_ARRAY &&
+                                    record.doc[afield.name].size() == 2 && record.doc[afield.name][0].is_number());
 
-                                                  const std::vector<std::vector<double>>& latlongs = record.doc[afield.name];
-                                                  S2RegionTermIndexer::Options options;
-                                                  options.set_index_contains_points_only(true);
-                                                  S2RegionTermIndexer indexer(options);
+                if(afield.type == field_types::GEOPOINT || nested_obj_arr_geopoint) {
+                    const std::vector<double>& latlong = record.doc[afield.name];
 
-                                                  int64_t* packed_latlongs = new int64_t[latlongs.size() + 1];
-                                                  packed_latlongs[0] = latlongs.size();
+                    S2RegionTermIndexer::Options options;
+                    options.set_index_contains_points_only(true);
+                    S2RegionTermIndexer indexer(options);
+                    S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
 
-                                                  for(size_t li = 0; li < latlongs.size(); li++) {
-                                                      auto& latlong = latlongs[li];
-                                                      S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-                                                      std::set<std::string> terms;
-                                                      for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                                                          terms.insert(term);
-                                                      }
+                    for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                        (*geo_index)[term].push_back(seq_id);
+                    }
+                } else {
+                    const std::vector<std::vector<double>>& latlongs = record.doc[afield.name];
+                    S2RegionTermIndexer::Options options;
+                    options.set_index_contains_points_only(true);
+                    S2RegionTermIndexer indexer(options);
 
-                                                      for(const auto& term: terms) {
-                                                          (*geo_index)[term].push_back(seq_id);
-                                                      }
+                    int64_t* packed_latlongs = new int64_t[latlongs.size() + 1];
+                    packed_latlongs[0] = latlongs.size();
 
-                                                      int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
-                                                      packed_latlongs[li + 1] = packed_latlong;
-                                                  }
+                    for(size_t li = 0; li < latlongs.size(); li++) {
+                        auto& latlong = latlongs[li];
+                        S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+                        std::set<std::string> terms;
+                        for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                            terms.insert(term);
+                        }
 
-                                                  geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
-                                              });
+                        for(const auto& term: terms) {
+                            (*geo_index)[term].push_back(seq_id);
+                        }
+
+                        int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
+                        packed_latlongs[li + 1] = packed_latlong;
+                    }
+
+                    geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
+                }
+            });
         } else if(afield.is_array()) {
             // handle vector index first
             if(afield.type == field_types::FLOAT_ARRAY && afield.num_dim > 0) {
@@ -5188,15 +5205,27 @@ inline uint32_t Index::next_suggestion2(const std::vector<tok_candidates>& token
         size_t token_size = token_candidates_vec[i].token.value.size();
         q = ldiv(q.quot, token_candidates_vec[i].candidates.size());
         const auto& candidate = token_candidates_vec[i].candidates[q.rem];
+        size_t typo_cost = token_candidates_vec[i].cost;
+
+        if (candidate.size() > 1 && !Tokenizer::is_ascii_char(candidate[0])) {
+            icu::UnicodeString ustr = icu::UnicodeString::fromUTF8(candidate);
+            auto code_point = ustr.char32At(0);
+            if(code_point >= 0x600 && code_point <= 0x6ff) {
+                // adjust typo cost for Arabic strings, since 1 byte difference makes no sense
+                if(typo_cost == 1) {
+                    typo_cost = 2;
+                }
+            }
+        }
 
         // we assume that toke was found via prefix search if candidate is longer than token's typo tolerance
         bool is_prefix_searched = token_candidates_vec[i].prefix_search &&
-                                  (candidate.size() > (token_size + token_candidates_vec[i].cost));
+                                  (candidate.size() > (token_size + typo_cost));
 
-        size_t actual_cost = (2 * token_candidates_vec[i].cost) + uint32_t(is_prefix_searched);
+        size_t actual_cost = (2 * typo_cost) + uint32_t(is_prefix_searched);
         total_cost += actual_cost;
 
-        query_suggestion[i] = token_t(i, candidate, is_prefix_searched, token_size, token_candidates_vec[i].cost);
+        query_suggestion[i] = token_t(i, candidate, is_prefix_searched, token_size, typo_cost);
 
         uint64_t this_hash = StringUtils::hash_wy(query_suggestion[i].value.c_str(), query_suggestion[i].value.size());
         qhash = StringUtils::hash_combine(qhash, this_hash);
@@ -5691,6 +5720,10 @@ Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const st
     else {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
+                if(a_field.nested && item.is_array()) {
+                    return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+                }
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
             }
 
@@ -5702,6 +5735,10 @@ Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const st
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
         }
     }

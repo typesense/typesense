@@ -738,6 +738,11 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
         // end of path: check if obj matches expected type
         std::string detected_type;
         if(!field::get_type(obj, detected_type)) {
+            if(obj.is_null() && the_field.optional) {
+                // null values are allowed only if field is optional
+                return Option<bool>(false);
+            }
+
             return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
         }
 
@@ -750,10 +755,14 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
         // handle differences in detection of numerical types
         bool is_numericaly_valid = (detected_type != the_field.type) &&
-                                   ((detected_type == field_types::INT64 &&
-                                     (the_field.type == field_types::INT32 || the_field.type == field_types::FLOAT)) ||
-                                    (detected_type == field_types::INT64_ARRAY &&
-                                     (the_field.type == field_types::INT32_ARRAY || the_field.type == field_types::FLOAT_ARRAY)));
+            ( (detected_type == field_types::INT64 &&
+                (the_field.type == field_types::INT32 || the_field.type == field_types::FLOAT)) ||
+
+              (detected_type == field_types::INT64_ARRAY &&
+                (the_field.type == field_types::INT32_ARRAY || the_field.type == field_types::FLOAT_ARRAY)) ||
+
+              (detected_type == field_types::FLOAT_ARRAY && the_field.type == field_types::GEOPOINT_ARRAY)
+           );
 
         if(detected_type == the_field.type || is_numericaly_valid) {
             if(the_field.is_object()) {
