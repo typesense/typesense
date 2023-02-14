@@ -1017,6 +1017,8 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
 
     q.push(root);
 
+    size_t num_processed = 0;
+
     while(!q.empty() && results.size() < max_results*4) {
         art_node *n = (art_node *) q.top();
         q.pop();
@@ -1034,6 +1036,13 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
             //LOG(INFO) << "END LEAF SCORE: " << l->max_score;
             validate_and_add_leaf(l, last_token, prev_token, allowed_doc_ids, allowed_doc_ids_len,
                                   exclude_leaves, exact_leaf, results);
+
+            if (++num_processed % 1024 == 0 && (microseconds(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+                search_cutoff = true;
+                break;
+            }
+
             continue;
         }
 
