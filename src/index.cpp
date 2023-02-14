@@ -3232,12 +3232,12 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                     }
 
                     //LOG(INFO) << "Searching for field: " << the_field.name << ", found token:" << token;
+                    const auto& prev_token = last_token ? token_candidates_vec.back().candidates[0] : "";
 
                     std::vector<art_leaf*> field_leaves;
-                    int max_words = 100000;
                     art_fuzzy_search(search_index.at(the_field.name), (const unsigned char *) token.c_str(), token_len,
-                                     costs[token_index], costs[token_index], max_words, token_order, prefix_search,
-                                     filter_ids, filter_ids_length, field_leaves, unique_tokens);
+                                     costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
+                                     last_token, prev_token, filter_ids, filter_ids_length, field_leaves, unique_tokens);
 
                     /*auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::high_resolution_clock::now() - begin).count();
@@ -3248,60 +3248,17 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         continue;
                     }
 
-                    uint32_t* prev_token_doc_ids = nullptr;   // documents that contain the previous token
-                    size_t prev_token_doc_ids_len = 0;
-
-                    if(last_token) {
-                        auto& prev_token = token_candidates_vec.back().candidates[0];
-                        art_leaf* prev_leaf = static_cast<art_leaf*>(
-                                art_search(search_index.at(the_field.name),
-                                           reinterpret_cast<const unsigned char*>(prev_token.c_str()),
-                                           prev_token.size() + 1));
-
-                        if(!prev_leaf) {
-                            continue;
-                        }
-
-                        std::vector<uint32_t> prev_leaf_ids;
-                        posting_t::merge({prev_leaf->values}, prev_leaf_ids);
-
-                        if(filter_ids_length != 0) {
-                            prev_token_doc_ids_len = ArrayUtils::and_scalar(prev_leaf_ids.data(), prev_leaf_ids.size(),
-                                                                            filter_ids, filter_ids_length,
-                                                                            &prev_token_doc_ids);
-                        } else {
-                            prev_token_doc_ids_len = prev_leaf_ids.size();
-                            prev_token_doc_ids = new uint32_t[prev_token_doc_ids_len];
-                            std::copy(prev_leaf_ids.begin(), prev_leaf_ids.end(), prev_token_doc_ids);
-                        }
-                    }
-
                     for(size_t i = 0; i < field_leaves.size(); i++) {
                         auto leaf = field_leaves[i];
                         std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
-                        if(unique_tokens.count(tok) == 0) {
-                            if(last_token) {
-                                if(!posting_t::contains_atleast_one(leaf->values, prev_token_doc_ids,
-                                                                    prev_token_doc_ids_len)) {
-                                    continue;
-                                }
-                            }
-
-                            unique_tokens.emplace(tok);
-                            leaf_tokens.push_back(tok);
-                        }
-
-                        if(leaf_tokens.size() >= max_candidates) {
-                            token_cost_cache.emplace(token_cost_hash, leaf_tokens);
-                            delete [] prev_token_doc_ids;
-                            prev_token_doc_ids = nullptr;
-                            goto token_done;
-                        }
+                        leaf_tokens.push_back(tok);
                     }
 
                     token_cost_cache.emplace(token_cost_hash, leaf_tokens);
-                    delete [] prev_token_doc_ids;
-                    prev_token_doc_ids = nullptr;
+
+                    if(leaf_tokens.size() >= max_candidates) {
+                        goto token_done;
+                    }
                 }
 
                 if(last_token && leaf_tokens.size() < max_candidates) {
@@ -3330,10 +3287,9 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         }
 
                         std::vector<art_leaf*> field_leaves;
-                        int max_words = 100000;
                         art_fuzzy_search(search_index.at(the_field.name), (const unsigned char *) token.c_str(), token_len,
-                                         costs[token_index], costs[token_index], max_words, token_order, prefix_search,
-                                         filter_ids, filter_ids_length, field_leaves, unique_tokens);
+                                         costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
+                                         false, "", filter_ids, filter_ids_length, field_leaves, unique_tokens);
 
                         if(field_leaves.empty()) {
                             // look at the next field
@@ -3343,23 +3299,14 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         for(size_t i = 0; i < field_leaves.size(); i++) {
                             auto leaf = field_leaves[i];
                             std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
-                            if(unique_tokens.count(tok) == 0) {
-                                if(!posting_t::contains_atleast_one(leaf->values, &prev_token_doc_ids[0],
-                                                                    prev_token_doc_ids.size())) {
-                                    continue;
-                                }
-
-                                unique_tokens.emplace(tok);
-                                leaf_tokens.push_back(tok);
-                            }
-
-                            if(leaf_tokens.size() >= max_candidates) {
-                                token_cost_cache.emplace(token_cost_hash, leaf_tokens);
-                                goto token_done;
-                            }
+                            leaf_tokens.push_back(tok);
                         }
 
                         token_cost_cache.emplace(token_cost_hash, leaf_tokens);
+
+                        if(leaf_tokens.size() >= max_candidates) {
+                            goto token_done;
+                        }
                     }
                 }
             }
@@ -4741,7 +4688,7 @@ void Index::search_field(const uint8_t & field_id,
                 // need less candidates for filtered searches since we already only pick tokens with results
                 art_fuzzy_search(search_index.at(field_name), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
-                                 filter_ids, filter_ids_length, leaves, unique_tokens);
+                                 false, "", filter_ids, filter_ids_length, leaves, unique_tokens);
 
                 /*auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::high_resolution_clock::now() - begin).count();
