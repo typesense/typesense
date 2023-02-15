@@ -702,9 +702,9 @@ public:
                                                   const std::string& collection_name,
                                                   const std::string& reference_helper_field_name) const;
 
-    void do_reference_filtering_with_lock(std::pair<uint32_t, uint32_t*>& reference_index_ids,
-                                          filter_node_t* filter_tree_root,
-                                          const std::string& reference_helper_field_name) const;
+    Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
+                                                  filter_result_t& filter_result,
+                                                  const std::string & reference_helper_field_name) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 

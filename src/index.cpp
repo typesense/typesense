@@ -2719,7 +2719,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const vector_query_t& vector_query,
                    size_t facet_sample_percent, size_t facet_sample_threshold,
                    const std::string& collection_name) const {
-
     std::shared_lock lock(mutex);
 
     filter_result_t filter_result;

@@ -2572,7 +2572,6 @@ Option<bool> Collection::validate_reference_filter(const std::string& filter_que
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                         store, doc_id_prefix, filter_tree_root);
-
     if(!filter_op.ok()) {
         return filter_op;
     }
@@ -3937,8 +3936,6 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
 
             reference_docs.push_back(ref_doc);
         }
-
-        delete[] documents[0].second;
 
         for (const auto &ref_doc: reference_docs) {
             doc.update(ref_doc);
