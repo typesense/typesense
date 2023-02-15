@@ -62,7 +62,10 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
 
     // single document match
 
-    coll1->get_filter_ids("points: 99", deletion_state.index_ids);
+    filter_result_t filter_results;
+    coll1->get_filter_ids("points: 99", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -79,7 +82,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("points:< 11", deletion_state.index_ids);
+    coll1->get_filter_ids("points:< 11", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -104,7 +109,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("points:< 20", deletion_state.index_ids);
+    coll1->get_filter_ids("points:< 20", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -135,7 +142,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("id:[0, 1, 2]", deletion_state.index_ids);
+    coll1->get_filter_ids("id:[0, 1, 2]", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -153,7 +162,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("id: 10", deletion_state.index_ids);
+    coll1->get_filter_ids("id :10", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -170,7 +181,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.num_removed = 0;
 
     // bad filter query
-    auto op = coll1->get_filter_ids("bad filter", deletion_state.index_ids);
+    auto op = coll1->get_filter_ids("bad filter", filter_results);
     ASSERT_FALSE(op.ok());
     ASSERT_STREQ("Could not parse the filter query.", op.error().c_str());
 
@@ -628,7 +639,10 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     std::string res_body;
 
     export_state_t export_state;
-    coll1->get_filter_ids("points:>=0", export_state.index_ids);
+    filter_result_t filter_result;
+    coll1->get_filter_ids("points:>=0", filter_result);
+    export_state.index_ids.emplace_back(filter_result.count, filter_result.docs);
+    filter_result.docs = nullptr;
     for(size_t i=0; i<export_state.index_ids.size(); i++) {
         export_state.offsets.push_back(0);
     }

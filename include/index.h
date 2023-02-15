@@ -484,30 +484,25 @@ private:
                                    uint32_t*& ids,
                                    size_t& ids_len) const;
 
-    void do_filtering(uint32_t*& filter_ids,
-                      uint32_t& filter_ids_length,
-                      filter_node_t* const root,
-                      const std::string& collection_name) const;
+    Option<bool> do_filtering(filter_node_t* const root,
+                              filter_result_t& result,
+                              const std::string& collection_name = "") const;
 
-    void rearranging_recursive_filter (uint32_t*& filter_ids,
+    Option<bool> rearranging_recursive_filter (filter_node_t* const filter_tree_root,
+                                               filter_result_t& result,
+                                               const std::string& collection_name = "") const;
+
+    Option<bool> recursive_filter(filter_node_t* const root,
+                                  filter_result_t& result,
+                                  const std::string& collection_name = "") const;
+
+    Option<bool> adaptive_filter(filter_node_t* const filter_tree_root,
+                                 filter_result_t& result,
+                                 const std::string& collection_name = "") const;
+
+    Option<bool> rearrange_filter_tree(filter_node_t* const root,
                                        uint32_t& filter_ids_length,
-                                       filter_node_t* const root,
-                                       const std::string& collection_name) const;
-
-    void recursive_filter(uint32_t*& filter_ids,
-                          uint32_t& filter_ids_length,
-                          filter_node_t* const root,
-                          const std::string& collection_name) const;
-
-    void adaptive_filter(uint32_t*& filter_ids,
-                         uint32_t& filter_ids_length,
-                         filter_node_t* const filter_tree_root,
-                         const std::string& collection_name = "") const;
-
-    void rearrange_filter_tree(uint32_t*& filter_ids,
-                            uint32_t& filter_ids_length,
-                            filter_node_t* const root,
-                            const std::string& collection_name) const;
+                                       const std::string& collection_name = "") const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -665,9 +660,9 @@ public:
 
     // Public operations
 
-    void run_search(search_args* search_params, const std::string& collection_name);
+    Option<bool> run_search(search_args* search_params, const std::string& collection_name);
 
-    void search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
+    Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
                 filter_node_t* filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
@@ -727,15 +722,13 @@ public:
 
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
-    void do_filtering_with_lock(
-            uint32_t*& filter_ids,
-            uint32_t& filter_ids_length,
-            filter_node_t* filter_tree_root,
-            const std::string& collection_name) const;
+    Option<bool> do_filtering_with_lock(filter_node_t* const filter_tree_root,
+                                        filter_result_t& filter_result,
+                                        const std::string& collection_name = "") const;
 
-    void do_reference_filtering_with_lock(std::pair<uint32_t, uint32_t*>& reference_index_ids,
-                                          filter_node_t* filter_tree_root,
-                                          const std::string& reference_helper_field_name) const;
+    Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
+                                                  filter_result_t& filter_result,
+                                                  const std::string & reference_helper_field_name) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 

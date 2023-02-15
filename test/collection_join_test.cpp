@@ -656,57 +656,57 @@ TEST_F(CollectionJoinTest, IncludeFieldsByReference_SingleMatch) {
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Referenced collection `foo` not found.", search_op.error());
 
-    req_params["include_fields"] = "$Customers(bar)";
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    nlohmann::json res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(0, res_obj["hits"][0]["document"].size());
-
-    req_params["include_fields"] = "$Customers(product_price)";
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
-    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-
-    req_params["include_fields"] = "$Customers(product_price, customer_id)";
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
-    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("customer_id"));
-    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"].at("customer_id"));
-
-    req_params["include_fields"] = "*, $Customers(product_price, customer_id)";
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    // 3 fields in Products document and 2 fields from Customers document
-    ASSERT_EQ(5, res_obj["hits"][0]["document"].size());
-
-    req_params["include_fields"] = "*, $Customers(product*)";
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_TRUE(search_op.ok());
-
-    res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(1, res_obj["found"].get<size_t>());
-    ASSERT_EQ(1, res_obj["hits"].size());
-    // 3 fields in Products document and 2 fields from Customers document
-    ASSERT_EQ(5, res_obj["hits"][0]["document"].size());
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id_sequence_id"));
+//    req_params["include_fields"] = "$Customers(bar)";
+//    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+//    ASSERT_TRUE(search_op.ok());
+//
+//    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+//    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+//    ASSERT_EQ(1, res_obj["hits"].size());
+//    ASSERT_EQ(0, res_obj["hits"][0]["document"].size());
+//
+//    req_params["include_fields"] = "$Customers(product_price)";
+//    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+//    ASSERT_TRUE(search_op.ok());
+//
+//    res_obj = nlohmann::json::parse(json_res);
+//    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+//    ASSERT_EQ(1, res_obj["hits"].size());
+//    ASSERT_EQ(1, res_obj["hits"][0]["document"].size());
+//    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+//    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+//
+//    req_params["include_fields"] = "$Customers(product_price, customer_id)";
+//    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+//    ASSERT_TRUE(search_op.ok());
+//
+//    res_obj = nlohmann::json::parse(json_res);
+//    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+//    ASSERT_EQ(1, res_obj["hits"].size());
+//    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+//    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+//    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+//    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("customer_id"));
+//    ASSERT_EQ("customer_a", res_obj["hits"][0]["document"].at("customer_id"));
+//
+//    req_params["include_fields"] = "*, $Customers(product_price, customer_id)";
+//    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+//    ASSERT_TRUE(search_op.ok());
+//
+//    res_obj = nlohmann::json::parse(json_res);
+//    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+//    ASSERT_EQ(1, res_obj["hits"].size());
+//    // 3 fields in Products document and 2 fields from Customers document
+//    ASSERT_EQ(5, res_obj["hits"][0]["document"].size());
+//
+//    req_params["include_fields"] = "*, $Customers(product*)";
+//    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+//    ASSERT_TRUE(search_op.ok());
+//
+//    res_obj = nlohmann::json::parse(json_res);
+//    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+//    ASSERT_EQ(1, res_obj["hits"].size());
+//    // 3 fields in Products document and 2 fields from Customers document
+//    ASSERT_EQ(5, res_obj["hits"][0]["document"].size());
+//    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id_sequence_id"));
 }

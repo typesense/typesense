@@ -358,8 +358,7 @@ public:
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                           const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0,
-                          const uint32_t doc_sequence_id = 0, const std::string& collection_name = "",
-                          const std::map<std::string, std::string>& reference_filter_map = {});
+                          const reference_filter_result_t* reference_filter_result = nullptr);
 
     const Index* _get_index() const;
 
@@ -448,14 +447,13 @@ public:
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0) const;
 
-    Option<bool> get_filter_ids(const std::string & filter_query,
-                                std::vector<std::pair<size_t, uint32_t*>>& index_ids) const;
+    Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
     Option<std::string> get_reference_field(const std::string & collection_name) const;
 
     Option<bool> get_reference_filter_ids(const std::string & filter_query,
-                                          const std::string & collection_name,
-                                          std::pair<uint32_t, uint32_t*>& reference_index_ids) const;
+                                          filter_result_t& filter_result,
+                                          const std::string & collection_name) const;
 
     Option<bool> validate_reference_filter(const std::string& filter_query) const;
 
