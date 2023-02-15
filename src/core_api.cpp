@@ -634,7 +634,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
             export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
-            auto filter_ids_op = collection->get_filter_ids(simple_filter_query, export_state->index_ids);
+            filter_result_t filter_result;
+            auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -643,6 +644,9 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 stream_response(req, res);
                 return false;
             }
+
+            export_state->index_ids.emplace_back(filter_result.count, filter_result.docs);
+            filter_result.docs = nullptr;
 
             for(size_t i=0; i<export_state->index_ids.size(); i++) {
                 export_state->offsets.push_back(0);
@@ -1082,7 +1086,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, deletion_state->index_ids);
+        filter_result_t filter_result;
+        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result);
 
         if(!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -1091,6 +1096,9 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
             stream_response(req, res);
             return false;
         }
+
+        deletion_state->index_ids.emplace_back(filter_result.count, filter_result.docs);
+        filter_result.docs = nullptr;
 
         for(size_t i=0; i<deletion_state->index_ids.size(); i++) {
             deletion_state->offsets.push_back(0);

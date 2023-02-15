@@ -565,6 +565,26 @@ struct filter_node_t {
     }
 };
 
+struct reference_filter_result_t {
+    uint32_t count = 0;
+    uint32_t* docs = nullptr;
+
+    ~reference_filter_result_t() {
+        delete[] docs;
+    }
+};
+
+struct filter_result_t {
+    uint32_t count = 0;
+    uint32_t* docs = nullptr;
+    reference_filter_result_t* reference_filter_result = nullptr;
+
+    ~filter_result_t() {
+        delete[] docs;
+        delete[] reference_filter_result;
+    }
+};
+
 namespace sort_field_const {
     static const std::string name = "name";
     static const std::string order = "order";

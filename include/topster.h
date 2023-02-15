@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <algorithm>
 #include <unordered_map>
+#include <field.h>
 
 struct KV {
     int8_t match_score_index{};
@@ -13,6 +14,7 @@ struct KV {
     uint64_t key{};
     uint64_t distinct_key{};
     int64_t scores[3]{};  // match score + 2 custom attributes
+    reference_filter_result_t* reference_filter_result;
 
     // to be used only in final aggregation
     uint64_t* query_indices = nullptr;
