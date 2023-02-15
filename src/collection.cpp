@@ -2601,8 +2601,8 @@ Option<std::string> Collection::get_reference_field(const std::string & collecti
 }
 
 Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
-                                                  const std::string & collection_name,
-                                                  std::pair<uint32_t, uint32_t*>& reference_index_ids) const {
+                                                  filter_result_t& filter_result,
+                                                  const std::string & collection_name) const {
     auto reference_field_op = get_reference_field(collection_name);
     if (!reference_field_op.ok()) {
         return Option<bool>(reference_field_op.code(), reference_field_op.error());
@@ -2612,15 +2612,18 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                        store, doc_id_prefix, filter_tree_root);
-    if(!filter_op.ok()) {
-        return filter_op;
+    Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
+                                                       store, doc_id_prefix, filter_tree_root);
+    if(!parse_op.ok()) {
+        return parse_op;
     }
 
     // Reference helper field has the sequence id of other collection's documents.
     auto field_name = reference_field_op.get() + REFERENCE_HELPER_FIELD_SUFFIX;
-    index->do_reference_filtering_with_lock(reference_index_ids, filter_tree_root, field_name);
+    auto filter_op = index->do_reference_filtering_with_lock(filter_tree_root, filter_result, field_name);
+    if (!filter_op.ok()) {
+        return filter_op;
+    }
 
     delete filter_tree_root;
     return Option<bool>(true);
@@ -3998,8 +4001,6 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
 
             reference_docs.push_back(ref_doc);
         }
-
-        delete[] documents[0].second;
 
         for (const auto &ref_doc: reference_docs) {
             doc.update(ref_doc);
