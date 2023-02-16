@@ -317,7 +317,6 @@ struct field {
             if (!field.reference.empty()) {
                 field_val[fields::reference] = field.reference;
             }
-
             if(field.create_from.size() > 0) {
                 field_val[fields::create_from] = field.create_from;
                 if(field.model_path.size() > 0) {

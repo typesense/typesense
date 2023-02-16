@@ -276,9 +276,10 @@ int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, ar
  * Returns leaves that match a given string within a fuzzy distance of max_cost.
  */
 int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len, const int min_cost, const int max_cost,
-                     const int max_words, const token_ordering token_order, const bool prefix,
-                     const uint32_t *filter_ids, size_t filter_ids_length,
-                     std::vector<art_leaf *> &results, const std::set<std::string>& exclude_leaves = {});
+                     const size_t max_words, const token_ordering token_order,
+                     const bool prefix, bool last_token, const std::string& prev_token,
+                     const uint32_t *filter_ids, const size_t filter_ids_length,
+                     std::vector<art_leaf *> &results, std::set<std::string>& exclude_leaves);
 
 void encode_int32(int32_t n, unsigned char *chars);
 

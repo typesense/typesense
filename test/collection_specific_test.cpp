@@ -203,6 +203,8 @@ TEST_F(CollectionSpecificTest, ExactSingleFieldMatch) {
                                  spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30,
                                  4, "title", 10).get();
 
+    LOG(INFO) << results;
+
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());

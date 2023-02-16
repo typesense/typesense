@@ -246,7 +246,6 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::reference] = coll_field.reference;
         }
 
-
         fields_arr.push_back(field_json);
     }
 
