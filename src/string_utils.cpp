@@ -349,9 +349,40 @@ size_t StringUtils::get_num_chars(const std::string& s) {
     return j;
 }
 
+Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index) {
+    auto error = Option<bool>(400, "Could not parse the reference filter.");
+    if (filter_query[index] != '$') {
+        return error;
+    }
+
+    int start_index = index;
+    auto size = filter_query.size();
+    while(++index < size && filter_query[index] != '(') {}
+
+    if (index >= size) {
+        return error;
+    }
+
+    int parenthesis_count = 1;
+    while (++index < size && parenthesis_count > 0) {
+        if (filter_query[index] == '(') {
+            parenthesis_count++;
+        } else if (filter_query[index] == ')') {
+            parenthesis_count--;
+        }
+    }
+
+    if (parenthesis_count != 0) {
+        return error;
+    }
+
+    tokens.push(filter_query.substr(start_index, index - start_index));
+    return Option<bool>(true);
+}
+
 Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens) {
     auto size = filter_query.size();
-    for (auto i = 0; i < size;) {
+    for (size_t i = 0; i < size;) {
         auto c = filter_query[i];
         if (c == ' ') {
             i++;
@@ -377,6 +408,15 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
             tokens.push("||");
             i += 2;
         } else {
+            // Reference filter would start with $ symbol.
+            if (c == '$') {
+                auto op = parse_reference_filter(filter_query, tokens, i);
+                if (!op.ok()) {
+                    return op;
+                }
+                continue;
+            }
+
             std::stringstream ss;
             bool inBacktick = false;
             bool preceding_colon = false;
@@ -410,6 +450,42 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
             tokens.push(token);
         }
     }
+    return Option<bool>(true);
+}
+
+Option<bool> StringUtils::split_include_fields(const std::string& include_fields, std::vector<std::string>& tokens) {
+    size_t start = 0, end = 0, size = include_fields.size();
+    std::string include_field;
+
+    while (true) {
+        auto range_pos = include_fields.find('$', start);
+        auto comma_pos = include_fields.find(',', start);
+
+        if (range_pos == std::string::npos && comma_pos == std::string::npos) {
+            if (start < size - 1) {
+                tokens.push_back(include_fields.substr(start, size - start));
+            }
+            break;
+        } else if (range_pos < comma_pos) {
+            end = include_fields.find(')', range_pos);
+            if (end == std::string::npos || end < include_fields.find('(', range_pos)) {
+                return Option<bool>(400, "Invalid reference in include_fields, expected `$CollectionName(fieldA, ...)`.");
+            }
+
+            include_field = include_fields.substr(range_pos, (end - range_pos) + 1);
+        } else {
+            end = comma_pos;
+            include_field = include_fields.substr(start, end - start);
+        }
+
+        include_field = trim(include_field);
+        if (!include_field.empty()) {
+            tokens.push_back(include_field);
+        }
+
+        start = end + 1;
+    }
+
     return Option<bool>(true);
 }
 

@@ -54,6 +54,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::num_dim] = 0;
         }
 
+        if (field_obj.count(fields::reference) == 0) {
+            field_obj[fields::reference] = "";
+        }
+
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
         if(field_obj.count(fields::vec_dist) != 0) {
@@ -66,7 +70,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -908,6 +912,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
                 if(key == FACET_BY){
                     StringUtils::split_facet(val, *find_str_list_it->second);
+                }
+                else if(key == INCLUDE_FIELDS){
+                    auto op = StringUtils::split_include_fields(val, *find_str_list_it->second);
+                    if (!op.ok()) {
+                        return op;
+                    }
                 }
                 else{
                     StringUtils::split(val, *find_str_list_it->second, ",");

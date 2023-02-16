@@ -2536,3 +2536,71 @@ TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithSymbolsToIndex) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
+    nlohmann::json schema_json =
+            R"({
+                "name": "ComplexFilterQueryCollection",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "age", "type": "int32"},
+                    {"name": "years", "type": "int32[]"},
+                    {"name": "rating", "type": "float"}
+                ]
+            })"_json;
+
+    auto op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll->add(json_line);
+        ASSERT_TRUE(add_op.ok());
+    }
+    infile.close();
+
+    std::vector<sort_by> sort_fields_desc = {sort_by("rating", "DESC")};
+    nlohmann::json results = coll->search("Jeremy", {"name"}, "(rating:>=0 && years:>2000) && age:>50",
+                                          {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll->search("Jeremy", {"name"}, "(age:>50 || rating:>5) && years:<2000",
+                                          {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    std::vector<std::string> ids = {"4", "3"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = coll->search("Jeremy", {"name"}, "(age:<50 && rating:10) || (years:>2000 && rating:<5)",
+                                          {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    ids = {"0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = coll->search("Jeremy", {"name"}, "years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
+                           {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    ids = {"2"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    collectionManager.drop_collection("ComplexFilterQueryCollection");
+}

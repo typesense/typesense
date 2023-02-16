@@ -39,6 +39,13 @@ struct highlight_field_t {
     }
 };
 
+struct reference_pair {
+    std::string collection;
+    std::string field;
+
+    reference_pair(std::string collection, std::string field) : collection(std::move(collection)), field(std::move(field)) {}
+};
+
 class Collection {
 private:
 
@@ -119,9 +126,13 @@ private:
 
     std::vector<char> token_separators;
 
-    Index* index;
-
     SynonymIndex* synonym_index;
+
+    // "field name" -> reference_pair
+    spp::sparse_hash_map<std::string, reference_pair> reference_fields;
+
+    // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
+    Index* index;
 
     // methods
 
@@ -282,6 +293,8 @@ public:
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
 
+    static constexpr const char* REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
+
     // methods
 
     Collection() = delete;
@@ -343,8 +356,9 @@ public:
 
     static void remove_flat_fields(nlohmann::json& document);
 
-    static void prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
-                          const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0);
+    static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
+                          const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0,
+                          const reference_filter_result_t* reference_filter_result = nullptr);
 
     const Index* _get_index() const;
 
@@ -433,8 +447,15 @@ public:
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0) const;
 
-    Option<bool> get_filter_ids(const std::string & filter_query,
-                                std::vector<std::pair<size_t, uint32_t*>>& index_ids) const;
+    Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
+
+    Option<std::string> get_reference_field(const std::string & collection_name) const;
+
+    Option<bool> get_reference_filter_ids(const std::string & filter_query,
+                                          filter_result_t& filter_result,
+                                          const std::string & collection_name) const;
+
+    Option<bool> validate_reference_filter(const std::string& filter_query) const;
 
     Option<nlohmann::json> get(const std::string & id) const;
 
@@ -482,6 +503,8 @@ public:
 
     SynonymIndex* get_synonym_index();
 
+    spp::sparse_hash_map<std::string, reference_pair> get_reference_fields();
+
     // highlight ops
 
     static void highlight_text(const string& highlight_start_tag, const string& highlight_end_tag,
@@ -494,8 +517,8 @@ public:
 
     void process_highlight_fields(const std::vector<search_field_t>& search_fields,
                                   const std::vector<std::string>& raw_search_fields,
-                                  const tsl::htrie_set<char>& exclude_fields,
                                   const tsl::htrie_set<char>& include_fields,
+                                  const tsl::htrie_set<char>& exclude_fields,
                                   const std::vector<std::string>& highlight_field_names,
                                   const std::vector<std::string>& highlight_full_field_names,
                                   const std::vector<enable_t>& infixes,

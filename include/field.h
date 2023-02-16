@@ -47,6 +47,7 @@ namespace fields {
     static const std::string nested_array = "nested_array";
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
+    static const std::string reference = "reference";
 }
 
 enum vector_distance_type_t {
@@ -76,13 +77,15 @@ struct field {
 
     static constexpr int VAL_UNKNOWN = 2;
 
+    std::string reference;      // Foo.bar (reference to bar field in Foo collection).
+
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine) :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "") :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference) {
 
         set_computed_defaults(sort, infix);
     }
@@ -307,6 +310,10 @@ struct field {
                 field_val[fields::vec_dist] = field.vec_dist == ip ? "ip" : "cosine";
             }
 
+            if (!field.reference.empty()) {
+                field_val[fields::reference] = field.reference;
+            }
+
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {
@@ -441,6 +448,9 @@ struct filter {
     // aggregated and then this flag is checked if negation on the aggregated result is required.
     bool apply_not_equals = false;
 
+    // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
+    std::string referenced_collection_name;
+
     static const std::string RANGE_OPERATOR() {
         return "..";
     }
@@ -520,12 +530,19 @@ struct filter {
                                            filter_node_t*& root);
 };
 
+struct filter_tree_metrics {
+    int filter_exp_count;
+    int and_operator_count;
+    int or_operator_count;
+};
+
 struct filter_node_t {
     filter filter_exp;
     FILTER_OPERATOR filter_operator;
     bool isOperator;
     filter_node_t* left;
     filter_node_t* right;
+    filter_tree_metrics* metrics = nullptr;
 
     filter_node_t(filter filter_exp)
             : filter_exp(std::move(filter_exp)),
@@ -542,8 +559,29 @@ struct filter_node_t {
               right(right) {}
 
     ~filter_node_t() {
+        delete metrics;
         delete left;
         delete right;
+    }
+};
+
+struct reference_filter_result_t {
+    uint32_t count = 0;
+    uint32_t* docs = nullptr;
+
+    ~reference_filter_result_t() {
+        delete[] docs;
+    }
+};
+
+struct filter_result_t {
+    uint32_t count = 0;
+    uint32_t* docs = nullptr;
+    reference_filter_result_t* reference_filter_result = nullptr;
+
+    ~filter_result_t() {
+        delete[] docs;
+        delete[] reference_filter_result;
     }
 };
 
