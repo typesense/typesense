@@ -1,22 +1,10 @@
-diff --git a/operators/string_tensor.cc b/operators/string_tensor.cc
-index 3d49e64..84975f6 100644
---- operators/string_tensor.cc
-+++ operators/string_tensor.cc
-@@ -1,6 +1,6 @@
- // Copyright (c) Microsoft Corporation. All rights reserved.
- // Licensed under the MIT License.
--#include "string_utils.h"
-+#include "string_utils_onnx.h"
- #include "string_tensor.h"
- 
- void GetTensorMutableDataString(const OrtApi& api, OrtW::CustomOpApi& ort, OrtKernelContext* context,
 diff --git a/operators/string_utils.cc b/operators/string_utils_onnx.cc
 similarity index 99%
 rename from operators/string_utils.cc
 rename to operators/string_utils_onnx.cc
 index ecb6713..91dbe76 100644
---- operators/string_utils.cc
-+++ operators/string_utils_onnx.cc
+--- a/operators/string_utils.cc
++++ b/operators/string_utils_onnx.cc
 @@ -2,7 +2,7 @@
  #include "farmhash.h"
  #endif
@@ -31,8 +19,8 @@ similarity index 89%
 rename from operators/string_utils.h
 rename to operators/string_utils_onnx.h
 index 5653fbd..6556666 100644
---- operators/string_utils.h
-+++ operators/string_utils_onnx.h
+--- a/operators/string_utils.h
++++ b/operators/string_utils_onnx.h
 @@ -4,7 +4,6 @@
  #include <iostream>
  #include <sstream>
@@ -55,8 +43,8 @@ index 5653fbd..6556666 100644
    ss << "[";
 diff --git a/operators/tokenizer/basic_tokenizer.cc b/operators/tokenizer/basic_tokenizer.cc
 index 324a774..00eac2b 100644
---- operators/tokenizer/basic_tokenizer.cc
-+++ operators/tokenizer/basic_tokenizer.cc
+--- a/operators/tokenizer/basic_tokenizer.cc
++++ b/operators/tokenizer/basic_tokenizer.cc
 @@ -1,9 +1,8 @@
  // Copyright (c) Microsoft Corporation. All rights reserved.
  // Licensed under the MIT License.
@@ -123,8 +111,8 @@ index 324a774..00eac2b 100644
 -};
 diff --git a/operators/tokenizer/basic_tokenizer.hpp b/operators/tokenizer/basic_tokenizer.hpp
 index 046499e..9fd6f1a 100644
---- operators/tokenizer/basic_tokenizer.hpp
-+++ operators/tokenizer/basic_tokenizer.hpp
+--- a/operators/tokenizer/basic_tokenizer.hpp
++++ b/operators/tokenizer/basic_tokenizer.hpp
 @@ -3,8 +3,7 @@
  
  #pragma once
@@ -157,8 +145,8 @@ index 046499e..9fd6f1a 100644
 -};
 diff --git a/operators/tokenizer/bert_tokenizer.cc b/operators/tokenizer/bert_tokenizer.cc
 index b860ba6..9f43c5e 100644
---- operators/tokenizer/bert_tokenizer.cc
-+++ operators/tokenizer/bert_tokenizer.cc
+--- a/operators/tokenizer/bert_tokenizer.cc
++++ b/operators/tokenizer/bert_tokenizer.cc
 @@ -33,7 +33,8 @@ int32_t BertTokenizerVocab::FindTokenId(const ustring& token) {
  
    auto it = vocab_.find(utf8_token);
@@ -310,8 +298,8 @@ index b860ba6..9f43c5e 100644
 -}
 diff --git a/operators/tokenizer/bert_tokenizer.hpp b/operators/tokenizer/bert_tokenizer.hpp
 index 6dfcd84..10565e4 100644
---- operators/tokenizer/bert_tokenizer.hpp
-+++ operators/tokenizer/bert_tokenizer.hpp
+--- a/operators/tokenizer/bert_tokenizer.hpp
++++ b/operators/tokenizer/bert_tokenizer.hpp
 @@ -3,12 +3,11 @@
  
  #pragma once
