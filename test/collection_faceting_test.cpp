@@ -45,7 +45,8 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
                                  field("years", field_types::INT32_ARRAY, true),
                                  field("rating", field_types::FLOAT, true),
                                  field("timestamps", field_types::INT64_ARRAY, true),
-                                 field("tags", field_types::STRING_ARRAY, true)};
+                                 field("tags", field_types::STRING_ARRAY, true),
+                                 field("optional_facet", field_types::INT64_ARRAY, true, true),};
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
@@ -319,6 +320,31 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
 
     ASSERT_EQ(5, results["hits"].size());
 
+    // Wildcard facet_by can have partial matches
+    results = coll_array_fields->search("*", query_fields, "", {"nam*"}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("name_facet", results["facet_counts"][0]["field_name"].get<std::string>());
+
+    // Wildcard facet_by having no counts should not be returned
+    results = coll_array_fields->search("*", query_fields, "", {"optio*"}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(0, results["facet_counts"].size());
+
+    results = coll_array_fields->search("*", query_fields, "", {"optional_facet"}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("optional_facet", results["facet_counts"][0]["field_name"].get<std::string>());
+
     // bad facet query syntax
     auto res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
                                             {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -345,15 +371,6 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Could not find a facet field for `foo*` in the schema.", res_op.error().c_str());
-
-    // Wildcard facet_by can have partial matches
-    results = coll_array_fields->search("*", query_fields, "", {"nam*"}, sort_fields, {0}, 10, 1, FREQUENCY,
-                                       {false}, Index::DROP_TOKENS_THRESHOLD,
-                                       spp::sparse_hash_set<std::string>(),
-                                       spp::sparse_hash_set<std::string>(), 10).get();
-    ASSERT_EQ(5, results["hits"].size());
-    ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ("name_facet", results["facet_counts"][0]["field_name"].get<std::string>());
 
     // when facet query is given but no facet fields are specified, must return an error message
     res_op = coll_array_fields->search("*", query_fields, "", {}, sort_fields, {0}, 10, 1, FREQUENCY,
