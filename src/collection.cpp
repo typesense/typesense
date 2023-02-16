@@ -4312,9 +4312,6 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             if (field->facet) {
                 facets.emplace_back(facet(field->name));
                 facets.back().is_wildcard_match = true;
-            } else {
-                std::string error = "Field `" + field->name + "` is not marked as a facet in the schema.";
-                return Option<bool>(404, error);
             }
         }
    } else {
