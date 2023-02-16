@@ -1138,7 +1138,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     const std::vector<std::string>& search_fields = reordered_search_fields.empty() ? processed_search_fields
                                                                                     : reordered_search_fields;
-    std::vector<facet> facets;
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
@@ -1148,6 +1147,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         return Option<nlohmann::json>(parse_filter_op.code(), parse_filter_op.error());
     }
 
+    std::vector<facet> facets;
     // validate facet fields
     for(const std::string & facet_field: facet_fields) {
         
@@ -1738,6 +1738,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     
     // populate facets
     for(facet & a_facet: facets) {
+        // Don't return zero counts for a wildcard facet.
+        if (a_facet.is_wildcard_match && a_facet.result_map.size() == 0) {
+            continue;
+        }
+
         // check for search cutoff elapse
         if((std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().
             time_since_epoch()).count() - search_begin_us) > search_stop_us) {
@@ -4306,6 +4311,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         for (auto field = pair.first; field != pair.second; field++) {
             if (field->facet) {
                 facets.emplace_back(facet(field->name));
+                facets.back().is_wildcard_match = true;
             } else {
                 std::string error = "Field `" + field->name + "` is not marked as a facet in the schema.";
                 return Option<bool>(404, error);
