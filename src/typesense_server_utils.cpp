@@ -16,6 +16,7 @@
 
 #include "core_api.h"
 #include "ratelimit_manager.h"
+#include "text_embedder_manager.h"
 #include "typesense_server_utils.h"
 #include "file_utils.h"
 #include "threadpool.h"
@@ -66,6 +67,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.set_program_name("./typesense-server");
 
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
+    options.add<std::string>("model-dir", '\0', "Directory where text embedding models will be stored.", false, "");
     options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
     options.add<std::string>("search-only-api-key", 's', "[DEPRECATED: use API key management end-point] API key that allows only searches.", false);
 
@@ -452,6 +454,23 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
     }
 
+
+    LOG(INFO) << "MODEL DIR: " << config.get_model_dir();
+    if(config.get_model_dir().size() > 0) {
+        LOG(INFO) << "Loading text embedding models from " << config.get_model_dir();
+        TextEmbedderManager::get_instance().set_model_dir(config.get_model_dir());
+
+        LOG(INFO) << "Downloading default model and vocab";
+        long res = httpClient.download_file(TextEmbedderManager::DEFAULT_MODEL_URL, config.get_model_dir() + "/" + TextEmbedderManager::DEFAULT_MODEL_NAME);
+        if(res != 200) {
+            LOG(INFO) << "Failed to download default model: " << res;
+        }
+
+        res = httpClient.download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, config.get_model_dir() + "/" + TextEmbedderManager::DEFAULT_VOCAB_NAME);
+        if(res != 200) {
+            LOG(INFO) << "Failed to download default vocab: " << res;
+        }
+    }
     // first we start the peering service
 
     ReplicationState replication_state(server, batch_indexer, &store,

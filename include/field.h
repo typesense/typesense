@@ -48,6 +48,8 @@ namespace fields {
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
+    static const std::string create_from = "create_from";
+    static const std::string model_path = "model_path";
 }
 
 enum vector_distance_type_t {
@@ -73,6 +75,8 @@ struct field {
     int nested_array;
 
     size_t num_dim;
+    std::vector<std::string> create_from;
+    std::string model_path;
     vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
@@ -83,9 +87,9 @@ struct field {
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "") :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &create_from = {}, const std::string& model_path = "") :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), create_from(create_from), model_path(model_path) {
 
         set_computed_defaults(sort, infix);
     }
@@ -314,6 +318,12 @@ struct field {
                 field_val[fields::reference] = field.reference;
             }
 
+            if(field.create_from.size() > 0) {
+                field_val[fields::create_from] = field.create_from;
+                if(field.model_path.size() > 0) {
+                    field_val[fields::model_path] = field.model_path;
+                }
+            }
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {
@@ -399,7 +409,7 @@ struct field {
 
     static Option<bool> json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                             std::vector<field>& the_fields,
-                                            string& fallback_field_type, size_t& num_auto_detect_fields);
+                                            string& fallback_field_type, size_t& num_auto_detect_fields,const nlohmann::json& all_fields_json = nlohmann::json());
 
     static Option<bool> json_fields_to_fields(bool enable_nested_fields,
                                               nlohmann::json& fields_json,
@@ -410,7 +420,7 @@ struct field {
 
         for(nlohmann::json & field_json: fields_json) {
             auto op = json_field_to_field(enable_nested_fields,
-                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields);
+                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields, fields_json);
             if(!op.ok()) {
                 return op;
             }

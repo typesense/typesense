@@ -62,6 +62,7 @@ ELSE()
 ENDIF()
 
 include(cmake/onnxruntime.cmake)
+include(cmake/onnxruntime_ext.cmake)
 include(cmake/For.cmake)
 include(cmake/H2O.cmake)
 include(cmake/RocksDB.cmake)
@@ -110,6 +111,8 @@ include_directories(${DEP_ROOT_DIR}/${KAKASI_NAME}/build/include)
 include_directories(${DEP_ROOT_DIR}/${KAKASI_NAME}/data)
 include_directories(${DEP_ROOT_DIR}/${HNSW_NAME})
 include_directories(${DEP_ROOT_DIR}/${ONNX_NAME}/include/onnxruntime)
+include_directories(${DEP_ROOT_DIR}/${ONNX_EXT_NAME}/operators/src_dir)
+
 
 link_directories(/usr/local/lib)
 link_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/build)
@@ -237,3 +240,19 @@ target_link_libraries(benchmark ${CORE_LIBS})
 target_link_libraries(typesense-test ${CORE_LIBS} gtest gtest_main)
 
 add_dependencies(typesense-server onnxruntime)
+add_dependencies(typesense-test onnxruntime)
+add_dependencies(benchmark onnxruntime)
+add_dependencies(search onnxruntime)
+
+# add source files from ${DEP_ROOT_DIR}/${ONNX_EXT_NAME} directory to targets
+set(ONNX_EXT_SRC_FILES ${DEP_ROOT_DIR}/${ONNX_EXT_NAME}/operators/src_dir/ustring.cc ${DEP_ROOT_DIR}/${ONNX_EXT_NAME}/operators/src_dir/string_utils_onnx.cc ${DEP_ROOT_DIR}/${ONNX_EXT_NAME}/operators/src_dir/base64.cc ${DEP_ROOT_DIR}/${ONNX_EXT_NAME}/operators/src_dir/tokenizer/bert_tokenizer.cc ${DEP_ROOT_DIR}/${ONNX_EXT_NAME}/operators/src_dir/tokenizer/basic_tokenizer.cc) 
+set_source_files_properties(${ONNX_EXT_SRC_FILES} PROPERTIES GENERATED TRUE)
+target_sources(typesense-server PRIVATE ${ONNX_EXT_SRC_FILES})
+target_sources(typesense-test PRIVATE ${ONNX_EXT_SRC_FILES})
+target_sources(benchmark PRIVATE ${ONNX_EXT_SRC_FILES})
+target_sources(search PRIVATE ${ONNX_EXT_SRC_FILES})
+
+add_dependencies(typesense-server onnxruntime_ext)
+add_dependencies(typesense-test onnxruntime_ext)
+add_dependencies(benchmark onnxruntime_ext)
+add_dependencies(search onnxruntime_ext)

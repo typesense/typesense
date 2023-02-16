@@ -352,3 +352,52 @@ size_t HttpClient::curl_write(char *contents, size_t size, size_t nmemb, std::st
     s->append(contents, size*nmemb);
     return size*nmemb;
 }
+
+size_t HttpClient::curl_write_download(void *ptr, size_t size, size_t nmemb, FILE *stream) {
+    size_t written = fwrite(ptr, size, nmemb, stream);
+    return written;
+}
+
+long HttpClient::download_file(const std::string& url, const std::string& file_path) {
+    CURL *curl = curl_easy_init();
+    
+
+    if(curl == nullptr) {
+        return -1;
+    }
+
+    FILE *fp = fopen(file_path.c_str(), "wb");
+
+    if(fp == nullptr) {
+        LOG(ERROR) << "Unable to open file for writing: " << file_path;
+        return -1;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+
+    // to allow self-signed certs
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_download);
+    // follow redirects
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+    CURLcode res_code = curl_easy_perform(curl);
+
+    if(res_code != CURLE_OK) {
+        LOG(ERROR) << "Unable to download file: " << url << " to " << file_path << " - " << curl_easy_strerror(res_code);
+        return -1;
+    }
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+    curl_easy_cleanup(curl);
+    fclose(fp);
+
+    return http_code;
+}
+

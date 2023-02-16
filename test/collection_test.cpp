@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "text_embedder_manager.h"
+#include "http_client.h"
 
 class CollectionTest : public ::testing::Test {
 protected:
@@ -62,6 +64,7 @@ protected:
 
     virtual void SetUp() {
         setupCollection();
+        system("mkdir -p models");
     }
 
     virtual void TearDown() {
@@ -4605,4 +4608,153 @@ TEST_F(CollectionTest, WildcardHighlightFullFields) {
 
     ASSERT_EQ(0, result["hits"][0]["highlight"]["user"]["bio"].count("value"));
     ASSERT_EQ(0, result["hits"][0]["highlight"]["user_name"].count("value"));
+}
+
+
+TEST_F(CollectionTest, SemanticSearchTest) {
+    
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::model_dir = "./models/";
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_MODEL_NAME);
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_VOCAB_NAME);
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    nlohmann::json object;
+    object["name"] = "apple";
+    auto add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ("apple", add_op.get()["name"]);
+    ASSERT_EQ(384, add_op.get()["embedding"].size());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+
+    auto search_res_op = coll->search("apple", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, "");   
+
+    ASSERT_TRUE(search_res_op.ok());
+    auto search_res = search_res_op.get();
+    ASSERT_EQ(1, search_res["found"].get<size_t>());
+    ASSERT_EQ(1, search_res["hits"].size());
+    ASSERT_EQ("apple", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ(384, search_res["hits"][0]["document"]["embedding"].size());
+
+    // delete models folder
+    system("rm -rf ./models");
+}
+
+TEST_F(CollectionTest, InvalidSemanticSearch) {
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::model_dir = "./models/";
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_MODEL_NAME);
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_VOCAB_NAME);
+
+    auto op = collectionManager.create_collection(schema);
+    LOG(INFO) << "op.error(): " << op.error();
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    nlohmann::json object;
+    object["name"] = "apple";
+    auto add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
+    LOG(INFO) << "add_op.get(): " << add_op.get().dump();
+    ASSERT_EQ("apple", add_op.get()["name"]);
+    ASSERT_EQ(384, add_op.get()["embedding"].size());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+
+    auto search_res_op = coll->search("apple", {"embedding", "embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, "");   
+
+    ASSERT_FALSE(search_res_op.ok());
+
+    // delete models folder
+    system("rm -rf ./models");
+}
+
+TEST_F(CollectionTest, HybridSearch) { 
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::model_dir = "./models/";
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_MODEL_NAME);
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_VOCAB_NAME);
+
+    auto op = collectionManager.create_collection(schema);
+    LOG(INFO) << collectionManager.get_collection("objects")->get_summary_json();
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    nlohmann::json object;
+    object["name"] = "apple";
+    auto add_op = coll->add(object.dump());
+    LOG(INFO) << "hybrid search";
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ("apple", add_op.get()["name"]);
+    ASSERT_EQ(384, add_op.get()["embedding"].size());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    LOG(INFO) << "hybrid search 2";
+    auto search_res_op = coll->search("apple", {"name","embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, "");   
+    LOG(INFO) << "hybrid search 3";
+    ASSERT_TRUE(search_res_op.ok());
+    auto search_res = search_res_op.get();
+    ASSERT_EQ(1, search_res["found"].get<size_t>());
+    ASSERT_EQ(1, search_res["hits"].size());
+    ASSERT_EQ("apple", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ(384, search_res["hits"][0]["document"]["embedding"].size());
+
+    // delete models folder
+    system("rm -rf ./models");
+}
+
+TEST_F(CollectionTest, EmbedFielsTest) {
+        nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::model_dir = "./models/";
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_MODEL_NAME);
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_VOCAB_NAME);
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json object =  R"({
+                            "name": "apple"
+                            })"_json;
+
+    auto embed_op = coll->embed_fields(object);
+
+    ASSERT_TRUE(embed_op.ok());
+
+    ASSERT_EQ("apple", object["name"]);
+    ASSERT_EQ(384, object["embedding"].get<std::vector<float>>().size());
+
+    // delete models folder
+    system("rm -rf ./models");
 }

@@ -155,7 +155,6 @@ mkdir -p $INSTALLDIR/lib/_deps/pytorch_cpuinfo-build/deps/clog
 mkdir -p $INSTALLDIR/lib/_deps/google_nsync-build
 cp $BUILD_TMPDIR/_deps/onnx-build/libonnx.a $INSTALLDIR/lib/_deps/onnx-build
 cp $BUILD_TMPDIR/_deps/onnx-build/libonnx_proto.a $INSTALLDIR/lib/_deps/onnx-build
-cp $BUILD_TMPDIR/_deps/protobuf-build/libprotobuf-lite.a $INSTALLDIR/lib/_deps/protobuf-build
 cp $BUILD_TMPDIR/_deps/re2-build/libre2.a $INSTALLDIR/lib/_deps/re2-build
 cp $BUILD_TMPDIR/_deps/abseil_cpp-build/absl/base/libabsl_base.a $INSTALLDIR/lib/_deps/abseil_cpp-build/absl/base
 cp $BUILD_TMPDIR/_deps/abseil_cpp-build/absl/base/libabsl_throw_delegate.a $INSTALLDIR/lib/_deps/abseil_cpp-build/absl/base
@@ -243,7 +242,6 @@ cmake(
     "libonnxruntime_flatbuffers.a",
     "_deps/onnx-build/libonnx.a",
     "_deps/onnx-build/libonnx_proto.a",
-    "_deps/protobuf-build/libprotobuf-lite.a",
     "_deps/re2-build/libre2.a",
     "_deps/abseil_cpp-build/absl/base/libabsl_base.a",
     "_deps/abseil_cpp-build/absl/base/libabsl_throw_delegate.a",
@@ -260,6 +258,10 @@ cmake(
 
 cc_library(
     name = "onnxruntime_lib",
-    deps = ["//:onnxruntime", "@onnx_runtime//:ext_headers"],
+    linkopts = select({
+        "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc"],
+        "//conditions:default": [],
+    }),
+    deps = ["//:onnxruntime", "@onnx_runtime_extensions//:operators"],
     includes= ["onnxruntime/include/onnxruntime"]
 )

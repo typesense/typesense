@@ -13,10 +13,7 @@ bazel_compdb_deps()
 
 http_archive(
     name = "rules_foreign_cc",
-    patches = ["//bazel:foreign_cc.patch", "//bazel:foreign_cc_version_compiler.patch"],
-    patch_args = [
-        "-p1",
-    ],
+    patches = ["//bazel:foreign_cc.patch"],
     sha256 = "2a4d07cd64b0719b39a7c12218a3e507672b82a97b98c6a89d38565894cf7c51",
     strip_prefix = "rules_foreign_cc-0.9.0",
     url = "https://github.com/bazelbuild/rules_foreign_cc/archive/refs/tags/0.9.0.tar.gz",
@@ -41,31 +38,23 @@ git_repository(
     remote = "https://github.com/apache/incubator-brpc.git",
 )
 
-_ALL_CONTENT = """\
-filegroup(
-    name = "all_srcs",
-    srcs = glob(["**"]),
-    visibility = ["//visibility:public"],
-)
-
-
-cc_library(
-    name = "ext_headers",
-    hdrs = glob(["cmake/external/onnxruntime-extensions/includes/**"]),
-    strip_include_prefix = "cmake/external/onnxruntime-extensions/includes",
-    visibility = ["//visibility:public"],
-)
-
-
-"""
 
 new_git_repository(
     name="onnx_runtime",
-    branch= "main",
-    build_file_content= _ALL_CONTENT,
+    branch= "rel-1.14.0",
+    build_file = "//bazel:onnxruntime.BUILD",
     init_submodules= 1,
     recursive_init_submodules= 1,
-    remote= "https://github.com/microsoft/onnxruntime"
+    remote= "https://github.com/microsoft/onnxruntime",
+    patches=["//bazel:onnx.patch"],
+)
+
+new_git_repository(
+    name = "onnx_runtime_extensions",
+    build_file = "//bazel:onnxruntime_extensions.BUILD",
+    remote = "https://github.com/microsoft/onnxruntime-extensions",
+    commit = "81e7799c69044c745239202085eb0a98f102937b",
+    patches=["//bazel:onnx_ext.patch"],
 )
 
 new_git_repository(

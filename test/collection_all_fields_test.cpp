@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "text_embedder_manager.h"
+#include "http_client.h"
 
 class CollectionAllFieldsTest : public ::testing::Test {
 protected:
@@ -27,6 +29,7 @@ protected:
 
     virtual void SetUp() {
         setupCollection();
+        system("mkdir -p models");
     }
 
     virtual void TearDown() {
@@ -59,6 +62,8 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     while (std::getline(infile, json_line)) {
         nlohmann::json document = nlohmann::json::parse(json_line);
         Option<nlohmann::json> add_op = coll1->add(document.dump());
+
+        LOG(INFO) << "Add op: " << add_op.error();
         ASSERT_TRUE(add_op.ok());
     }
 
@@ -1584,5 +1589,102 @@ TEST_F(CollectionAllFieldsTest, FieldNameMatchingRegexpShouldNotBeIndexedInNonAu
                                  "<mark>", "</mark>", {}, 1000, true).get();
 
     ASSERT_EQ(1, results["hits"].size());
+}
+
+TEST_F(CollectionAllFieldsTest, CreateFromFieldJSONInvalidField) {
+    TextEmbedderManager::model_dir = "./models";
+    nlohmann::json field_json;
+    field_json["name"] = "embedding";
+    field_json["type"] = "float[]";
+    field_json["create_from"] = {"name"};
+
+    std::vector<field> fields;
+    std::string fallback_field_type;
+    size_t num_auto_detect_fields;
+
+    auto field_op = field::json_field_to_field(false, field_json, fields, fallback_field_type, num_auto_detect_fields);
+
+    ASSERT_FALSE(field_op.ok());
+    ASSERT_EQ("Property `create_from` must be an array of existing string fields.", field_op.error());
+}
+
+TEST_F(CollectionAllFieldsTest, CreateFromFieldNoModelDir) {
+    nlohmann::json field_json;
+    field_json["name"] = "embedding";
+    field_json["type"] = "float[]";
+    field_json["create_from"] = {"name"};
+
+    std::vector<field> fields;
+    std::string fallback_field_type;
+    size_t num_auto_detect_fields;
+
+    auto field_op = field::json_field_to_field(false, field_json, fields, fallback_field_type, num_auto_detect_fields);
+
+    ASSERT_FALSE(field_op.ok());
+    ASSERT_EQ("Property `create_from` must be an array of existing string fields.", field_op.error());
+}
+
+TEST_F(CollectionAllFieldsTest, CreateFromNotArray) {
+    TextEmbedderManager::model_dir = "./models";
+    nlohmann::json field_json;
+    field_json["name"] = "embedding";
+    field_json["type"] = "float[]";
+    field_json["create_from"] = "name";
+
+    std::vector<field> fields;
+    std::string fallback_field_type;
+    size_t num_auto_detect_fields;
+
+    auto field_op = field::json_field_to_field(false, field_json, fields, fallback_field_type, num_auto_detect_fields);
+
+    ASSERT_FALSE(field_op.ok());
+    ASSERT_EQ("Property `create_from` must be an array.", field_op.error());
+}
+
+TEST_F(CollectionAllFieldsTest, ModelPathWithoutCreateFrom) {
+    TextEmbedderManager::model_dir = "./models";
+    nlohmann::json field_json;
+    field_json["name"] = "embedding";
+    field_json["type"] = "float[]";
+    field_json["model_path"] = "model.onnx";
+
+    std::vector<field> fields;
+    std::string fallback_field_type;
+    size_t num_auto_detect_fields;
+
+    auto field_op = field::json_field_to_field(false, field_json, fields, fallback_field_type, num_auto_detect_fields);
+
+    ASSERT_FALSE(field_op.ok());
+    ASSERT_EQ("Property `model_path` can only be used with `create_from`.", field_op.error());
+}
+
+
+TEST_F(CollectionAllFieldsTest, CreateFromBasicValid) {
+
+    TextEmbedderManager::model_dir = "./models/";
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_MODEL_NAME);
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::DEFAULT_VOCAB_NAME);
+
+    field embedding = field("embedding", field_types::FLOAT_ARRAY, false);
+    embedding.create_from.push_back("name");
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 embedding};
+    auto obj_coll_op = collectionManager.create_collection("obj_coll", 1, fields, "", 0, field_types::AUTO);
+
+    ASSERT_TRUE(obj_coll_op.ok());
+    Collection* obj_coll = obj_coll_op.get();
+
+    nlohmann::json doc1;
+    doc1["name"] = "One Two Three";
+
+    auto add_res = obj_coll->add(doc1.dump());
+
+    ASSERT_TRUE(add_res.ok());
+    ASSERT_TRUE(add_res.get()["name"].is_string());
+    ASSERT_TRUE(add_res.get()["embedding"].is_array());
+    ASSERT_EQ(384, add_res.get()["embedding"].size());
+
+    // delete models folder
+    system("rm -rf ./models");
 }
 

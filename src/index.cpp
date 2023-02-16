@@ -3010,9 +3010,44 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         sort_order, field_values, geopoint_indices,
                         curated_ids_sorted, all_result_ids, all_result_ids_len, groups_processed);
 
+        LOG(INFO) << "all_result_ids_len: " << all_result_ids_len;
+        if(!vector_query.field_name.empty()) {
+            VectorFilterFunctor filterFunctor(seq_ids->uncompress(), seq_ids->num_ids());
+            LOG(INFO) << "vector_query.field_name: " << vector_query.field_name;
+            auto& field_vector_index = vector_index.at(vector_query.field_name);
+            LOG(INFO) << "field_vector_index->vecdex->size():";
+            std::vector<std::pair<float, size_t>> dist_labels;
+            auto k = std::max<size_t>(vector_query.k, per_page * page);
+
+            if(field_vector_index->distance_type == cosine) {
+                std::vector<float> normalized_q(vector_query.values.size());
+                hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, filterFunctor);
+            } else {
+                dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, filterFunctor);
+            }
+
+            for (const auto& dist_label : dist_labels) {
+                uint32 seq_id = dist_label.second;
+
+                auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
+                                        dist_label.first;
+
+                auto score = (1.0 - vec_dist_score) * 100000000000.0;
+                
+                auto found = topster->kv_map.find(seq_id);
+        
+                if (found != topster->kv_map.end()) {
+                    found->second->scores[0] += score;
+                }
+            }
+
+        }
+
         /*auto timeMillis0 = std::chrono::duration_cast<std::chrono::milliseconds>(
                  std::chrono::high_resolution_clock::now() - begin0).count();
          LOG(INFO) << "Time taken for multi-field aggregation: " << timeMillis0 << "ms";*/
+
     }
 
     //LOG(INFO) << "topster size: " << topster->size;
