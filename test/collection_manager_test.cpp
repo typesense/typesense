@@ -696,6 +696,32 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     collectionManager2.drop_collection("coll1");
 }
 
+TEST_F(CollectionManagerTest, RestorePresetsOnRestart) {
+    auto preset_value = R"(
+        {"q":"*", "per_page": "12"}
+    )"_json;
+
+    collectionManager.upsert_preset("single_preset", preset_value);
+
+    // create a new collection manager to ensure that it restores the records from the disk backed store
+    CollectionManager& collectionManager2 = CollectionManager::get_instance();
+    collectionManager2.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager2.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+
+    ASSERT_TRUE(load_op.ok());
+
+    nlohmann::json preset;
+    collectionManager2.get_preset("single_preset", preset);
+    ASSERT_EQ("*", preset["q"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+    collectionManager2.drop_collection("coll1");
+}
+
 TEST_F(CollectionManagerTest, RestoreNestedDocsOnRestart) {
     nlohmann::json schema = R"({
         "name": "coll1",

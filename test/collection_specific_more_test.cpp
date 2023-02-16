@@ -1859,12 +1859,42 @@ TEST_F(CollectionSpecificMoreTest, SearchCutoffTest) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto res = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
-                             spp::sparse_hash_set<std::string>(),
-                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1).get();
+    auto coll_op = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1);
 
-    ASSERT_TRUE(res["search_cutoff"].get<bool>());
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("Request Timeout", coll_op.error());
+    ASSERT_EQ(408, coll_op.code());
+}
+
+TEST_F(CollectionSpecificMoreTest, ExhaustiveSearchWithoutExplicitDropTokens) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "alpha beta gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "alpha";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    bool exhaustive_search = true;
+    size_t drop_tokens_threshold = 1;
+
+    auto res = coll1->search("alpha beta", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", exhaustive_search).get();
+
+    ASSERT_EQ(2, res["hits"].size());
 }
 
 TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {

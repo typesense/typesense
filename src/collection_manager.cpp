@@ -265,8 +265,15 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     iter = store->scan(preset_prefix_key, &preset_upper_bound);
     while(iter->Valid() && iter->key().starts_with(preset_prefix_key)) {
         std::vector<std::string> parts;
-        StringUtils::split(iter->key().ToString(), parts, preset_prefix_key);
-        preset_configs[parts[0]] = iter->value().ToString();
+        std::string preset_name = iter->key().ToString().substr(preset_prefix_key.size());
+        nlohmann::json preset_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
+
+        if(!preset_obj.is_discarded() && preset_obj.is_object()) {
+            preset_configs[preset_name] = preset_obj;
+        } else {
+            LOG(INFO) << "Invalid value for preset " << preset_name;
+        }
+
         iter->Next();
     }
 
@@ -328,7 +335,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
                                                          const bool enable_nested_fields) {
-    std::unique_lock lock(mutex);
+    std::unique_lock lock(coll_create_mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
@@ -379,7 +386,6 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         return Option<Collection*>(500, "Could not write to on-disk storage.");
     }
 
-    lock.unlock();
     add_to_collections(new_collection);
 
     return Option<Collection*>(new_collection);

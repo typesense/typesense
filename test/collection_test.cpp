@@ -392,7 +392,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10).get();
 
-    ids = {"8", "1", "17"};
+    ids = {"1", "13", "8"};
 
     ASSERT_EQ(3, results["hits"].size());
 
@@ -473,7 +473,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(11, results["found"].get<uint32_t>());
 
-    std::vector<std::string> ids = {"19", "22", "6", "13"};
+    std::vector<std::string> ids = {"19", "6", "21", "22"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -667,20 +667,20 @@ TEST_F(CollectionTest, PrefixSearching) {
 }
 
 TEST_F(CollectionTest, TypoTokensThreshold) {
-    // Query expansion should happen only based on the `typo_tokens_threshold` value
-    auto results = collection->search("launch", {"title"}, "", {}, sort_fields, {2}, 10, 1,
+    // Typo correction should happen only based on the `typo_tokens_threshold` value
+    auto results = collection->search("redundant", {"title"}, "", {}, sort_fields, {2}, 10, 1,
                        token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 0).get();
 
-    ASSERT_EQ(5, results["hits"].size());
-    ASSERT_EQ(5, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
 
-    results = collection->search("launch", {"title"}, "", {}, sort_fields, {2}, 10, 1,
+    results = collection->search("redundant", {"title"}, "", {}, sort_fields, {2}, 10, 1,
                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 10).get();
 
-    ASSERT_EQ(7, results["hits"].size());
-    ASSERT_EQ(7, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionTest, MultiOccurrenceString) {

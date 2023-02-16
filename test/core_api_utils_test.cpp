@@ -502,7 +502,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     std::vector<collection_key_t> collections;
     std::vector<nlohmann::json> embedded_params_vec;
 
-    std::string other_body = R"(
+    std::string search_body = R"(
         {"searches":[
             {"collection":"foo1","q":"apple", "query_by": "title"},
             {"collection":"bar1","q":"apple", "query_by": "title"}
@@ -511,7 +511,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
 
     // without preset parameter, use collections from request body
 
-    get_collections_for_auth(req_params, other_body, rpath_multi_search, "", collections, embedded_params_vec);
+    get_collections_for_auth(req_params, search_body, rpath_multi_search, "", collections, embedded_params_vec);
     
     ASSERT_EQ(2, collections.size());
     ASSERT_EQ("foo1", collections[0].collection);
@@ -523,12 +523,98 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     embedded_params_vec.clear();
 
     req_params["preset"] = "apple";
-    get_collections_for_auth(req_params, other_body, rpath_multi_search, "", collections, embedded_params_vec);
+    get_collections_for_auth(req_params, search_body, rpath_multi_search, "", collections, embedded_params_vec);
     
     ASSERT_EQ(2, collections.size());
     ASSERT_EQ("foo", collections[0].collection);
     ASSERT_EQ("bar", collections[1].collection);
     ASSERT_EQ(2, embedded_params_vec.size());
+
+    // try using multi_search preset within individual search param
+
+    preset_value = R"(
+        {"collection":"preset_coll"}
+    )"_json;
+
+    collectionManager.upsert_preset("single_preset", preset_value);
+
+    req_params.clear();
+    collections.clear();
+    embedded_params_vec.clear();
+
+    search_body = R"(
+        {"searches":[
+            {"collection":"foo1","q":"apple", "query_by": "title", "preset": "single_preset"},
+            {"collection":"bar1","q":"apple", "query_by": "title", "preset": "single_preset"}
+        ]}
+    )";
+
+    get_collections_for_auth(req_params, search_body, rpath_multi_search, "", collections, embedded_params_vec);
+
+    ASSERT_EQ(2, collections.size());
+    ASSERT_EQ("foo1", collections[0].collection);
+    ASSERT_EQ("bar1", collections[1].collection);
+    ASSERT_EQ(2, embedded_params_vec.size());
+
+    // without collection in search array
+    req_params.clear();
+    collections.clear();
+    embedded_params_vec.clear();
+
+    search_body = R"(
+        {"searches":[
+            {"q":"apple", "query_by": "title", "preset": "single_preset"},
+            {"q":"apple", "query_by": "title", "preset": "single_preset"}
+        ]}
+    )";
+
+    get_collections_for_auth(req_params, search_body, rpath_multi_search, "", collections, embedded_params_vec);
+
+    ASSERT_EQ(2, collections.size());
+    ASSERT_EQ("preset_coll", collections[0].collection);
+    ASSERT_EQ("preset_coll", collections[1].collection);
+    ASSERT_EQ(2, embedded_params_vec.size());
+}
+
+TEST_F(CoreAPIUtilsTest, PresetSingleSearch) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "name", "type": "string" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto preset_value = R"(
+        {"collection":"preset_coll", "per_page": "12"}
+    )"_json;
+
+    collectionManager.upsert_preset("single_preset", preset_value);
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "coll1";
+
+    auto search_body = R"(
+        {"searches":[
+            {"collection":"coll1","q":"apple", "query_by": "title", "preset": "single_preset"}
+        ]}
+    )";
+
+    req->body = search_body;
+    nlohmann::json embedded_params;
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+
+    ASSERT_EQ("12", req->params["per_page"]);
+    ASSERT_EQ("coll1", req->params["collection"]);
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
@@ -574,6 +660,47 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     ASSERT_EQ('}', export_state.res_body->back());
 }
 
+TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {
+    // format <length of api key>:<api key><ip address>
+    std::string valid_metadata = "4:abcd127.0.0.1";
+    std::string invalid_ip = "4:abcd127.0.0.1:1234";
+    std::string invalid_api_key = "3:abcd127.0.0.1";
+    std::string no_length = "abcd127.0.0.1";
+    std::string no_colon = "4abcd127.0.0.1";
+    std::string no_ip = "4:abcd";
+    std::string only_length = "4:";
+    std::string only_colon = ":";
+    std::string only_ip = "127.0.0.1";
+
+    Option<std::pair<std::string, std::string>> res = get_api_key_and_ip(valid_metadata);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("127.0.0.1", res.get().second);
+
+    res = get_api_key_and_ip(invalid_ip);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(invalid_api_key);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(no_length);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(no_colon);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(no_ip);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(only_length);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(only_colon);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(only_ip);
+    EXPECT_FALSE(res.ok());
+}
 TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     nlohmann::json schema = R"({
         "name": "coll1",

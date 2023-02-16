@@ -221,7 +221,8 @@ int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::st
         // not much value in supporting default sorting field as string, so we will just dummy it out
         points = 0;
     } else {
-        points = document[default_sorting_field];
+        points = document[default_sorting_field].is_boolean() ? int64_t(document[default_sorting_field].get<bool>()) :
+                 document[default_sorting_field].get<int64_t>();
     }
 
     return points;
@@ -500,6 +501,22 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
             }
 
             nlohmann::json::iterator it = document[field_name].begin();
+
+            // Handle a geopoint[] type inside an array of object: it won't be an array of array, so cannot iterate
+            if(a_field.nested && a_field.type == field_types::GEOPOINT_ARRAY &&
+                it->is_number() && document[field_name].size() == 2) {
+                const auto& item = document[field_name];
+                if(!(item[0].is_number() && item[1].is_number())) {
+                    // one or more elements is not an number, try to coerce
+                    Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
+                    if(!coerce_op.ok()) {
+                        return coerce_op;
+                    }
+                }
+
+                continue;
+            }
+
             for(; it != document[field_name].end(); ) {
                 const auto& item = it.value();
                 array_ele_erased = false;
@@ -887,54 +904,54 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 bool value = record.doc[afield.name].get<bool>();
                 num_tree->insert(value, seq_id);
             });
-        } else if(afield.type == field_types::GEOPOINT) {
-            auto geo_index = geopoint_index.at(afield.name);
-
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, geo_index]
-                    (const index_record& record, uint32_t seq_id) {
-                const std::vector<double>& latlong = record.doc[afield.name];
-
-                S2RegionTermIndexer::Options options;
-                options.set_index_contains_points_only(true);
-                S2RegionTermIndexer indexer(options);
-                S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-
-                for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                    (*geo_index)[term].push_back(seq_id);
-                }
-            });
-        } else if(afield.type == field_types::GEOPOINT_ARRAY) {
+        } else if(afield.type == field_types::GEOPOINT || afield.type == field_types::GEOPOINT_ARRAY) {
             auto geo_index = geopoint_index.at(afield.name);
 
             iterate_and_index_numerical_field(iter_batch, afield,
-                                              [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
+            [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
+                // nested geopoint value inside an array of object will be a simple array so must be treated as geopoint
+                bool nested_obj_arr_geopoint = (afield.nested && afield.type == field_types::GEOPOINT_ARRAY &&
+                                    record.doc[afield.name].size() == 2 && record.doc[afield.name][0].is_number());
 
-                                                  const std::vector<std::vector<double>>& latlongs = record.doc[afield.name];
-                                                  S2RegionTermIndexer::Options options;
-                                                  options.set_index_contains_points_only(true);
-                                                  S2RegionTermIndexer indexer(options);
+                if(afield.type == field_types::GEOPOINT || nested_obj_arr_geopoint) {
+                    const std::vector<double>& latlong = record.doc[afield.name];
 
-                                                  int64_t* packed_latlongs = new int64_t[latlongs.size() + 1];
-                                                  packed_latlongs[0] = latlongs.size();
+                    S2RegionTermIndexer::Options options;
+                    options.set_index_contains_points_only(true);
+                    S2RegionTermIndexer indexer(options);
+                    S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
 
-                                                  for(size_t li = 0; li < latlongs.size(); li++) {
-                                                      auto& latlong = latlongs[li];
-                                                      S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-                                                      std::set<std::string> terms;
-                                                      for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                                                          terms.insert(term);
-                                                      }
+                    for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                        (*geo_index)[term].push_back(seq_id);
+                    }
+                } else {
+                    const std::vector<std::vector<double>>& latlongs = record.doc[afield.name];
+                    S2RegionTermIndexer::Options options;
+                    options.set_index_contains_points_only(true);
+                    S2RegionTermIndexer indexer(options);
 
-                                                      for(const auto& term: terms) {
-                                                          (*geo_index)[term].push_back(seq_id);
-                                                      }
+                    int64_t* packed_latlongs = new int64_t[latlongs.size() + 1];
+                    packed_latlongs[0] = latlongs.size();
 
-                                                      int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
-                                                      packed_latlongs[li + 1] = packed_latlong;
-                                                  }
+                    for(size_t li = 0; li < latlongs.size(); li++) {
+                        auto& latlong = latlongs[li];
+                        S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+                        std::set<std::string> terms;
+                        for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                            terms.insert(term);
+                        }
 
-                                                  geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
-                                              });
+                        for(const auto& term: terms) {
+                            (*geo_index)[term].push_back(seq_id);
+                        }
+
+                        int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
+                        packed_latlongs[li + 1] = packed_latlong;
+                    }
+
+                    geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
+                }
+            });
         } else if(afield.is_array()) {
             // handle vector index first
             if(afield.type == field_types::FLOAT_ARRAY && afield.num_dim > 0) {
@@ -1087,10 +1104,11 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
             std::string raw_str = document[afield.name].get<std::string>();
             Tokenizer str_tokenizer("", true, false, "", {' '});
-            std::string processed_str;
             str_tokenizer.tokenize(raw_str);
 
-            str_tree->index(seq_id, raw_str);
+            if(!raw_str.empty()) {
+                str_tree->index(seq_id, raw_str.substr(0, 2000));
+            }
         }
     }
 }
@@ -2935,7 +2953,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         // gather up both original query and synonym queries and do drop tokens
 
-        if (all_result_ids_len < drop_tokens_threshold) {
+        if (exhaustive_search || all_result_ids_len < drop_tokens_threshold) {
             for (size_t qi = 0; qi < all_queries.size(); qi++) {
                 auto& orig_tokens = all_queries[qi];
                 size_t num_tokens_dropped = 0;
@@ -3369,12 +3387,12 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                     }
 
                     //LOG(INFO) << "Searching for field: " << the_field.name << ", found token:" << token;
+                    const auto& prev_token = last_token ? token_candidates_vec.back().candidates[0] : "";
 
                     std::vector<art_leaf*> field_leaves;
-                    int max_words = 100000;
                     art_fuzzy_search(search_index.at(the_field.name), (const unsigned char *) token.c_str(), token_len,
-                                     costs[token_index], costs[token_index], max_words, token_order, prefix_search,
-                                     filter_ids, filter_ids_length, field_leaves, unique_tokens);
+                                     costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
+                                     last_token, prev_token, filter_ids, filter_ids_length, field_leaves, unique_tokens);
 
                     /*auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::high_resolution_clock::now() - begin).count();
@@ -3385,60 +3403,17 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         continue;
                     }
 
-                    uint32_t* prev_token_doc_ids = nullptr;   // documents that contain the previous token
-                    size_t prev_token_doc_ids_len = 0;
-
-                    if(last_token) {
-                        auto& prev_token = token_candidates_vec.back().candidates[0];
-                        art_leaf* prev_leaf = static_cast<art_leaf*>(
-                                art_search(search_index.at(the_field.name),
-                                           reinterpret_cast<const unsigned char*>(prev_token.c_str()),
-                                           prev_token.size() + 1));
-
-                        if(!prev_leaf) {
-                            continue;
-                        }
-
-                        std::vector<uint32_t> prev_leaf_ids;
-                        posting_t::merge({prev_leaf->values}, prev_leaf_ids);
-
-                        if(filter_ids_length != 0) {
-                            prev_token_doc_ids_len = ArrayUtils::and_scalar(prev_leaf_ids.data(), prev_leaf_ids.size(),
-                                                                            filter_ids, filter_ids_length,
-                                                                            &prev_token_doc_ids);
-                        } else {
-                            prev_token_doc_ids_len = prev_leaf_ids.size();
-                            prev_token_doc_ids = new uint32_t[prev_token_doc_ids_len];
-                            std::copy(prev_leaf_ids.begin(), prev_leaf_ids.end(), prev_token_doc_ids);
-                        }
-                    }
-
                     for(size_t i = 0; i < field_leaves.size(); i++) {
                         auto leaf = field_leaves[i];
                         std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
-                        if(unique_tokens.count(tok) == 0) {
-                            if(last_token) {
-                                if(!posting_t::contains_atleast_one(leaf->values, prev_token_doc_ids,
-                                                                    prev_token_doc_ids_len)) {
-                                    continue;
-                                }
-                            }
-
-                            unique_tokens.emplace(tok);
-                            leaf_tokens.push_back(tok);
-                        }
-
-                        if(leaf_tokens.size() >= max_candidates) {
-                            token_cost_cache.emplace(token_cost_hash, leaf_tokens);
-                            delete [] prev_token_doc_ids;
-                            prev_token_doc_ids = nullptr;
-                            goto token_done;
-                        }
+                        leaf_tokens.push_back(tok);
                     }
 
                     token_cost_cache.emplace(token_cost_hash, leaf_tokens);
-                    delete [] prev_token_doc_ids;
-                    prev_token_doc_ids = nullptr;
+
+                    if(leaf_tokens.size() >= max_candidates) {
+                        goto token_done;
+                    }
                 }
 
                 if(last_token && leaf_tokens.size() < max_candidates) {
@@ -3467,10 +3442,9 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         }
 
                         std::vector<art_leaf*> field_leaves;
-                        int max_words = 100000;
                         art_fuzzy_search(search_index.at(the_field.name), (const unsigned char *) token.c_str(), token_len,
-                                         costs[token_index], costs[token_index], max_words, token_order, prefix_search,
-                                         filter_ids, filter_ids_length, field_leaves, unique_tokens);
+                                         costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
+                                         false, "", filter_ids, filter_ids_length, field_leaves, unique_tokens);
 
                         if(field_leaves.empty()) {
                             // look at the next field
@@ -3480,23 +3454,14 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         for(size_t i = 0; i < field_leaves.size(); i++) {
                             auto leaf = field_leaves[i];
                             std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
-                            if(unique_tokens.count(tok) == 0) {
-                                if(!posting_t::contains_atleast_one(leaf->values, &prev_token_doc_ids[0],
-                                                                    prev_token_doc_ids.size())) {
-                                    continue;
-                                }
-
-                                unique_tokens.emplace(tok);
-                                leaf_tokens.push_back(tok);
-                            }
-
-                            if(leaf_tokens.size() >= max_candidates) {
-                                token_cost_cache.emplace(token_cost_hash, leaf_tokens);
-                                goto token_done;
-                            }
+                            leaf_tokens.push_back(tok);
                         }
 
                         token_cost_cache.emplace(token_cost_hash, leaf_tokens);
+
+                        if(leaf_tokens.size() >= max_candidates) {
+                            goto token_done;
+                        }
                     }
                 }
             }
@@ -4882,7 +4847,7 @@ void Index::search_field(const uint8_t & field_id,
                 // need less candidates for filtered searches since we already only pick tokens with results
                 art_fuzzy_search(search_index.at(field_name), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
-                                 filter_ids, filter_ids_length, leaves, unique_tokens);
+                                 false, "", filter_ids, filter_ids_length, leaves, unique_tokens);
 
                 /*auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::high_resolution_clock::now() - begin).count();
@@ -5346,15 +5311,27 @@ inline uint32_t Index::next_suggestion2(const std::vector<tok_candidates>& token
         size_t token_size = token_candidates_vec[i].token.value.size();
         q = ldiv(q.quot, token_candidates_vec[i].candidates.size());
         const auto& candidate = token_candidates_vec[i].candidates[q.rem];
+        size_t typo_cost = token_candidates_vec[i].cost;
+
+        if (candidate.size() > 1 && !Tokenizer::is_ascii_char(candidate[0])) {
+            icu::UnicodeString ustr = icu::UnicodeString::fromUTF8(candidate);
+            auto code_point = ustr.char32At(0);
+            if(code_point >= 0x600 && code_point <= 0x6ff) {
+                // adjust typo cost for Arabic strings, since 1 byte difference makes no sense
+                if(typo_cost == 1) {
+                    typo_cost = 2;
+                }
+            }
+        }
 
         // we assume that toke was found via prefix search if candidate is longer than token's typo tolerance
         bool is_prefix_searched = token_candidates_vec[i].prefix_search &&
-                                  (candidate.size() > (token_size + token_candidates_vec[i].cost));
+                                  (candidate.size() > (token_size + typo_cost));
 
-        size_t actual_cost = (2 * token_candidates_vec[i].cost) + uint32_t(is_prefix_searched);
+        size_t actual_cost = (2 * typo_cost) + uint32_t(is_prefix_searched);
         total_cost += actual_cost;
 
-        query_suggestion[i] = token_t(i, candidate, is_prefix_searched, token_size, token_candidates_vec[i].cost);
+        query_suggestion[i] = token_t(i, candidate, is_prefix_searched, token_size, typo_cost);
 
         uint64_t this_hash = StringUtils::hash_wy(query_suggestion[i].value.c_str(), query_suggestion[i].value.size());
         qhash = StringUtils::hash_combine(qhash, this_hash);
@@ -5849,6 +5826,10 @@ Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const st
     else {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
+                if(a_field.nested && item.is_array()) {
+                    return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+                }
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
             }
 
@@ -5860,6 +5841,10 @@ Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const st
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
         }
     }

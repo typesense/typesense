@@ -131,6 +131,14 @@ bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 
 bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_active_throttles(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_limit_exceed_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_throttle(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_exceed(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Misc helpers
 
 void get_collections_for_auth(std::map<std::string, std::string>& req_params, const std::string& body,
@@ -143,3 +151,5 @@ bool is_doc_import_route(uint64_t route_hash);
 bool is_doc_write_route(uint64_t route_hash);
 
 bool is_doc_del_route(uint64_t route_hash);
+
+Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata);

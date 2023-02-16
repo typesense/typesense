@@ -72,6 +72,10 @@ cc_binary(
     local_defines = [
         "TYPESENSE_VERSION=\\\"$(TYPESENSE_VERSION)\\\""
     ],
+    linkopts = select({
+        "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc"],
+        "//conditions:default": [],
+    }),
     copts = COPTS,
     deps = [":common_deps"],
 )

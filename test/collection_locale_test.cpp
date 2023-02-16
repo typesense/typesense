@@ -774,6 +774,52 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicLargeText) {
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 }
 
+TEST_F(CollectionLocaleTest, SearchOnArabicText) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, ""),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::string data = "جهينة";
+    std::string q = "جوهينة";
+
+    auto dchars = data.c_str();
+    auto qchars = q.c_str();
+
+    nlohmann::json doc;
+    doc["title"] = "جهينة";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("جوهينة", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}).get();
+    LOG(INFO) << results;
+
+    ASSERT_STREQ("<mark>جهينة</mark>",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionLocaleTest, SearchOnArabicTextWithTypo) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, ""),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    std::string q = "دوني";
+    std::string title1 = "سوني";
+    std::string title2 = "داوني";
+
+    nlohmann::json doc;
+    doc["title"] = "0";
+    doc["title"] = "ينوس";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "1";
+    doc["title"] = "ينواد";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("ينود", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {false}, 1,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 10).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
 /*
 TEST_F(CollectionLocaleTest, TranslitPad) {
     UErrorCode translit_status = U_ZERO_ERROR;
