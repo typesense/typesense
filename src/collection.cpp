@@ -246,6 +246,7 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::reference] = coll_field.reference;
         }
 
+
         fields_arr.push_back(field_json);
     }
 
@@ -2572,71 +2573,6 @@ Option<bool> Collection::validate_reference_filter(const std::string& filter_que
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                         store, doc_id_prefix, filter_tree_root);
-    if(!filter_op.ok()) {
-        return filter_op;
-    }
-
-    delete filter_tree_root;
-    return Option<bool>(true);
-}
-
-Option<std::string> Collection::get_reference_field(const std::string & collection_name) const {
-    std::shared_lock lock(mutex);
-
-    std::string reference_field_name;
-    for (auto const& pair: reference_fields) {
-        auto reference_pair = pair.second;
-        if (reference_pair.collection == collection_name) {
-            reference_field_name = reference_pair.field;
-            break;
-        }
-    }
-
-    if (reference_field_name.empty()) {
-        return Option<std::string>(400, "Could not find any field in `" + name + "` referencing the collection `"
-                                 + collection_name + "`.");
-    }
-
-    return Option(reference_field_name);
-}
-
-Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
-                                                  filter_result_t& filter_result,
-                                                  const std::string & collection_name) const {
-    auto reference_field_op = get_reference_field(collection_name);
-    if (!reference_field_op.ok()) {
-        return Option<bool>(reference_field_op.code(), reference_field_op.error());
-    }
-
-    std::shared_lock lock(mutex);
-
-    const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root = nullptr;
-    Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
-                                                       store, doc_id_prefix, filter_tree_root);
-    if(!parse_op.ok()) {
-        return parse_op;
-    }
-
-    // Reference helper field has the sequence id of other collection's documents.
-    auto field_name = reference_field_op.get() + REFERENCE_HELPER_FIELD_SUFFIX;
-    auto filter_op = index->do_reference_filtering_with_lock(filter_tree_root, filter_result, field_name);
-    if (!filter_op.ok()) {
-        return filter_op;
-    }
-
-    delete filter_tree_root;
-    return Option<bool>(true);
-}
-
-Option<bool> Collection::validate_reference_filter(const std::string& filter_query) const {
-    std::shared_lock lock(mutex);
-
-    const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
-                                                        store, doc_id_prefix, filter_tree_root);
-
     if(!filter_op.ok()) {
         return filter_op;
     }

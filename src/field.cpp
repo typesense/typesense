@@ -523,7 +523,7 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
 
 Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                         std::vector<field>& the_fields,
-                                        string& fallback_field_type, size_t& num_auto_detect_fields) {
+                                        string& fallback_field_type, size_t& num_auto_detect_fields, const nlohmann::json& all_fields_json) {
 
     if(field_json["name"] == "id") {
         // No field should exist with the name "id" as it is reserved for internal use

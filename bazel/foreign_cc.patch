@@ -1,5 +1,5 @@
---- a/foreign_cc/private/configure_script.bzl
-+++ b/foreign_cc/private/configure_script.bzl
+--- foreign_cc/private/configure_script.bzl
++++ foreign_cc/private/configure_script.bzl
 @@ -70,7 +70,7 @@
          ).lstrip())
  
