@@ -390,6 +390,14 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("The `facet_query` parameter is supplied without a `facet_by` parameter.", res_op.error().c_str());
 
+    res_op = coll_array_fields->search("*", query_fields, "", {""}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                       {false}, Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, "tags: foo");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Could not find a facet field named `` in the schema.", res_op.error().c_str());
+
     // given facet query field must be part of facet fields requested
     res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
                                        {false}, Index::DROP_TOKENS_THRESHOLD,
