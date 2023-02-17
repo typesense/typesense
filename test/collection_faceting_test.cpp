@@ -363,6 +363,15 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Could not find a facet field named `foobar` in the schema.", res_op.error().c_str());
 
+    // only prefix matching is valid
+    res_op = coll_array_fields->search("*", query_fields, "", {"*_facet"}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                       {false}, Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Only prefix matching with a wildcard is allowed.", res_op.error().c_str());
+
     // unknown wildcard facet field
     res_op = coll_array_fields->search("*", query_fields, "", {"foo*"}, sort_fields, {0}, 10, 1, FREQUENCY,
                                        {false}, Index::DROP_TOKENS_THRESHOLD,

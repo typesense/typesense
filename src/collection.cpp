@@ -4297,6 +4297,10 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         facets.emplace_back(std::move(a_facet));
     } else if (facet_field.find('*') != std::string::npos) { // Wildcard
+       if (facet_field[facet_field.size() - 1] != '*') {
+           return Option<bool>(404, "Only prefix matching with a wildcard is allowed.");
+       }
+
         // Trim * from the end.
         auto prefix = facet_field.substr(0, facet_field.size() - 1);
         auto pair = search_schema.equal_prefix_range(prefix);
