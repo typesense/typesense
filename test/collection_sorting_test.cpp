@@ -2147,6 +2147,23 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, DisallowIdAsDefaultSortingField) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "default_sorting_field": "id",
+            "fields": [
+              {"name": "id", "type": "string" }
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("Invalid `default_sorting_field` value: cannot be `id`.", coll_op.error());
+}
+
 TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
     std::string coll_schema = R"(
         {
