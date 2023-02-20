@@ -1952,6 +1952,32 @@ TEST_F(CollectionSortingTest, DisallowSortingOnNonIndexedIntegerField) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, WildcardSearchSequenceIdSort) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "category", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["category"] = "Shoes";
+
+    for(size_t i = 0; i < 30; i++) {
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("_seq_id", "DESC"),
+    };
+
+    auto res = coll1->search("*", {"category"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(10, res["hits"].size());
+    ASSERT_EQ(30, res["found"].get<size_t>());
+}
+
 TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     std::string coll_schema = R"(
         {
