@@ -49,6 +49,8 @@ This is a selection of sites and apps using Typesense.
 | [Project Seldon](https://projectseldon.org) | A free and unbiased analysis platform for understanding societies and systems of government. |
 | [Granthappura](https://gpura.org/) | A free-licensed digitized artifacts archive related to Kerala from multiple languages. [Github Link](https://github.com/indic-archive/omeka-typesense-search) |
 | [Syracuse University](https://syracuse.edu) | A private research university in Syracuse, New York. [Visit our live typesense demo!](https://typesense-demo.dev3.digitalservices.syr.edu) |
+| [Magny SaaS search bar](https://magny.io) | Magny is a SaaS platform that helps implement command palettes, which significantly decreases the time users find anything in your app, leveraging the user experience and efficiency. |
+
 
 ### Typesense Demos
 
