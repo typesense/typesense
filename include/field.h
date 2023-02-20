@@ -355,7 +355,7 @@ struct field {
             }
         }
 
-        if(!default_sorting_field.empty() && !found_default_sorting_field && !fields.empty()) {
+        if(!default_sorting_field.empty() && !found_default_sorting_field) {
             return Option<bool>(400, "Default sorting field is defined as `" + default_sorting_field +
                                      "` but is not found in the schema.");
         }
