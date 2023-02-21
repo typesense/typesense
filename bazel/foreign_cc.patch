@@ -22,11 +22,11 @@
 +            action_name = ACTION_NAMES.cpp_compile,
 +        )
 +    cxx_splitted = cxx.split("/")
-+    if(cxx_splitted[-1] == "gcc"):
-+        cxx_splitted[-1] = "g++"
++    if(cxx_splitted[-1].startswith("gcc")):
++        cxx_splitted[-1] = cxx_splitted[-1].replace("gcc", "g++")
 +        cxx = "/".join(cxx_splitted)
-+    if(cxx_splitted[-1] == "clang"):
-+        cxx_splitted[-1] = "clang++"
++    if(cxx_splitted[-1].startswith("clang")):
++        cxx_splitted[-1] = cxx_splitted[-1].replace("clang", "clang++")
 +        cxx = "/".join(cxx_splitted)
 +
      return CxxToolsInfo(
