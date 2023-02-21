@@ -5,7 +5,8 @@
 FROM gcc:10.3.0-buster
 
 RUN apt-get update && \
-    apt-get install -y software-properties-common \
+    apt-get install -y build-essential \
+    software-properties-common \
     zlib1g-dev \
     liblist-compare-perl \
     git
