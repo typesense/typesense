@@ -9,6 +9,7 @@
 #include <sparsepp.h>
 #include <tsl/htrie_map.h>
 #include "json.hpp"
+#include "text_embedder_manager.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -317,9 +318,9 @@ struct field {
             if (!field.reference.empty()) {
                 field_val[fields::reference] = field.reference;
             }
-            if(field.create_from.size() > 0) {
+            if(!field.create_from.empty()) {
                 field_val[fields::create_from] = field.create_from;
-                if(field.model_path.size() > 0) {
+                if(!field.model_path.empty()) {
                     field_val[fields::model_path] = field.model_path;
                 }
             }
@@ -408,7 +409,7 @@ struct field {
 
     static Option<bool> json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                             std::vector<field>& the_fields,
-                                            string& fallback_field_type, size_t& num_auto_detect_fields,const nlohmann::json& all_fields_json = nlohmann::json());
+                                            string& fallback_field_type, size_t& num_auto_detect_fields);
 
     static Option<bool> json_fields_to_fields(bool enable_nested_fields,
                                               nlohmann::json& fields_json,
@@ -418,8 +419,61 @@ struct field {
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
+
+            if(field_json.count(fields::create_from) != 0) {
+                if(TextEmbedderManager::model_dir.empty()) {
+                    return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
+                }
+
+                if(!field_json[fields::create_from].is_array()) {
+                    return Option<bool>(400, "Property `" + fields::create_from + "` must be an array.");
+                }
+
+                if(field_json[fields::create_from].empty()) {
+                    return Option<bool>(400, "Property `" + fields::create_from + "` must have at least one element.");
+                }
+
+                for(auto& create_from_field : field_json[fields::create_from]) {
+                    if(!create_from_field.is_string()) {
+                        return Option<bool>(400, "Property `" + fields::create_from + "` must be an array of strings.");
+                    }
+                }
+
+                if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
+                    return Option<bool>(400, "Property `" + fields::create_from + "` is only allowed on a float array field.");
+                }
+                
+
+                for(auto& create_from_field : field_json[fields::create_from]) {
+                    bool flag = false;
+                    for(const auto& field : fields_json) {
+                        if(field[fields::name] == create_from_field) {
+                            if(field[fields::type] != field_types::STRING) {
+                                return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                            }
+                            flag = true;
+                            break;
+                        }
+                    }
+                    if(!flag) {
+                        for(const auto& field : the_fields) {
+                            if(field.name == create_from_field) {
+                                if(field.type != field_types::STRING) {
+                                    return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                                }
+                                flag = true;
+                                break;
+                            }
+                        }
+                    }
+                    if(!flag) {
+                        return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                    }
+                }   
+            }
+
             auto op = json_field_to_field(enable_nested_fields,
-                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields, fields_json);
+                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields);
             if(!op.ok()) {
                 return op;
             }

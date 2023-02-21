@@ -454,8 +454,6 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
     }
 
-
-    LOG(INFO) << "MODEL DIR: " << config.get_model_dir();
     if(config.get_model_dir().size() > 0) {
         LOG(INFO) << "Loading text embedding models from " << config.get_model_dir();
         TextEmbedderManager::get_instance().set_model_dir(config.get_model_dir());

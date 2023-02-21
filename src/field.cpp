@@ -503,7 +503,7 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
 
 Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                         std::vector<field>& the_fields,
-                                        string& fallback_field_type, size_t& num_auto_detect_fields, const nlohmann::json& all_fields_json) {
+                                        string& fallback_field_type, size_t& num_auto_detect_fields) {
 
     if(field_json["name"] == "id") {
         // No field should exist with the name "id" as it is reserved for internal use
@@ -668,58 +668,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     }
 
     if(field_json.count(fields::create_from) != 0) {
-        if(TextEmbedderManager::model_dir.size() == 0) {
-            return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
-        }
-
-        if(!field_json[fields::create_from].is_array()) {
-            return Option<bool>(400, "Property `" + fields::create_from + "` must be an array.");
-        }
-
-        if(field_json[fields::create_from].size() == 0) {
-            return Option<bool>(400, "Property `" + fields::create_from + "` must have at least one element.");
-        }
-
-        for(auto& create_from_field : field_json[fields::create_from]) {
-            if(!create_from_field.is_string()) {
-                return Option<bool>(400, "Property `" + fields::create_from + "` must be an array of strings.");
-            }
-        }
-
-        if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
-            return Option<bool>(400, "Property `" + fields::create_from + "` is only allowed on a float array field.");
-        }
-        
-
-        std::unordered_set<std::string> found_fields;
-        for(auto& create_from_field : field_json[fields::create_from]) {
-            bool flag = false;
-            for(const auto& field : all_fields_json) {
-                if(field[fields::name] == create_from_field) {
-                    if(field[fields::type] != field_types::STRING) {
-                        return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
-                    }
-                    found_fields.insert(create_from_field.get<std::string>());
-                    flag = true;
-                    break;
-                }
-            }
-            if(!flag) {
-                for(const auto& field : the_fields) {
-                    if(field.name == create_from_field) {
-                        if(field.type != field_types::STRING) {
-                            return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
-                        }
-                        found_fields.insert(create_from_field.get<std::string>());
-                        break;
-                    }
-                }
-            }
-        }   
-        if(found_fields.size() != field_json[fields::create_from].size()) {
-            return Option<bool>(400, "Property `" + fields::create_from + "` must be an array of existing string fields.");
-        }
-
         // If the model path is not specified, use the default model and set the number of dimensions to 384 (number of dimensions of the default model)
         field_json[fields::num_dim] = static_cast<unsigned int>(384);
         if(!field_json[fields::model_path].is_null()) {

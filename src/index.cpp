@@ -3010,12 +3010,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         sort_order, field_values, geopoint_indices,
                         curated_ids_sorted, all_result_ids, all_result_ids_len, groups_processed);
 
-        LOG(INFO) << "all_result_ids_len: " << all_result_ids_len;
         if(!vector_query.field_name.empty()) {
             VectorFilterFunctor filterFunctor(seq_ids->uncompress(), seq_ids->num_ids());
-            LOG(INFO) << "vector_query.field_name: " << vector_query.field_name;
             auto& field_vector_index = vector_index.at(vector_query.field_name);
-            LOG(INFO) << "field_vector_index->vecdex->size():";
             std::vector<std::pair<float, size_t>> dist_labels;
             auto k = std::max<size_t>(vector_query.k, per_page * page);
 

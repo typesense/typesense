@@ -1600,15 +1600,17 @@ TEST_F(CollectionAllFieldsTest, CreateFromFieldJSONInvalidField) {
 
     std::vector<field> fields;
     std::string fallback_field_type;
-    size_t num_auto_detect_fields;
+    auto arr = nlohmann::json::array();
+    arr.push_back(field_json);
 
-    auto field_op = field::json_field_to_field(false, field_json, fields, fallback_field_type, num_auto_detect_fields);
+    auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
 
     ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `create_from` must be an array of existing string fields.", field_op.error());
+    ASSERT_EQ("Property `create_from` can only be used with array of string fields.", field_op.error());
 }
 
 TEST_F(CollectionAllFieldsTest, CreateFromFieldNoModelDir) {
+    TextEmbedderManager::model_dir = std::string();
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1616,12 +1618,13 @@ TEST_F(CollectionAllFieldsTest, CreateFromFieldNoModelDir) {
 
     std::vector<field> fields;
     std::string fallback_field_type;
-    size_t num_auto_detect_fields;
+    auto arr = nlohmann::json::array();
+    arr.push_back(field_json);
 
-    auto field_op = field::json_field_to_field(false, field_json, fields, fallback_field_type, num_auto_detect_fields);
+    auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
 
     ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `create_from` must be an array of existing string fields.", field_op.error());
+    ASSERT_EQ("Text embedding is not enabled. Please set `model-dir` at startup.", field_op.error());
 }
 
 TEST_F(CollectionAllFieldsTest, CreateFromNotArray) {
@@ -1633,9 +1636,10 @@ TEST_F(CollectionAllFieldsTest, CreateFromNotArray) {
 
     std::vector<field> fields;
     std::string fallback_field_type;
-    size_t num_auto_detect_fields;
+    auto arr = nlohmann::json::array();
+    arr.push_back(field_json);
 
-    auto field_op = field::json_field_to_field(false, field_json, fields, fallback_field_type, num_auto_detect_fields);
+    auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
 
     ASSERT_FALSE(field_op.ok());
     ASSERT_EQ("Property `create_from` must be an array.", field_op.error());
@@ -1650,10 +1654,10 @@ TEST_F(CollectionAllFieldsTest, ModelPathWithoutCreateFrom) {
 
     std::vector<field> fields;
     std::string fallback_field_type;
-    size_t num_auto_detect_fields;
+    auto arr = nlohmann::json::array();
+    arr.push_back(field_json);
 
-    auto field_op = field::json_field_to_field(false, field_json, fields, fallback_field_type, num_auto_detect_fields);
-
+    auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
     ASSERT_FALSE(field_op.ok());
     ASSERT_EQ("Property `model_path` can only be used with `create_from`.", field_op.error());
 }
