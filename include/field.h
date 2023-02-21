@@ -11,7 +11,6 @@
 #include <tsl/htrie_map.h>
 #include "json.hpp"
 #include "text_embedder_manager.h"
-#include <regex>
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -411,7 +410,7 @@ struct field {
 
     static Option<bool> json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                             std::vector<field>& the_fields,
-                                            string& fallback_field_type, size_t& num_auto_detect_fields,const nlohmann::json& all_fields_json = nlohmann::json());
+                                            string& fallback_field_type, size_t& num_auto_detect_fields);
 
     static Option<bool> json_fields_to_fields(bool enable_nested_fields,
                                               nlohmann::json& fields_json,
@@ -475,7 +474,7 @@ struct field {
             }
 
             auto op = json_field_to_field(enable_nested_fields,
-                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields, fields_json);
+                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields);
             if(!op.ok()) {
                 return op;
             }
