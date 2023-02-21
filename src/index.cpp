@@ -1891,20 +1891,78 @@ void Index::do_filtering(uint32_t*& filter_ids,
                     continue;
                 }
 
-                // need to do exact match
-                uint32_t* exact_str_ids = new uint32_t[result_id_vec.size()];
-                size_t exact_str_ids_size = 0;
-                std::unique_ptr<uint32_t[]> exact_str_ids_guard(exact_str_ids);
+                if (f.is_facet()) {
+                    const auto& field_facet_mapping_it = facet_index_v3.find(a_filter.field_name);
+                    const auto& field_single_val_facet_mapping_it = single_val_facet_index_v3.find(a_filter.field_name);
 
-                posting_t::get_exact_matches(posting_lists, f.is_array(), result_id_vec.data(), result_id_vec.size(),
-                                             exact_str_ids, exact_str_ids_size);
+                    if(field_facet_mapping_it == facet_index_v3.end()
+                        && field_single_val_facet_mapping_it == single_val_facet_index_v3.end()) {
+                        continue;
+                    }
 
-                if (exact_str_ids_size == 0) {
-                    continue;
-                }
+                    Tokenizer tokenizer(filter_value, true, false, f.locale, symbols_to_index, token_separators);
+                    std::string token;
+                    size_t token_index = 0;
+                    uint64_t filter_value_hash = 1;
 
-                for (size_t ei = 0; ei < exact_str_ids_size; ei++) {
-                    f_id_buff.push_back(exact_str_ids[ei]);
+                    while (tokenizer.next(token, token_index)) {
+                        if (token.empty()) {
+                            continue;
+                        }
+
+                        uint64_t token_hash = Index::facet_token_hash(f, token);
+                        if (token_index == 0) {
+                            filter_value_hash = token_hash;
+                        } else {
+                            filter_value_hash = StringUtils::hash_combine(filter_value_hash, token_hash);
+                        }
+                    }
+
+                    for (auto const& seq_id: result_id_vec) {
+                        if(f.is_array()) {
+                            const auto& field_facet_mapping = field_facet_mapping_it->second;
+                            const auto& facet_hashes_it = field_facet_mapping[seq_id % ARRAY_FACET_DIM]->find(seq_id);
+
+                            if(facet_hashes_it == field_facet_mapping[seq_id % ARRAY_FACET_DIM]->end()) {
+                                continue;
+                            }
+
+                            const auto& facet_hashes = facet_hashes_it->second;
+                            for(size_t i = 0; i < facet_hashes.size(); i++) {
+                                if (filter_value_hash == facet_hashes.hashes[i]) {
+                                    f_id_buff.push_back(seq_id);
+                                    break;
+                                }
+                            }
+                        } else {
+                            const auto& field_facet_mapping = field_single_val_facet_mapping_it->second;
+                            const auto& facet_hashes_it = field_facet_mapping[seq_id % ARRAY_FACET_DIM]->find(seq_id);
+
+                            if(facet_hashes_it == field_facet_mapping[seq_id % ARRAY_FACET_DIM]->end()) {
+                                continue;
+                            }
+
+                            if (filter_value_hash == facet_hashes_it->second) {
+                                f_id_buff.push_back(seq_id);
+                            }
+                        }
+                    }
+                } else {
+                    // need to do exact match
+                    uint32_t* exact_str_ids = new uint32_t[result_id_vec.size()];
+                    size_t exact_str_ids_size = 0;
+                    std::unique_ptr<uint32_t[]> exact_str_ids_guard(exact_str_ids);
+
+                    posting_t::get_exact_matches(posting_lists, f.is_array(), result_id_vec.data(), result_id_vec.size(),
+                                                 exact_str_ids, exact_str_ids_size);
+
+                    if (exact_str_ids_size == 0) {
+                        continue;
+                    }
+
+                    for (size_t ei = 0; ei < exact_str_ids_size; ei++) {
+                        f_id_buff.push_back(exact_str_ids[ei]);
+                    }
                 }
             } else {
                 // CONTAINS
