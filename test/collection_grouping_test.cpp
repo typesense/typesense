@@ -73,17 +73,20 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
     ASSERT_EQ(3, res["grouped_hits"].size());
     ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
 
+    ASSERT_EQ(2, res["grouped_hits"][0]["found"].get<int32_t>());
     ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][0]["hits"][0]["document"]["rating"].get<float>());
     ASSERT_EQ(11, res["grouped_hits"][0]["hits"][0]["document"]["size"].get<size_t>());
     ASSERT_STREQ("5", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_FLOAT_EQ(4.3, res["grouped_hits"][0]["hits"][1]["document"]["rating"].get<float>());
     ASSERT_STREQ("1", res["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
+    ASSERT_EQ(7, res["grouped_hits"][1]["found"].get<int32_t>());
     ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][1]["hits"][0]["document"]["rating"].get<float>());
     ASSERT_STREQ("4", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_FLOAT_EQ(4.6, res["grouped_hits"][1]["hits"][1]["document"]["rating"].get<float>());
     ASSERT_STREQ("3", res["grouped_hits"][1]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
+    ASSERT_EQ(3, res["grouped_hits"][2]["found"].get<int32_t>());
     ASSERT_FLOAT_EQ(4.6, res["grouped_hits"][2]["hits"][0]["document"]["rating"].get<float>());
     ASSERT_STREQ("2", res["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_FLOAT_EQ(4.4, res["grouped_hits"][2]["hits"][1]["document"]["rating"].get<float>());
@@ -117,22 +120,26 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
     ASSERT_EQ(7, res["grouped_hits"].size());
     ASSERT_FLOAT_EQ(4.4, res["grouped_hits"][0]["group_key"][0].get<float>());
 
+    ASSERT_EQ(1, res["grouped_hits"][0]["found"].get<int32_t>());
     ASSERT_EQ(12, res["grouped_hits"][0]["hits"][0]["document"]["size"].get<uint32_t>());
     ASSERT_STREQ("8", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_FLOAT_EQ(4.4, res["grouped_hits"][0]["hits"][0]["document"]["rating"].get<float>());
 
+    ASSERT_EQ(4, res["grouped_hits"][1]["found"].get<int32_t>());
     ASSERT_EQ(12, res["grouped_hits"][1]["hits"][0]["document"]["size"].get<uint32_t>());
     ASSERT_STREQ("6", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_FLOAT_EQ(4.3, res["grouped_hits"][1]["hits"][0]["document"]["rating"].get<float>());
-
+    
     ASSERT_EQ(11, res["grouped_hits"][1]["hits"][1]["document"]["size"].get<uint32_t>());
     ASSERT_STREQ("1", res["grouped_hits"][1]["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_FLOAT_EQ(4.3, res["grouped_hits"][1]["hits"][1]["document"]["rating"].get<float>());
 
+    ASSERT_EQ(1, res["grouped_hits"][5]["found"].get<int32_t>());
     ASSERT_EQ(10, res["grouped_hits"][5]["hits"][0]["document"]["size"].get<uint32_t>());
     ASSERT_STREQ("9", res["grouped_hits"][5]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_FLOAT_EQ(4.1, res["grouped_hits"][5]["hits"][0]["document"]["rating"].get<float>());
 
+    ASSERT_EQ(1, res["grouped_hits"][6]["found"].get<int32_t>());
     ASSERT_EQ(10, res["grouped_hits"][6]["hits"][0]["document"]["size"].get<uint32_t>());
     ASSERT_STREQ("0", res["grouped_hits"][6]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_FLOAT_EQ(4.5, res["grouped_hits"][6]["hits"][0]["document"]["rating"].get<float>());
@@ -164,6 +171,7 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
     ASSERT_EQ(10, res["found"].get<size_t>());
     ASSERT_EQ(10, res["grouped_hits"].size());
 
+    ASSERT_EQ(1, res["grouped_hits"][0]["found"].get<int32_t>());
     ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
     ASSERT_STREQ("Beta", res["grouped_hits"][0]["group_key"][1].get<std::string>().c_str());
 
@@ -176,10 +184,12 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
     ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][0]["hits"][0]["document"]["rating"].get<float>());
     ASSERT_STREQ("5", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    ASSERT_EQ(1, res["grouped_hits"][1]["found"].get<int32_t>());
     ASSERT_EQ(1, res["grouped_hits"][1]["hits"].size());
     ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][1]["hits"][0]["document"]["rating"].get<float>());
     ASSERT_STREQ("4", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    ASSERT_EQ(2, res["grouped_hits"][2]["found"].get<int32_t>());
     ASSERT_EQ(2, res["grouped_hits"][2]["hits"].size());
     ASSERT_FLOAT_EQ(4.6, res["grouped_hits"][2]["hits"][0]["document"]["rating"].get<float>());
     ASSERT_STREQ("3", res["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -306,16 +316,19 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["grouped_hits"].size());
 
+    ASSERT_EQ(21, results["grouped_hits"][0]["found"].get<int32_t>());
     ASSERT_STREQ("pop", results["grouped_hits"][0]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
     ASSERT_STREQ("1", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("4", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
+    ASSERT_EQ(6, results["grouped_hits"][1]["found"].get<int32_t>());
     ASSERT_STREQ("rock", results["grouped_hits"][1]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][1]["hits"].size());
     ASSERT_STREQ("5", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["grouped_hits"][1]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
+    ASSERT_EQ(3, results["grouped_hits"][2]["found"].get<int32_t>());
     ASSERT_STREQ("country", results["grouped_hits"][2]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][2]["hits"].size());
     ASSERT_STREQ("3", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -339,11 +352,20 @@ TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
     for(auto i=0; i<5; i++) {
         ASSERT_EQ(1, res["grouped_hits"][i]["hits"].size());
     }
-
+    
+    ASSERT_EQ(3, res["grouped_hits"][0]["found"].get<int32_t>());
     ASSERT_STREQ("5", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    
+    ASSERT_EQ(4, res["grouped_hits"][1]["found"].get<int32_t>());
     ASSERT_STREQ("3", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    
+    ASSERT_EQ(2, res["grouped_hits"][2]["found"].get<int32_t>());
     ASSERT_STREQ("8", res["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    
+    ASSERT_EQ(2, res["grouped_hits"][3]["found"].get<int32_t>());
     ASSERT_STREQ("10", res["grouped_hits"][3]["hits"][0]["document"]["id"].get<std::string>().c_str()); // unbranded
+    
+    ASSERT_EQ(1, res["grouped_hits"][4]["found"].get<int32_t>());
     ASSERT_STREQ("9", res["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>().c_str());
 
     // facet counts should each be 1, including unbranded

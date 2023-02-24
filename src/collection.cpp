@@ -1237,7 +1237,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<std::vector<KV*>> override_result_kvs;
 
     size_t total_found = 0;
-    spp::sparse_hash_set<uint64_t> groups_processed;  // used to calculate total_found for grouped query
 
     std::vector<uint32_t> excluded_ids;
     std::vector<std::pair<uint32_t, uint32_t>> included_ids; // ID -> position
@@ -1731,6 +1730,16 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
         if(group_limit) {
             group_hits["group_key"] = group_key;
+
+            uint64_t distinct_id = index->get_distinct_id(group_by_fields, kv_group[0]->key);
+            const auto& itr = search_params->groups_processed.find(distinct_id);
+            
+            if(itr != search_params->groups_processed.end()) {
+                group_hits["found"] = itr->second;
+            }
+            else {
+                //LOG (ERROR) << "distinct key " << distinct_id << " not found ";
+            }
             result["grouped_hits"].push_back(group_hits);
         }
     }
