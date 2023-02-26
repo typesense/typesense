@@ -1035,6 +1035,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> parse_filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                               store, doc_id_prefix, filter_tree_root);
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
     if(!parse_filter_op.ok()) {
         return Option<nlohmann::json>(parse_filter_op.code(), parse_filter_op.error());
     }
@@ -1277,6 +1279,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query);
+    std::unique_ptr<search_args> search_params_guard(search_params);
 
     index->run_search(search_params);
 
@@ -1803,11 +1806,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         facet_result["stats"]["total_values"] = facet_hash_counts.size();
         result["facet_counts"].push_back(facet_result);
     }
-
-    // free search params
-    delete search_params;
-
-    delete filter_tree_root;
 
     result["search_cutoff"] = search_cutoff;
 
