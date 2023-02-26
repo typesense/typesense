@@ -389,7 +389,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
         const std::string expression = postfix.front();
         postfix.pop();
 
-        filter_node_t* filter_node;
+        filter_node_t* filter_node = nullptr;
         if (isOperator(expression)) {
             auto message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
 
@@ -400,6 +400,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             nodeStack.pop();
 
             if (nodeStack.empty()) {
+                delete operandB;
                 return Option<bool>(400, message);
             }
             auto operandA = nodeStack.top();
@@ -410,6 +411,11 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             filter filter_exp;
             Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
             if (!toFilter_op.ok()) {
+                while(!nodeStack.empty()) {
+                    auto filterNode = nodeStack.top();
+                    delete filterNode;
+                    nodeStack.pop();
+                }
                 return toFilter_op;
             }
 
