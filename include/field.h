@@ -516,8 +516,8 @@ struct filter_node_t {
     filter filter_exp;
     FILTER_OPERATOR filter_operator;
     bool isOperator;
-    filter_node_t* left;
-    filter_node_t* right;
+    filter_node_t* left = nullptr;
+    filter_node_t* right = nullptr;
 
     filter_node_t(filter filter_exp)
             : filter_exp(std::move(filter_exp)),
