@@ -3021,8 +3021,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             if(has_text_match) {
-                auto seq_ids_arr = seq_ids->uncompress();
-                VectorFilterFunctor filterFunctor(seq_ids_arr, seq_ids->num_ids());
+                VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
                 std::vector<std::pair<float, size_t>> dist_labels;
                 auto k = std::max<size_t>(vector_query.k, per_page * page);
@@ -3040,7 +3039,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                     auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
                                             dist_label.first;
-
                     auto score = (1.0 - vec_dist_score) * 100000000000.0;
                     
                     auto found = topster->kv_map.find(seq_id);
@@ -3050,7 +3048,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     }
                 }
 
-                delete [] seq_ids_arr;
             }
         }
 
