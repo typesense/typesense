@@ -481,9 +481,9 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                     error_message = toFilter_op.error();
                     break;
                 }
-
-                filter_node = new filter_node_t(filter_exp);
             }
+
+            filter_node = new filter_node_t(filter_exp);
         }
 
         nodeStack.push(filter_node);
