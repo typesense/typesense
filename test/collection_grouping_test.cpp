@@ -316,19 +316,19 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["grouped_hits"].size());
 
-    ASSERT_EQ(21, results["grouped_hits"][0]["found"].get<int32_t>());
+    ASSERT_EQ(3, results["grouped_hits"][0]["found"].get<int32_t>());
     ASSERT_STREQ("pop", results["grouped_hits"][0]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
     ASSERT_STREQ("1", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("4", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
-    ASSERT_EQ(6, results["grouped_hits"][1]["found"].get<int32_t>());
+    ASSERT_EQ(2, results["grouped_hits"][1]["found"].get<int32_t>());
     ASSERT_STREQ("rock", results["grouped_hits"][1]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][1]["hits"].size());
     ASSERT_STREQ("5", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["grouped_hits"][1]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
-    ASSERT_EQ(3, results["grouped_hits"][2]["found"].get<int32_t>());
+    ASSERT_EQ(2, results["grouped_hits"][2]["found"].get<int32_t>());
     ASSERT_STREQ("country", results["grouped_hits"][2]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][2]["hits"].size());
     ASSERT_STREQ("3", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -566,4 +566,36 @@ TEST_F(CollectionGroupingTest, UseHighestValueInGroupForOrdering) {
     ASSERT_EQ(1, res["grouped_hits"][0]["group_key"].size());
     ASSERT_STREQ("249", res["grouped_hits"][0]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, res["grouped_hits"][0]["hits"].size());
+}
+
+
+TEST_F(CollectionGroupingTest, RepeatedFieldNameGroupHitCount) {
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("brand", field_types::STRING, true, true),
+            field("colors", field_types::STRING, true, false),
+    };
+
+    Collection* coll2 = collectionManager.get_collection("coll2").get();
+    if(coll2 == nullptr) {
+        coll2 = collectionManager.create_collection("coll2", 1, fields).get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "foobar";
+    doc["brand"] = "Omega";
+    doc["colors"] = "foo";
+
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    auto res = coll2->search("f", {"title", "colors"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                                   {true}, 10,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"brand"}, 2).get();
+
+    ASSERT_EQ(1, res["grouped_hits"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["found"].get<int32_t>());
 }

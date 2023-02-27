@@ -2578,7 +2578,6 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                 uint64_t distinct_id = seq_id;
                 if (group_limit != 0) {
                     distinct_id = get_distinct_id(group_by_fields, seq_id);
-                    groups_processed[distinct_id]++;
                 }
 
                 int64_t scores[3] = {0};
@@ -2587,7 +2586,11 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
                 result_ids.push_back(seq_id);
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
-                topster->add(&kv);
+                int ret = topster->add(&kv);
+
+                if((group_limit != 0) && (ret < 2)) {
+                    groups_processed[distinct_id]++;
+                }
 
                 if (result_ids.size() == page * per_page) {
                     break;
@@ -2670,7 +2673,6 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                 uint64_t distinct_id = seq_id;
                 if (group_limit != 0) {
                     distinct_id = get_distinct_id(group_by_fields, seq_id);
-                    groups_processed[distinct_id]++;
                 }
 
                 auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
@@ -2683,7 +2685,11 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                 //LOG(INFO) << "SEQ_ID: " << seq_id << ", score: " << dist_label.first;
 
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
-                topster->add(&kv);
+                int ret = topster->add(&kv);
+
+                if((group_limit != 0) && (ret < 2)) {
+                    groups_processed[distinct_id]++;
+                }
                 nearest_ids.push_back(seq_id);
             }
 
@@ -3644,7 +3650,6 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         uint64_t distinct_id = seq_id;
         if(group_limit != 0) {
             distinct_id = get_distinct_id(group_by_fields, seq_id);
-            groups_processed[distinct_id]++;
         }
 
         int64_t scores[3] = {0};
@@ -3698,7 +3703,11 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         if(match_score_index != -1) {
             kv.scores[match_score_index] = aggregated_score;
         }
-        topster->add(&kv);
+
+        int ret = topster->add(&kv);
+        if((group_limit != 0) && (ret < 2)) {
+            groups_processed[distinct_id]++;
+        }
         result_ids.push_back(seq_id);
     });
 
@@ -4163,11 +4172,13 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
                     uint64_t distinct_id = seq_id;
                     if(group_limit != 0) {
                         distinct_id = get_distinct_id(group_by_fields, seq_id);
-                        groups_processed[distinct_id]++;
                     }
 
                     KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
-                    actual_topster->add(&kv);
+                    int ret = actual_topster->add(&kv);
+                    if((group_limit != 0) && (ret < 2)) {
+                        groups_processed[distinct_id]++;
+                    }
 
                     if(((i + 1) % (1 << 12)) == 0) {
                         BREAK_CIRCUIT_BREAKER
@@ -4498,11 +4509,14 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
                 uint64_t distinct_id = seq_id;
                 if(group_limit != 0) {
                     distinct_id = get_distinct_id(group_by_fields, seq_id);
-                    tgroups_processed[thread_id][distinct_id]++;
                 }
 
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
-                topsters[thread_id]->add(&kv);
+                int ret = topsters[thread_id]->add(&kv);
+
+                if((group_limit != 0) && (ret < 2)) {
+                    tgroups_processed[thread_id][distinct_id]++;
+                }
 
                 if(check_for_circuit_break && ((i + 1) % (1 << 15)) == 0) {
                     // check only once every 2^15 docs to reduce overhead
@@ -5087,12 +5101,14 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     if(group_limit != 0) {
         distinct_id = get_distinct_id(group_by_fields, seq_id);
-        groups_processed[distinct_id]++;
     }
 
     //LOG(INFO) << "Seq id: " << seq_id << ", match_score: " << match_score;
     KV kv(query_index, seq_id, distinct_id, match_score_index, scores);
-    topster->add(&kv);
+    int ret = topster->add(&kv);
+    if((group_limit != 0) && (ret < 2)) {
+        groups_processed[distinct_id]++;
+    }
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //LOG(INFO) << "Time taken for results iteration: " << timeNanos << "ms";
