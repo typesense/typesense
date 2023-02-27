@@ -153,12 +153,7 @@ struct Topster {
         }*/
 
         int ret = 1;
-        const auto& doc_seq_id_exists = (group_doc_seq_ids.find(kv->key) != group_doc_seq_ids.end());
-        if(doc_seq_id_exists) {
-            ret = 2;
-        }
-        group_doc_seq_ids.emplace(kv->key);
-
+       
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
 
@@ -170,6 +165,14 @@ struct Topster {
         bool SIFT_DOWN = true;
 
         if(distinct) {
+            const auto& doc_seq_id_exists = 
+                (group_doc_seq_ids.find(kv->key) != group_doc_seq_ids.end());
+        
+            if(doc_seq_id_exists) {
+                ret = 2;
+            }
+            group_doc_seq_ids.emplace(kv->key);
+            
             // Grouping cannot be a streaming operation, so aggregate the KVs associated with every group.
             auto kvs_it = group_kv_map.find(kv->distinct_key);
             if(kvs_it != group_kv_map.end()) {
