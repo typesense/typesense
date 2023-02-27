@@ -10,7 +10,7 @@ TextEmbedder::TextEmbedder(const std::string& model_path) {
 
     // create environment
     Ort::SessionOptions session_options;
-    std::string abs_path = get_absolute_model_path(model_path);
+    std::string abs_path = TextEmbedderManager::get_absolute_model_path(model_path);
     LOG(INFO) << "Loading model from: " << abs_path;
     session_ = new Ort::Session(env_, abs_path.c_str(), session_options);
     std::ifstream stream("vocab.txt");
@@ -21,11 +21,9 @@ TextEmbedder::TextEmbedder(const std::string& model_path) {
                     ustring("[CLS]"), ustring("[MASK]"), true, true, ustring("##"),512, std::string("longest_first"));
 
     auto output_tensor_count = session_->GetOutputCount();
-    bool found_output_tensor = false;
-    for (int i = 0; i < output_tensor_count; i++) {
+    for (size_t i = 0; i < output_tensor_count; i++) {
         auto shape = session_->GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
         if (shape.size() == 3 && shape[0] == -1 && shape[1] == -1 && shape[2] > 0) {
-            found_output_tensor = true;
             Ort::AllocatorWithDefaultOptions allocator;
             output_tensor_name = std::string(session_->GetOutputNameAllocated(i, allocator).get());
             break;
@@ -57,8 +55,6 @@ std::vector<float> TextEmbedder::mean_pooling(const std::vector<std::vector<floa
 }
 
 std::vector<float> TextEmbedder::Embed(const std::string& text) {
-
-    LOG(INFO) << "Embedding text: " << text;
     auto encoded_input = Encode(text);
     // create input tensor object from data values
     Ort::AllocatorWithDefaultOptions allocator;
@@ -109,7 +105,7 @@ bool TextEmbedder::is_model_valid(const std::string& model_path, unsigned int& n
    LOG(INFO) << "Loading model: " << model_path;
     Ort::SessionOptions session_options;
     Ort::Env env;
-    std::string abs_path = get_absolute_model_path(model_path);
+    std::string abs_path = TextEmbedderManager::get_absolute_model_path(model_path);
 
     if(!std::filesystem::exists(abs_path)) {
         LOG(ERROR) << "Model file not found: " << abs_path;
@@ -142,7 +138,7 @@ bool TextEmbedder::is_model_valid(const std::string& model_path, unsigned int& n
 
     auto output_tensor_count = session.GetOutputCount();
     bool found_output_tensor = false;
-    for (int i = 0; i < output_tensor_count; i++) {
+    for (size_t i = 0; i < output_tensor_count; i++) {
         auto shape = session.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
         if (shape.size() == 3 && shape[0] == -1 && shape[1] == -1 && shape[2] > 0) {
             num_dims = shape[2];
@@ -158,22 +154,3 @@ bool TextEmbedder::is_model_valid(const std::string& model_path, unsigned int& n
 
     return true;
 }
-
-std::string TextEmbedder::get_absolute_model_path(const std::string & model_path) {
-    const std::string model_dir = TextEmbedderManager::model_dir;
-
-    if(model_dir.back() != '/') {
-        if(model_path.front() != '/') {
-            return model_dir + "/" + model_path;
-        } else {
-            return model_dir + model_path;
-        }
-    } else {
-        if(model_path.front() != '/') {
-            return model_dir + model_path;
-        } else {
-            return model_dir + "/" + model_path;
-        }
-    }
-}
-

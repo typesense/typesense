@@ -3011,34 +3011,47 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         curated_ids_sorted, all_result_ids, all_result_ids_len, groups_processed);
 
         if(!vector_query.field_name.empty()) {
-            VectorFilterFunctor filterFunctor(seq_ids->uncompress(), seq_ids->num_ids());
-            auto& field_vector_index = vector_index.at(vector_query.field_name);
-            std::vector<std::pair<float, size_t>> dist_labels;
-            auto k = std::max<size_t>(vector_query.k, per_page * page);
-
-            if(field_vector_index->distance_type == cosine) {
-                std::vector<float> normalized_q(vector_query.values.size());
-                hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, filterFunctor);
-            } else {
-                dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, filterFunctor);
-            }
-
-            for (const auto& dist_label : dist_labels) {
-                uint32 seq_id = dist_label.second;
-
-                auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
-                                        dist_label.first;
-
-                auto score = (1.0 - vec_dist_score) * 100000000000.0;
-                
-                auto found = topster->kv_map.find(seq_id);
-        
-                if (found != topster->kv_map.end()) {
-                    found->second->scores[0] += score;
+            // check at least one of sort fields is text match
+            bool has_text_match = false;
+            for(auto& sort_field : sort_fields_std) {
+                if(sort_field.name == sort_field_const::text_match) {
+                    has_text_match = true;
+                    break;
                 }
             }
 
+            if(has_text_match) {
+                auto seq_ids_arr = seq_ids->uncompress();
+                VectorFilterFunctor filterFunctor(seq_ids_arr, seq_ids->num_ids());
+                auto& field_vector_index = vector_index.at(vector_query.field_name);
+                std::vector<std::pair<float, size_t>> dist_labels;
+                auto k = std::max<size_t>(vector_query.k, per_page * page);
+
+                if(field_vector_index->distance_type == cosine) {
+                    std::vector<float> normalized_q(vector_query.values.size());
+                    hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, filterFunctor);
+                } else {
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, filterFunctor);
+                }
+
+                for (const auto& dist_label : dist_labels) {
+                    uint32 seq_id = dist_label.second;
+
+                    auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
+                                            dist_label.first;
+
+                    auto score = (1.0 - vec_dist_score) * 100000000000.0;
+                    
+                    auto found = topster->kv_map.find(seq_id);
+            
+                    if (found != topster->kv_map.end() && found->second->match_score_index >= 0 && found->second->match_score_index <= 2) {
+                        found->second->scores[found->second->match_score_index] += score;
+                    }
+                }
+
+                delete [] seq_ids_arr;
+            }
         }
 
         /*auto timeMillis0 = std::chrono::duration_cast<std::chrono::milliseconds>(

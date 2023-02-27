@@ -663,26 +663,26 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
-    if(!field_json[fields::model_path].is_null() && field_json[fields::create_from].is_null()) {
-        return Option<bool>(400, "Property `" + fields::model_path + "` can only be used with `" + fields::create_from + "`.");
+    if(field_json.count(fields::model_name) > 0 && field_json.count(fields::create_from) == 0) {
+        return Option<bool>(400, "Property `" + fields::model_name + "` can only be used with `" + fields::create_from + "`.");
     }
 
     if(field_json.count(fields::create_from) != 0) {
         // If the model path is not specified, use the default model and set the number of dimensions to 384 (number of dimensions of the default model)
         field_json[fields::num_dim] = static_cast<unsigned int>(384);
-        if(!field_json[fields::model_path].is_null()) {
+        if(field_json.count(fields::model_name) != 0) {
             unsigned int num_dim = 0;
-            if(!field_json[fields::model_path].is_string()) {
-                return Option<bool>(400, "Property `" + fields::model_path + "` must be a string.");
+            if(!field_json[fields::model_name].is_string()) {
+                return Option<bool>(400, "Property `" + fields::model_name + "` must be a string.");
             }
-            if(field_json[fields::model_path].get<std::string>().empty()) {
-                return Option<bool>(400, "Property `" + fields::model_path + "` must be a non-empty string.");
+            if(field_json[fields::model_name].get<std::string>().empty()) {
+                return Option<bool>(400, "Property `" + fields::model_name + "` must be a non-empty string.");
             }
 
-            if(TextEmbedder::is_model_valid(field_json[fields::model_path].get<std::string>(), num_dim)) {
+            if(TextEmbedder::is_model_valid(field_json[fields::model_name].get<std::string>(), num_dim)) {
                 field_json[fields::num_dim] = num_dim;
             } else {
-                return Option<bool>(400, "Property `" + fields::model_path + "` must be a valid model path.");
+                return Option<bool>(400, "Property `" + fields::model_name + "` must be a valid model path.");
             }
         }
     } else {
@@ -690,8 +690,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     }
 
 
-    if(field_json[fields::model_path].is_null()) {
-        field_json[fields::model_path] = "";
+    if(field_json.count(fields::model_name) == 0) {
+        field_json[fields::model_name] = "";
     }
 
 
@@ -776,7 +776,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
                   field_json[fields::reference], field_json[fields::create_from].get<std::vector<std::string>>(),
-                  field_json[fields::model_path])
+                  field_json[fields::model_name])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {

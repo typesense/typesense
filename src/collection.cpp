@@ -234,8 +234,8 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::create_from] = coll_field.create_from;
         }
 
-        if(coll_field.model_path.size() > 0) {
-            field_json[fields::model_path] = coll_field.model_path;
+        if(coll_field.model_name.size() > 0) {
+            field_json[fields::model_name] = coll_field.model_name;
         }
         
         if(coll_field.num_dim > 0) {
@@ -1163,7 +1163,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 }
 
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-                auto embedder = embedder_manager.get_text_embedder(search_field.model_path.size() > 0 ? search_field.model_path : TextEmbedderManager::DEFAULT_MODEL_NAME);
+                auto embedder = embedder_manager.get_text_embedder(search_field.model_name.size() > 0 ? search_field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
 
                 std::vector<float> embedding = embedder->Embed(raw_query);
                 vector_query._reset();
@@ -4654,7 +4654,7 @@ Option<bool> Collection::embed_fields(nlohmann::json& document) {
             }
 
             TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-            auto embedder = embedder_manager.get_text_embedder(field.model_path.size() > 0 ? field.model_path : "model.onnx");
+            auto embedder = embedder_manager.get_text_embedder(field.model_name.size() > 0 ? field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
             std::vector<float> embedding = embedder->Embed(text_to_embed);
             document[field.name] = embedding;
         }

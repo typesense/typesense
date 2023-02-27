@@ -52,10 +52,32 @@ public:
     }
 
     static constexpr char* DEFAULT_MODEL_URL = "https://huggingface.co/ozanarmagan/e5-small-onnx/resolve/main/model.onnx";
-    static constexpr char* DEFAULT_MODEL_NAME = "model.onnx";
+    static constexpr char* DEFAULT_MODEL_NAME = "model";
     static constexpr char* DEFAULT_VOCAB_URL = "https://huggingface.co/ozanarmagan/e5-small-onnx/resolve/main/vocab.txt";
     static constexpr char* DEFAULT_VOCAB_NAME = "vocab.txt";
     inline static std::string model_dir = "";
+    inline static const std::string get_absolute_model_path(const std::string& model_name) {
+        if(model_dir.back() != '/') {
+            if(model_name.front() != '/') {
+                return model_dir + "/" + model_name + ".onnx";
+            } else {
+                return model_dir + model_name + ".onnx";
+            }
+        } else {
+            if(model_name.front() != '/') {
+                return model_dir + model_name + ".onnx";
+            } else {
+                return model_dir + "/" + model_name + ".onnx";
+            }
+        }
+    };
+    inline static const std::string get_absolute_vocab_path() {
+        if(model_dir.back() != '/') {
+            return model_dir + "/" + TextEmbedderManager::DEFAULT_VOCAB_NAME;
+        } else {
+            return model_dir + TextEmbedderManager::DEFAULT_VOCAB_NAME;
+        }
+    }
 private:
     TextEmbedderManager() = default;
     std::unordered_map<std::string, TextEmbedder*> text_embedders;

@@ -24,6 +24,5 @@ class TextEmbedder {
         encoded_input_t Encode(const std::string& text);
         BertTokenizer* tokenizer_;
         static std::vector<float> mean_pooling(const std::vector<std::vector<float>>& input);
-        static std::string get_absolute_model_path(const std::string& model_path);
         std::string output_tensor_name;
 };

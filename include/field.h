@@ -50,7 +50,7 @@ namespace fields {
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
     static const std::string create_from = "create_from";
-    static const std::string model_path = "model_path";
+    static const std::string model_name = "model_name";
 }
 
 enum vector_distance_type_t {
@@ -77,7 +77,7 @@ struct field {
 
     size_t num_dim;
     std::vector<std::string> create_from;
-    std::string model_path;
+    std::string model_name;
     vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
@@ -88,9 +88,9 @@ struct field {
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &create_from = {}, const std::string& model_path = "") :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &create_from = {}, const std::string& model_name = "") :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), create_from(create_from), model_path(model_path) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), create_from(create_from), model_name(model_name) {
 
         set_computed_defaults(sort, infix);
     }
@@ -320,8 +320,8 @@ struct field {
             }
             if(!field.create_from.empty()) {
                 field_val[fields::create_from] = field.create_from;
-                if(!field.model_path.empty()) {
-                    field_val[fields::model_path] = field.model_path;
+                if(!field.model_name.empty()) {
+                    field_val[fields::model_name] = field.model_name;
                 }
             }
             fields_json.push_back(field_val);
