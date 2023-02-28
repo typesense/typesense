@@ -1737,9 +1737,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             if(itr != search_params->groups_processed.end()) {
                 group_hits["found"] = itr->second;
             }
-            else {
-                //LOG (ERROR) << "distinct key " << distinct_id << " not found ";
-            }
             result["grouped_hits"].push_back(group_hits);
         }
     }
