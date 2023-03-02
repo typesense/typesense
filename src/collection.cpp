@@ -2356,7 +2356,7 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
                 if(group_count_index >= 0) {
                     const auto& itr = groups_processed.find(kv_head->distinct_key);
                     if(itr != groups_processed.end()) {
-                        kv_head->scores[0] = itr->second * group_sort_order;
+                        kv_head->scores[group_count_index] = itr->second * group_sort_order;
                     }
                 }
                 gtopster.add(kv_head);
