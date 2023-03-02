@@ -3799,7 +3799,7 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
     const int64_t default_score = INT64_MIN;  // to handle field that doesn't exist in document (e.g. optional)
 
     // avoiding loop
-    if (sort_fields.size() > 0) {
+    if (sort_fields.size() > 0 && sort_fields[0].name != sort_field_const::group_count) {
         if (field_values[0] == &text_match_sentinel_value) {
             scores[0] = int64_t(max_field_match_score);
             match_score_index = 0;
@@ -3855,7 +3855,7 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
         }
     }
 
-    if(sort_fields.size() > 1) {
+    if(sort_fields.size() > 1 && sort_fields[1].name != sort_field_const::group_count) {
         if (field_values[1] == &text_match_sentinel_value) {
             scores[1] = int64_t(max_field_match_score);
             match_score_index = 1;
@@ -3907,7 +3907,7 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
         }
     }
 
-    if(sort_fields.size() > 2) {
+    if(sort_fields.size() > 2 && sort_fields[2].name != sort_field_const::group_count) {
         if (field_values[2] == &text_match_sentinel_value) {
             scores[2] = int64_t(max_field_match_score);
             match_score_index = 2;
@@ -5038,7 +5038,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     // avoiding loop
     if (sort_fields.size() > 0) {
-        if (field_values[0] == &text_match_sentinel_value) {
+        if (field_values[0] == &text_match_sentinel_value 
+            && sort_fields[0].name != sort_field_const::group_count) {
             scores[0] = int64_t(match_score);
             match_score_index = 0;
         } else if (field_values[0] == &seq_id_sentinel_value) {
@@ -5057,7 +5058,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
     }
 
-    if(sort_fields.size() > 1) {
+    if(sort_fields.size() > 1 && sort_fields[1].name != sort_field_const::group_count) {
         if (field_values[1] == &text_match_sentinel_value) {
             scores[1] = int64_t(match_score);
             match_score_index = 1;
@@ -5077,7 +5078,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
     }
 
-    if(sort_fields.size() > 2) {
+    if(sort_fields.size() > 2 && sort_fields[2].name != sort_field_const::group_count) {
         if (field_values[2] == &text_match_sentinel_value) {
             scores[2] = int64_t(match_score);
             match_score_index = 2;

@@ -599,3 +599,51 @@ TEST_F(CollectionGroupingTest, RepeatedFieldNameGroupHitCount) {
     ASSERT_EQ(1, res["grouped_hits"].size());
     ASSERT_EQ(1, res["grouped_hits"][0]["found"].get<int32_t>());
 }
+
+TEST_F(CollectionGroupingTest, SortingOnGroupCount) {
+
+    std::vector<sort_by> sort_fields = {sort_by("_group_count", "DESC")};
+    
+    auto res = coll_group->search("*", {}, "", {"brand"}, sort_fields, {0}, 50, 1, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(3, res["found"].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"].size());
+
+    ASSERT_EQ(10, res["grouped_hits"][0]["group_key"][0].get<size_t>());
+    ASSERT_EQ(7, res["grouped_hits"][0]["found"].get<int32_t>());
+
+    ASSERT_EQ(12, res["grouped_hits"][1]["group_key"][0].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"][1]["found"].get<int32_t>());
+
+    ASSERT_EQ(11, res["grouped_hits"][2]["group_key"][0].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"][2]["found"].get<int32_t>());
+
+
+    //search in asc order
+
+    std::vector<sort_by> sort_fields2 = {sort_by("_group_count", "ASC")};
+    
+    auto res2 = coll_group->search("*", {}, "", {"brand"}, sort_fields2, {0}, 50, 1, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(3, res2["found"].get<size_t>());
+    ASSERT_EQ(3, res2["grouped_hits"].size());
+
+    ASSERT_EQ(11, res2["grouped_hits"][0]["group_key"][0].get<size_t>());
+    ASSERT_EQ(2, res2["grouped_hits"][0]["found"].get<int32_t>());
+
+    ASSERT_EQ(12, res2["grouped_hits"][1]["group_key"][0].get<size_t>());
+    ASSERT_EQ(3, res2["grouped_hits"][1]["found"].get<int32_t>());
+
+    ASSERT_EQ(10, res2["grouped_hits"][2]["group_key"][0].get<size_t>());
+    ASSERT_EQ(7, res2["grouped_hits"][2]["found"].get<int32_t>());
+}

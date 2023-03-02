@@ -644,7 +644,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                               std::vector<sort_by>& sort_fields_std,
-                                                              const bool is_wildcard_query) const {
+                                                              const bool is_wildcard_query, 
+                                                              const bool is_group_by_query) const {
 
     size_t num_sort_expressions = 0;
 
@@ -819,14 +820,21 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
             sort_field_std.name != sort_field_const::seq_id) {
-            const auto field_it = search_schema.find(sort_field_std.name);
-            if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
-                std::string error = "Could not find a field named `" + sort_field_std.name +
-                                    "` in the schema for sorting.";
-                return Option<bool>(404, error);
+            if(!is_group_by_query) {
+                const auto field_it = search_schema.find(sort_field_std.name);
+                if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
+                    std::string error = "Could not find a field named `" + sort_field_std.name +
+                                        "` in the schema for sorting.";
+                    return Option<bool>(404, error);
+                }
             }
         }
 
+        if(sort_field_std.name == sort_field_const::group_count && is_group_by_query == false) {
+            std::string error = " group_by parameters should not be empty when using sort_by group_count";
+            return Option<bool>(404, error);
+        }
+        
         StringUtils::toupper(sort_field_std.order);
 
         if(sort_field_std.order != sort_field_const::asc && sort_field_std.order != sort_field_const::desc) {
@@ -1292,9 +1300,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<sort_by>& sort_fields_std = sort_fields_guard.sort_fields_std;
 
     bool is_wildcard_query = (query == "*");
+    bool is_group_by_query = group_by_fields.size() > 0;
 
     if(curated_sort_by.empty()) {
-        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, sort_fields_std, is_wildcard_query);
+        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, 
+                                    sort_fields_std, is_wildcard_query, is_group_by_query);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -1305,8 +1315,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             return Option<nlohmann::json>(400, "Parameter `sort_by` is malformed.");
         }
 
-        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, sort_fields_std,
-                                                                       is_wildcard_query);
+        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, 
+                                    sort_fields_std, is_wildcard_query, is_group_by_query);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -1398,8 +1408,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     topster.sort();
     curated_topster.sort();
 
-    populate_result_kvs(&topster, raw_result_kvs);
-    populate_result_kvs(&curated_topster, override_result_kvs);
+    populate_result_kvs(&topster, raw_result_kvs, search_params->groups_processed, sort_fields_std);
+    populate_result_kvs(&curated_topster, override_result_kvs, search_params->groups_processed, sort_fields_std);
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
@@ -1731,8 +1741,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         if(group_limit) {
             group_hits["group_key"] = group_key;
 
-            uint64_t distinct_id = index->get_distinct_id(group_by_fields, kv_group[0]->key);
-            const auto& itr = search_params->groups_processed.find(distinct_id);
+            const auto& itr = search_params->groups_processed.find(kv_group[0]->distinct_key);
             
             if(itr != search_params->groups_processed.end()) {
                 group_hits["found"] = itr->second;
@@ -2317,7 +2326,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
     }
 }
 
-void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) {
+void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs,
+                                const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
+                                const std::vector<sort_by>& sort_by_fields) {
     if(topster->distinct) {
         // we have to pick top-K groups
         Topster gtopster(topster->MAX_SIZE);
@@ -2340,6 +2351,25 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
             );
             result_kvs.emplace_back(group_kvs);
         }
+
+        if(!sort_by_fields.empty() && sort_by_fields[0].name == sort_field_const::group_count) {
+            std::sort(result_kvs.begin(), result_kvs.end(), 
+                [&](const std::vector<KV*>& g1, const std::vector<KV*>& g2) {
+                    const auto& it1 = groups_processed.find(g1[0]->distinct_key);
+                    const auto& it2 = groups_processed.find(g2[0]->distinct_key);
+    
+                    if(it1 != groups_processed.end() && it2 != groups_processed.end()) {
+                        if(sort_by_fields[0].order == sort_field_const::asc) {
+                            return it1->second < it2->second;
+                        }
+                        else {
+                            return it1->second > it2->second;
+                        }
+                    }
+                    return false;
+            });
+        }
+
     } else {
         for(uint32_t t = 0; t < topster->size; t++) {
             KV* kv = topster->getKV(t);
