@@ -2333,10 +2333,32 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
         // we have to pick top-K groups
         Topster gtopster(topster->MAX_SIZE);
 
+        int group_count_index = -1;
+        int group_sort_order = 1;
+
+        for(int i = 0; i < sort_by_fields.size(); ++i) {
+            if(sort_by_fields[i].name == sort_field_const::group_count) {
+                group_count_index = i;
+                
+                if(sort_by_fields[i].order == sort_field_const::asc) {
+                    group_sort_order *= -1;
+                } 
+
+                break;
+            }
+        }
+
         for(auto& group_topster: topster->group_kv_map) {
             group_topster.second->sort();
             if(group_topster.second->size != 0) {
                 KV* kv_head = group_topster.second->getKV(0);
+                
+                if(group_count_index >= 0) {
+                    const auto& itr = groups_processed.find(kv_head->distinct_key);
+                    if(itr != groups_processed.end()) {
+                        kv_head->scores[0] = itr->second * group_sort_order;
+                    }
+                }
                 gtopster.add(kv_head);
             }
         }
@@ -2351,25 +2373,6 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
             );
             result_kvs.emplace_back(group_kvs);
         }
-
-        if(!sort_by_fields.empty() && sort_by_fields[0].name == sort_field_const::group_count) {
-            std::sort(result_kvs.begin(), result_kvs.end(), 
-                [&](const std::vector<KV*>& g1, const std::vector<KV*>& g2) {
-                    const auto& it1 = groups_processed.find(g1[0]->distinct_key);
-                    const auto& it2 = groups_processed.find(g2[0]->distinct_key);
-    
-                    if(it1 != groups_processed.end() && it2 != groups_processed.end()) {
-                        if(sort_by_fields[0].order == sort_field_const::asc) {
-                            return it1->second < it2->second;
-                        }
-                        else {
-                            return it1->second > it2->second;
-                        }
-                    }
-                    return false;
-            });
-        }
-
     } else {
         for(uint32_t t = 0; t < topster->size; t++) {
             KV* kv = topster->getKV(t);
