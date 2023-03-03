@@ -33,7 +33,7 @@ RUN apt-get remove -y gcc
 RUN rm -rf /opt/gcc-10.3.0 /opt/gcc-10.3.0.tar.gz
 
 ADD https://github.com/bazelbuild/bazel/releases/download/5.2.0/bazel-5.2.0-linux-x86_64 /opt/
-RUN chmod +x /opt/bazel-5.2.0-linux-x86_64
+RUN chmod 777 /opt/bazel-5.2.0-linux-x86_64
 RUN mv /opt/bazel-5.2.0-linux-x86_64 /usr/bin/bazel
 
 # To force extraction of installation
