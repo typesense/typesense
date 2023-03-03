@@ -24,6 +24,8 @@ private:
 
     static size_t curl_write_async_done(void* context, curl_socket_t item);
 
+    static size_t curl_write_download(void *ptr, size_t size, size_t nmemb, FILE *stream);
+
     static CURL* init_curl(const std::string& url, std::string& response);
 
     static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk);
@@ -42,6 +44,8 @@ public:
     void operator=(HttpClient const&) = delete;
 
     void init(const std::string & api_key);
+
+    static long download_file(const std::string& url, const std::string& file_path);
 
     static long get_response(const std::string& url, std::string& response,
                              std::map<std::string, std::string>& res_headers, long timeout_ms=4000);

@@ -21,7 +21,11 @@ http_archive(
 
 load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
 
-rules_foreign_cc_dependencies()
+# This sets up some common toolchains for building targets. For more details, please see
+# https://bazelbuild.github.io/rules_foreign_cc/0.9.0/flatten.html#rules_foreign_cc_dependencies
+rules_foreign_cc_dependencies(
+    cmake_version="3.25.0",
+    ninja_version="1.11.1")
 
 # brpc and its dependencies
 git_repository(
@@ -32,6 +36,25 @@ git_repository(
         "//bazel/brpc:brpc.patch",
     ],
     remote = "https://github.com/apache/incubator-brpc.git",
+)
+
+
+new_git_repository(
+    name="onnx_runtime",
+    branch= "rel-1.14.0",
+    build_file = "//bazel:onnxruntime.BUILD",
+    init_submodules= 1,
+    recursive_init_submodules= 1,
+    remote= "https://github.com/microsoft/onnxruntime",
+    patches=["//bazel:onnx.patch"],
+)
+
+new_git_repository(
+    name = "onnx_runtime_extensions",
+    build_file = "//bazel:onnxruntime_extensions.BUILD",
+    remote = "https://github.com/microsoft/onnxruntime-extensions",
+    commit = "81e7799c69044c745239202085eb0a98f102937b",
+    patches=["//bazel:onnx_ext.patch"],
 )
 
 new_git_repository(

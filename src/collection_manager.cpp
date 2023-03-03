@@ -58,6 +58,14 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::reference] = "";
         }
 
+        if(field_obj.count(fields::create_from) == 0) {
+            field_obj[fields::create_from] = std::vector<std::string>();
+        }
+
+        if(field_obj.count(fields::model_name) == 0) {
+            field_obj[fields::model_name] = "";
+        }
+
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
         if(field_obj.count(fields::vec_dist) != 0) {
@@ -70,7 +78,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference]);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::create_from],
+                field_obj[fields::model_name]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -200,7 +209,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     for(size_t coll_index = 0; coll_index < num_collections; coll_index++) {
         const auto& collection_meta_json = collection_meta_jsons[coll_index];
         nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
-
         if(collection_meta.is_discarded()) {
             LOG(ERROR) << "Error while parsing collection meta, json: " << collection_meta_json;
             return Option<bool>(500, "Error while parsing collection meta.");

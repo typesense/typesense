@@ -9,6 +9,7 @@
 #include <sparsepp.h>
 #include <tsl/htrie_map.h>
 #include "json.hpp"
+#include "text_embedder_manager.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -48,6 +49,8 @@ namespace fields {
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
+    static const std::string create_from = "create_from";
+    static const std::string model_name = "model_name";
 }
 
 enum vector_distance_type_t {
@@ -73,6 +76,8 @@ struct field {
     int nested_array;
 
     size_t num_dim;
+    std::vector<std::string> create_from;
+    std::string model_name;
     vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
@@ -83,9 +88,9 @@ struct field {
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "") :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &create_from = {}, const std::string& model_name = "") :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), create_from(create_from), model_name(model_name) {
 
         set_computed_defaults(sort, infix);
     }
@@ -313,7 +318,12 @@ struct field {
             if (!field.reference.empty()) {
                 field_val[fields::reference] = field.reference;
             }
-
+            if(!field.create_from.empty()) {
+                field_val[fields::create_from] = field.create_from;
+                if(!field.model_name.empty()) {
+                    field_val[fields::model_name] = field.model_name;
+                }
+            }
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {
@@ -409,6 +419,59 @@ struct field {
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
+
+            if(field_json.count(fields::create_from) != 0) {
+                if(TextEmbedderManager::model_dir.empty()) {
+                    return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
+                }
+
+                if(!field_json[fields::create_from].is_array()) {
+                    return Option<bool>(400, "Property `" + fields::create_from + "` must be an array.");
+                }
+
+                if(field_json[fields::create_from].empty()) {
+                    return Option<bool>(400, "Property `" + fields::create_from + "` must have at least one element.");
+                }
+
+                for(auto& create_from_field : field_json[fields::create_from]) {
+                    if(!create_from_field.is_string()) {
+                        return Option<bool>(400, "Property `" + fields::create_from + "` must be an array of strings.");
+                    }
+                }
+
+                if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
+                    return Option<bool>(400, "Property `" + fields::create_from + "` is only allowed on a float array field.");
+                }
+                
+
+                for(auto& create_from_field : field_json[fields::create_from]) {
+                    bool flag = false;
+                    for(const auto& field : fields_json) {
+                        if(field[fields::name] == create_from_field) {
+                            if(field[fields::type] != field_types::STRING) {
+                                return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                            }
+                            flag = true;
+                            break;
+                        }
+                    }
+                    if(!flag) {
+                        for(const auto& field : the_fields) {
+                            if(field.name == create_from_field) {
+                                if(field.type != field_types::STRING) {
+                                    return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                                }
+                                flag = true;
+                                break;
+                            }
+                        }
+                    }
+                    if(!flag) {
+                        return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                    }
+                }   
+            }
+
             auto op = json_field_to_field(enable_nested_fields,
                                           field_json, the_fields, fallback_field_type, num_auto_detect_fields);
             if(!op.ok()) {

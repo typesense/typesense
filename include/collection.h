@@ -265,6 +265,8 @@ private:
                                                  const spp::sparse_hash_set<std::string>& exclude_fields,
                                                  tsl::htrie_set<char>& include_fields_full,
                                                  tsl::htrie_set<char>& exclude_fields_full) const;
+    
+
 
 public:
 
@@ -345,6 +347,8 @@ public:
                                 const DIRTY_VALUES dirty_values,
                                 const std::string& id="");
 
+    Option<bool> embed_fields(nlohmann::json& document);
+
     static uint32_t get_seq_id_from_key(const std::string & key);
 
     Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document, bool raw_doc = false) const;
@@ -402,7 +406,7 @@ public:
                                                      tsl::htrie_set<char>& include_fields_full,
                                                      tsl::htrie_set<char>& exclude_fields_full) const;
 
-    Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
+    Option<nlohmann::json> search(std::string query, const std::vector<std::string> & search_fields,
                                   const std::string & filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   size_t per_page = 10, size_t page = 1,
