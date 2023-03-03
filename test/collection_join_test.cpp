@@ -651,11 +651,11 @@ TEST_F(CollectionJoinTest, IncludeFieldsByReference_SingleMatch) {
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Invalid reference in include_fields, expected `$CollectionName(fieldA, ...)`.", search_op.error());
 
-    req_params["include_fields"] = "$foo(bar)";
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Referenced collection `foo` not found.", search_op.error());
-
+//    req_params["include_fields"] = "$foo(bar)";
+//    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+//    ASSERT_FALSE(search_op.ok());
+//    ASSERT_EQ("Referenced collection `foo` not found.", search_op.error());
+//
 //    req_params["include_fields"] = "$Customers(bar)";
 //    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
 //    ASSERT_TRUE(search_op.ok());

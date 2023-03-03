@@ -467,16 +467,28 @@ private:
 
     void numeric_not_equals_filter(num_tree_t* const num_tree,
                                    const int64_t value,
-                                   uint32_t*& ids,
-                                   size_t& ids_len) const;
+                                   const uint32_t& context_ids_length,
+                                   const uint32_t* context_ids,
+                                   size_t& ids_len,
+                                   uint32_t*& ids) const;
+
+    bool field_is_indexed(const std::string& field_name) const;
 
     Option<bool> do_filtering(filter_node_t* const root,
                               filter_result_t& result,
-                              const std::string& collection_name = "") const;
+                              const std::string& collection_name = "",
+                              const uint32_t& context_ids_length = 0,
+                              const uint32_t* context_ids = nullptr) const;
 
-    Option<bool> rearranging_recursive_filter (filter_node_t* const filter_tree_root,
-                                               filter_result_t& result,
-                                               const std::string& collection_name = "") const;
+    void aproximate_numerical_match(num_tree_t* const num_tree,
+                                    const NUM_COMPARATOR& comparator,
+                                    const int64_t& value,
+                                    const int64_t& range_end_value,
+                                    uint32_t& filter_ids_length) const;
+
+    Option<bool> rearranging_recursive_filter(filter_node_t* const filter_tree_root,
+                                              filter_result_t& result,
+                                              const std::string& collection_name = "") const;
 
     Option<bool> recursive_filter(filter_node_t* const root,
                                   filter_result_t& result,
@@ -687,7 +699,8 @@ public:
 
     Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                   filter_result_t& filter_result,
-                                                  const std::string & reference_helper_field_name) const;
+                                                  const std::string& collection_name,
+                                                  const std::string& reference_helper_field_name) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 

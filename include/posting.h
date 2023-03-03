@@ -91,7 +91,9 @@ public:
 
     static void merge(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
 
-    static void intersect(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
+    static void intersect(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids,
+                          const uint32_t& context_ids_length = 0,
+                          const uint32_t* context_ids = nullptr);
 
     static void get_array_token_positions(
         uint32_t id,
