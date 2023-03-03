@@ -1146,6 +1146,10 @@ void Index::tokenize_string_with_facets(const std::string& text, bool is_facet, 
             continue;
         }
 
+        if(token.size() > 100) {
+            token.erase(100);
+        }
+
         token_to_offsets[token].push_back(token_index + 1);
         last_token = token;
 
@@ -1189,6 +1193,10 @@ void Index::tokenize_string_array_with_facets(const std::vector<std::string>& st
         while(tokenizer.next(token, token_index)) {
             if(token.empty()) {
                 continue;
+            }
+
+            if(token.size() > 100) {
+                token.erase(100);
             }
 
             token_to_offsets[token].push_back(token_index + 1);
