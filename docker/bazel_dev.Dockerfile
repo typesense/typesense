@@ -39,8 +39,10 @@ RUN mv /opt/bazel-5.2.0-linux-x86_64 /usr/bin/bazel
 # To force extraction of installation
 RUN /usr/bin/bazel --version
 
+RUN apt-get -y install git
+
 ENV CC /usr/local/gcc-10.3.0/bin/gcc
 ENV CXX /usr/local/gcc-10.3.0/bin/g++
-
-
+ENV PATH /usr/local/gcc-10.3.0/bin/:$PATH
+ENV LD_LIBRARY_PATH /usr/local/gcc-10.3.0/lib64
 
