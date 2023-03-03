@@ -1546,7 +1546,7 @@ Option<bool> Index::do_filtering(filter_node_t* const root,
             return Option(true);
         }
 
-        result = reference_filter_result;
+        result = std::move(reference_filter_result);
         return Option(true);
     }
 
