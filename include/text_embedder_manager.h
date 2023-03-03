@@ -51,9 +51,9 @@ public:
         delete_all_text_embedders();
     }
 
-    static constexpr char* DEFAULT_MODEL_URL = "https://huggingface.co/ozanarmagan/e5-small-onnx/resolve/main/model.onnx";
-    static constexpr char* DEFAULT_MODEL_NAME = "model";
-    static constexpr char* DEFAULT_VOCAB_URL = "https://huggingface.co/ozanarmagan/e5-small-onnx/resolve/main/vocab.txt";
+    static constexpr char* DEFAULT_MODEL_URL = "https://huggingface.co/typesense/models/resolve/main/e5-small/model.onnx";
+    static constexpr char* DEFAULT_MODEL_NAME = "ts-e5-small";
+    static constexpr char* DEFAULT_VOCAB_URL = "https://huggingface.co/typesense/models/resolve/main/e5-small/vocab.txt";
     static constexpr char* DEFAULT_VOCAB_NAME = "vocab.txt";
     inline static std::string model_dir = "";
     inline static const std::string get_absolute_model_path(const std::string& model_name) {
