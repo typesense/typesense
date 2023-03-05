@@ -6,6 +6,7 @@
 #include "option.h"
 #include "string_utils.h"
 #include "logger.h"
+#include "store.h"
 #include <sparsepp.h>
 #include <tsl/htrie_map.h>
 #include "json.hpp"

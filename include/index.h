@@ -13,6 +13,7 @@
 #include <topster.h>
 #include <json.hpp>
 #include <field.h>
+#include <validator.h>
 #include <option.h>
 #include <set>
 #include "string_utils.h"
@@ -184,21 +185,6 @@ struct search_args {
         delete topster;
         delete curated_topster;
     };
-};
-
-enum index_operation_t {
-    CREATE,
-    UPSERT,
-    UPDATE,
-    EMPLACE,
-    DELETE
-};
-
-enum class DIRTY_VALUES {
-    REJECT = 1,
-    DROP = 2,
-    COERCE_OR_REJECT = 3,
-    COERCE_OR_DROP = 4,
 };
 
 struct offsets_facet_hashes_t {
@@ -531,33 +517,6 @@ private:
     static void get_doc_changes(const index_operation_t op, nlohmann::json &update_doc,
                                 const nlohmann::json &old_doc, nlohmann::json &new_doc, nlohmann::json &del_doc);
 
-    static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const std::string& fallback_field_type,
-                                          const field& a_field, nlohmann::json &document,
-                                          const std::string &field_name,
-                                          nlohmann::json::iterator& array_iter,
-                                          bool is_array,
-                                          bool& array_ele_erased);
-
-    static Option<uint32_t> coerce_int32_t(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                           const std::string &field_name,
-                                           nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
-
-    static Option<uint32_t> coerce_int64_t(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                           const std::string &field_name,
-                                           nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
-
-    static Option<uint32_t> coerce_float(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                         const std::string &field_name,
-                                         nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
-
-    static Option<uint32_t> coerce_bool(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                        const std::string &field_name,
-                                        nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
-
-    static Option<uint32_t> coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                            const std::string &field_name,
-                                            nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
-
     bool common_results_exist(std::vector<art_leaf*>& leaves, bool must_match_phrase) const;
 
     static void remove_facet_token(const field& search_field, spp::sparse_hash_map<std::string, art_tree*>& search_index,
@@ -733,13 +692,6 @@ public:
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 
     // the following methods are not synchronized because their parent calls are synchronized or they are const/static
-
-    static Option<uint32_t> validate_index_in_memory(nlohmann::json &document, uint32_t seq_id,
-                                                     const std::string & default_sorting_field,
-                                                     const tsl::htrie_map<char, field> & search_schema,
-                                                     const index_operation_t op,
-                                                     const std::string& fallback_field_type,
-                                                     const DIRTY_VALUES& dirty_values);
 
     void search_wildcard(filter_node_t const* const& filter_tree_root,
                          const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
