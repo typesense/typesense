@@ -493,7 +493,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
                                              const index_operation_t op, const DIRTY_VALUES& dirty_values) {
     std::unique_lock lock(mutex);
 
-    Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
+    Option<uint32_t> validation_op = validator_t::validate_index_in_memory(document, seq_id, default_sorting_field,
                                                                      search_schema, op,
                                                                      fallback_field_type, dirty_values);
 
@@ -3889,7 +3889,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         }
 
         // validate existing data on disk for compatibility via updated_search_schema
-        auto validate_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
+        auto validate_op = validator_t::validate_index_in_memory(document, seq_id, default_sorting_field,
                                                            updated_search_schema,
                                                            index_operation_t::CREATE,
                                                            fallback_field_type,

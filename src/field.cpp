@@ -708,15 +708,15 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
             return true;
         }
 
+        std::string detected_type;
+        if(!field::get_type(value, detected_type)) {
+            return false;
+        }
+
         if(has_array) {
             doc[flat_name].push_back(value);
         } else {
             doc[flat_name] = value;
-        }
-
-        std::string detected_type;
-        if(!field::get_type(value, detected_type)) {
-            return false;
         }
 
         if(std::isalnum(detected_type.back()) && has_array) {
@@ -746,7 +746,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
         if(!field::get_type(obj, detected_type)) {
             if(obj.is_null() && the_field.optional) {
                 // null values are allowed only if field is optional
-                return Option<bool>(false);
+                return Option<bool>(true);
             }
 
             return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
