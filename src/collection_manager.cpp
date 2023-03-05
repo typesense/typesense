@@ -1163,6 +1163,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
 
+    if(default_sorting_field == "id") {
+        return Option<Collection *>(400, "Invalid `default_sorting_field` value: cannot be `id`.");
+    }
+
     std::string fallback_field_type;
     std::vector<field> fields;
     auto parse_op = field::json_fields_to_fields(req_json[ENABLE_NESTED_FIELDS].get<bool>(),

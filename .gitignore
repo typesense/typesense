@@ -1,4 +1,5 @@
 .idea
+.clwb
 *.iml
 external*
 external
@@ -14,3 +15,4 @@ typesense-server-data/
 .clwb/.bazelproject
 .vscode/settings.json
 /onnxruntime-prefix
+

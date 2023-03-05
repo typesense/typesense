@@ -887,7 +887,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
         }
 
-        if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval) {
+        if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
+            sort_field_std.name != sort_field_const::seq_id) {
             const auto field_it = search_schema.find(sort_field_std.name);
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
                 std::string error = "Could not find a field named `" + sort_field_std.name +
@@ -1246,16 +1247,18 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     const std::vector<std::string>& search_fields = reordered_search_fields.empty() ? processed_search_fields
                                                                                     : reordered_search_fields;
-    std::vector<facet> facets;
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> parse_filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                               store, doc_id_prefix, filter_tree_root);
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
     if(!parse_filter_op.ok()) {
         return Option<nlohmann::json>(parse_filter_op.code(), parse_filter_op.error());
     }
 
+    std::vector<facet> facets;
     // validate facet fields
     for(const std::string & facet_field: facet_fields) {
         
@@ -1344,7 +1347,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     std::vector<std::vector<KV*>> override_result_kvs;
 
     size_t total_found = 0;
-    spp::sparse_hash_set<uint64_t> groups_processed;  // used to calculate total_found for grouped query
 
     std::vector<uint32_t> excluded_ids;
     std::vector<std::pair<uint32_t, uint32_t>> included_ids; // ID -> position
@@ -1495,6 +1497,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query,
                                                  facet_sample_percent, facet_sample_threshold);
+
+    std::unique_ptr<search_args> search_params_guard(search_params);
 
     auto search_op = index->run_search(search_params, name);
     if (!search_op.ok()) {
@@ -1853,6 +1857,13 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
         if(group_limit) {
             group_hits["group_key"] = group_key;
+
+            uint64_t distinct_id = index->get_distinct_id(group_by_fields, kv_group[0]->key);
+            const auto& itr = search_params->groups_processed.find(distinct_id);
+            
+            if(itr != search_params->groups_processed.end()) {
+                group_hits["found"] = itr->second;
+            }
             result["grouped_hits"].push_back(group_hits);
         }
     }
@@ -1861,6 +1872,11 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     
     // populate facets
     for(facet & a_facet: facets) {
+        // Don't return zero counts for a wildcard facet.
+        if (a_facet.is_wildcard_match && a_facet.result_map.size() == 0) {
+            continue;
+        }
+
         // check for search cutoff elapse
         if((std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().
             time_since_epoch()).count() - search_begin_us) > search_stop_us) {
@@ -2017,11 +2033,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         facet_result["stats"]["total_values"] = facet_hash_counts.size();
         result["facet_counts"].push_back(facet_result);
     }
-
-    // free search params
-    delete search_params;
-
-    delete filter_tree_root;
 
     result["search_cutoff"] = search_cutoff;
 
@@ -4545,6 +4556,10 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         facets.emplace_back(std::move(a_facet));
     } else if (facet_field.find('*') != std::string::npos) { // Wildcard
+       if (facet_field[facet_field.size() - 1] != '*') {
+           return Option<bool>(404, "Only prefix matching with a wildcard is allowed.");
+       }
+
         // Trim * from the end.
         auto prefix = facet_field.substr(0, facet_field.size() - 1);
         auto pair = search_schema.equal_prefix_range(prefix);
@@ -4559,9 +4574,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         for (auto field = pair.first; field != pair.second; field++) {
             if (field->facet) {
                 facets.emplace_back(facet(field->name));
-            } else {
-                std::string error = "Field `" + field->name + "` is not marked as a facet in the schema.";
-                return Option<bool>(404, error);
+                facets.back().is_wildcard_match = true;
             }
         }
    } else {

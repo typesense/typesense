@@ -372,7 +372,7 @@ struct field {
             }
         }
 
-        if(!default_sorting_field.empty() && !found_default_sorting_field && !fields.empty()) {
+        if(!default_sorting_field.empty() && !found_default_sorting_field) {
             return Option<bool>(400, "Default sorting field is defined as `" + default_sorting_field +
                                      "` but is not found in the schema.");
         }
@@ -603,9 +603,8 @@ struct filter_node_t {
     filter filter_exp;
     FILTER_OPERATOR filter_operator;
     bool isOperator;
-    filter_node_t* left;
-    filter_node_t* right;
-    filter_tree_metrics* metrics = nullptr;
+    filter_node_t* left = nullptr;
+    filter_node_t* right = nullptr;
 
     filter_node_t(filter filter_exp)
             : filter_exp(std::move(filter_exp)),
@@ -778,6 +777,8 @@ struct facet {
     bool is_range_query;
 
     bool sampled = false;
+
+    bool is_wildcard_match = false;
 
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair)
     {
