@@ -786,3 +786,18 @@ TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
 
     ASSERT_EQ(4, res2["grouped_hits"][99]["found"].get<int32_t>());
 }
+
+TEST_F(CollectionGroupingTest, GroupSortingWithoutGroupingFields) {
+    
+    std::vector<sort_by> sort_fields = {sort_by("_group_count", "DESC")};
+    
+    auto res = coll_group->search("*", {}, "", {"brand"}, sort_fields, {0}, 50, 1, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {});
+
+    ASSERT_EQ(res.ok(), false);
+    ASSERT_EQ(res.error(), "group_by parameters should not be empty when using sort_by group_count");
+}
