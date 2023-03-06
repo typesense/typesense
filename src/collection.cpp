@@ -2832,6 +2832,12 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
                 // group unicode code points and calculate number of actual characters
                 while(k <= tok_end) {
                     k++;
+
+                    if(tokenizer.should_skip_char(text[k])) {
+                        // used to handle special characters inside a tokenized word, e.g. `foo-bar`
+                        continue;
+                    }
+
                     if ((text[k] & 0xC0) == 0x80) k++;
                     if ((text[k] & 0xC0) == 0x80) k++;
                     if ((text[k] & 0xC0) == 0x80) k++;

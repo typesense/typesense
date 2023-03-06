@@ -85,4 +85,6 @@ public:
     }
 
     void decr_token_counter();
+
+    bool should_skip_char(char c);
 };

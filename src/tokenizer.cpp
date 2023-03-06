@@ -334,3 +334,7 @@ void Tokenizer::decr_token_counter() {
         token_counter--;
     }
 }
+
+bool Tokenizer::should_skip_char(char c) {
+    return is_ascii_char(c) && get_stream_mode(c) != INDEX;
+}
