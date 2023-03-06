@@ -644,7 +644,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                               std::vector<sort_by>& sort_fields_std,
-                                                              const bool is_wildcard_query) const {
+                                                              const bool is_wildcard_query, 
+                                                              const bool is_group_by_query) const {
 
     size_t num_sort_expressions = 0;
 
@@ -818,7 +819,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         }
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
-            sort_field_std.name != sort_field_const::seq_id) {
+            sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_count) {
+                
             const auto field_it = search_schema.find(sort_field_std.name);
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
                 std::string error = "Could not find a field named `" + sort_field_std.name +
@@ -827,6 +829,11 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
         }
 
+        if(sort_field_std.name == sort_field_const::group_count && is_group_by_query == false) {
+            std::string error = "group_by parameters should not be empty when using sort_by group_count";
+            return Option<bool>(404, error);
+        }
+        
         StringUtils::toupper(sort_field_std.order);
 
         if(sort_field_std.order != sort_field_const::asc && sort_field_std.order != sort_field_const::desc) {
@@ -1294,9 +1301,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<sort_by>& sort_fields_std = sort_fields_guard.sort_fields_std;
 
     bool is_wildcard_query = (query == "*");
+    bool is_group_by_query = group_by_fields.size() > 0;
 
     if(curated_sort_by.empty()) {
-        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, sort_fields_std, is_wildcard_query);
+        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, 
+                                    sort_fields_std, is_wildcard_query, is_group_by_query);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -1307,8 +1316,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             return Option<nlohmann::json>(400, "Parameter `sort_by` is malformed.");
         }
 
-        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, sort_fields_std,
-                                                                       is_wildcard_query);
+        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, 
+                                    sort_fields_std, is_wildcard_query, is_group_by_query);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -1402,8 +1411,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     topster.sort();
     curated_topster.sort();
 
-    populate_result_kvs(&topster, raw_result_kvs);
-    populate_result_kvs(&curated_topster, override_result_kvs);
+    populate_result_kvs(&topster, raw_result_kvs, search_params->groups_processed, sort_fields_std);
+    populate_result_kvs(&curated_topster, override_result_kvs, search_params->groups_processed, sort_fields_std);
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
@@ -1735,8 +1744,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         if(group_limit) {
             group_hits["group_key"] = group_key;
 
-            uint64_t distinct_id = index->get_distinct_id(group_by_fields, kv_group[0]->key);
-            const auto& itr = search_params->groups_processed.find(distinct_id);
+            const auto& itr = search_params->groups_processed.find(kv_group[0]->distinct_key);
             
             if(itr != search_params->groups_processed.end()) {
                 group_hits["found"] = itr->second;
@@ -2316,15 +2324,39 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
     }
 }
 
-void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) {
+void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs,
+                                const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
+                                const std::vector<sort_by>& sort_by_fields) {
     if(topster->distinct) {
         // we have to pick top-K groups
         Topster gtopster(topster->MAX_SIZE);
+
+        int group_count_index = -1;
+        int group_sort_order = 1;
+
+        for(int i = 0; i < sort_by_fields.size(); ++i) {
+            if(sort_by_fields[i].name == sort_field_const::group_count) {
+                group_count_index = i;
+                
+                if(sort_by_fields[i].order == sort_field_const::asc) {
+                    group_sort_order *= -1;
+                } 
+
+                break;
+            }
+        }
 
         for(auto& group_topster: topster->group_kv_map) {
             group_topster.second->sort();
             if(group_topster.second->size != 0) {
                 KV* kv_head = group_topster.second->getKV(0);
+                
+                if(group_count_index >= 0) {
+                    const auto& itr = groups_processed.find(kv_head->distinct_key);
+                    if(itr != groups_processed.end()) {
+                        kv_head->scores[group_count_index] = itr->second * group_sort_order;
+                    }
+                }
                 gtopster.add(kv_head);
             }
         }

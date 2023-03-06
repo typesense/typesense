@@ -599,3 +599,205 @@ TEST_F(CollectionGroupingTest, RepeatedFieldNameGroupHitCount) {
     ASSERT_EQ(1, res["grouped_hits"].size());
     ASSERT_EQ(1, res["grouped_hits"][0]["found"].get<int32_t>());
 }
+
+TEST_F(CollectionGroupingTest, SortingOnGroupCount) {
+
+    std::vector<sort_by> sort_fields = {sort_by("_group_count", "DESC")};
+    
+    auto res = coll_group->search("*", {}, "", {"brand"}, sort_fields, {0}, 50, 1, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(3, res["found"].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"].size());
+
+    ASSERT_EQ(10, res["grouped_hits"][0]["group_key"][0].get<size_t>());
+    ASSERT_EQ(7, res["grouped_hits"][0]["found"].get<int32_t>());
+
+    ASSERT_EQ(12, res["grouped_hits"][1]["group_key"][0].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"][1]["found"].get<int32_t>());
+
+    ASSERT_EQ(11, res["grouped_hits"][2]["group_key"][0].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"][2]["found"].get<int32_t>());
+
+
+    //search in asc order
+
+    std::vector<sort_by> sort_fields2 = {sort_by("_group_count", "ASC")};
+    
+    auto res2 = coll_group->search("*", {}, "", {"brand"}, sort_fields2, {0}, 50, 1, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(3, res2["found"].get<size_t>());
+    ASSERT_EQ(3, res2["grouped_hits"].size());
+
+    ASSERT_EQ(11, res2["grouped_hits"][0]["group_key"][0].get<size_t>());
+    ASSERT_EQ(2, res2["grouped_hits"][0]["found"].get<int32_t>());
+
+    ASSERT_EQ(12, res2["grouped_hits"][1]["group_key"][0].get<size_t>());
+    ASSERT_EQ(3, res2["grouped_hits"][1]["found"].get<int32_t>());
+
+    ASSERT_EQ(10, res2["grouped_hits"][2]["group_key"][0].get<size_t>());
+    ASSERT_EQ(7, res2["grouped_hits"][2]["found"].get<int32_t>());
+}
+
+TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
+
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("brand", field_types::STRING, true, true),
+            field("size", field_types::INT32, true, false),
+            field("colors", field_types::STRING, true, false),
+            field("rating", field_types::FLOAT, true, false)
+    };
+
+    Collection* coll3 = collectionManager.get_collection("coll3").get();
+    if(coll3 == nullptr) {
+        coll3 = collectionManager.create_collection("coll3", 4, fields, "rating").get();
+    }
+
+    for(auto i = 0; i < 150; i++) {
+        auto group_id = i;
+        for(auto j = 0; j < 4; j++) {
+            nlohmann::json doc;
+            doc["title"] = "Omega Casual Poplin Shirt";
+            doc["brand"] = "Omega";
+            doc["size"] = group_id;
+            doc["colors"] = "blue";
+            doc["rating"] = 4.5;
+
+            ASSERT_TRUE(coll3->add(doc.dump()).ok());
+        } 
+    }
+
+    for(auto i = 150; i < 250; i++) {
+        auto group_id = i;
+        for(auto j = 0; j < 3; j++) {
+            nlohmann::json doc;
+            doc["title"] = "Beta Casual Poplin Shirt";
+            doc["brand"] = "Beta";
+            doc["size"] = group_id;
+            doc["colors"] = "white";
+            doc["rating"] = 4.3;
+
+            ASSERT_TRUE(coll3->add(doc.dump()).ok());
+        } 
+    }
+
+    for(auto i = 250; i < 300; i++) {
+        auto group_id = i;
+        for(auto j = 0; j < 2; j++) {
+            nlohmann::json doc;
+            doc["title"] = "Zeta Casual Poplin Shirt";
+            doc["brand"] = "Zeta";
+            doc["size"] = group_id;
+            doc["colors"] = "red";
+            doc["rating"] = 4.6;
+
+            ASSERT_TRUE(coll3->add(doc.dump()).ok());
+        } 
+    }
+
+    //first search in desc order
+    std::vector<sort_by> sort_fields = {sort_by("_group_count", "DESC")};
+    
+    auto res = coll3->search("*", {}, "", {"brand"}, sort_fields, {0}, 100, 2, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(300, res["found"].get<size_t>());
+    ASSERT_EQ(100, res["grouped_hits"].size());
+
+    ASSERT_EQ(4, res["grouped_hits"][4]["found"].get<int32_t>());
+
+    ASSERT_EQ(4, res["grouped_hits"][4]["found"].get<int32_t>());
+
+    ASSERT_EQ(3, res["grouped_hits"][50]["found"].get<int32_t>());
+
+    ASSERT_EQ(3, res["grouped_hits"][99]["found"].get<int32_t>());
+
+
+    res = coll3->search("*", {}, "", {"brand"}, sort_fields, {0}, 100, 3, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(300, res["found"].get<size_t>());
+    ASSERT_EQ(100, res["grouped_hits"].size());
+
+    ASSERT_EQ(3, res["grouped_hits"][4]["found"].get<int32_t>());
+
+    ASSERT_EQ(3, res["grouped_hits"][4]["found"].get<int32_t>());
+
+    ASSERT_EQ(2, res["grouped_hits"][50]["found"].get<int32_t>());
+
+    ASSERT_EQ(2, res["grouped_hits"][99]["found"].get<int32_t>());
+
+
+    //search in asc order
+
+    std::vector<sort_by> sort_fields2 = {sort_by("_group_count", "ASC")};
+    
+    auto res2 = coll3->search("*", {}, "", {"brand"}, sort_fields2, {0}, 100, 1, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(300, res2["found"].get<size_t>());
+    ASSERT_EQ(100, res2["grouped_hits"].size());
+
+    ASSERT_EQ(2, res2["grouped_hits"][0]["found"].get<int32_t>());
+
+    ASSERT_EQ(2, res2["grouped_hits"][1]["found"].get<int32_t>());
+
+    ASSERT_EQ(3, res2["grouped_hits"][50]["found"].get<int32_t>());
+
+    ASSERT_EQ(3, res2["grouped_hits"][99]["found"].get<int32_t>());
+
+    res2 = coll3->search("*", {}, "", {"brand"}, sort_fields2, {0}, 100, 2, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(300, res2["found"].get<size_t>());
+    ASSERT_EQ(100, res2["grouped_hits"].size());
+
+    ASSERT_EQ(3, res2["grouped_hits"][0]["found"].get<int32_t>());
+
+    ASSERT_EQ(3, res2["grouped_hits"][1]["found"].get<int32_t>());
+
+    ASSERT_EQ(4, res2["grouped_hits"][50]["found"].get<int32_t>());
+
+    ASSERT_EQ(4, res2["grouped_hits"][99]["found"].get<int32_t>());
+}
+
+TEST_F(CollectionGroupingTest, GroupSortingWithoutGroupingFields) {
+    
+    std::vector<sort_by> sort_fields = {sort_by("_group_count", "DESC")};
+    
+    auto res = coll_group->search("*", {}, "", {"brand"}, sort_fields, {0}, 50, 1, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   {}, {}, {});
+
+    ASSERT_EQ(res.ok(), false);
+    ASSERT_EQ(res.error(), "group_by parameters should not be empty when using sort_by group_count");
+}

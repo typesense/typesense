@@ -557,6 +557,7 @@ namespace sort_field_const {
     static const std::string text_match = "_text_match";
     static const std::string eval = "_eval";
     static const std::string seq_id = "_seq_id";
+    static const std::string group_count = "_group_count";
 
     static const std::string exclude_radius = "exclude_radius";
     static const std::string precision = "precision";

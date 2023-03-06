@@ -192,7 +192,7 @@ private:
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                       std::vector<sort_by>& sort_fields_std,
-                                                      bool is_wildcard_query) const;
+                                                      bool is_wildcard_query, bool is_group_by_query = false) const;
 
     Option<bool> persist_collection_meta();
 
@@ -351,7 +351,9 @@ public:
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value) const;
 
-    static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs);
+    static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs, 
+                    const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
+                    const std::vector<sort_by>& sort_by_fields);
 
     void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed,
                      const bool& return_doc, const bool& return_id);
