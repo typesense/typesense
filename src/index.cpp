@@ -1952,44 +1952,18 @@ void Index::aproximate_numerical_match(num_tree_t* const num_tree,
     num_tree->approx_search_count(comparator, value, filter_ids_length);
 }
 
-Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
-                                          uint32_t& filter_ids_length,
-                                          const std::string& collection_name) const {
-    if (root == nullptr) {
-        return Option(true);
+Option<bool> Index::approximate_filter_ids(const filter& a_filter,
+                                           uint32_t& filter_ids_length,
+                                           const std::string& collection_name) const {
+    if (!a_filter.referenced_collection_name.empty()) {
+        auto& cm = CollectionManager::get_instance();
+        auto collection = cm.get_collection(a_filter.referenced_collection_name);
+        if (collection == nullptr) {
+            return Option<bool>(400, "Referenced collection `" + a_filter.referenced_collection_name + "` not found.");
+        }
+
+        return collection->get_approximate_reference_filter_ids(a_filter.field_name, filter_ids_length);
     }
-
-    if (root->isOperator) {
-        uint32_t l_filter_ids_length = 0;
-        if (root->left != nullptr) {
-            auto rearrange_op = rearrange_filter_tree(root->left, l_filter_ids_length, collection_name);
-            if (!rearrange_op.ok()) {
-                return rearrange_op;
-            }
-        }
-
-        uint32_t r_filter_ids_length = 0;
-        if (root->right != nullptr) {
-            auto rearrange_op = rearrange_filter_tree(root->right, r_filter_ids_length, collection_name);
-            if (!rearrange_op.ok()) {
-                return rearrange_op;
-            }
-        }
-
-        if (root->filter_operator == AND) {
-            filter_ids_length = std::min(l_filter_ids_length, r_filter_ids_length);
-        } else {
-            filter_ids_length = l_filter_ids_length + r_filter_ids_length;
-        }
-
-        if (l_filter_ids_length > r_filter_ids_length) {
-            std::swap(root->left, root->right);
-        }
-
-        return Option(true);
-    }
-
-    auto a_filter = root->filter_exp;
 
     if (a_filter.field_name == "id") {
         filter_ids_length = a_filter.values.size();
@@ -2062,7 +2036,7 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
 
             while (tokenizer.next(str_token, token_index)) {
                 auto const leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
-                                                         str_token.length()+1);
+                                                          str_token.length()+1);
                 if (leaf == nullptr) {
                     continue;
                 }
@@ -2077,6 +2051,47 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
         filter_ids_length = (all_ids_size - filter_ids_length);
     }
 
+    return Option(true);
+}
+
+Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
+                                          uint32_t& filter_ids_length,
+                                          const std::string& collection_name) const {
+    if (root == nullptr) {
+        return Option(true);
+    }
+
+    if (root->isOperator) {
+        uint32_t l_filter_ids_length = 0;
+        if (root->left != nullptr) {
+            auto rearrange_op = rearrange_filter_tree(root->left, l_filter_ids_length, collection_name);
+            if (!rearrange_op.ok()) {
+                return rearrange_op;
+            }
+        }
+
+        uint32_t r_filter_ids_length = 0;
+        if (root->right != nullptr) {
+            auto rearrange_op = rearrange_filter_tree(root->right, r_filter_ids_length, collection_name);
+            if (!rearrange_op.ok()) {
+                return rearrange_op;
+            }
+        }
+
+        if (root->filter_operator == AND) {
+            filter_ids_length = std::min(l_filter_ids_length, r_filter_ids_length);
+        } else {
+            filter_ids_length = l_filter_ids_length + r_filter_ids_length;
+        }
+
+        if (l_filter_ids_length > r_filter_ids_length) {
+            std::swap(root->left, root->right);
+        }
+
+        return Option(true);
+    }
+
+    approximate_filter_ids(root->filter_exp, filter_ids_length, collection_name);
     return Option(true);
 }
 
@@ -2231,6 +2246,13 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     }
 
     return Option(true);
+}
+
+Option<bool> Index::get_approximate_reference_filter_ids_with_lock(filter_node_t* const filter_tree_root,
+                                                                   uint32_t& filter_ids_length) const {
+    std::shared_lock lock(mutex);
+
+    return rearrange_filter_tree(filter_tree_root, filter_ids_length);
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name) {

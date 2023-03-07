@@ -486,6 +486,10 @@ private:
                                     const int64_t& range_end_value,
                                     uint32_t& filter_ids_length) const;
 
+    Option<bool> approximate_filter_ids(const filter& a_filter,
+                                        uint32_t& filter_ids_length,
+                                        const std::string& collection_name) const;
+
     Option<bool> rearranging_recursive_filter(filter_node_t* const filter_tree_root,
                                               filter_result_t& result,
                                               const std::string& collection_name = "") const;
@@ -701,6 +705,9 @@ public:
                                                   filter_result_t& filter_result,
                                                   const std::string& collection_name,
                                                   const std::string& reference_helper_field_name) const;
+
+    Option<bool> get_approximate_reference_filter_ids_with_lock(filter_node_t* const filter_tree_root,
+                                                                uint32_t& filter_ids_length) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 

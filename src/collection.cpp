@@ -2513,10 +2513,9 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
         return filter_op;
     }
 
-    index->do_filtering_with_lock(filter_tree_root, filter_result, name);
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
-    delete filter_tree_root;
-    return Option<bool>(true);
+    return index->do_filtering_with_lock(filter_tree_root, filter_result, name);
 }
 
 Option<std::string> Collection::get_reference_field(const std::string & collection_name) const {
@@ -2537,6 +2536,23 @@ Option<std::string> Collection::get_reference_field(const std::string & collecti
     return Option(reference_field_name);
 }
 
+Option<bool> Collection::get_approximate_reference_filter_ids(const std::string& filter_query,
+                                                              uint32_t& filter_ids_length) const {
+    std::shared_lock lock(mutex);
+
+    const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
+                                                       store, doc_id_prefix, filter_tree_root);
+    if(!parse_op.ok()) {
+        return parse_op;
+    }
+
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
+    return index->get_approximate_reference_filter_ids_with_lock(filter_tree_root, filter_ids_length);
+}
+
 Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
                                                   filter_result_t& filter_result,
                                                   const std::string & collection_name) const {
@@ -2555,15 +2571,11 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
         return parse_op;
     }
 
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
     // Reference helper field has the sequence id of other collection's documents.
     auto field_name = reference_field_op.get() + REFERENCE_HELPER_FIELD_SUFFIX;
-    auto filter_op = index->do_reference_filtering_with_lock(filter_tree_root, filter_result, name, field_name);
-    if (!filter_op.ok()) {
-        return filter_op;
-    }
-
-    delete filter_tree_root;
-    return Option<bool>(true);
+    return index->do_reference_filtering_with_lock(filter_tree_root, filter_result, name, field_name);
 }
 
 Option<bool> Collection::validate_reference_filter(const std::string& filter_query) const {
