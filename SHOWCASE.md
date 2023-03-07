@@ -50,7 +50,7 @@ This is a selection of sites and apps using Typesense.
 | [Granthappura](https://gpura.org/) | A free-licensed digitized artifacts archive related to Kerala from multiple languages. [Github Link](https://github.com/indic-archive/omeka-typesense-search) |
 | [Syracuse University](https://syracuse.edu) | A private research university in Syracuse, New York. [Visit our live typesense demo!](https://typesense-demo.dev3.digitalservices.syr.edu) |
 | [Magny SaaS search bar](https://magny.io) | Magny is a SaaS platform that helps implement command palettes, which significantly decreases the time users find anything in your app, leveraging the user experience and efficiency. |
-
+| [Cults.](https://cults3d.com) | Find designs for 3D-printing. *We are very happy with our switch to Typesense, making it a breeze to setup and have pertinent results right from the start* |
 
 ### Typesense Demos
 
