@@ -513,7 +513,7 @@ struct filter {
     bool apply_not_equals = false;
 
     // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
-    std::string referenced_collection_name;
+    std::string referenced_collection_name = "";
 
     static const std::string RANGE_OPERATOR() {
         return "..";
