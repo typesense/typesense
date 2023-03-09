@@ -2509,11 +2509,11 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                         store, doc_id_prefix, filter_tree_root);
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
     if(!filter_op.ok()) {
         return filter_op;
     }
-
-    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     return index->do_filtering_with_lock(filter_tree_root, filter_result, name);
 }
@@ -2544,11 +2544,11 @@ Option<bool> Collection::get_approximate_reference_filter_ids(const std::string&
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
                                                        store, doc_id_prefix, filter_tree_root);
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
     if(!parse_op.ok()) {
         return parse_op;
     }
-
-    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     return index->get_approximate_reference_filter_ids_with_lock(filter_tree_root, filter_ids_length);
 }
@@ -2567,11 +2567,11 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
                                                        store, doc_id_prefix, filter_tree_root);
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
     if(!parse_op.ok()) {
         return parse_op;
     }
-
-    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
 
     // Reference helper field has the sequence id of other collection's documents.
     auto field_name = reference_field_op.get() + REFERENCE_HELPER_FIELD_SUFFIX;
