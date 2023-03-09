@@ -1952,7 +1952,7 @@ void Index::aproximate_numerical_match(num_tree_t* const num_tree,
     num_tree->approx_search_count(comparator, value, filter_ids_length);
 }
 
-Option<bool> Index::approximate_filter_ids(const filter& a_filter,
+Option<bool> Index::_approximate_filter_ids(const filter& a_filter,
                                            uint32_t& filter_ids_length,
                                            const std::string& collection_name) const {
     if (!a_filter.referenced_collection_name.empty()) {
@@ -2054,7 +2054,7 @@ Option<bool> Index::approximate_filter_ids(const filter& a_filter,
     return Option(true);
 }
 
-Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
+Option<bool> Index::_rearrange_filter_tree(filter_node_t* const root,
                                           uint32_t& filter_ids_length,
                                           const std::string& collection_name) const {
     if (root == nullptr) {
@@ -2064,7 +2064,7 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
     if (root->isOperator) {
         uint32_t l_filter_ids_length = 0;
         if (root->left != nullptr) {
-            auto rearrange_op = rearrange_filter_tree(root->left, l_filter_ids_length, collection_name);
+            auto rearrange_op = _rearrange_filter_tree(root->left, l_filter_ids_length, collection_name);
             if (!rearrange_op.ok()) {
                 return rearrange_op;
             }
@@ -2072,7 +2072,7 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
 
         uint32_t r_filter_ids_length = 0;
         if (root->right != nullptr) {
-            auto rearrange_op = rearrange_filter_tree(root->right, r_filter_ids_length, collection_name);
+            auto rearrange_op = _rearrange_filter_tree(root->right, r_filter_ids_length, collection_name);
             if (!rearrange_op.ok()) {
                 return rearrange_op;
             }
@@ -2091,15 +2091,15 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
         return Option(true);
     }
 
-    approximate_filter_ids(root->filter_exp, filter_ids_length, collection_name);
+    _approximate_filter_ids(root->filter_exp, filter_ids_length, collection_name);
     return Option(true);
 }
 
-Option<bool> Index::rearranging_recursive_filter(filter_node_t* const filter_tree_root,
+Option<bool> Index::_rearranging_recursive_filter(filter_node_t* const filter_tree_root,
                                                  filter_result_t& result,
                                                  const std::string& collection_name) const {
     uint32_t filter_ids_length = 0;
-    auto rearrange_op = rearrange_filter_tree(filter_tree_root, filter_ids_length, collection_name);
+    auto rearrange_op = _rearrange_filter_tree(filter_tree_root, filter_ids_length, collection_name);
     if (!rearrange_op.ok()) {
         return rearrange_op;
     }
@@ -2189,7 +2189,7 @@ Option<bool> Index::adaptive_filter(filter_node_t* const filter_tree_root,
     metrics->and_operator_count > 0 &&
     // If there are more || in the filter tree than &&, we'll not gain much by rearranging the filter tree.
     ((float) metrics->or_operator_count / (float) metrics->and_operator_count < 0.5)) {
-        return rearranging_recursive_filter(filter_tree_root, result, collection_name);
+        return _rearranging_recursive_filter(filter_tree_root, result, collection_name);
     } else {
         return recursive_filter(filter_tree_root, result, collection_name);
     }
@@ -2252,7 +2252,7 @@ Option<bool> Index::get_approximate_reference_filter_ids_with_lock(filter_node_t
                                                                    uint32_t& filter_ids_length) const {
     std::shared_lock lock(mutex);
 
-    return rearrange_filter_tree(filter_tree_root, filter_ids_length);
+    return _rearrange_filter_tree(filter_tree_root, filter_ids_length);
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name) {

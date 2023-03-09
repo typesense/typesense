@@ -2077,8 +2077,7 @@ TEST_F(CollectionSpecificMoreTest, RearrangingFilterTree) {
     ASSERT_TRUE(root->right == nullptr);
 
     filter_result_t result;
-    // Internally calls rearranging_recursive_filter
-    coll->_get_index()->do_filtering_with_lock(filter_tree_root, result);
+    coll->_get_index()->_rearranging_recursive_filter(filter_tree_root, result);
 
     //                 &&
     //               /    \
@@ -2150,6 +2149,8 @@ TEST_F(CollectionSpecificMoreTest, RearrangingFilterTree) {
     ASSERT_EQ(root->filter_exp.field_name, "years");
     ASSERT_TRUE(root->left == nullptr);
     ASSERT_TRUE(root->right == nullptr);
+
+    collectionManager.drop_collection("Collection");
 }
 
 TEST_F(CollectionSpecificMoreTest, ApproxFilterMatchCount) {
@@ -2160,7 +2161,8 @@ TEST_F(CollectionSpecificMoreTest, ApproxFilterMatchCount) {
                     {"name": "name", "type": "string"},
                     {"name": "age", "type": "int32"},
                     {"name": "years", "type": "int32[]"},
-                    {"name": "rating", "type": "float"}
+                    {"name": "rating", "type": "float"},
+                    {"name": "location", "type": "geopoint", "optional": true}
                 ]
             })"_json;
 
@@ -2174,8 +2176,32 @@ TEST_F(CollectionSpecificMoreTest, ApproxFilterMatchCount) {
     }
     infile.close();
 
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> filter_op = filter::parse_filter_query("name: Jeremy", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
     uint32_t approx_count;
-    coll->get_approximate_reference_filter_ids("years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
-                                               approx_count);
+    coll->_get_index()->_approximate_filter_ids(filter_tree_root->filter_exp, approx_count);
+    ASSERT_EQ(approx_count, 5);
+
+    delete filter_tree_root;
+    filter_op = filter::parse_filter_query("location:(48.8662, 2.3255, 48.8581, 2.3209, 48.8561, 2.3448, 48.8641, 2.3469)",
+                                           coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    coll->_get_index()->_approximate_filter_ids(filter_tree_root->filter_exp, approx_count);
+    ASSERT_EQ(approx_count, 100);
+
+    delete filter_tree_root;
+    filter_op = filter::parse_filter_query("years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
+                                                        coll->get_schema(), store, doc_id_prefix, filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    coll->_get_index()->_rearrange_filter_tree(filter_tree_root, approx_count);
     ASSERT_EQ(approx_count, 3);
+
+    delete filter_tree_root;
+    collectionManager.drop_collection("Collection");
 }

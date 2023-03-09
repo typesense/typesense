@@ -486,14 +486,6 @@ private:
                                     const int64_t& range_end_value,
                                     uint32_t& filter_ids_length) const;
 
-    Option<bool> approximate_filter_ids(const filter& a_filter,
-                                        uint32_t& filter_ids_length,
-                                        const std::string& collection_name) const;
-
-    Option<bool> rearranging_recursive_filter(filter_node_t* const filter_tree_root,
-                                              filter_result_t& result,
-                                              const std::string& collection_name = "") const;
-
     Option<bool> recursive_filter(filter_node_t* const root,
                                   filter_result_t& result,
                                   const std::string& collection_name = "") const;
@@ -501,10 +493,6 @@ private:
     Option<bool> adaptive_filter(filter_node_t* const filter_tree_root,
                                  filter_result_t& result,
                                  const std::string& collection_name = "") const;
-
-    Option<bool> rearrange_filter_tree(filter_node_t* const root,
-                                       uint32_t& filter_ids_length,
-                                       const std::string& collection_name = "") const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -699,6 +687,18 @@ public:
 
     Option<bool> do_filtering_with_lock(filter_node_t* const filter_tree_root,
                                         filter_result_t& filter_result,
+                                        const std::string& collection_name = "") const;
+
+    Option<bool> _rearranging_recursive_filter(filter_node_t* const filter_tree_root,
+                                              filter_result_t& result,
+                                              const std::string& collection_name = "") const;
+
+    Option<bool> _rearrange_filter_tree(filter_node_t* const root,
+                                       uint32_t& filter_ids_length,
+                                       const std::string& collection_name = "") const;
+
+    Option<bool> _approximate_filter_ids(const filter& a_filter,
+                                        uint32_t& filter_ids_length,
                                         const std::string& collection_name = "") const;
 
     Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
