@@ -2076,8 +2076,8 @@ TEST_F(CollectionSpecificMoreTest, RearrangingFilterTree) {
     ASSERT_TRUE(root->left == nullptr);
     ASSERT_TRUE(root->right == nullptr);
 
-    filter_result_t result;
-    coll->_get_index()->_rearranging_recursive_filter(filter_tree_root, result);
+    uint32_t count = 0;
+    coll->_get_index()->rearrange_filter_tree(filter_tree_root, count);
 
     //                 &&
     //               /    \
@@ -2199,7 +2199,7 @@ TEST_F(CollectionSpecificMoreTest, ApproxFilterMatchCount) {
                                                         coll->get_schema(), store, doc_id_prefix, filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    coll->_get_index()->_rearrange_filter_tree(filter_tree_root, approx_count);
+    coll->_get_index()->rearrange_filter_tree(filter_tree_root, approx_count);
     ASSERT_EQ(approx_count, 3);
 
     delete filter_tree_root;

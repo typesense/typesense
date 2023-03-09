@@ -1452,7 +1452,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
 void Index::numeric_not_equals_filter(num_tree_t* const num_tree,
                                       const int64_t value,
                                       const uint32_t& context_ids_length,
-                                      const uint32_t* context_ids,
+                                      uint32_t* const& context_ids,
                                       size_t& ids_len,
                                       uint32_t*& ids) const {
     uint32_t* to_exclude_ids = nullptr;
@@ -1491,11 +1491,11 @@ bool Index::field_is_indexed(const std::string& field_name) const {
     geopoint_index.count(field_name) != 0;
 }
 
-Option<bool> Index::do_filtering(filter_node_t* const root,
-                                 filter_result_t& result,
-                                 const std::string& collection_name,
-                                 const uint32_t& context_ids_length,
-                                 const uint32_t* context_ids) const {
+Option<bool> Index::_do_filtering(filter_node_t* const root,
+                                  filter_result_t& result,
+                                  const std::string& collection_name,
+                                  const uint32_t& context_ids_length,
+                                  uint32_t* const& context_ids) const {
     // auto begin = std::chrono::high_resolution_clock::now();
     const filter a_filter = root->filter_exp;
 
@@ -1953,8 +1953,8 @@ void Index::aproximate_numerical_match(num_tree_t* const num_tree,
 }
 
 Option<bool> Index::_approximate_filter_ids(const filter& a_filter,
-                                           uint32_t& filter_ids_length,
-                                           const std::string& collection_name) const {
+                                            uint32_t& filter_ids_length,
+                                            const std::string& collection_name) const {
     if (!a_filter.referenced_collection_name.empty()) {
         auto& cm = CollectionManager::get_instance();
         auto collection = cm.get_collection(a_filter.referenced_collection_name);
@@ -2054,7 +2054,7 @@ Option<bool> Index::_approximate_filter_ids(const filter& a_filter,
     return Option(true);
 }
 
-Option<bool> Index::_rearrange_filter_tree(filter_node_t* const root,
+Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
                                           uint32_t& filter_ids_length,
                                           const std::string& collection_name) const {
     if (root == nullptr) {
@@ -2064,7 +2064,7 @@ Option<bool> Index::_rearrange_filter_tree(filter_node_t* const root,
     if (root->isOperator) {
         uint32_t l_filter_ids_length = 0;
         if (root->left != nullptr) {
-            auto rearrange_op = _rearrange_filter_tree(root->left, l_filter_ids_length, collection_name);
+            auto rearrange_op = rearrange_filter_tree(root->left, l_filter_ids_length, collection_name);
             if (!rearrange_op.ok()) {
                 return rearrange_op;
             }
@@ -2072,7 +2072,7 @@ Option<bool> Index::_rearrange_filter_tree(filter_node_t* const root,
 
         uint32_t r_filter_ids_length = 0;
         if (root->right != nullptr) {
-            auto rearrange_op = _rearrange_filter_tree(root->right, r_filter_ids_length, collection_name);
+            auto rearrange_op = rearrange_filter_tree(root->right, r_filter_ids_length, collection_name);
             if (!rearrange_op.ok()) {
                 return rearrange_op;
             }
@@ -2093,18 +2093,6 @@ Option<bool> Index::_rearrange_filter_tree(filter_node_t* const root,
 
     _approximate_filter_ids(root->filter_exp, filter_ids_length, collection_name);
     return Option(true);
-}
-
-Option<bool> Index::_rearranging_recursive_filter(filter_node_t* const filter_tree_root,
-                                                 filter_result_t& result,
-                                                 const std::string& collection_name) const {
-    uint32_t filter_ids_length = 0;
-    auto rearrange_op = _rearrange_filter_tree(filter_tree_root, filter_ids_length, collection_name);
-    if (!rearrange_op.ok()) {
-        return rearrange_op;
-    }
-
-    return recursive_filter(filter_tree_root, result, collection_name);
 }
 
 void copy_reference_ids(filter_result_t& from, filter_result_t& to) {
@@ -2132,7 +2120,9 @@ void copy_reference_ids(filter_result_t& from, filter_result_t& to) {
 
 Option<bool> Index::recursive_filter(filter_node_t* const root,
                                      filter_result_t& result,
-                                     const std::string& collection_name) const {
+                                     const std::string& collection_name,
+                                     const uint32_t& context_ids_length,
+                                     uint32_t* const& context_ids) const {
     if (root == nullptr) {
         return Option(true);
     }
@@ -2140,7 +2130,7 @@ Option<bool> Index::recursive_filter(filter_node_t* const root,
     if (root->isOperator) {
         filter_result_t l_result;
         if (root->left != nullptr) {
-            auto filter_op = recursive_filter(root->left, l_result , collection_name);
+            auto filter_op = recursive_filter(root->left, l_result , collection_name, context_ids_length, context_ids);
             if (!filter_op.ok()) {
                 return filter_op;
             }
@@ -2148,7 +2138,7 @@ Option<bool> Index::recursive_filter(filter_node_t* const root,
 
         filter_result_t r_result;
         if (root->right != nullptr) {
-            auto filter_op = recursive_filter(root->right, r_result , collection_name);
+            auto filter_op = recursive_filter(root->right, r_result , collection_name, context_ids_length, context_ids);
             if (!filter_op.ok()) {
                 return filter_op;
             }
@@ -2173,7 +2163,7 @@ Option<bool> Index::recursive_filter(filter_node_t* const root,
         return Option(true);
     }
 
-    return do_filtering(root, result, collection_name);
+    return _do_filtering(root, result, collection_name, context_ids_length, context_ids);
 }
 
 Option<bool> Index::adaptive_filter(filter_node_t* const filter_tree_root,
@@ -2183,16 +2173,13 @@ Option<bool> Index::adaptive_filter(filter_node_t* const filter_tree_root,
         return Option(true);
     }
 
-    auto metrics = filter_tree_root->metrics;
-    if (metrics != nullptr &&
-    metrics->filter_exp_count > 2 &&
-    metrics->and_operator_count > 0 &&
-    // If there are more || in the filter tree than &&, we'll not gain much by rearranging the filter tree.
-    ((float) metrics->or_operator_count / (float) metrics->and_operator_count < 0.5)) {
-        return _rearranging_recursive_filter(filter_tree_root, result, collection_name);
-    } else {
-        return recursive_filter(filter_tree_root, result, collection_name);
+    uint32_t filter_ids_length = 0;
+    auto op = rearrange_filter_tree(filter_tree_root, filter_ids_length, collection_name);
+    if (!op.ok()) {
+        return op;
     }
+
+    return recursive_filter(filter_tree_root, result, collection_name);
 }
 
 Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root,
@@ -2252,7 +2239,7 @@ Option<bool> Index::get_approximate_reference_filter_ids_with_lock(filter_node_t
                                                                    uint32_t& filter_ids_length) const {
     std::shared_lock lock(mutex);
 
-    return _rearrange_filter_tree(filter_tree_root, filter_ids_length);
+    return rearrange_filter_tree(filter_tree_root, filter_ids_length);
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name) {

@@ -75,7 +75,7 @@ bool num_tree_t::range_inclusive_contains(const int64_t& start, const int64_t& e
 
 void num_tree_t::range_inclusive_contains(const int64_t& start, const int64_t& end,
                                           const uint32_t& context_ids_length,
-                                          const uint32_t*& context_ids,
+                                          uint32_t* const& context_ids,
                                           size_t& result_ids_len,
                                           uint32_t*& result_ids) const {
     if (int64map.empty()) {
@@ -251,7 +251,7 @@ void num_tree_t::remove(uint64_t value, uint32_t id) {
 
 void num_tree_t::contains(const NUM_COMPARATOR& comparator, const int64_t& value,
                           const uint32_t& context_ids_length,
-                          const uint32_t*& context_ids,
+                          uint32_t* const& context_ids,
                           size_t& result_ids_len,
                           uint32_t*& result_ids) const {
     if (int64map.empty()) {
