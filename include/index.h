@@ -474,11 +474,11 @@ private:
 
     bool field_is_indexed(const std::string& field_name) const;
 
-    Option<bool> _do_filtering(filter_node_t* const root,
-                               filter_result_t& result,
-                               const std::string& collection_name = "",
-                               const uint32_t& context_ids_length = 0,
-                               uint32_t* const& context_ids = nullptr) const;
+    Option<bool> do_filtering(filter_node_t* const root,
+                              filter_result_t& result,
+                              const std::string& collection_name = "",
+                              const uint32_t& context_ids_length = 0,
+                              uint32_t* const& context_ids = nullptr) const;
 
     void aproximate_numerical_match(num_tree_t* const num_tree,
                                     const NUM_COMPARATOR& comparator,
@@ -694,8 +694,14 @@ public:
                                         filter_result_t& filter_result,
                                         const std::string& collection_name = "") const;
 
-    Option<bool> rearrange_filter_tree(filter_node_t* const root,
-                                       uint32_t& filter_ids_length,
+    /// Traverses through filter tree and gets an approximate doc count for each filter. Also arranges the children of
+    /// each operator in ascending order based on their approx doc count.
+    ///
+    /// \param filter_tree_root
+    /// \param approx_filter_ids_length Approximate count of docs that would match the whole filter_by clause.
+    /// \param collection_name Name of the collection to which current index belongs. Used to find the reference field in other collection.
+    Option<bool> rearrange_filter_tree(filter_node_t* const filter_tree_root,
+                                       uint32_t& approx_filter_ids_length,
                                        const std::string& collection_name = "") const;
 
     Option<bool> _approximate_filter_ids(const filter& a_filter,

@@ -1491,11 +1491,11 @@ bool Index::field_is_indexed(const std::string& field_name) const {
     geopoint_index.count(field_name) != 0;
 }
 
-Option<bool> Index::_do_filtering(filter_node_t* const root,
-                                  filter_result_t& result,
-                                  const std::string& collection_name,
-                                  const uint32_t& context_ids_length,
-                                  uint32_t* const& context_ids) const {
+Option<bool> Index::do_filtering(filter_node_t* const root,
+                                 filter_result_t& result,
+                                 const std::string& collection_name,
+                                 const uint32_t& context_ids_length,
+                                 uint32_t* const& context_ids) const {
     // auto begin = std::chrono::high_resolution_clock::now();
     const filter a_filter = root->filter_exp;
 
@@ -2055,7 +2055,7 @@ Option<bool> Index::_approximate_filter_ids(const filter& a_filter,
 }
 
 Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
-                                          uint32_t& filter_ids_length,
+                                          uint32_t& approx_filter_ids_length,
                                           const std::string& collection_name) const {
     if (root == nullptr) {
         return Option(true);
@@ -2079,9 +2079,9 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
         }
 
         if (root->filter_operator == AND) {
-            filter_ids_length = std::min(l_filter_ids_length, r_filter_ids_length);
+            approx_filter_ids_length = std::min(l_filter_ids_length, r_filter_ids_length);
         } else {
-            filter_ids_length = l_filter_ids_length + r_filter_ids_length;
+            approx_filter_ids_length = l_filter_ids_length + r_filter_ids_length;
         }
 
         if (l_filter_ids_length > r_filter_ids_length) {
@@ -2091,7 +2091,7 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
         return Option(true);
     }
 
-    _approximate_filter_ids(root->filter_exp, filter_ids_length, collection_name);
+    _approximate_filter_ids(root->filter_exp, approx_filter_ids_length, collection_name);
     return Option(true);
 }
 
@@ -2163,7 +2163,7 @@ Option<bool> Index::recursive_filter(filter_node_t* const root,
         return Option(true);
     }
 
-    return _do_filtering(root, result, collection_name, context_ids_length, context_ids);
+    return do_filtering(root, result, collection_name, context_ids_length, context_ids);
 }
 
 Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root,
