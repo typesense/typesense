@@ -492,10 +492,6 @@ private:
                                   const uint32_t& context_ids_length = 0,
                                   uint32_t* const& context_ids = nullptr) const;
 
-    Option<bool> adaptive_filter(filter_node_t* const filter_tree_root,
-                                 filter_result_t& result,
-                                 const std::string& collection_name = "") const;
-
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
