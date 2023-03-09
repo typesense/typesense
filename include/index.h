@@ -486,8 +486,15 @@ private:
                                     const int64_t& range_end_value,
                                     uint32_t& filter_ids_length) const;
 
-    Option<bool> recursive_filter(filter_node_t* const root,
-                                  filter_result_t& result,
+    /// Traverses through filter tree to get the filter_result.
+    ///
+    /// \param filter_tree_root
+    /// \param filter_result
+    /// \param collection_name Name of the collection to which current index belongs. Used to find the reference field in other collection.
+    /// \param context_ids_length Number of docs matching the search query.
+    /// \param context_ids Array of doc ids matching the search query.
+    Option<bool> recursive_filter(filter_node_t* const filter_tree_root,
+                                  filter_result_t& filter_result,
                                   const std::string& collection_name = "",
                                   const uint32_t& context_ids_length = 0,
                                   uint32_t* const& context_ids = nullptr) const;
@@ -700,6 +707,7 @@ public:
                                                   const std::string& collection_name,
                                                   const std::string& reference_helper_field_name) const;
 
+    /// Get approximate count of docs matching a reference filter on foo collection when $foo(...) filter is encountered.
     Option<bool> get_approximate_reference_filter_ids_with_lock(filter_node_t* const filter_tree_root,
                                                                 uint32_t& filter_ids_length) const;
 

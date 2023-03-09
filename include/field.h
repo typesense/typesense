@@ -594,12 +594,6 @@ struct filter {
                                            filter_node_t*& root);
 };
 
-struct filter_tree_metrics {
-    int filter_exp_count;
-    int and_operator_count;
-    int or_operator_count;
-};
-
 struct filter_node_t {
     filter filter_exp;
     FILTER_OPERATOR filter_operator;

@@ -457,6 +457,7 @@ public:
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
+    /// Get approximate count of docs matching a reference filter on foo collection when $foo(...) filter is encountered.
     Option<bool> get_approximate_reference_filter_ids(const std::string& filter_query,
                                                       uint32_t& filter_ids_length) const;
 
