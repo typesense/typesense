@@ -202,6 +202,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
 
     if(config->get_skip_writes() && request->path_without_query != "/config") {
         response->set_422("Skipping writes.");
+        response->final = true;
         auto req_res = new async_req_res_t(request, response, true);
         return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
     }
