@@ -551,6 +551,89 @@ TEST_F(CollectionJoinTest, FilterByReference_MultipleMatch) {
     collectionManager.drop_collection("Links");
 }
 
+TEST_F(CollectionJoinTest, AndFilterResults_NoReference) {
+    filter_result_t a;
+    a.count = 9;
+    a.docs = new uint32_t[a.count];
+    for (size_t i = 0; i < a.count; i++) {
+        a.docs[i] = i;
+    }
+
+    filter_result_t b;
+    b.count = 0;
+    uint32_t limit = 10;
+    b.docs = new uint32_t[limit];
+    for (size_t i = 2; i < limit; i++) {
+        if (i % 3 == 0) {
+            b.docs[b.count++] = i;
+        }
+    }
+
+    // a.docs: [0..8] , b.docs: [3, 6, 9]
+    filter_result_t result;
+    filter_result_t::and_filter_results(a, b, result);
+
+    ASSERT_EQ(2, result.count);
+    ASSERT_EQ(0, result.reference_filter_results.size());
+
+    std::vector<uint32_t> docs = {3, 6};
+
+    for(size_t i = 0; i < result.count; i++) {
+        ASSERT_EQ(docs[i], result.docs[i]);
+    }
+}
+
+TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
+    filter_result_t a;
+    a.count = 9;
+    a.docs = new uint32_t[a.count];
+    a.reference_filter_results["foo"] = new reference_filter_result_t[a.count];
+    for (size_t i = 0; i < a.count; i++) {
+        a.docs[i] = i;
+
+        auto& reference = a.reference_filter_results["foo"][i];
+        reference.count = 1;
+        reference.docs = new uint32_t[1];
+        reference.docs[0] = 10 - i;
+    }
+
+    filter_result_t b;
+    b.count = 0;
+    uint32_t limit = 10;
+    b.docs = new uint32_t[limit];
+    b.reference_filter_results["bar"] = new reference_filter_result_t[limit];
+    for (size_t i = 2; i < limit; i++) {
+        if (i % 3 == 0) {
+            b.docs[b.count] = i;
+
+            auto& reference = b.reference_filter_results["bar"][b.count++];
+            reference.count = 1;
+            reference.docs = new uint32_t[1];
+            reference.docs[0] = 2 * i;
+        }
+    }
+
+    // a.docs: [0..8] , b.docs: [3, 6, 9]
+    filter_result_t result;
+    filter_result_t::and_filter_results(a, b, result);
+
+    ASSERT_EQ(2, result.count);
+    ASSERT_EQ(2, result.reference_filter_results.size());
+    ASSERT_EQ(1, result.reference_filter_results.count("foo"));
+    ASSERT_EQ(1, result.reference_filter_results.count("bar"));
+
+    std::vector<uint32_t> docs = {3, 6}, foo_reference = {7, 4}, bar_reference = {6, 12};
+
+    for(size_t i = 0; i < result.count; i++) {
+        ASSERT_EQ(docs[i], result.docs[i]);
+
+        ASSERT_EQ(1, result.reference_filter_results["foo"][i].count);
+        ASSERT_EQ(foo_reference[i], result.reference_filter_results["foo"][i].docs[0]);
+        ASSERT_EQ(1, result.reference_filter_results["bar"][i].count);
+        ASSERT_EQ(bar_reference[i], result.reference_filter_results["bar"][i].docs[0]);
+    }
+}
+
 TEST_F(CollectionJoinTest, FilterByNReferences) {
     auto schema_json =
             R"({
