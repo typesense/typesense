@@ -2108,13 +2108,14 @@ void and_filter_result(const filter_result_t& a, const filter_result_t& b, filte
     const uint32_t *endB = B + lenB;
 
     for (auto const& item: a.reference_filter_results) {
-        result.reference_filter_results[item.first];
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
     }
     for (auto const& item: b.reference_filter_results) {
-        result.reference_filter_results[item.first];
-    }
-    for (auto& item: result.reference_filter_results) {
-        item.second = new reference_filter_result_t[std::min(lenA, lenB)];
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
     }
 
     while (true) {
