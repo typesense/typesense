@@ -1338,6 +1338,33 @@ TEST_F(CollectionSpecificMoreTest, CopyDocHelper) {
     ASSERT_EQ(1, dst.count("foo.bar"));
 }
 
+TEST_F(CollectionSpecificMoreTest, HighlightWordWithSymbols) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "var(--icon-secondary-neutral); For components with";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("favicon", {"title"}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true},
+                                10, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address",
+                                20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
+                                "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("<mark>var(--icon</mark>-secondary-neutral); For components with",
+              res["hits"][0]["highlight"]["title"]["snippet"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, HighlightObjectShouldBeEmptyWhenNoHighlightFieldFound) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -1753,6 +1780,26 @@ TEST_F(CollectionSpecificMoreTest, PhraseMatchMultipleFields) {
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, PhraseMatchAcrossArrayElements) {
+    nlohmann::json schema = R"({
+                "name": "coll1",
+                "fields": [
+                    {"name": "texts", "type": "string[]"}
+                ]
+            })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["texts"] = {"state of the", "of the art"};
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search(R"("state of the art)", {"texts"}, "", {}, {}, {0}, 10, 1,
+                             FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(0, res["hits"].size());
 }
 
 TEST_F(CollectionSpecificMoreTest, WeightTakingPrecendeceOverMatch) {

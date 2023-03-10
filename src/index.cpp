@@ -4609,7 +4609,8 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
 
         if (sort_fields_std[i].name == sort_field_const::text_match) {
             field_values[i] = &text_match_sentinel_value;
-        } else if (sort_fields_std[i].name == sort_field_const::seq_id) {
+        } else if (sort_fields_std[i].name == sort_field_const::seq_id || 
+            sort_fields_std[i].name == sort_field_const::group_count) {
             field_values[i] = &seq_id_sentinel_value;
         } else if (sort_fields_std[i].name == sort_field_const::eval) {
             field_values[i] = &eval_sentinel_value;
