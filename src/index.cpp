@@ -2095,6 +2095,66 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
     return Option(true);
 }
 
+void and_filter_result(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
+    auto lenA = a.count, lenB = b.count;
+    if (lenA == 0 || lenB == 0) {
+        return;
+    }
+
+    result.docs = new uint32_t[std::min(lenA, lenB)];
+
+    auto A = a.docs, B = b.docs, out = result.docs;
+    const uint32_t *endA = A + lenA;
+    const uint32_t *endB = B + lenB;
+
+    for (auto const& item: a.reference_filter_results) {
+        result.reference_filter_results[item.first];
+    }
+    for (auto const& item: b.reference_filter_results) {
+        result.reference_filter_results[item.first];
+    }
+    for (auto& item: result.reference_filter_results) {
+        item.second = new reference_filter_result_t[std::min(lenA, lenB)];
+    }
+
+    while (true) {
+        while (*A < *B) {
+            SKIP_FIRST_COMPARE:
+            if (++A == endA) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        while (*A > *B) {
+            if (++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        if (*A == *B) {
+            *out = *A;
+
+            for (auto const& item: a.reference_filter_results) {
+                result.reference_filter_results[item.first][out - result.docs] = item.second[A - a.docs];
+                item.second[A - a.docs].docs = nullptr;
+            }
+            for (auto const& item: b.reference_filter_results) {
+                result.reference_filter_results[item.first][out - result.docs] = item.second[B - b.docs];
+                item.second[B - b.docs].docs = nullptr;
+            }
+
+            out++;
+
+            if (++A == endA || ++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        } else {
+            goto SKIP_FIRST_COMPARE;
+        }
+    }
+}
+
 void copy_reference_ids(filter_result_t& from, filter_result_t& to) {
     if (to.count > 0 && !from.reference_filter_results.empty()) {
         for (const auto &item: from.reference_filter_results) {
@@ -2144,21 +2204,20 @@ Option<bool> Index::recursive_filter(filter_node_t* const root,
             }
         }
 
-        uint32_t* filtered_results = nullptr;
         if (root->filter_operator == AND) {
-            result.count = ArrayUtils::and_scalar(
-                    l_result.docs, l_result.count, r_result.docs,
-                    r_result.count, &filtered_results);
+            and_filter_result(l_result, r_result, result);
         } else {
+            uint32_t* filtered_results = nullptr;
             result.count = ArrayUtils::or_scalar(
                     l_result.docs, l_result.count, r_result.docs,
                     r_result.count, &filtered_results);
+
+            result.docs = filtered_results;
+            if (!l_result.reference_filter_results.empty() || !r_result.reference_filter_results.empty()) {
+                copy_reference_ids(!l_result.reference_filter_results.empty() ? l_result : r_result, result);
+            }
         }
 
-        result.docs = filtered_results;
-        if (!l_result.reference_filter_results.empty() || !r_result.reference_filter_results.empty()) {
-            copy_reference_ids(!l_result.reference_filter_results.empty() ? l_result : r_result, result);
-        }
 
         return Option(true);
     }
