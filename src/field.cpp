@@ -983,3 +983,68 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
         nested_fields.erase_prefix(field_name + ".");
     }
 }
+
+void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
+    auto lenA = a.count, lenB = b.count;
+    if (lenA == 0 || lenB == 0) {
+        return;
+    }
+
+    result.docs = new uint32_t[std::min(lenA, lenB)];
+
+    auto A = a.docs, B = b.docs, out = result.docs;
+    const uint32_t *endA = A + lenA;
+    const uint32_t *endB = B + lenB;
+
+    for (auto const& item: a.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
+    }
+    for (auto const& item: b.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
+    }
+
+    while (true) {
+        while (*A < *B) {
+            SKIP_FIRST_COMPARE:
+            if (++A == endA) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        while (*A > *B) {
+            if (++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        if (*A == *B) {
+            *out = *A;
+
+            for (auto const& item: a.reference_filter_results) {
+                auto& reference = result.reference_filter_results[item.first][out - result.docs];
+                reference.count = item.second[A - a.docs].count;
+                reference.docs = new uint32_t[reference.count];
+                memcpy(reference.docs, item.second[A - a.docs].docs, reference.count * sizeof(uint32_t));
+            }
+            for (auto const& item: b.reference_filter_results) {
+                auto& reference = result.reference_filter_results[item.first][out - result.docs];
+                reference.count = item.second[B - b.docs].count;
+                reference.docs = new uint32_t[reference.count];
+                memcpy(reference.docs, item.second[B - b.docs].docs, reference.count * sizeof(uint32_t));
+            }
+
+            out++;
+
+            if (++A == endA || ++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        } else {
+            goto SKIP_FIRST_COMPARE;
+        }
+    }
+}

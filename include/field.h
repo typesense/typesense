@@ -661,66 +661,9 @@ struct filter_result_t {
         }
     }
 
-    static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
-        auto lenA = a.count, lenB = b.count;
-        if (lenA == 0 || lenB == 0) {
-            return;
-        }
+    static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
 
-        result.docs = new uint32_t[std::min(lenA, lenB)];
-
-        auto A = a.docs, B = b.docs, out = result.docs;
-        const uint32_t *endA = A + lenA;
-        const uint32_t *endB = B + lenB;
-
-        for (auto const& item: a.reference_filter_results) {
-            if (result.reference_filter_results.count(item.first) == 0) {
-                result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
-            }
-        }
-        for (auto const& item: b.reference_filter_results) {
-            if (result.reference_filter_results.count(item.first) == 0) {
-                result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
-            }
-        }
-
-        while (true) {
-            while (*A < *B) {
-                SKIP_FIRST_COMPARE:
-                if (++A == endA) {
-                    result.count = out - result.docs;
-                    return;
-                }
-            }
-            while (*A > *B) {
-                if (++B == endB) {
-                    result.count = out - result.docs;
-                    return;
-                }
-            }
-            if (*A == *B) {
-                *out = *A;
-
-                for (auto const& item: a.reference_filter_results) {
-                    result.reference_filter_results[item.first][out - result.docs] = item.second[A - a.docs];
-                    item.second[A - a.docs].docs = nullptr;
-                }
-                for (auto const& item: b.reference_filter_results) {
-                    result.reference_filter_results[item.first][out - result.docs] = item.second[B - b.docs];
-                    item.second[B - b.docs].docs = nullptr;
-                }
-
-                out++;
-
-                if (++A == endA || ++B == endB) {
-                    result.count = out - result.docs;
-                    return;
-                }
-            } else {
-                goto SKIP_FIRST_COMPARE;
-            }
-        }
-    }
+    static void or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
 };
 
 namespace sort_field_const {

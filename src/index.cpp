@@ -2158,7 +2158,6 @@ Option<bool> Index::recursive_filter(filter_node_t* const root,
             }
         }
 
-
         return Option(true);
     }
 
