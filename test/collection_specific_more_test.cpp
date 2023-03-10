@@ -1782,6 +1782,26 @@ TEST_F(CollectionSpecificMoreTest, PhraseMatchMultipleFields) {
     ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, PhraseMatchAcrossArrayElements) {
+    nlohmann::json schema = R"({
+                "name": "coll1",
+                "fields": [
+                    {"name": "texts", "type": "string[]"}
+                ]
+            })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["texts"] = {"state of the", "of the art"};
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search(R"("state of the art)", {"texts"}, "", {}, {}, {0}, 10, 1,
+                             FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(0, res["hits"].size());
+}
+
 TEST_F(CollectionSpecificMoreTest, WeightTakingPrecendeceOverMatch) {
     nlohmann::json schema = R"({
         "name": "coll1",
