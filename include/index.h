@@ -467,28 +467,37 @@ private:
 
     void numeric_not_equals_filter(num_tree_t* const num_tree,
                                    const int64_t value,
-                                   uint32_t*& ids,
-                                   size_t& ids_len) const;
+                                   const uint32_t& context_ids_length,
+                                   uint32_t* const& context_ids,
+                                   size_t& ids_len,
+                                   uint32_t*& ids) const;
+
+    bool field_is_indexed(const std::string& field_name) const;
 
     Option<bool> do_filtering(filter_node_t* const root,
                               filter_result_t& result,
-                              const std::string& collection_name = "") const;
+                              const std::string& collection_name = "",
+                              const uint32_t& context_ids_length = 0,
+                              uint32_t* const& context_ids = nullptr) const;
 
-    Option<bool> rearranging_recursive_filter (filter_node_t* const filter_tree_root,
-                                               filter_result_t& result,
-                                               const std::string& collection_name = "") const;
+    void aproximate_numerical_match(num_tree_t* const num_tree,
+                                    const NUM_COMPARATOR& comparator,
+                                    const int64_t& value,
+                                    const int64_t& range_end_value,
+                                    uint32_t& filter_ids_length) const;
 
-    Option<bool> recursive_filter(filter_node_t* const root,
-                                  filter_result_t& result,
-                                  const std::string& collection_name = "") const;
-
-    Option<bool> adaptive_filter(filter_node_t* const filter_tree_root,
-                                 filter_result_t& result,
-                                 const std::string& collection_name = "") const;
-
-    Option<bool> rearrange_filter_tree(filter_node_t* const root,
-                                       uint32_t& filter_ids_length,
-                                       const std::string& collection_name = "") const;
+    /// Traverses through filter tree to get the filter_result.
+    ///
+    /// \param filter_tree_root
+    /// \param filter_result
+    /// \param collection_name Name of the collection to which current index belongs. Used to find the reference field in other collection.
+    /// \param context_ids_length Number of docs matching the search query.
+    /// \param context_ids Array of doc ids matching the search query.
+    Option<bool> recursive_filter(filter_node_t* const filter_tree_root,
+                                  filter_result_t& filter_result,
+                                  const std::string& collection_name = "",
+                                  const uint32_t& context_ids_length = 0,
+                                  uint32_t* const& context_ids = nullptr) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -685,9 +694,28 @@ public:
                                         filter_result_t& filter_result,
                                         const std::string& collection_name = "") const;
 
+    /// Traverses through filter tree and gets an approximate doc count for each filter. Also arranges the children of
+    /// each operator in ascending order based on their approx doc count.
+    ///
+    /// \param filter_tree_root
+    /// \param approx_filter_ids_length Approximate count of docs that would match the whole filter_by clause.
+    /// \param collection_name Name of the collection to which current index belongs. Used to find the reference field in other collection.
+    Option<bool> rearrange_filter_tree(filter_node_t* const filter_tree_root,
+                                       uint32_t& approx_filter_ids_length,
+                                       const std::string& collection_name = "") const;
+
+    Option<bool> _approximate_filter_ids(const filter& a_filter,
+                                         uint32_t& filter_ids_length,
+                                         const std::string& collection_name = "") const;
+
     Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                   filter_result_t& filter_result,
-                                                  const std::string & reference_helper_field_name) const;
+                                                  const std::string& collection_name,
+                                                  const std::string& reference_helper_field_name) const;
+
+    /// Get approximate count of docs matching a reference filter on foo collection when $foo(...) filter is encountered.
+    Option<bool> get_approximate_reference_filter_ids_with_lock(filter_node_t* const filter_tree_root,
+                                                                uint32_t& filter_ids_length) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 

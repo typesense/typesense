@@ -384,37 +384,36 @@ Option<bool> toFilter(const std::string expression,
 Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const tsl::htrie_map<char, field>& search_schema,
                          const Store* store,
-                         const std::string& doc_id_prefix,
-                         int& and_operator_count,
-                         int& or_operator_count) {
+                         const std::string& doc_id_prefix) {
     std::stack<filter_node_t*> nodeStack;
+    bool is_successful = true;
+    std::string error_message;
 
     while (!postfix.empty()) {
         const std::string expression = postfix.front();
         postfix.pop();
 
-        filter_node_t* filter_node = nullptr;
+        filter_node_t *filter_node = nullptr;
         if (isOperator(expression)) {
-            auto message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
-
             if (nodeStack.empty()) {
-                return Option<bool>(400, message);
+                is_successful = false;
+                error_message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
+                break;
             }
             auto operandB = nodeStack.top();
             nodeStack.pop();
 
             if (nodeStack.empty()) {
-                delete operandB;
-                return Option<bool>(400, message);
+                is_successful = false;
+                error_message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
+                break;
             }
             auto operandA = nodeStack.top();
             nodeStack.pop();
 
-            expression == "&&" ? and_operator_count++ : or_operator_count++;
             filter_node = new filter_node_t(expression == "&&" ? AND : OR, operandA, operandB);
         } else {
             filter filter_exp;
-<<<<<<< HEAD
 
             // Expected value: $Collection(...)
             bool is_referenced_filter = (expression[0] == '$' && expression[expression.size() - 1] == ')');
@@ -422,10 +421,12 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 size_t parenthesis_index = expression.find('(');
 
                 std::string collection_name = expression.substr(1, parenthesis_index - 1);
-                auto& cm = CollectionManager::get_instance();
+                auto &cm = CollectionManager::get_instance();
                 auto collection = cm.get_collection(collection_name);
                 if (collection == nullptr) {
-                    return Option<bool>(400, "Referenced collection `" + collection_name + "` not found.");
+                    is_successful = false;
+                    error_message = "Referenced collection `" + collection_name + "` not found.";
+                    break;
                 }
 
                 filter_exp = {expression.substr(parenthesis_index + 1, expression.size() - parenthesis_index - 2)};
@@ -433,18 +434,17 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
 
                 auto op = collection->validate_reference_filter(filter_exp.field_name);
                 if (!op.ok()) {
-                    return Option<bool>(400, "Failed to parse reference filter on `" + collection_name +
-                                                "` collection: " + op.error());
+                    is_successful = false;
+                    error_message = "Failed to parse reference filter on `" + collection_name + "` collection: " +
+                                        op.error();
+                    break;
                 }
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
                 if (!toFilter_op.ok()) {
-		    while(!nodeStack.empty()) {
-                        auto filterNode = nodeStack.top();
-                        delete filterNode;
-                        nodeStack.pop();
-                    }
-                    return toFilter_op;
+                    is_successful = false;
+                    error_message = toFilter_op.error();
+                    break;
                 }
             }
 
@@ -454,11 +454,21 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
         nodeStack.push(filter_node);
     }
 
+    if (!is_successful) {
+        while (!nodeStack.empty()) {
+            auto filterNode = nodeStack.top();
+            delete filterNode;
+            nodeStack.pop();
+        }
+
+        return Option<bool>(400, error_message);
+    }
+
     if (nodeStack.empty()) {
         return Option<bool>(400, "Filter query cannot be empty.");
     }
-
     root = nodeStack.top();
+
     return Option<bool>(true);
 }
 
@@ -489,21 +499,14 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
         return toPostfix_op;
     }
 
-    int postfix_size = (int) postfix.size(), and_operator_count = 0, or_operator_count = 0;
     Option<bool> toParseTree_op = toParseTree(postfix,
                                               root,
                                               search_schema,
                                               store,
-                                              doc_id_prefix,
-                                              and_operator_count,
-                                              or_operator_count);
+                                              doc_id_prefix);
     if (!toParseTree_op.ok()) {
         return toParseTree_op;
     }
-
-    root->metrics = new filter_tree_metrics{static_cast<int>(postfix_size - (and_operator_count + or_operator_count)),
-                     and_operator_count,
-                     or_operator_count};
 
     return Option<bool>(true);
 }
@@ -978,5 +981,70 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
 
     for(auto& field_name: nested_fields_vec) {
         nested_fields.erase_prefix(field_name + ".");
+    }
+}
+
+void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
+    auto lenA = a.count, lenB = b.count;
+    if (lenA == 0 || lenB == 0) {
+        return;
+    }
+
+    result.docs = new uint32_t[std::min(lenA, lenB)];
+
+    auto A = a.docs, B = b.docs, out = result.docs;
+    const uint32_t *endA = A + lenA;
+    const uint32_t *endB = B + lenB;
+
+    for (auto const& item: a.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
+    }
+    for (auto const& item: b.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
+    }
+
+    while (true) {
+        while (*A < *B) {
+            SKIP_FIRST_COMPARE:
+            if (++A == endA) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        while (*A > *B) {
+            if (++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        if (*A == *B) {
+            *out = *A;
+
+            for (auto const& item: a.reference_filter_results) {
+                auto& reference = result.reference_filter_results[item.first][out - result.docs];
+                reference.count = item.second[A - a.docs].count;
+                reference.docs = new uint32_t[reference.count];
+                memcpy(reference.docs, item.second[A - a.docs].docs, reference.count * sizeof(uint32_t));
+            }
+            for (auto const& item: b.reference_filter_results) {
+                auto& reference = result.reference_filter_results[item.first][out - result.docs];
+                reference.count = item.second[B - b.docs].count;
+                reference.docs = new uint32_t[reference.count];
+                memcpy(reference.docs, item.second[B - b.docs].docs, reference.count * sizeof(uint32_t));
+            }
+
+            out++;
+
+            if (++A == endA || ++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        } else {
+            goto SKIP_FIRST_COMPARE;
+        }
     }
 }

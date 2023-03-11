@@ -14,14 +14,15 @@ struct KV {
     uint64_t key{};
     uint64_t distinct_key{};
     int64_t scores[3]{};  // match score + 2 custom attributes
-    reference_filter_result_t* reference_filter_result;
+    reference_filter_result_t* reference_filter_result = nullptr;
 
     // to be used only in final aggregation
     uint64_t* query_indices = nullptr;
 
-    KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, uint8_t match_score_index, const int64_t *scores):
+    KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, uint8_t match_score_index, const int64_t *scores,
+       reference_filter_result_t* reference_filter_result = nullptr):
             match_score_index(match_score_index), query_index(queryIndex), array_index(0), key(key),
-            distinct_key(distinct_key) {
+            distinct_key(distinct_key), reference_filter_result(reference_filter_result) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
         this->scores[2] = scores[2];

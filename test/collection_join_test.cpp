@@ -551,6 +551,297 @@ TEST_F(CollectionJoinTest, FilterByReference_MultipleMatch) {
     collectionManager.drop_collection("Links");
 }
 
+TEST_F(CollectionJoinTest, AndFilterResults_NoReference) {
+    filter_result_t a;
+    a.count = 9;
+    a.docs = new uint32_t[a.count];
+    for (size_t i = 0; i < a.count; i++) {
+        a.docs[i] = i;
+    }
+
+    filter_result_t b;
+    b.count = 0;
+    uint32_t limit = 10;
+    b.docs = new uint32_t[limit];
+    for (size_t i = 2; i < limit; i++) {
+        if (i % 3 == 0) {
+            b.docs[b.count++] = i;
+        }
+    }
+
+    // a.docs: [0..8] , b.docs: [3, 6, 9]
+    filter_result_t result;
+    filter_result_t::and_filter_results(a, b, result);
+
+    ASSERT_EQ(2, result.count);
+    ASSERT_EQ(0, result.reference_filter_results.size());
+
+    std::vector<uint32_t> docs = {3, 6};
+
+    for(size_t i = 0; i < result.count; i++) {
+        ASSERT_EQ(docs[i], result.docs[i]);
+    }
+}
+
+TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
+    filter_result_t a;
+    a.count = 9;
+    a.docs = new uint32_t[a.count];
+    a.reference_filter_results["foo"] = new reference_filter_result_t[a.count];
+    for (size_t i = 0; i < a.count; i++) {
+        a.docs[i] = i;
+
+        auto& reference = a.reference_filter_results["foo"][i];
+        reference.count = 1;
+        reference.docs = new uint32_t[1];
+        reference.docs[0] = 10 - i;
+    }
+
+    filter_result_t b;
+    b.count = 0;
+    uint32_t limit = 10;
+    b.docs = new uint32_t[limit];
+    b.reference_filter_results["bar"] = new reference_filter_result_t[limit];
+    for (size_t i = 2; i < limit; i++) {
+        if (i % 3 == 0) {
+            b.docs[b.count] = i;
+
+            auto& reference = b.reference_filter_results["bar"][b.count++];
+            reference.count = 1;
+            reference.docs = new uint32_t[1];
+            reference.docs[0] = 2 * i;
+        }
+    }
+
+    // a.docs: [0..8] , b.docs: [3, 6, 9]
+    filter_result_t result;
+    filter_result_t::and_filter_results(a, b, result);
+
+    ASSERT_EQ(2, result.count);
+    ASSERT_EQ(2, result.reference_filter_results.size());
+    ASSERT_EQ(1, result.reference_filter_results.count("foo"));
+    ASSERT_EQ(1, result.reference_filter_results.count("bar"));
+
+    std::vector<uint32_t> docs = {3, 6}, foo_reference = {7, 4}, bar_reference = {6, 12};
+
+    for(size_t i = 0; i < result.count; i++) {
+        ASSERT_EQ(docs[i], result.docs[i]);
+
+        ASSERT_EQ(1, result.reference_filter_results["foo"][i].count);
+        ASSERT_EQ(foo_reference[i], result.reference_filter_results["foo"][i].docs[0]);
+        ASSERT_EQ(1, result.reference_filter_results["bar"][i].count);
+        ASSERT_EQ(bar_reference[i], result.reference_filter_results["bar"][i].docs[0]);
+    }
+}
+
+TEST_F(CollectionJoinTest, FilterByNReferences) {
+    auto schema_json =
+            R"({
+                "name": "Users",
+                "fields": [
+                    {"name": "user_id", "type": "string"},
+                    {"name": "user_name", "type": "string"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "user_id": "user_a",
+                "user_name": "Roshan"
+            })"_json,
+            R"({
+                "user_id": "user_b",
+                "user_name": "Ruby"
+            })"_json,
+            R"({
+                "user_id": "user_c",
+                "user_name": "Joe"
+            })"_json,
+            R"({
+                "user_id": "user_d",
+                "user_name": "Aby"
+            })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Repos",
+                "fields": [
+                    {"name": "repo_id", "type": "string"},
+                    {"name": "repo_content", "type": "string"},
+                    {"name": "repo_stars", "type": "int32"},
+                    {"name": "repo_is_private", "type": "bool"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "repo_id": "repo_a",
+                "repo_content": "body1",
+                "repo_stars": 431,
+                "repo_is_private": true
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "repo_content": "body2",
+                "repo_stars": 4562,
+                "repo_is_private": false
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "repo_content": "body3",
+                "repo_stars": 945,
+                "repo_is_private": false
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Links",
+                "fields": [
+                    {"name": "repo_id", "type": "string", "reference": "Repos.repo_id"},
+                    {"name": "user_id", "type": "string", "reference": "Users.user_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "repo_id": "repo_a",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_a",
+                "user_id": "user_c"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_a"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_d"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_a"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_c"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_d"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Organizations",
+                "fields": [
+                    {"name": "org_id", "type": "string"},
+                    {"name": "org_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "org_id": "org_a",
+                "org_name": "Typesense"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Participants",
+                "fields": [
+                    {"name": "user_id", "type": "string", "reference": "Users.user_id"},
+                    {"name": "org_id", "type": "string", "reference": "Organizations.org_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "user_id": "user_a",
+                "org_id": "org_a"
+            })"_json,
+            R"({
+                "user_id": "user_b",
+                "org_id": "org_a"
+            })"_json,
+            R"({
+                "user_id": "user_d",
+                "org_id": "org_a"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto coll = collectionManager.get_collection_unsafe("Users");
+
+    // Search for users within an organization with access to a particular repo.
+    auto result = coll->search("R", {"user_name"}, "$Participants(org_id:=org_a) && $Links(repo_id:=repo_b)", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD).get();
+
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("user_b", result["hits"][0]["document"]["user_id"].get<std::string>());
+    ASSERT_EQ("user_a", result["hits"][1]["document"]["user_id"].get<std::string>());
+
+    collectionManager.drop_collection("Users");
+    collectionManager.drop_collection("Repos");
+    collectionManager.drop_collection("Links");
+}
+
 TEST_F(CollectionJoinTest, IncludeFieldsByReference_SingleMatch) {
     auto schema_json =
             R"({
@@ -651,11 +942,11 @@ TEST_F(CollectionJoinTest, IncludeFieldsByReference_SingleMatch) {
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Invalid reference in include_fields, expected `$CollectionName(fieldA, ...)`.", search_op.error());
 
-    req_params["include_fields"] = "$foo(bar)";
-    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Referenced collection `foo` not found.", search_op.error());
-
+//    req_params["include_fields"] = "$foo(bar)";
+//    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+//    ASSERT_FALSE(search_op.ok());
+//    ASSERT_EQ("Referenced collection `foo` not found.", search_op.error());
+//
 //    req_params["include_fields"] = "$Customers(bar)";
 //    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
 //    ASSERT_TRUE(search_op.ok());

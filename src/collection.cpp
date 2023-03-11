@@ -246,6 +246,7 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::reference] = coll_field.reference;
         }
 
+
         fields_arr.push_back(field_json);
     }
 
@@ -1515,7 +1516,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     }
 
     // for grouping we have to re-aggregate
-
     Topster& topster = *search_params->topster;
     Topster& curated_topster = *search_params->curated_topster;
 
@@ -2509,19 +2509,16 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                         store, doc_id_prefix, filter_tree_root);
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
     if(!filter_op.ok()) {
         return filter_op;
     }
 
-    index->do_filtering_with_lock(filter_tree_root, filter_result, name);
-
-    delete filter_tree_root;
-    return Option<bool>(true);
+    return index->do_filtering_with_lock(filter_tree_root, filter_result, name);
 }
 
 Option<std::string> Collection::get_reference_field(const std::string & collection_name) const {
-    std::shared_lock lock(mutex);
-
     std::string reference_field_name;
     for (auto const& pair: reference_fields) {
         auto reference_pair = pair.second;
@@ -2539,33 +2536,46 @@ Option<std::string> Collection::get_reference_field(const std::string & collecti
     return Option(reference_field_name);
 }
 
-Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
-                                                  filter_result_t& filter_result,
-                                                  const std::string & collection_name) const {
-    auto reference_field_op = get_reference_field(collection_name);
-    if (!reference_field_op.ok()) {
-        return Option<bool>(reference_field_op.code(), reference_field_op.error());
-    }
-
+Option<bool> Collection::get_approximate_reference_filter_ids(const std::string& filter_query,
+                                                              uint32_t& filter_ids_length) const {
     std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
                                                        store, doc_id_prefix, filter_tree_root);
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
+    if(!parse_op.ok()) {
+        return parse_op;
+    }
+
+    return index->get_approximate_reference_filter_ids_with_lock(filter_tree_root, filter_ids_length);
+}
+
+Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
+                                                  filter_result_t& filter_result,
+                                                  const std::string & collection_name) const {
+    std::shared_lock lock(mutex);
+
+    auto reference_field_op = get_reference_field(collection_name);
+    if (!reference_field_op.ok()) {
+        return Option<bool>(reference_field_op.code(), reference_field_op.error());
+    }
+
+    const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
+                                                       store, doc_id_prefix, filter_tree_root);
+    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
     if(!parse_op.ok()) {
         return parse_op;
     }
 
     // Reference helper field has the sequence id of other collection's documents.
     auto field_name = reference_field_op.get() + REFERENCE_HELPER_FIELD_SUFFIX;
-    auto filter_op = index->do_reference_filtering_with_lock(filter_tree_root, filter_result, field_name);
-    if (!filter_op.ok()) {
-        return filter_op;
-    }
-
-    delete filter_tree_root;
-    return Option<bool>(true);
+    return index->do_reference_filtering_with_lock(filter_tree_root, filter_result, name, field_name);
 }
 
 Option<bool> Collection::validate_reference_filter(const std::string& filter_query) const {
@@ -2575,7 +2585,6 @@ Option<bool> Collection::validate_reference_filter(const std::string& filter_que
     filter_node_t* filter_tree_root = nullptr;
     Option<bool> filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                         store, doc_id_prefix, filter_tree_root);
-
     if(!filter_op.ok()) {
         return filter_op;
     }

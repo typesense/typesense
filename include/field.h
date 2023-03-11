@@ -513,7 +513,7 @@ struct filter {
     bool apply_not_equals = false;
 
     // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
-    std::string referenced_collection_name;
+    std::string referenced_collection_name = "";
 
     static const std::string RANGE_OPERATOR() {
         return "..";
@@ -594,12 +594,6 @@ struct filter {
                                            filter_node_t*& root);
 };
 
-struct filter_tree_metrics {
-    int filter_exp_count;
-    int and_operator_count;
-    int or_operator_count;
-};
-
 struct filter_node_t {
     filter filter_exp;
     FILTER_OPERATOR filter_operator;
@@ -622,7 +616,6 @@ struct filter_node_t {
               right(right) {}
 
     ~filter_node_t() {
-        delete metrics;
         delete left;
         delete right;
     }
@@ -640,12 +633,37 @@ struct reference_filter_result_t {
 struct filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
-    reference_filter_result_t* reference_filter_result = nullptr;
+    // Collection name -> Reference filter result
+    std::map<std::string, reference_filter_result_t*> reference_filter_results;
+
+    filter_result_t() {}
+
+    filter_result_t(uint32_t count, uint32_t* docs) : count(count), docs(docs) {}
+
+    filter_result_t& operator=(filter_result_t&& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = obj.docs;
+        reference_filter_results = std::map(obj.reference_filter_results);
+
+        obj.docs = nullptr;
+        obj.reference_filter_results.clear();
+
+        return *this;
+    }
 
     ~filter_result_t() {
         delete[] docs;
-        delete[] reference_filter_result;
+        for (const auto &item: reference_filter_results) {
+            delete[] item.second;
+        }
     }
+
+    static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
+
+    static void or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
 };
 
 namespace sort_field_const {

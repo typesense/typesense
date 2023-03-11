@@ -268,6 +268,8 @@ private:
     
 
 
+    Option<std::string> get_reference_field(const std::string & collection_name) const;
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -455,11 +457,13 @@ public:
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
-    Option<std::string> get_reference_field(const std::string & collection_name) const;
+    /// Get approximate count of docs matching a reference filter on foo collection when $foo(...) filter is encountered.
+    Option<bool> get_approximate_reference_filter_ids(const std::string& filter_query,
+                                                      uint32_t& filter_ids_length) const;
 
-    Option<bool> get_reference_filter_ids(const std::string & filter_query,
+    Option<bool> get_reference_filter_ids(const std::string& filter_query,
                                           filter_result_t& filter_result,
-                                          const std::string & collection_name) const;
+                                          const std::string& collection_name) const;
 
     Option<bool> validate_reference_filter(const std::string& filter_query) const;
 
