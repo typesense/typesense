@@ -13,14 +13,11 @@
 
 --- foreign_cc/private/cc_toolchain_util.bzl
 +++ foreign_cc/private/cc_toolchain_util.bzl
-@@ -265,15 +265,24 @@ def get_tools_info(ctx):
-         cc_toolchain = cc_toolchain,
-     )
+@@ -253,6 +253,17 @@
+     # https://docs.bazel.build/versions/master/command-line-reference.html#flag--compilation_mode
+     return ctx.var.get("COMPILATION_MODE", "fastbuild") == "dbg"
 
-+    cxx = cc_common.get_tool_for_action(
-+            feature_configuration = feature_configuration,
-+            action_name = ACTION_NAMES.cpp_compile,
-+        )
++def pick_cpp_toolchain(cxx):
 +    cxx_splitted = cxx.split("/")
 +    if(cxx_splitted[-1].startswith("gcc")):
 +        cxx_splitted[-1] = cxx_splitted[-1].replace("gcc", "g++")
@@ -29,19 +26,36 @@
 +        cxx_splitted[-1] = cxx_splitted[-1].replace("clang", "clang++")
 +        cxx = "/".join(cxx_splitted)
 +
-     return CxxToolsInfo(
-         cc = cc_common.get_tool_for_action(
++    return cxx
++
+ def get_tools_info(ctx):
+     """Takes information about tools paths from cc_toolchain, returns CxxToolsInfo
+
+@@ -270,18 +281,18 @@
              feature_configuration = feature_configuration,
              action_name = ACTION_NAMES.c_compile,
          ),
 -        cxx = cc_common.get_tool_for_action(
--            feature_configuration = feature_configuration,
--            action_name = ACTION_NAMES.cpp_compile,
++        cxx = pick_cpp_toolchain(cc_common.get_tool_for_action(
+             feature_configuration = feature_configuration,
+             action_name = ACTION_NAMES.cpp_compile,
 -        ),
-+        cxx = cxx,
-         cxx_linker_static = cc_common.get_tool_for_action(
+-        cxx_linker_static = cc_common.get_tool_for_action(
++        )),
++        cxx_linker_static = pick_cpp_toolchain(cc_common.get_tool_for_action(
              feature_configuration = feature_configuration,
              action_name = ACTION_NAMES.cpp_link_static_library,
+-        ),
+-        cxx_linker_executable = cc_common.get_tool_for_action(
++        )),
++        cxx_linker_executable = pick_cpp_toolchain(cc_common.get_tool_for_action(
+             feature_configuration = feature_configuration,
+             action_name = ACTION_NAMES.cpp_link_executable,
+-        ),
++        )),
+     )
+
+ def get_flags_info(ctx, link_output_file = None):
 
 diff --git a/toolchains/built_toolchains.bzl b/toolchains/built_toolchains.bzl
 index 5e59e79..ddf63a5 100644
