@@ -2095,29 +2095,6 @@ Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
     return Option(true);
 }
 
-void copy_reference_ids(filter_result_t& from, filter_result_t& to) {
-    if (to.count > 0 && !from.reference_filter_results.empty()) {
-        for (const auto &item: from.reference_filter_results) {
-            auto& from_reference_result = from.reference_filter_results[item.first];
-            auto& to_reference_result = to.reference_filter_results[item.first];
-            to_reference_result = new reference_filter_result_t[to.count];
-
-            size_t to_index = 0, from_index = 0;
-            while (to_index < to.count && from_index < from.count) {
-                if (to.docs[to_index] == from.docs[from_index]) {
-                    to_reference_result[to_index] = from_reference_result[from_index];
-                    to_index++;
-                    from_index++;
-                } else if (to.docs[to_index] < from.docs[from_index]) {
-                    to_index++;
-                } else {
-                    from_index++;
-                }
-            }
-        }
-    }
-}
-
 Option<bool> Index::recursive_filter(filter_node_t* const root,
                                      filter_result_t& result,
                                      const std::string& collection_name,
@@ -2147,15 +2124,7 @@ Option<bool> Index::recursive_filter(filter_node_t* const root,
         if (root->filter_operator == AND) {
             filter_result_t::and_filter_results(l_result, r_result, result);
         } else {
-            uint32_t* filtered_results = nullptr;
-            result.count = ArrayUtils::or_scalar(
-                    l_result.docs, l_result.count, r_result.docs,
-                    r_result.count, &filtered_results);
-
-            result.docs = filtered_results;
-            if (!l_result.reference_filter_results.empty() || !r_result.reference_filter_results.empty()) {
-                copy_reference_ids(!l_result.reference_filter_results.empty() ? l_result : r_result, result);
-            }
+            filter_result_t::or_filter_results(l_result, r_result, result);
         }
 
         return Option(true);

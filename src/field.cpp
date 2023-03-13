@@ -1025,16 +1025,10 @@ void filter_result_t::and_filter_results(const filter_result_t& a, const filter_
             *out = *A;
 
             for (auto const& item: a.reference_filter_results) {
-                auto& reference = result.reference_filter_results[item.first][out - result.docs];
-                reference.count = item.second[A - a.docs].count;
-                reference.docs = new uint32_t[reference.count];
-                memcpy(reference.docs, item.second[A - a.docs].docs, reference.count * sizeof(uint32_t));
+                result.reference_filter_results[item.first][out - result.docs] = item.second[A - a.docs];
             }
             for (auto const& item: b.reference_filter_results) {
-                auto& reference = result.reference_filter_results[item.first][out - result.docs];
-                reference.count = item.second[B - b.docs].count;
-                reference.docs = new uint32_t[reference.count];
-                memcpy(reference.docs, item.second[B - b.docs].docs, reference.count * sizeof(uint32_t));
+                result.reference_filter_results[item.first][out - result.docs] = item.second[B - b.docs];
             }
 
             out++;
@@ -1046,5 +1040,106 @@ void filter_result_t::and_filter_results(const filter_result_t& a, const filter_
         } else {
             goto SKIP_FIRST_COMPARE;
         }
+    }
+}
+
+void filter_result_t::or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
+    if (a.count == 0 && b.count == 0) {
+        return;
+    }
+
+    if (a.count == 0) {
+        result = b;
+        return;
+    }
+
+    if (b.count == 0) {
+        result = a;
+        return;
+    }
+
+    size_t indexA = 0, indexB = 0, res_index = 0, lenA = a.count, lenB = b.count;
+    result.docs = new uint32_t[lenA + lenB];
+
+    for (auto const& item: a.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[lenA + lenB];
+        }
+    }
+    for (auto const& item: b.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[lenA + lenB];
+        }
+    }
+
+    while (indexA < lenA && indexB < lenB) {
+        if (a.docs[indexA] < b.docs[indexB]) {
+            // check for duplicate
+            if (res_index == 0 || result.docs[res_index - 1] != a.docs[indexA]) {
+                result.docs[res_index] = a.docs[indexA];
+                res_index++;
+            }
+
+            for (auto const& item: a.reference_filter_results) {
+                result.reference_filter_results[item.first][res_index - 1] = item.second[indexA];
+            }
+
+            indexA++;
+        } else {
+            if (res_index == 0 || result.docs[res_index - 1] != b.docs[indexB]) {
+                result.docs[res_index] = b.docs[indexB];
+                res_index++;
+            }
+
+            for (auto const& item: b.reference_filter_results) {
+                result.reference_filter_results[item.first][res_index - 1] = item.second[indexB];
+            }
+
+            indexB++;
+        }
+    }
+
+    while (indexA < lenA) {
+        if (res_index == 0 || result.docs[res_index - 1] != a.docs[indexA]) {
+            result.docs[res_index] = a.docs[indexA];
+            res_index++;
+        }
+
+        for (auto const& item: a.reference_filter_results) {
+            result.reference_filter_results[item.first][res_index - 1] = item.second[indexA];
+        }
+
+        indexA++;
+    }
+
+    while (indexB < lenB) {
+        if(res_index == 0 || result.docs[res_index - 1] != b.docs[indexB]) {
+            result.docs[res_index] = b.docs[indexB];
+            res_index++;
+        }
+
+        for (auto const& item: b.reference_filter_results) {
+            result.reference_filter_results[item.first][res_index - 1] = item.second[indexB];
+        }
+
+        indexB++;
+    }
+
+    result.count = res_index;
+
+    // shrink fit
+    auto out = new uint32_t[res_index];
+    memcpy(out, result.docs, res_index * sizeof(uint32_t));
+    delete[] result.docs;
+    result.docs = out;
+
+    for (auto &item: result.reference_filter_results) {
+        auto out_references = new reference_filter_result_t[res_index];
+
+        for (uint32_t i = 0; i < result.count; i++) {
+            out_references[i] = item.second[i];
+        }
+        delete[] item.second;
+        item.second = out_references;
     }
 }
