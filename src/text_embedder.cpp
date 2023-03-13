@@ -37,6 +37,12 @@ encoded_input_t TextEmbedder::Encode(const std::string& text) {
     auto input_ids = tokenizer_->AddSpecialToken(encoded);
     auto token_type_ids = tokenizer_->GenerateTypeId(encoded);
     auto attention_mask = std::vector<int64_t>(input_ids.size(), 1);
+    // BERT supports max sequence length of 512
+    if (input_ids.size() > 512) {
+        input_ids.resize(512);
+        token_type_ids.resize(512);
+        attention_mask.resize(512);
+    }
     return {input_ids, token_type_ids, attention_mask};
 }
 
