@@ -625,6 +625,17 @@ struct reference_filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
 
+    reference_filter_result_t& operator=(const reference_filter_result_t& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = new uint32_t[count];
+        memcpy(docs, obj.docs, count * sizeof(uint32_t));
+
+        return *this;
+    }
+
     ~reference_filter_result_t() {
         delete[] docs;
     }
@@ -636,9 +647,29 @@ struct filter_result_t {
     // Collection name -> Reference filter result
     std::map<std::string, reference_filter_result_t*> reference_filter_results;
 
-    filter_result_t() {}
+    filter_result_t() = default;
 
     filter_result_t(uint32_t count, uint32_t* docs) : count(count), docs(docs) {}
+
+    filter_result_t& operator=(const filter_result_t& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = new uint32_t[count];
+        memcpy(docs, obj.docs, count * sizeof(uint32_t));
+
+        // Copy every collection's references.
+        for (const auto &item: obj.reference_filter_results) {
+            reference_filter_results[item.first] = new reference_filter_result_t[count];
+
+            for (uint32_t i = 0; i < count; i++) {
+                reference_filter_results[item.first][i] = item.second[i];
+            }
+        }
+
+        return *this;
+    }
 
     filter_result_t& operator=(filter_result_t&& obj) noexcept {
         if (&obj == this)

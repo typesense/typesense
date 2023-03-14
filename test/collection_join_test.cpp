@@ -137,8 +137,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     nlohmann::json customer_json = R"({
                                         "customer_id": "customer_a",
                                         "customer_name": "Joe",
-                                        "product_price": 143,
-                                        "product_id": "a"
+                                        "product_price": 143
                                     })"_json;
     auto add_doc_op = customer_collection->add(customer_json.dump());
 
@@ -591,6 +590,7 @@ TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
     for (size_t i = 0; i < a.count; i++) {
         a.docs[i] = i;
 
+        // Having only one reference of each document for brevity.
         auto& reference = a.reference_filter_results["foo"][i];
         reference.count = 1;
         reference.docs = new uint32_t[1];
@@ -627,10 +627,186 @@ TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
     for(size_t i = 0; i < result.count; i++) {
         ASSERT_EQ(docs[i], result.docs[i]);
 
+        // result should contain correct references to the foo and bar collection.
         ASSERT_EQ(1, result.reference_filter_results["foo"][i].count);
         ASSERT_EQ(foo_reference[i], result.reference_filter_results["foo"][i].docs[0]);
         ASSERT_EQ(1, result.reference_filter_results["bar"][i].count);
         ASSERT_EQ(bar_reference[i], result.reference_filter_results["bar"][i].docs[0]);
+    }
+}
+
+TEST_F(CollectionJoinTest, OrFilterResults_NoReference) {
+    filter_result_t a, b;
+    a.count = 0;
+    uint32_t limit = 10;
+    a.docs = new uint32_t[limit];
+    for (size_t i = 2; i < limit; i++) {
+        if (i % 3 == 0) {
+            a.docs[a.count++] = i;
+        }
+    }
+
+    // a.docs: [3, 6, 9], b.docs: []
+    filter_result_t result1;
+    filter_result_t::or_filter_results(a, b, result1);
+    ASSERT_EQ(3, result1.count);
+    ASSERT_EQ(0, result1.reference_filter_results.size());
+
+    std::vector<uint32_t> expected = {3, 6, 9};
+    for (size_t i = 0; i < result1.count; i++) {
+        ASSERT_EQ(expected[i], result1.docs[i]);
+    }
+
+    b.count = 9;
+    b.docs = new uint32_t[b.count];
+    for (size_t i = 0; i < b.count; i++) {
+        b.docs[i] = i;
+    }
+
+    // a.docs: [3, 6, 9], b.docs: [0..8]
+    filter_result_t result2;
+    filter_result_t::or_filter_results(a, b, result2);
+    ASSERT_EQ(10, result2.count);
+    ASSERT_EQ(0, result2.reference_filter_results.size());
+
+    expected = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    for (size_t i = 0; i < result2.count; i++) {
+        ASSERT_EQ(expected[i], result2.docs[i]);
+    }
+
+
+    filter_result_t c, result3;
+
+    std::vector<uint32_t> vec = {0, 4, 5};
+    c.docs = new uint32_t[vec.size()];
+    auto j = 0;
+    for(auto i: vec) {
+        a.docs[j++] = i;
+    }
+
+    // b.docs: [0..8], c.docs: [0, 4, 5]
+    filter_result_t::or_filter_results(b, c, result3);
+    ASSERT_EQ(9, result3.count);
+    ASSERT_EQ(0, result3.reference_filter_results.size());
+
+    expected = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+    for(size_t i = 0; i < result3.count; i++) {
+        ASSERT_EQ(expected[i], result3.docs[i]);
+    }
+}
+
+TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
+    filter_result_t a, b;
+    uint32_t limit = 10;
+
+    a.count = 0;
+    a.docs = new uint32_t[limit];
+    a.reference_filter_results["foo"] = new reference_filter_result_t[limit];
+    for (size_t i = 2; i < limit; i++) {
+        if (i % 3 == 0) {
+            a.docs[a.count] = i;
+
+            auto& reference = a.reference_filter_results["foo"][a.count++];
+            reference.count = 1;
+            reference.docs = new uint32_t[1];
+            reference.docs[0] = 2 * i;
+        }
+    }
+
+    // a.docs: [3, 6, 9], b.docs: []
+    filter_result_t result1;
+    filter_result_t::or_filter_results(a, b, result1);
+
+    ASSERT_EQ(3, result1.count);
+    ASSERT_EQ(1, result1.reference_filter_results.size());
+    ASSERT_EQ(1, result1.reference_filter_results.count("foo"));
+
+    std::vector<uint32_t> expected = {3, 6, 9}, foo_reference = {6, 12, 18};
+    for (size_t i = 0; i < result1.count; i++) {
+        ASSERT_EQ(expected[i], result1.docs[i]);
+
+        ASSERT_EQ(1, result1.reference_filter_results["foo"][i].count);
+        ASSERT_EQ(foo_reference[i], result1.reference_filter_results["foo"][i].docs[0]);
+    }
+
+    b.count = 9;
+    b.docs = new uint32_t[b.count];
+    b.reference_filter_results["bar"] = new reference_filter_result_t[b.count];
+    for (size_t i = 0; i < b.count; i++) {
+        b.docs[i] = i;
+
+        auto& reference = b.reference_filter_results["bar"][i];
+        reference.count = 1;
+        reference.docs = new uint32_t[1];
+        reference.docs[0] = 10 - i;
+    }
+
+    // a.docs: [3, 6, 9], b.docs: [0..8]
+    filter_result_t result2;
+    filter_result_t::or_filter_results(a, b, result2);
+    ASSERT_EQ(10, result2.count);
+
+    expected = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+    // doc_id -> reference_id
+    std::map<uint32_t, uint32_t> foo_map = {{3, 6}, {6, 12}, {9, 18}}, bar_map = {{0, 10}, {1, 9}, {2, 8}, {3, 7},
+                                                                                  {4, 6}, {5, 5}, {6, 4}, {7, 3}, {8, 2}};
+    for (size_t i = 0; i < result2.count; i++) {
+        ASSERT_EQ(expected[i], result2.docs[i]);
+
+        if (foo_map.count(i) != 0) {
+            ASSERT_EQ(1, result2.reference_filter_results["foo"][i].count);
+            ASSERT_EQ(foo_map[i], result2.reference_filter_results["foo"][i].docs[0]);
+        } else {
+            // Reference count should be 0 for the docs that were not present in the a result.
+            ASSERT_EQ(0, result2.reference_filter_results["foo"][i].count);
+        }
+
+        if (bar_map.count(i) != 0) {
+            ASSERT_EQ(1, result2.reference_filter_results["bar"][i].count);
+            ASSERT_EQ(bar_map[i], result2.reference_filter_results["bar"][i].docs[0]);
+        } else {
+            ASSERT_EQ(0, result2.reference_filter_results["bar"][i].count);
+        }
+    }
+
+    filter_result_t c, result3;
+
+    std::map<uint32_t, uint32_t> baz_map = {{0, 2}, {4, 0}, {5, 8}};
+    c.count = baz_map.size();
+    c.docs = new uint32_t[baz_map.size()];
+    c.reference_filter_results["baz"] = new reference_filter_result_t[baz_map.size()];
+    auto j = 0;
+    for(auto i: baz_map) {
+        c.docs[j] = i.first;
+
+        auto& reference = c.reference_filter_results["baz"][j++];
+        reference.count = 1;
+        reference.docs = new uint32_t[1];
+        reference.docs[0] = i.second;
+    }
+
+    // b.docs: [0..8], c.docs: [0, 4, 5]
+    filter_result_t::or_filter_results(b, c, result3);
+    ASSERT_EQ(9, result3.count);
+
+    expected = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+    for (size_t i = 0; i < result3.count; i++) {
+        ASSERT_EQ(expected[i], result3.docs[i]);
+
+        if (bar_map.count(i) != 0) {
+            ASSERT_EQ(1, result3.reference_filter_results["bar"][i].count);
+            ASSERT_EQ(bar_map[i], result3.reference_filter_results["bar"][i].docs[0]);
+        } else {
+            ASSERT_EQ(0, result3.reference_filter_results["bar"][i].count);
+        }
+
+        if (baz_map.count(i) != 0) {
+            ASSERT_EQ(1, result3.reference_filter_results["baz"][i].count);
+            ASSERT_EQ(baz_map[i], result3.reference_filter_results["baz"][i].docs[0]);
+        } else {
+            ASSERT_EQ(0, result3.reference_filter_results["baz"][i].count);
+        }
     }
 }
 
