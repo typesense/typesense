@@ -2393,9 +2393,14 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             }
 
             if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
-                // handles single token phrase and a phrase with padded space, like: "some query " here
-                end_of_phrase = true;
-                token = token.substr(0, token.size()-1);
+                if(phrase_search_op_prior) {
+                    // handles single token phrase and a phrase with padded space, like: "some query "
+                    end_of_phrase = true;
+                    token = token.substr(0, token.size()-1);
+                } else if(token[0] == '"' && token.size() == 1) {
+                    // handles front padded phrase query, e.g. " some query"
+                    phrase_search_op_prior = true;
+                }
             }
 
             // retokenize using collection config (handles hyphens being part of the query)

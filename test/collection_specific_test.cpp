@@ -2433,8 +2433,8 @@ TEST_F(CollectionSpecificTest, PhraseSearch) {
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
-    // with phrase search
-    results = coll1->search(R"("down there by")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    // with phrase search (with padded space before after double quote
+    results = coll1->search(R"(" down there by ")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("<mark>Down</mark> <mark>There</mark> <mark>by</mark> the Train", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());

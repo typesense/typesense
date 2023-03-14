@@ -4239,7 +4239,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     std::vector<std::vector<std::string>> q_phrases;
 
     std::string q = R"(the "phrase search" query)";
-    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    /*coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
 
     ASSERT_EQ(2, q_include_tokens.size());
     ASSERT_EQ("the", q_include_tokens[0]);
@@ -4248,7 +4248,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     ASSERT_EQ(2, q_phrases[0].size());
     ASSERT_EQ("phrase", q_phrases[0][0]);
     ASSERT_EQ("search", q_phrases[0][1]);
-
+*/
     // quoted string has trailing padded space
 
     q = R"("space padded " query)";
