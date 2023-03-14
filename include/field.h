@@ -659,6 +659,7 @@ struct filter_result_t {
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
 
+        // Copy every collection's references.
         for (const auto &item: obj.reference_filter_results) {
             reference_filter_results[item.first] = new reference_filter_result_t[count];
 

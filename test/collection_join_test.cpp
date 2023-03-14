@@ -137,8 +137,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     nlohmann::json customer_json = R"({
                                         "customer_id": "customer_a",
                                         "customer_name": "Joe",
-                                        "product_price": 143,
-                                        "product_id": "a"
+                                        "product_price": 143
                                     })"_json;
     auto add_doc_op = customer_collection->add(customer_json.dump());
 
@@ -591,6 +590,7 @@ TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
     for (size_t i = 0; i < a.count; i++) {
         a.docs[i] = i;
 
+        // Having only one reference of each document for brevity.
         auto& reference = a.reference_filter_results["foo"][i];
         reference.count = 1;
         reference.docs = new uint32_t[1];
@@ -627,6 +627,7 @@ TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
     for(size_t i = 0; i < result.count; i++) {
         ASSERT_EQ(docs[i], result.docs[i]);
 
+        // result should contain correct references to the foo and bar collection.
         ASSERT_EQ(1, result.reference_filter_results["foo"][i].count);
         ASSERT_EQ(foo_reference[i], result.reference_filter_results["foo"][i].docs[0]);
         ASSERT_EQ(1, result.reference_filter_results["bar"][i].count);
@@ -746,6 +747,8 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
     ASSERT_EQ(10, result2.count);
 
     expected = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+    // doc_id -> reference_id
     std::map<uint32_t, uint32_t> foo_map = {{3, 6}, {6, 12}, {9, 18}}, bar_map = {{0, 10}, {1, 9}, {2, 8}, {3, 7},
                                                                                   {4, 6}, {5, 5}, {6, 4}, {7, 3}, {8, 2}};
     for (size_t i = 0; i < result2.count; i++) {
@@ -755,6 +758,7 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
             ASSERT_EQ(1, result2.reference_filter_results["foo"][i].count);
             ASSERT_EQ(foo_map[i], result2.reference_filter_results["foo"][i].docs[0]);
         } else {
+            // Reference count should be 0 for the docs that were not present in the a result.
             ASSERT_EQ(0, result2.reference_filter_results["foo"][i].count);
         }
 

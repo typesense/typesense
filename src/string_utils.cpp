@@ -355,7 +355,7 @@ Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<
         return error;
     }
 
-    int start_index = index;
+    size_t start_index = index;
     auto size = filter_query.size();
     while(++index < size && filter_query[index] != '(') {}
 
@@ -363,6 +363,7 @@ Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<
         return error;
     }
 
+    // The reference filter could have parenthesis inside it. $Foo((X && Y) || Z)
     int parenthesis_count = 1;
     while (++index < size && parenthesis_count > 0) {
         if (filter_query[index] == '(') {

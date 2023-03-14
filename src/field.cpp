@@ -431,14 +431,6 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
 
                 filter_exp = {expression.substr(parenthesis_index + 1, expression.size() - parenthesis_index - 2)};
                 filter_exp.referenced_collection_name = collection_name;
-
-                auto op = collection->validate_reference_filter(filter_exp.field_name);
-                if (!op.ok()) {
-                    is_successful = false;
-                    error_message = "Failed to parse reference filter on `" + collection_name + "` collection: " +
-                                        op.error();
-                    break;
-                }
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
                 if (!toFilter_op.ok()) {
@@ -790,6 +782,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
+        // Add a reference helper field in the schema. It stores the doc id of the document it references to reduce the
+        // computation while searching.
         the_fields.emplace_back(
                 field(field_json[fields::name].get<std::string>() + Collection::REFERENCE_HELPER_FIELD_SUFFIX,
                       "int64", false, field_json[fields::optional], true)
@@ -996,6 +990,7 @@ void filter_result_t::and_filter_results(const filter_result_t& a, const filter_
     const uint32_t *endA = A + lenA;
     const uint32_t *endB = B + lenB;
 
+    // Add an entry of references in the result for each unique collection in a and b.
     for (auto const& item: a.reference_filter_results) {
         if (result.reference_filter_results.count(item.first) == 0) {
             result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
@@ -1024,6 +1019,7 @@ void filter_result_t::and_filter_results(const filter_result_t& a, const filter_
         if (*A == *B) {
             *out = *A;
 
+            // Copy the references of the document from every collection into result.
             for (auto const& item: a.reference_filter_results) {
                 result.reference_filter_results[item.first][out - result.docs] = item.second[A - a.docs];
             }
@@ -1048,11 +1044,11 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
         return;
     }
 
+    // If either one of a or b does not have any matches, copy other into result.
     if (a.count == 0) {
         result = b;
         return;
     }
-
     if (b.count == 0) {
         result = a;
         return;
@@ -1061,6 +1057,7 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
     size_t indexA = 0, indexB = 0, res_index = 0, lenA = a.count, lenB = b.count;
     result.docs = new uint32_t[lenA + lenB];
 
+    // Add an entry of references in the result for each unique collection in a and b.
     for (auto const& item: a.reference_filter_results) {
         if (result.reference_filter_results.count(item.first) == 0) {
             result.reference_filter_results[item.first] = new reference_filter_result_t[lenA + lenB];
@@ -1080,6 +1077,7 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
                 res_index++;
             }
 
+            // Copy references of the last result document from every collection in a.
             for (auto const& item: a.reference_filter_results) {
                 result.reference_filter_results[item.first][res_index - 1] = item.second[indexA];
             }

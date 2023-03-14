@@ -128,7 +128,7 @@ private:
 
     SynonymIndex* synonym_index;
 
-    // "field name" -> reference_pair
+    /// "field name" -> reference_pair(referenced_collection_name, referenced_field_name)
     spp::sparse_hash_map<std::string, reference_pair> reference_fields;
 
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
@@ -464,8 +464,6 @@ public:
     Option<bool> get_reference_filter_ids(const std::string& filter_query,
                                           filter_result_t& filter_result,
                                           const std::string& collection_name) const;
-
-    Option<bool> validate_reference_filter(const std::string& filter_query) const;
 
     Option<nlohmann::json> get(const std::string & id) const;
 
