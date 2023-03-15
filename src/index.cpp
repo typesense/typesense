@@ -3021,6 +3021,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             if(has_text_match) {
+                // For hybrid search, we need to give weight to text match and vector search
+                constexpr float TEXT_MATCH_WEIGHT = 0.7;
+                constexpr float VECTOR_SEARCH_WEIGHT = 1.0 - TEXT_MATCH_WEIGHT;
+
                 VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
                 std::vector<std::pair<float, size_t>> dist_labels;
@@ -3040,22 +3044,23 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                     auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
                                             dist_label.first;
-                    auto score = (1.0 - vec_dist_score) * 100.0;
 
-                    vec_results.emplace_back(seq_id, score);
+                    vec_results.emplace_back(seq_id, vec_dist_score);
                 }
                 std::sort(vec_results.begin(), vec_results.end(), [](const auto& a, const auto& b) {
-                    return a.second > b.second;
+                    return a.second < b.second;
                 });
 
                 topster->sort();
                 // Reciprocal rank fusion
+                // Score is  sum of (1 / rank_of_document) * WEIGHT from each list (text match and vector search)
                 for(uint32_t i = 0; i < topster->size; i++) {
                     auto result = topster->getKV(i);
                     if(result->match_score_index < 0 || result->match_score_index > 2) {
                         continue;
                     }
-                    result->scores[result->match_score_index] = (1.0 / (i + 1)) * INT64_MAX * 0.7;
+                    // (1 / rank_of_document) * WEIGHT)
+                    result->scores[result->match_score_index] = float_to_int64_t((1.0 / (i + 1)) * TEXT_MATCH_WEIGHT);
                 }
 
                 for(int i = 0; i < vec_results.size(); i++) {
@@ -3066,10 +3071,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                     if(result_it != topster->kv_map.end()&& result_it->second->match_score_index >= 0 && result_it->second->match_score_index <= 2) {
                         auto result = result_it->second;
-                        result->scores[result->match_score_index] += (1.0 / (i + 1)) * INT64_MAX * 0.3;
+                        // old_score + (1 / rank_of_document) * WEIGHT)
+                        result->scores[result->match_score_index] = float_to_int64_t((int64_t_to_float(result->scores[result->match_score_index]))  +  ((1.0 / (i + 1)) * VECTOR_SEARCH_WEIGHT));
                     } else {
                         int64_t scores[3] = {0};
-                        scores[0] = (1.0 / (i + 1)) * INT64_MAX * 0.3;
+                        // (1 / rank_of_document) * WEIGHT)
+                        scores[0] = float_to_int64_t((1.0 / (i + 1)) * VECTOR_SEARCH_WEIGHT);
                         int64_t match_score_index = 0;
                         KV kv(searched_queries.size(), doc_id, doc_id, match_score_index, scores);
                         topster->add(&kv);
