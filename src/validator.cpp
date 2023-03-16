@@ -77,6 +77,11 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
             return Option<uint32_t>(200);
         }
 
+        if(a_field.type == field_types::FLOAT_ARRAY && a_field.num_dim != 0 && a_field.num_dim != doc_ele.size()) {
+            return Option<uint32_t>(400, "Field `" + a_field.name + "` must have " +
+                                    std::to_string(a_field.num_dim)  + " dimensions.");
+        }
+
         for(; it != doc_ele.end(); ) {
             const auto& item = it.value();
             array_ele_erased = false;

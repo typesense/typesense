@@ -3,6 +3,8 @@
 #include <vector>
 #include <collection_manager.h>
 #include "collection.h"
+#include <cstdlib>
+#include <ctime>
 
 class CollectionVectorTest : public ::testing::Test {
 protected:
@@ -221,6 +223,38 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     ASSERT_EQ("Property `num_dim` must be a positive integer.", coll_op.error());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionVectorTest, NumVectorGreaterThanNumDim) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "points", "type": "int32"},
+                {"name": "vec", "type": "float[]", "num_dim": 3}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    srand (static_cast <unsigned> (time(0)));
+
+    for(size_t i = 0; i < 10; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title";
+        doc["points"] = 100;
+        doc["vec"] = std::vector<float>();
+
+        for(size_t j = 0; j < 100; j++) {
+            float r = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+            doc["vec"].push_back(r);
+        }
+
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_FALSE(add_op.ok());
+        ASSERT_EQ("Field `vec` must have 3 dimensions.", add_op.error());
+    }
 }
 
 TEST_F(CollectionVectorTest, IndexGreaterThan1KVectors) {
