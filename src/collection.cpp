@@ -1824,11 +1824,15 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             if(field_order_kv->match_score_index == CURATED_RECORD_IDENTIFIER) {
                 wrapper_doc["curated"] = true;
             } else if(field_order_kv->match_score_index >= 0) {
-                wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
+                if(vector_query.field_name.empty()) {
+                    wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
 
-                wrapper_doc["text_match_info"] = nlohmann::json::object();
-                populate_text_match_info(wrapper_doc["text_match_info"],
-                                         field_order_kv->scores[field_order_kv->match_score_index], match_type);
+                    wrapper_doc["text_match_info"] = nlohmann::json::object();
+                    populate_text_match_info(wrapper_doc["text_match_info"],
+                                            field_order_kv->scores[field_order_kv->match_score_index], match_type);
+                } else {
+                    wrapper_doc["rank_fusion_score"] = Index::int64_t_to_float(field_order_kv->scores[field_order_kv->match_score_index]);
+                }
             }
 
             nlohmann::json geo_distances;

@@ -4819,11 +4819,15 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
     ASSERT_EQ(3, search_res["hits"].size());
     // Hybrid search with rank fusion order:
     // 1. butter (1/1 * 0.7) + (1/1 * 0.3) = 1
-    // 2. butterfly (1/2 * 0.7) + (1/3 * 0.3) = 0.567
-    // 3. butterball (1/3 * 0.7) + (1/2 * 0.3) = 0.533
+    // 2. butterfly (1/2 * 0.7) + (1/3 * 0.3) = 0.45
+    // 3. butterball (1/3 * 0.7) + (1/2 * 0.3) = 0.383
     ASSERT_EQ("butter", search_res["hits"][0]["document"]["name"].get<std::string>());
     ASSERT_EQ("butterfly", search_res["hits"][1]["document"]["name"].get<std::string>());
     ASSERT_EQ("butterball", search_res["hits"][2]["document"]["name"].get<std::string>());
+
+    ASSERT_FLOAT_EQ((1.0/1.0 * 0.7) + (1.0/1.0 * 0.3), search_res["hits"][0]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ((1.0/2.0 * 0.7) + (1.0/3.0 * 0.3), search_res["hits"][1]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ((1.0/3.0 * 0.7) + (1.0/2.0 * 0.3), search_res["hits"][2]["rank_fusion_score"].get<float>());
 
     // delete models folder
     system("rm -rf ./models");
