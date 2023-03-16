@@ -1331,11 +1331,51 @@ TEST_F(CollectionSpecificMoreTest, CopyDocHelper) {
     })"_json;
 
     nlohmann::json dst;
-    Collection::copy_highlight_doc(hightlight_items, src, dst);
+    Collection::copy_highlight_doc(hightlight_items, true, src, dst);
 
     ASSERT_EQ(2, dst.size());
     ASSERT_EQ(1, dst.count("baz"));
     ASSERT_EQ(1, dst.count("foo.bar"));
+
+    // when both nested & flattened forms are present, copy only flat form for collection without nesting enabled
+    src = R"({
+        "baz": {"name": "John"},
+        "baz.name": "John"
+    })"_json;
+    dst.clear();
+
+    hightlight_items = {
+        highlight_field_t("baz.name", false, false, true),
+    };
+
+    Collection::copy_highlight_doc(hightlight_items, false, src, dst);
+    ASSERT_EQ(1, dst.size());
+    ASSERT_EQ(1, dst.count("baz.name"));
+}
+
+TEST_F(CollectionSpecificMoreTest, HighlightFieldWithBothFlatAndNestedForm) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name.first", "type": "string"}
+        ]
+    })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["name.first"] = "John";
+    doc["name"]["first"] = "John";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("john", {"name.first"}, "", {}, {}, {2}, 10, 1,
+                             FREQUENCY, {true},
+                             10, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("<mark>John</mark>", res["hits"][0]["highlight"]["name.first"]["snippet"].get<std::string>());
 }
 
 TEST_F(CollectionSpecificMoreTest, HighlightWordWithSymbols) {
