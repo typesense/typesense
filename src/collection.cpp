@@ -1162,6 +1162,11 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     return Option<nlohmann::json>(400, error);
                 }
 
+                if(raw_query == "*") {
+                    std::string error = "Wildcard query is not supported for embedding fields.";
+                    return Option<nlohmann::json>(400, error);
+                }
+
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
                 auto embedder = embedder_manager.get_text_embedder(search_field.model_name.size() > 0 ? search_field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
 

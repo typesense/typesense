@@ -21,6 +21,7 @@ protected:
         std::string state_dir_path = "/tmp/typesense_test/collection_all_fields";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+        system(("rm -rf "+state_dir_path + "/models" + " && mkdir -p "+state_dir_path + "/models").c_str());
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
@@ -1592,7 +1593,7 @@ TEST_F(CollectionAllFieldsTest, FieldNameMatchingRegexpShouldNotBeIndexedInNonAu
 }
 
 TEST_F(CollectionAllFieldsTest, CreateFromFieldJSONInvalidField) {
-    TextEmbedderManager::model_dir = "./models";
+    TextEmbedderManager::model_dir = "/tmp/models";
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1628,7 +1629,7 @@ TEST_F(CollectionAllFieldsTest, CreateFromFieldNoModelDir) {
 }
 
 TEST_F(CollectionAllFieldsTest, CreateFromNotArray) {
-    TextEmbedderManager::model_dir = "./models";
+    TextEmbedderManager::model_dir = "/tmp/models";
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1646,7 +1647,7 @@ TEST_F(CollectionAllFieldsTest, CreateFromNotArray) {
 }
 
 TEST_F(CollectionAllFieldsTest, ModelPathWithoutCreateFrom) {
-    TextEmbedderManager::model_dir = "./models";
+    TextEmbedderManager::model_dir = "/tmp/models";
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1665,7 +1666,7 @@ TEST_F(CollectionAllFieldsTest, ModelPathWithoutCreateFrom) {
 
 TEST_F(CollectionAllFieldsTest, CreateFromBasicValid) {
 
-    TextEmbedderManager::model_dir = "./models/";
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection_all_fields/models/";
     HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
     HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
 
@@ -1688,7 +1689,5 @@ TEST_F(CollectionAllFieldsTest, CreateFromBasicValid) {
     ASSERT_TRUE(add_res.get()["embedding"].is_array());
     ASSERT_EQ(384, add_res.get()["embedding"].size());
 
-    // delete models folder
-    system("rm -rf ./models");
 }
 

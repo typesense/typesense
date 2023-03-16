@@ -24,6 +24,7 @@ protected:
         std::string state_dir_path = "/tmp/typesense_test/collection";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+        system(("rm -rf "+state_dir_path + "/models" + " && mkdir -p "+state_dir_path + "/models").c_str());
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
@@ -4621,9 +4622,9 @@ TEST_F(CollectionTest, SemanticSearchTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "./models/";
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
     HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::get_absolute_vocab_path());
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4646,9 +4647,6 @@ TEST_F(CollectionTest, SemanticSearchTest) {
     ASSERT_EQ(1, search_res["hits"].size());
     ASSERT_EQ("apple", search_res["hits"][0]["document"]["name"].get<std::string>());
     ASSERT_EQ(384, search_res["hits"][0]["document"]["embedding"].size());
-
-    // delete models folder
-    system("rm -rf ./models");
 }
 
 TEST_F(CollectionTest, InvalidSemanticSearch) {
@@ -4660,9 +4658,9 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "./models/";
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
     HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::get_absolute_vocab_path());
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
 
     auto op = collectionManager.create_collection(schema);
     LOG(INFO) << "op.error(): " << op.error();
@@ -4681,9 +4679,6 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
     auto search_res_op = coll->search("apple", {"embedding", "embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, "");   
 
     ASSERT_FALSE(search_res_op.ok());
-
-    // delete models folder
-    system("rm -rf ./models");
 }
 
 TEST_F(CollectionTest, HybridSearch) { 
@@ -4695,9 +4690,9 @@ TEST_F(CollectionTest, HybridSearch) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "./models/";
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
     HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::get_absolute_vocab_path());
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4718,9 +4713,6 @@ TEST_F(CollectionTest, HybridSearch) {
     ASSERT_EQ(1, search_res["hits"].size());
     ASSERT_EQ("apple", search_res["hits"][0]["document"]["name"].get<std::string>());
     ASSERT_EQ(384, search_res["hits"][0]["document"]["embedding"].size());
-
-    // delete models folder
-    system("rm -rf ./models");
 }
 
 TEST_F(CollectionTest, EmbedFielsTest) {
@@ -4732,9 +4724,9 @@ TEST_F(CollectionTest, EmbedFielsTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "./models/";
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
     HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::get_absolute_vocab_path());
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4750,9 +4742,6 @@ TEST_F(CollectionTest, EmbedFielsTest) {
 
     ASSERT_EQ("apple", object["name"]);
     ASSERT_EQ(384, object["embedding"].get<std::vector<float>>().size());
-
-    // delete models folder
-    system("rm -rf ./models");
 }
 
 TEST_F(CollectionTest, HybridSearchRankFusionTest) {
@@ -4764,9 +4753,9 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "./models/";
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
     HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::model_dir + TextEmbedderManager::get_absolute_vocab_path());
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4828,7 +4817,28 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
     ASSERT_FLOAT_EQ((1.0/1.0 * 0.7) + (1.0/1.0 * 0.3), search_res["hits"][0]["rank_fusion_score"].get<float>());
     ASSERT_FLOAT_EQ((1.0/2.0 * 0.7) + (1.0/3.0 * 0.3), search_res["hits"][1]["rank_fusion_score"].get<float>());
     ASSERT_FLOAT_EQ((1.0/3.0 * 0.7) + (1.0/2.0 * 0.3), search_res["hits"][2]["rank_fusion_score"].get<float>());
+}
 
-    // delete models folder
-    system("rm -rf ./models");
+TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
+        nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
+    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    auto search_res_op = coll->search("*", {"name","embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+
+    ASSERT_FALSE(search_res_op.ok());
+    ASSERT_EQ("Wildcard query is not supported for embedding fields.", search_res_op.error());
 }
