@@ -1476,7 +1476,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             nlohmann::json highlight_res = nlohmann::json::object();
 
             if(!highlight_items.empty()) {
-                copy_highlight_doc(highlight_items, document, highlight_res);
+                copy_highlight_doc(highlight_items, enable_nested_fields, document, highlight_res);
                 remove_flat_fields(highlight_res);
                 highlight_res.erase("id");
             }
@@ -1820,9 +1820,17 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     return Option<nlohmann::json>(result);
 }
 
-void Collection::copy_highlight_doc(std::vector<highlight_field_t>& hightlight_items, const nlohmann::json& src, nlohmann::json& dst) {
+void Collection::copy_highlight_doc(std::vector<highlight_field_t>& hightlight_items,
+                                    const bool nested_fields_enabled,
+                                    const nlohmann::json& src, nlohmann::json& dst) {
     for(const auto& hightlight_item: hightlight_items) {
+        if(!nested_fields_enabled && src.count(hightlight_item.name) != 0) {
+            dst[hightlight_item.name] = src[hightlight_item.name];
+            continue;
+        }
+
         std::string root_field_name;
+
         for(size_t i = 0; i < hightlight_item.name.size(); i++) {
             if(hightlight_item.name[i] == '.') {
                 break;
