@@ -39,6 +39,11 @@ Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
         if(!StringUtils::is_float(filter_values[0]) || !StringUtils::is_float(filter_values[1])) {
             return Option<bool>(400, format_err_msg);
         }
+
+        if(filter_values[0] == "nan" || filter_values[0] == "NaN" ||
+            filter_values[1] == "nan" || filter_values[1] == "NaN") {
+            return Option<bool>(400, format_err_msg);
+        }
     }
 
     if(is_polygon) {
