@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <filesystem>
 #include <collection_manager.h>
 #include "collection.h"
 #include "text_embedder_manager.h"
@@ -24,7 +25,7 @@ protected:
         std::string state_dir_path = "/tmp/typesense_test/collection";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-        system(("rm -rf "+state_dir_path + "/models" + " && mkdir -p "+state_dir_path + "/models").c_str());
+        system("mkdir -p /tmp/typesense_test/models");
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
@@ -65,7 +66,6 @@ protected:
 
     virtual void SetUp() {
         setupCollection();
-        system("mkdir -p models");
     }
 
     virtual void TearDown() {
@@ -4622,9 +4622,13 @@ TEST_F(CollectionTest, SemanticSearchTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME)))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
+    }
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_vocab_path()))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    }
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4658,9 +4662,13 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME)))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
+    }
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_vocab_path()))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    }
 
     auto op = collectionManager.create_collection(schema);
     LOG(INFO) << "op.error(): " << op.error();
@@ -4690,9 +4698,13 @@ TEST_F(CollectionTest, HybridSearch) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME)))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
+    }
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_vocab_path()))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    }
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4724,9 +4736,13 @@ TEST_F(CollectionTest, EmbedFielsTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME)))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
+    }
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_vocab_path()))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    }
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4753,9 +4769,13 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME)))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
+    }
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_vocab_path()))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    }
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4828,9 +4848,13 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection/models/";
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME)))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
+    }
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_vocab_path()))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    }
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());

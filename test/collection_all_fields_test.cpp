@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <filesystem>
 #include <collection_manager.h>
 #include "collection.h"
 #include "text_embedder_manager.h"
@@ -21,7 +22,7 @@ protected:
         std::string state_dir_path = "/tmp/typesense_test/collection_all_fields";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-        system(("rm -rf "+state_dir_path + "/models" + " && mkdir -p "+state_dir_path + "/models").c_str());
+        system("mkdir -p /tmp/typesense_test/models");
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
@@ -30,7 +31,6 @@ protected:
 
     virtual void SetUp() {
         setupCollection();
-        system("mkdir -p models");
     }
 
     virtual void TearDown() {
@@ -1666,9 +1666,13 @@ TEST_F(CollectionAllFieldsTest, ModelPathWithoutCreateFrom) {
 
 TEST_F(CollectionAllFieldsTest, CreateFromBasicValid) {
 
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/collection_all_fields/models/";
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME)))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
+    }
+    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_vocab_path()))){
+        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
+    }
 
     field embedding = field("embedding", field_types::FLOAT_ARRAY, false);
     embedding.create_from.push_back("name");
