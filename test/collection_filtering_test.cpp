@@ -1128,6 +1128,14 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     ASSERT_STREQ("5", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("3", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
+    // when geo query had NaN
+    auto gop = coll1->search("*", {}, "loc: (NaN, nan, 1 mi)",
+                                       {}, {}, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(gop.ok());
+    ASSERT_EQ("Value of filter field `loc`: must be in the `(-44.50, 170.29, 0.75 km)` or "
+              "(56.33, -65.97, 23.82, -127.82) format.", gop.error());
+
     // when geo field is formatted as string, show meaningful error
     nlohmann::json bad_doc;
     bad_doc["id"] = "1000";
