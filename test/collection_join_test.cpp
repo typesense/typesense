@@ -395,7 +395,7 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     search_op = coll->search("s", {"product_name"}, "$Customers(foo:=customer_a)", {}, {}, {0},
                              10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ(search_op.error(), "Failed to parse reference filter on `Customers` collection: Could not find a filter field named `foo` in the schema.");
+    ASSERT_EQ(search_op.error(), "Failed to apply reference filter on `Customers` collection: Could not find a filter field named `foo` in the schema.");
 
     auto result = coll->search("s", {"product_name"}, "$Customers(customer_id:=customer_a && product_price:<100)", {}, {}, {0},
                              10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD).get();

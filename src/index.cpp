@@ -1513,8 +1513,8 @@ Option<bool> Index::do_filtering(filter_node_t* const root,
                                                                         reference_filter_result,
                                                                         collection_name);
         if (!reference_filter_op.ok()) {
-            return Option<bool>(400, "Failed to parse reference filter on `" + a_filter.referenced_collection_name
-                                        +"` collection: " + reference_filter_op.error());
+            return Option<bool>(400, "Failed to apply reference filter on `" + a_filter.referenced_collection_name
+                                        + "` collection: " + reference_filter_op.error());
         }
 
         if (context_ids_length != 0) {
