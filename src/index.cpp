@@ -3080,6 +3080,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         int64_t match_score_index = 0;
                         KV kv(searched_queries.size(), doc_id, doc_id, match_score_index, scores);
                         topster->add(&kv);
+                        ++all_result_ids_len;
                     }
                 }
             }
