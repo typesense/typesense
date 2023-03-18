@@ -1818,8 +1818,8 @@ TEST_F(CollectionSpecificMoreTest, PhraseMatchMultipleFields) {
 
     auto res = coll1->search(R"("tide pools")", {"title", "author"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(2, res["hits"].size());
-    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionSpecificMoreTest, PhraseMatchAcrossArrayElements) {

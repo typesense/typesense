@@ -738,7 +738,7 @@ public:
     void search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
                       size_t max_extra_prefix, size_t max_extra_suffix) const;
 
-    void curate_filtered_ids(filter_node_t const* const& filter_tree_root, const std::set<uint32_t>& curated_ids,
+    void curate_filtered_ids(const std::set<uint32_t>& curated_ids,
                              const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
                              uint32_t& filter_ids_length, const std::vector<uint32_t>& curated_ids_sorted) const;
 
@@ -808,6 +808,21 @@ public:
 
     void do_phrase_search(const size_t num_search_fields, const std::vector<search_field_t>& search_fields,
                           std::vector<query_tokens_t>& field_query_tokens,
+                          const std::vector<sort_by>& sort_fields,
+                          std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
+                          const std::vector<std::string>& group_by_fields,
+                          Topster* actual_topster,
+                          const int sort_order[3],
+                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                          const std::vector<size_t>& geopoint_indices,
+                          const std::vector<uint32_t>& curated_ids_sorted,
+                          uint32_t*& all_result_ids, size_t& all_result_ids_len,
+                          spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                          const std::set<uint32_t>& curated_ids,
+                          const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
+                          Topster* curated_topster,
+                          const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                          bool is_wildcard_query,
                           uint32_t*& filter_ids, uint32_t& filter_ids_length) const;
 
     void fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
