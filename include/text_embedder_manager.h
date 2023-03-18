@@ -100,19 +100,19 @@ public:
     inline static void download_default_model() {
         HttpClient& httpClient = HttpClient::get_instance();
         if(!check_md5(get_absolute_model_path(DEFAULT_MODEL_NAME), DEFAULT_MODEL_MD5)) {
-        LOG(INFO) << "Downloading default model";
-        long res = httpClient.download_file(DEFAULT_MODEL_URL, get_absolute_model_path(DEFAULT_MODEL_NAME));
-        if(res != 200) {
-            LOG(INFO) << "Failed to download default model: " << res;
+            LOG(INFO) << "Downloading default model";
+            long res = httpClient.download_file(DEFAULT_MODEL_URL, get_absolute_model_path(DEFAULT_MODEL_NAME));
+            if(res != 200) {
+                LOG(INFO) << "Failed to download default model: " << res;
+            }
         }
-    }
-    if(!check_md5(get_absolute_vocab_path(), DEFAULT_VOCAB_MD5)) {
-        LOG(INFO) << "Downloading default vocab";
-        long res = httpClient.download_file(DEFAULT_VOCAB_URL, get_absolute_vocab_path());
-        if(res != 200) {
-            LOG(INFO) << "Failed to download default vocab: " << res;
+        if(!check_md5(get_absolute_vocab_path(), DEFAULT_VOCAB_MD5)) {
+            LOG(INFO) << "Downloading default vocab";
+            long res = httpClient.download_file(DEFAULT_VOCAB_URL, get_absolute_vocab_path());
+            if(res != 200) {
+                LOG(INFO) << "Failed to download default vocab: " << res;
+            }
         }
-    }
     }
 private:
     TextEmbedderManager() = default;
