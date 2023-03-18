@@ -164,6 +164,8 @@ public:
 
     static void intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
+    static void intersect(std::vector<posting_list_t::iterator_t>& posting_list_iterators, bool& is_valid);
+
     template<class T>
     static bool block_intersect(
         std::vector<posting_list_t::iterator_t>& its,

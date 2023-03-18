@@ -956,6 +956,8 @@ public:
                         std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
                         std::vector<uint32_t>& included_ids_vec,
                         std::unordered_set<uint32_t>& excluded_group_ids) const;
+
+    friend class filter_result_iterator_t;
 };
 
 template<class T>

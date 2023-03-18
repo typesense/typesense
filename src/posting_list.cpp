@@ -754,6 +754,42 @@ void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists
     }
 }
 
+void posting_list_t::intersect(std::vector<posting_list_t::iterator_t>& posting_list_iterators, bool& is_valid) {
+    if (posting_list_iterators.empty()) {
+        is_valid = false;
+        return;
+    }
+
+    if (posting_list_iterators.size() == 1) {
+        is_valid = posting_list_iterators.front().valid();
+        return;
+    }
+
+    switch (posting_list_iterators.size()) {
+        case 2:
+            while(!at_end2(posting_list_iterators)) {
+                if(equals2(posting_list_iterators)) {
+                    is_valid = true;
+                    return;
+                } else {
+                    advance_non_largest2(posting_list_iterators);
+                }
+            }
+            is_valid = false;
+            break;
+        default:
+            while(!at_end(posting_list_iterators)) {
+                if(equals(posting_list_iterators)) {
+                    is_valid = true;
+                    return;
+                } else {
+                    advance_non_largest(posting_list_iterators);
+                }
+            }
+            is_valid = false;
+    }
+}
+
 bool posting_list_t::take_id(result_iter_state_t& istate, uint32_t id) {
     // decide if this result id should be excluded
     if(istate.excluded_result_ids_size != 0) {
