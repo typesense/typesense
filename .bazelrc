@@ -5,6 +5,7 @@ build --cxxopt="-std=c++17"
 
 build --jobs=6
 test --jobs=6
+run --jobs=6
 build --enable_platform_specific_config
 
 build:linux --action_env=BAZEL_LINKLIBS="-l%:libstdc++.a -l%:libgcc.a"
