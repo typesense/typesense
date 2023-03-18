@@ -1667,12 +1667,7 @@ TEST_F(CollectionAllFieldsTest, ModelPathWithoutCreateFrom) {
 TEST_F(CollectionAllFieldsTest, CreateFromBasicValid) {
 
     TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
-    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME)))){
-        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-    }
-    if(!std::filesystem::exists(std::filesystem::path(TextEmbedderManager::get_absolute_vocab_path()))){
-        HttpClient::get_instance().download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
-    }
+    TextEmbedderManager::download_default_model();
 
     field embedding = field("embedding", field_types::FLOAT_ARRAY, false);
     embedding.create_from.push_back("name");
