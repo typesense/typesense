@@ -958,6 +958,8 @@ public:
                         std::unordered_set<uint32_t>& excluded_group_ids) const;
     
     int64_t get_doc_val_from_sort_index(sort_index_iterator it, uint32_t doc_seq_id) const;
+
+    friend class filter_result_iterator_t;
 };
 
 template<class T>
