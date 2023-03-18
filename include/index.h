@@ -957,6 +957,8 @@ public:
 
     Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                        std::vector<uint32_t>& outside_seq_ids);
+
+    friend class filter_result_iterator_t;
 };
 
 template<class T>
