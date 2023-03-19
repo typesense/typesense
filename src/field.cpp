@@ -372,25 +372,31 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const Store* store,
                          const std::string& doc_id_prefix) {
     std::stack<filter_node_t*> nodeStack;
+    bool is_successful = true;
+    std::string error_message;
+
+    filter_node_t* filter_node = nullptr;
 
     while (!postfix.empty()) {
         const std::string expression = postfix.front();
         postfix.pop();
 
-        filter_node_t* filter_node = nullptr;
         if (isOperator(expression)) {
-            auto message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
-
             if (nodeStack.empty()) {
-                return Option<bool>(400, message);
+                is_successful = false;
+                error_message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
+                break;
             }
             auto operandB = nodeStack.top();
             nodeStack.pop();
 
             if (nodeStack.empty()) {
                 delete operandB;
-                return Option<bool>(400, message);
+                is_successful = false;
+                error_message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
+                break;
             }
+
             auto operandA = nodeStack.top();
             nodeStack.pop();
 
@@ -411,6 +417,16 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
         }
 
         nodeStack.push(filter_node);
+    }
+
+    if (!is_successful) {
+        while (!nodeStack.empty()) {
+            auto filterNode = nodeStack.top();
+            delete filterNode;
+            nodeStack.pop();
+        }
+
+        return Option<bool>(400, error_message);
     }
 
     if (nodeStack.empty()) {

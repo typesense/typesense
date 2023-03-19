@@ -3461,8 +3461,10 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
 
         for(size_t i = 0; i < num_search_fields; i++) {
             const std::string& field_name = the_fields[i].name;
-            const uint32_t field_num_typos = (i < num_typos.size()) ? num_typos[the_fields[i].orig_index] : num_typos[0];
-            const bool field_prefix = (i < prefixes.size()) ? prefixes[the_fields[i].orig_index] : prefixes[0];
+            const uint32_t field_num_typos = (the_fields[i].orig_index < num_typos.size())
+                                             ? num_typos[the_fields[i].orig_index] : num_typos[0];
+            const bool field_prefix = (the_fields[i].orig_index < prefixes.size()) ? prefixes[the_fields[i].orig_index]
+                                                                                   : prefixes[0];
 
             if(token_num_typos > field_num_typos) {
                 // since the token can come from any field, we still have to respect per-field num_typos
