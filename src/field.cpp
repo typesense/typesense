@@ -410,6 +410,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             nodeStack.pop();
 
             if (nodeStack.empty()) {
+                delete operandB;
                 is_successful = false;
                 error_message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
                 break;
@@ -453,9 +454,6 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
     }
 
     if (!is_successful) {
-        delete filter_node;
-        filter_node = nullptr;
-
         while (!nodeStack.empty()) {
             auto filterNode = nodeStack.top();
             delete filterNode;
