@@ -4399,7 +4399,17 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
             }
         }
 
-        return field::flatten_doc(document, nested_fields, is_update, new_fields);
+        std::vector<field> flattened_fields;
+        auto flatten_op = field::flatten_doc(document, nested_fields, is_update, flattened_fields);
+        if(!flatten_op.ok()) {
+            return flatten_op;
+        }
+
+        for(const auto& flattened_field: flattened_fields) {
+            if(schema.find(flattened_field.name) == schema.end()) {
+                new_fields.push_back(flattened_field);
+            }
+        }
     }
 
     return Option<bool>(true);
