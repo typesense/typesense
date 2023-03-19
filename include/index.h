@@ -805,7 +805,7 @@ public:
                           const std::vector<size_t>& geopoint_indices,
                           const std::vector<uint32_t>& curated_ids_sorted,
                           uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                          spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                          spp::sparse_hash_set<uint64_t>& groups_processed,
                           const std::set<uint32_t>& curated_ids,
                           const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
                           Topster* curated_topster,

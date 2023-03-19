@@ -511,6 +511,12 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 continue;
             }
 
+            if(a_field.type == field_types::FLOAT_ARRAY && a_field.num_dim != 0 &&
+                a_field.num_dim != document[field_name].size()) {
+                return Option<uint32_t>(400, "Field `" + a_field.name + "` must have " +
+                                             std::to_string(a_field.num_dim)  + " dimensions.");
+            }
+
             for(; it != document[field_name].end(); ) {
                 const auto& item = it.value();
                 array_ele_erased = false;
@@ -2499,7 +2505,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                          included_ids_map, is_wildcard_query,
                          filter_ids, filter_ids_length);
         if (filter_ids_length == 0) {
-            return Option(true);
+            return ;
         }
     }
 
@@ -3883,7 +3889,7 @@ void Index::do_phrase_search(const size_t num_search_fields, const std::vector<s
                              const std::vector<size_t>& geopoint_indices,
                              const std::vector<uint32_t>& curated_ids_sorted,
                              uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                             spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                             spp::sparse_hash_set<uint64_t>& groups_processed,
                              const std::set<uint32_t>& curated_ids,
                              const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
                              Topster* curated_topster,
@@ -4028,13 +4034,11 @@ void Index::do_phrase_search(const size_t num_search_fields, const std::vector<s
         uint64_t distinct_id = seq_id;
         if(group_limit != 0) {
             distinct_id = get_distinct_id(group_by_fields, seq_id);
+            groups_processed.emplace(distinct_id);
         }
 
         KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
-        int ret = actual_topster->add(&kv);
-        if(group_limit != 0 && ret < 2) {
-            groups_processed[distinct_id]++;
-        }
+        actual_topster->add(&kv);
 
         if(((i + 1) % (1 << 12)) == 0) {
             BREAK_CIRCUIT_BREAKER
