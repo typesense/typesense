@@ -2743,7 +2743,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                          included_ids_map, is_wildcard_query,
                          filter_result.docs, filter_result.count);
         if (filter_result.count == 0) {
-            return Option(true);
+            goto process_search_results;
         }
     }
 
