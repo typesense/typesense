@@ -2505,7 +2505,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                          included_ids_map, is_wildcard_query,
                          filter_ids, filter_ids_length);
         if (filter_ids_length == 0) {
-            return ;
+            goto process_search_results;
         }
     }
 
