@@ -394,11 +394,12 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
     bool is_successful = true;
     std::string error_message;
 
+    filter_node_t *filter_node = nullptr;
+
     while (!postfix.empty()) {
         const std::string expression = postfix.front();
         postfix.pop();
 
-        filter_node_t *filter_node = nullptr;
         if (isOperator(expression)) {
             if (nodeStack.empty()) {
                 is_successful = false;
@@ -452,6 +453,9 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
     }
 
     if (!is_successful) {
+        delete filter_node;
+        filter_node = nullptr;
+
         while (!nodeStack.empty()) {
             auto filterNode = nodeStack.top();
             delete filterNode;

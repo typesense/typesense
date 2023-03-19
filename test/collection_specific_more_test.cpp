@@ -2222,7 +2222,7 @@ TEST_F(CollectionSpecificMoreTest, ApproxFilterMatchCount) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    uint32_t approx_count;
+    uint32_t approx_count = 0;
     coll->_get_index()->_approximate_filter_ids(filter_tree_root->filter_exp, approx_count);
     ASSERT_EQ(approx_count, 5);
 
