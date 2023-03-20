@@ -682,7 +682,9 @@ struct facet {
 
 struct facet_info_t {
     // facet hash => resolved tokens
-    std::unordered_map<uint64_t, std::vector<std::string>> hashes;
+    //std::unordered_map<uint64_t, std::vector<std::string>> hashes;
+    //facet name => resolved tokens
+    std::unordered_map<uint32_t, std::vector<std::string>> doc_id_tokens;
     bool use_facet_query = false;
     bool should_compute_stats = false;
     field facet_field{"", "", false};

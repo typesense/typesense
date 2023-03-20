@@ -30,12 +30,13 @@
 #include "vector_query_ops.h"
 #include "hnswlib/hnswlib.h"
 #include "filter.h"
+#include "facet_index.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
-using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
-using single_val_facet_map_t = spp::sparse_hash_map<uint32_t, uint64_t>;
-using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
-using array_mapped_single_val_facet_t = std::array<single_val_facet_map_t*, ARRAY_FACET_DIM>;
+//using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
+//using single_val_facet_map_t = spp::sparse_hash_map<uint32_t, uint64_t>;
+//using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
+//using array_mapped_single_val_facet_t = std::array<single_val_facet_map_t*, ARRAY_FACET_DIM>;
 
 static constexpr size_t ARRAY_INFIX_DIM = 4;
 using array_mapped_infix_t = std::vector<tsl::htrie_set<char>*>;
@@ -280,6 +281,8 @@ struct hnsw_index_t {
     }
 };
 
+extern std::map<std::string, std::map<std::string, uint32_t>> facet_results;
+
 class Index {
 private:
     mutable std::shared_mutex mutex;
@@ -308,10 +311,11 @@ private:
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
 
     // facet_field => (seq_id => values)
-    spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
+    //spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
+    facet_index_t* facet_index_v4 = nullptr;
 
     // facet_field => (seq_id => hash)
-    spp::sparse_hash_map<std::string, array_mapped_single_val_facet_t> single_val_facet_index_v3;
+    //spp::sparse_hash_map<std::string, array_mapped_single_val_facet_t> single_val_facet_index_v3;
 
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
@@ -363,7 +367,8 @@ private:
                    bool estimate_facets, size_t facet_sample_percent,
                    const std::vector<facet_info_t>& facet_infos,
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
-                   const uint32_t* result_ids, size_t results_size) const;
+                   const uint32_t* result_ids, size_t results_size,
+                   int max_facet_count) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   filter_node_t*& filter_tree_root) const;
@@ -626,6 +631,7 @@ public:
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
                 filter_node_t*& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
+                const int max_facet_values,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                 const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
