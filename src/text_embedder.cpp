@@ -7,13 +7,12 @@
 #include <filesystem>
 
 TextEmbedder::TextEmbedder(const std::string& model_path) {
-
     // create environment
     Ort::SessionOptions session_options;
     std::string abs_path = TextEmbedderManager::get_absolute_model_path(model_path);
     LOG(INFO) << "Loading model from: " << abs_path;
     session_ = new Ort::Session(env_, abs_path.c_str(), session_options);
-    std::ifstream stream("vocab.txt");
+    std::ifstream stream(TextEmbedderManager::get_absolute_vocab_path());
     std::stringstream ss;
     ss << stream.rdbuf();
     auto vocab_ = ss.str();
@@ -37,6 +36,12 @@ encoded_input_t TextEmbedder::Encode(const std::string& text) {
     auto input_ids = tokenizer_->AddSpecialToken(encoded);
     auto token_type_ids = tokenizer_->GenerateTypeId(encoded);
     auto attention_mask = std::vector<int64_t>(input_ids.size(), 1);
+    // BERT supports max sequence length of 512
+    if (input_ids.size() > 512) {
+        input_ids.resize(512);
+        token_type_ids.resize(512);
+        attention_mask.resize(512);
+    }
     return {input_ids, token_type_ids, attention_mask};
 }
 
@@ -79,7 +84,6 @@ std::vector<float> TextEmbedder::Embed(const std::string& text) {
     // print output tensor shape
     auto shape = output_tensor[0].GetTensorTypeAndShapeInfo().GetShape();
 
-    //LOG(INFO) << "Output tensor size: " << shape[0] << " x " << shape[1] << " x " << shape[2];
     for (int i = 0; i < shape[1]; i++) {
         std::vector<float> temp;
         for (int j = 0; j < shape[2]; j++) {
@@ -87,10 +91,7 @@ std::vector<float> TextEmbedder::Embed(const std::string& text) {
         }
         output.push_back(temp);
     }
-    //LOG(INFO) << "Mean pooling";
     auto pooled_output = mean_pooling(output);  
-
-
 
     return pooled_output;
 }

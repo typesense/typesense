@@ -456,18 +456,8 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     if(config.get_model_dir().size() > 0) {
         LOG(INFO) << "Loading text embedding models from " << config.get_model_dir();
-        TextEmbedderManager::get_instance().set_model_dir(config.get_model_dir());
-
-        LOG(INFO) << "Downloading default model and vocab";
-        long res = httpClient.download_file(TextEmbedderManager::DEFAULT_MODEL_URL, TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::DEFAULT_MODEL_NAME));
-        if(res != 200) {
-            LOG(INFO) << "Failed to download default model: " << res;
-        }
-
-        res = httpClient.download_file(TextEmbedderManager::DEFAULT_VOCAB_URL, TextEmbedderManager::get_absolute_vocab_path());
-        if(res != 200) {
-            LOG(INFO) << "Failed to download default vocab: " << res;
-        }
+        TextEmbedderManager::model_dir = config.get_model_dir();
+        TextEmbedderManager::download_default_model();
     }
     // first we start the peering service
 

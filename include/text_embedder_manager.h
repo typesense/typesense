@@ -2,7 +2,10 @@
 
 
 #include <unordered_map>
-
+#include <openssl/md5.h>
+#include <fstream>
+#include "logger.h"
+#include "http_client.h"
 #include "text_embedder.h"
 
 // singleton class
@@ -55,6 +58,8 @@ public:
     static constexpr char* DEFAULT_MODEL_NAME = "ts-e5-small";
     static constexpr char* DEFAULT_VOCAB_URL = "https://huggingface.co/typesense/models/resolve/main/e5-small/vocab.txt";
     static constexpr char* DEFAULT_VOCAB_NAME = "vocab.txt";
+    static constexpr char* DEFAULT_VOCAB_MD5 = "6480d5d8528ce344256daf115d4965e";
+    static constexpr char* DEFAULT_MODEL_MD5 = "3d421dc72859a72368c106415cdebf2";
     inline static std::string model_dir = "";
     inline static const std::string get_absolute_model_path(const std::string& model_name) {
         if(model_dir.back() != '/') {
@@ -76,6 +81,37 @@ public:
             return model_dir + "/" + TextEmbedderManager::DEFAULT_VOCAB_NAME;
         } else {
             return model_dir + TextEmbedderManager::DEFAULT_VOCAB_NAME;
+        }
+    }
+    inline static const bool check_md5(const std::string& file_path, const std::string& target_md5) {
+        std::ifstream stream(file_path);
+        if (stream.fail()) {
+            return false;
+        }
+        unsigned char md5[MD5_DIGEST_LENGTH];
+        std::stringstream ss,res;
+        ss << stream.rdbuf();
+        MD5((unsigned char*)ss.str().c_str(), ss.str().length(), md5);
+        for (int i = 0; i < MD5_DIGEST_LENGTH; i++) {
+            res << std::hex << (int)md5[i];
+        }
+        return res.str() == target_md5;
+    }
+    inline static void download_default_model() {
+        HttpClient& httpClient = HttpClient::get_instance();
+        if(!check_md5(get_absolute_model_path(DEFAULT_MODEL_NAME), DEFAULT_MODEL_MD5)) {
+            LOG(INFO) << "Downloading default model";
+            long res = httpClient.download_file(DEFAULT_MODEL_URL, get_absolute_model_path(DEFAULT_MODEL_NAME));
+            if(res != 200) {
+                LOG(INFO) << "Failed to download default model: " << res;
+            }
+        }
+        if(!check_md5(get_absolute_vocab_path(), DEFAULT_VOCAB_MD5)) {
+            LOG(INFO) << "Downloading default vocab";
+            long res = httpClient.download_file(DEFAULT_VOCAB_URL, get_absolute_vocab_path());
+            if(res != 200) {
+                LOG(INFO) << "Failed to download default vocab: " << res;
+            }
         }
     }
 private:
