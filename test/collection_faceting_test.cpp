@@ -1546,3 +1546,59 @@ TEST_F(CollectionFacetingTest, FacetOnArrayFieldWithSpecialChars) {
         }
     }
 }
+
+TEST_F(CollectionFacetingTest, FacetIndexRefactor) {
+     Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("name_facet", field_types::STRING, true),
+                                 field("age", field_types::INT32, true),
+                                 field("years", field_types::INT32_ARRAY, true),
+                                 field("rating", field_types::FLOAT, true),
+                                 field("timestamps", field_types::INT64_ARRAY, true),
+                                 field("tags", field_types::STRING_ARRAY, true)};
+
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
+    if(coll_array_fields == nullptr) {
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        nlohmann::json document = nlohmann::json::parse(json_line);
+        document["name_facet"] = document["name"];
+        const std::string & patched_json_line = document.dump();
+        coll_array_fields->add(patched_json_line);
+    }
+
+    infile.close();
+
+    query_fields = {"name"};
+    std::vector<std::string> facets = {"tags"};
+
+    // single facet with no filters
+    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    
+    LOG(INFO) << results.dump();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(4, results["facet_counts"][0].size());
+    ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
+
+    ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][1]["count"]);
+
+    ASSERT_STREQ("bronze", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][2]["count"]);
+
+    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][3]["count"]);
+}

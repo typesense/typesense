@@ -20,6 +20,7 @@
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
 
+std::map<std::string, std::map<std::string, uint32_t>> facet_results;
 
 struct sort_fields_guard_t {
     std::vector<sort_by> sort_fields_std;
@@ -1852,99 +1853,103 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         
         auto the_field = search_schema.at(a_facet.field_name);
         // keep only top K facets
-        auto max_facets = std::min(max_facet_values, facet_hash_counts.size());
-        std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + max_facets,
-                         facet_hash_counts.end(), Collection::facet_count_compare);
-        for(size_t fi = 0; fi < max_facets; fi++) {
+        //auto max_facets = std::min(max_facet_values, facet_hash_counts.size());
+        auto max_facets = std::min(max_facet_values, facet_results[a_facet.field_name].size());
+        // std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + max_facets,
+        //                  facet_hash_counts.end(), Collection::facet_count_compare);
+        LOG (INFO) << "found_doc_seq_ids size " << facet_results[a_facet.field_name].size();
+        //for(size_t fi = 0; fi < max_facets; fi++) {
+        for(auto& it : facet_results[a_facet.field_name]) {
 
             if(a_facet.is_range_query){
                 break;
             }
 
             // remap facet value hash with actual string
-            auto & kv = facet_hash_counts[fi];
-            auto & facet_count = kv.second;
-            // fetch actual facet value from representative doc id
-            const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
-            nlohmann::json document;
-            const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
-            if(!document_op.ok()) {
-                LOG(ERROR) << "Facet fetch error. " << document_op.error();
-                continue;
-            }
-            std::string value;
-            bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
-            if(!facet_found) {
-                continue;
-            }
-            std::unordered_map<std::string, size_t> ftoken_pos;
-            std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
-            for(size_t ti = 0; ti < ftokens.size(); ti++) {
-                if(the_field.is_bool()) {
-                    if(ftokens[ti] == "1") {
-                        ftokens[ti] = "true";
-                    } else {
-                        ftokens[ti] = "false";
-                    }
-                }
-                const std::string& resolved_token = ftokens[ti];
-                ftoken_pos[resolved_token] = ti;
-            }
-            const std::string& last_full_q_token = ftokens.empty() ? "" : ftokens.back();
-            // 2 passes: first identify tokens that need to be highlighted and then construct highlighted text
-            bool is_cyrillic = Tokenizer::is_cyrillic(the_field.locale);
-            bool normalise = is_cyrillic ? false : true;
-            Tokenizer tokenizer(value, normalise, !the_field.is_string(), the_field.locale, symbols_to_index, token_separators);
-            // secondary tokenizer used for specific languages that requires transliteration
-            // we use 2 tokenizers so that the original text offsets are available for highlighting
-            Tokenizer word_tokenizer("", true, false, the_field.locale, symbols_to_index, token_separators);
-            std::string raw_token;
-            size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
-            // need an ordered map here to ensure that it is ordered by the key (start offset)
-            std::map<size_t, size_t> token_offsets;
-            size_t prefix_token_start_index = 0;
-            while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
-                if(is_cyrillic) {
-                    word_tokenizer.tokenize(raw_token);
-                }
-                auto token_pos_it = ftoken_pos.find(raw_token);
-                if(token_pos_it != ftoken_pos.end()) {
-                    token_offsets[tok_start] = tok_end;
-                    if(raw_token == last_full_q_token) {
-                        prefix_token_start_index = tok_start;
-                    }
-                }
-            }
-            auto offset_it = token_offsets.begin();
-            size_t i = 0;
-            std::stringstream highlightedss;
-            // loop until end index, accumulate token and complete highlighting
-            while(i < value.size()) {
-                if(offset_it != token_offsets.end()) {
-                    if (i == offset_it->first) {
-                        highlightedss << highlight_start_tag;
-                        // do prefix highlighting for non-dropped last token
-                        size_t token_len = (i == prefix_token_start_index && token_offsets.size() == facet_query_num_tokens) ?
-                                           facet_query_last_token.size() :
-                                           (offset_it->second - i + 1);
-                        if(i == prefix_token_start_index && token_offsets.size() == facet_query_num_tokens) {
-                            token_len = std::min((offset_it->second - i + 1), facet_query_last_token.size());
-                        } else {
-                            token_len = (offset_it->second - i + 1);
-                        }
-                        for(size_t j = 0; j < token_len; j++) {
-                            highlightedss << value[i + j];
-                        }
-                        highlightedss << highlight_end_tag;
-                        offset_it++;
-                        i += token_len;
-                        continue;
-                    }
-                }
-                highlightedss << value[i];
-                i++;
-            }
-            facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
+            // auto & kv = facet_hash_counts[fi];
+            // auto & facet_count = kv.second;
+            // // fetch actual facet value from representative doc id
+            // const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
+            // nlohmann::json document;
+            // const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
+            // if(!document_op.ok()) {
+            //     LOG(ERROR) << "Facet fetch error. " << document_op.error();
+            //     continue;
+            // }
+            //std::string value;
+            // bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
+            // if(!facet_found) {
+            //     continue;
+            // }
+            // std::unordered_map<std::string, size_t> ftoken_pos;
+            // std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
+            // for(size_t ti = 0; ti < ftokens.size(); ti++) {
+            //     if(the_field.is_bool()) {
+            //         if(ftokens[ti] == "1") {
+            //             ftokens[ti] = "true";
+            //         } else {
+            //             ftokens[ti] = "false";
+            //         }
+            //     }
+            //     const std::string& resolved_token = ftokens[ti];
+            //     ftoken_pos[resolved_token] = ti;
+            // }
+            // const std::string& last_full_q_token = ftokens.empty() ? "" : ftokens.back();
+            // // 2 passes: first identify tokens that need to be highlighted and then construct highlighted text
+            // bool is_cyrillic = Tokenizer::is_cyrillic(the_field.locale);
+            // bool normalise = is_cyrillic ? false : true;
+            // Tokenizer tokenizer(value, normalise, !the_field.is_string(), the_field.locale, symbols_to_index, token_separators);
+            // // secondary tokenizer used for specific languages that requires transliteration
+            // // we use 2 tokenizers so that the original text offsets are available for highlighting
+            // Tokenizer word_tokenizer("", true, false, the_field.locale, symbols_to_index, token_separators);
+            // std::string raw_token;
+            // size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
+            // // need an ordered map here to ensure that it is ordered by the key (start offset)
+            // std::map<size_t, size_t> token_offsets;
+            // size_t prefix_token_start_index = 0;
+            // while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
+            //     if(is_cyrillic) {
+            //         word_tokenizer.tokenize(raw_token);
+            //     }
+            //     auto token_pos_it = ftoken_pos.find(raw_token);
+            //     if(token_pos_it != ftoken_pos.end()) {
+            //         token_offsets[tok_start] = tok_end;
+            //         if(raw_token == last_full_q_token) {
+            //             prefix_token_start_index = tok_start;
+            //         }
+            //     }
+            // }
+            // auto offset_it = token_offsets.begin();
+            // size_t i = 0;
+            // std::stringstream highlightedss;
+            // // loop until end index, accumulate token and complete highlighting
+            // while(i < value.size()) {
+            //     if(offset_it != token_offsets.end()) {
+            //         if (i == offset_it->first) {
+            //             highlightedss << highlight_start_tag;
+            //             // do prefix highlighting for non-dropped last token
+            //             size_t token_len = (i == prefix_token_start_index && token_offsets.size() == facet_query_num_tokens) ?
+            //                                facet_query_last_token.size() :
+            //                                (offset_it->second - i + 1);
+            //             if(i == prefix_token_start_index && token_offsets.size() == facet_query_num_tokens) {
+            //                 token_len = std::min((offset_it->second - i + 1), facet_query_last_token.size());
+            //             } else {
+            //                 token_len = (offset_it->second - i + 1);
+            //             }
+            //             for(size_t j = 0; j < token_len; j++) {
+            //                 highlightedss << value[i + j];
+            //             }
+            //             highlightedss << highlight_end_tag;
+            //             offset_it++;
+            //             i += token_len;
+            //             continue;
+            //         }
+            //     }
+            //     highlightedss << value[i];
+            //     i++;
+            // }
+            //facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
+            facet_value_t facet_value = { it.first, std::string(), it.second};
             facet_values.emplace_back(facet_value);
         }
         
