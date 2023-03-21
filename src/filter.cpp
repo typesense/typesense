@@ -459,6 +459,23 @@ bool filter_result_iterator_t::valid(uint32_t id) {
         }
     }
 
+    if (filter_node->filter_exp.apply_not_equals) {
+        // Even when iterator becomes invalid, we keep it marked as valid since we are evaluating not equals.
+        if (!valid()) {
+            is_valid = true;
+            return is_valid;
+        }
+
+        skip_to(id);
+
+        if (!is_valid) {
+            is_valid = true;
+            return is_valid;
+        }
+
+        return doc != id;
+    }
+
     skip_to(id);
     return is_valid && doc == id;
 }
