@@ -223,4 +223,25 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: James || (tags: gold && tags: silver)", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_skip_complex_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+
+    ASSERT_TRUE(iter_skip_complex_filter_test.valid());
+    iter_skip_complex_filter_test.skip_to(4);
+
+    expected = {4, 5};
+    for (auto const& i : expected) {
+        ASSERT_TRUE(iter_skip_complex_filter_test.valid());
+        ASSERT_EQ(i, iter_skip_complex_filter_test.doc);
+        iter_skip_complex_filter_test.next();
+    }
+
+    ASSERT_FALSE(iter_skip_complex_filter_test.valid());
+    ASSERT_TRUE(iter_op.ok());
+
+    delete filter_tree_root;
 }
