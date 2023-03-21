@@ -530,4 +530,48 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_EQ(6, iter_add_phrase_ids_test->seq_id);
 
     delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: jeremy && tags: fine platinum", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+
+    ASSERT_TRUE(iter_and_test.valid());
+    ASSERT_EQ(1, iter_and_test.doc);
+    iter_and_test.next();
+
+    ASSERT_FALSE(iter_and_test.valid());
+    ASSERT_TRUE(iter_op.ok());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: James || tags: bronze", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto doc =
+            R"({
+                "name": "James Rowdy",
+                "age": 36,
+                "years": [2005, 2022],
+                "rating": 6.03,
+                "tags": ["copper"]
+            })"_json;
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto iter_or_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+
+    expected = {2, 4, 5};
+    for (auto const& i : expected) {
+        ASSERT_TRUE(iter_or_test.valid());
+        ASSERT_EQ(i, iter_or_test.doc);
+        iter_or_test.next();
+    }
+
+    ASSERT_FALSE(iter_or_test.valid());
+    ASSERT_TRUE(iter_op.ok());
+
+    delete filter_tree_root;
 }
