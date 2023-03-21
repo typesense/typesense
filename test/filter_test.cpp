@@ -595,4 +595,20 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: James || (tags: gold && tags: [silver, bronze])", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_validate_ids_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+
+    expected = {0, 2, 4, 5};
+    for (auto const& i : expected) {
+        ASSERT_TRUE(iter_validate_ids_test.valid(i));
+    }
+
+    ASSERT_FALSE(iter_skip_complex_filter_test.valid());
+    ASSERT_TRUE(iter_op.ok());
+
+    delete filter_tree_root;
 }
