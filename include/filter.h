@@ -83,6 +83,7 @@ public:
     /// operation.
     void next();
 
-    /// Advances the iterator until the doc value is less than id. The iterator may become invalid during this operation.
+    /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
+    /// this operation.
     void skip_to(uint32_t id);
 };

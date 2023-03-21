@@ -4,10 +4,10 @@
 #include "filter.h"
 
 void filter_result_iterator_t::and_filter_iterators() {
-    while (left_it->valid() && right_it->valid()) {
+    while (left_it->is_valid && right_it->is_valid) {
         while (left_it->doc < right_it->doc) {
             left_it->next();
-            if (!left_it->valid()) {
+            if (!left_it->is_valid) {
                 is_valid = false;
                 return;
             }
@@ -15,7 +15,7 @@ void filter_result_iterator_t::and_filter_iterators() {
 
         while (left_it->doc > right_it->doc) {
             right_it->next();
-            if (!right_it->valid()) {
+            if (!right_it->is_valid) {
                 is_valid = false;
                 return;
             }
@@ -40,7 +40,7 @@ void filter_result_iterator_t::and_filter_iterators() {
 }
 
 void filter_result_iterator_t::or_filter_iterators() {
-    if (left_it->valid() && right_it->valid()) {
+    if (left_it->is_valid && right_it->is_valid) {
         if (left_it->doc < right_it->doc) {
             doc = left_it->doc;
             reference.clear();
@@ -76,7 +76,7 @@ void filter_result_iterator_t::or_filter_iterators() {
         return;
     }
 
-    if (left_it->valid()) {
+    if (left_it->is_valid) {
         doc = left_it->doc;
         reference.clear();
 
@@ -87,7 +87,7 @@ void filter_result_iterator_t::or_filter_iterators() {
         return;
     }
 
-    if (right_it->valid()) {
+    if (right_it->is_valid) {
         doc = right_it->doc;
         reference.clear();
 
@@ -133,9 +133,21 @@ void filter_result_iterator_t::next() {
     }
 
     if (filter_node->isOperator) {
+        // Advance the subtrees and then apply operators to arrive at the next valid doc.
         if (filter_node->filter_operator == AND) {
+            left_it->next();
+            right_it->next();
             and_filter_iterators();
         } else {
+            if (left_it->doc == doc && right_it->doc == doc) {
+                left_it->next();
+                right_it->next();
+            } else if (left_it->doc == doc) {
+                left_it->next();
+            } else {
+                right_it->next();
+            }
+
             or_filter_iterators();
         }
 
