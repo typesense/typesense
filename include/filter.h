@@ -12,21 +12,21 @@ private:
     filter_result_iterator_t* left_it = nullptr;
     filter_result_iterator_t* right_it = nullptr;
 
-    // Used in case of id and reference filter.
+    /// Used in case of id and reference filter.
     uint32_t result_index = 0;
 
-    // Stores the result of the filters that cannot be iterated.
+    /// Stores the result of the filters that cannot be iterated.
     filter_result_t filter_result;
 
-    // Initialized in case of filter on string field.
-    // Sample filter values: ["foo bar", "baz"]. Each filter value is split into tokens. We get posting list iterator
-    // for each token.
-    //
-    // Multiple filter values: Multiple tokens: posting list iterator
+    /// Initialized in case of filter on string field.
+    /// Sample filter values: ["foo bar", "baz"]. Each filter value is split into tokens. We get posting list iterator
+    /// for each token.
+    ///
+    /// Multiple filter values: Multiple tokens: posting list iterator
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
 
-    // Set to false when this iterator or it's subtree becomes invalid.
+    /// Set to false when this iterator or it's subtree becomes invalid.
     bool is_valid = true;
 
     /// Initializes the state of iterator node after it's creation.
@@ -73,9 +73,16 @@ public:
         delete right_it;
     }
 
+    /// Returns true when doc and reference hold valid values. Used in conjunction with next() and skip_to(id).
     [[nodiscard]] bool valid();
 
+    /// Returns true when id is a match to the filter. Handles moving the individual iterators internally.
+    [[nodiscard]] bool valid(uint32_t id);
+
+    /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
+    /// operation.
     void next();
 
+    /// Advances the iterator until the doc value is less than id. The iterator may become invalid during this operation.
     void skip_to(uint32_t id);
 };
