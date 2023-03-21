@@ -361,11 +361,12 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
     if (filter_node->isOperator) {
         // Skip the subtrees to id and then apply operators to arrive at the next valid doc.
+        left_it->skip_to(id);
+        right_it->skip_to(id);
+
         if (filter_node->filter_operator == AND) {
-            left_it->skip_to(id);
             and_filter_iterators();
         } else {
-            right_it->skip_to(id);
             or_filter_iterators();
         }
 
@@ -427,4 +428,25 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
         doc_matching_string_filter();
         return;
     }
+}
+
+bool filter_result_iterator_t::valid(uint32_t id) {
+    if (!is_valid) {
+        return false;
+    }
+
+    if (filter_node->isOperator) {
+        if (filter_node->filter_operator == AND) {
+            auto and_is_valid = left_it->valid(id) && right_it->valid(id);
+            is_valid = left_it->is_valid && right_it->is_valid;
+            return and_is_valid;
+        } else {
+            auto or_is_valid = left_it->valid(id) || right_it->valid(id);
+            is_valid = left_it->is_valid || right_it->is_valid;
+            return or_is_valid;
+        }
+    }
+
+    skip_to(id);
+    return is_valid && doc == id;
 }
