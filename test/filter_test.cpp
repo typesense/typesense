@@ -64,11 +64,10 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    Option<bool> iter_op(true);
-    auto iter_no_match_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_no_match_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
 
+    ASSERT_TRUE(iter_no_match_test.init_status().ok());
     ASSERT_FALSE(iter_no_match_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -76,10 +75,10 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_no_match_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_no_match_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
 
+    ASSERT_TRUE(iter_no_match_multi_test.init_status().ok());
     ASSERT_FALSE(iter_no_match_multi_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -87,14 +86,15 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_contains_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_contains_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_contains_test.init_status().ok());
+
     for (uint32_t i = 0; i < 5; i++) {
         ASSERT_TRUE(iter_contains_test.valid());
-        ASSERT_EQ(i, iter_contains_test.doc);
+        ASSERT_EQ(i, iter_contains_test.seq_id);
         iter_contains_test.next();
     }
     ASSERT_FALSE(iter_contains_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -102,14 +102,15 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_contains_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_contains_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_contains_multi_test.init_status().ok());
+
     for (uint32_t i = 0; i < 5; i++) {
         ASSERT_TRUE(iter_contains_multi_test.valid());
-        ASSERT_EQ(i, iter_contains_multi_test.doc);
+        ASSERT_EQ(i, iter_contains_multi_test.seq_id);
         iter_contains_multi_test.next();
     }
     ASSERT_FALSE(iter_contains_multi_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -117,14 +118,15 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_exact_match_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_exact_match_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_exact_match_test.init_status().ok());
+
     for (uint32_t i = 0; i < 5; i++) {
         ASSERT_TRUE(iter_exact_match_test.valid());
-        ASSERT_EQ(i, iter_exact_match_test.doc);
+        ASSERT_EQ(i, iter_exact_match_test.seq_id);
         iter_exact_match_test.next();
     }
     ASSERT_FALSE(iter_exact_match_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -132,16 +134,16 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_exact_match_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_exact_match_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_exact_match_multi_test.init_status().ok());
 
     std::vector<uint32_t> expected = {0, 2, 3, 4};
     for (auto const& i : expected) {
         ASSERT_TRUE(iter_exact_match_multi_test.valid());
-        ASSERT_EQ(i, iter_exact_match_multi_test.doc);
+        ASSERT_EQ(i, iter_exact_match_multi_test.seq_id);
         iter_exact_match_multi_test.next();
     }
     ASSERT_FALSE(iter_exact_match_multi_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
 //    delete filter_tree_root;
 //    filter_tree_root = nullptr;
@@ -149,17 +151,17 @@ TEST_F(FilterTest, FilterTreeIterator) {
 //                                           filter_tree_root);
 //    ASSERT_TRUE(filter_op.ok());
 //
-//    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+//    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+//    ASSERT_TRUE(iter_not_equals_test.init_status().ok());
 //
 //    std::vector<uint32_t> expected = {1, 3};
 //    for (auto const& i : expected) {
 //        ASSERT_TRUE(iter_not_equals_test.valid());
-//        ASSERT_EQ(i, iter_not_equals_test.doc);
+//        ASSERT_EQ(i, iter_not_equals_test.seq_id);
 //        iter_not_equals_test.next();
 //    }
 //
 //    ASSERT_FALSE(iter_not_equals_test.valid());
-//    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -167,16 +169,16 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_skip_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_skip_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_skip_test.init_status().ok());
 
     ASSERT_TRUE(iter_skip_test.valid());
     iter_skip_test.skip_to(3);
     ASSERT_TRUE(iter_skip_test.valid());
-    ASSERT_EQ(4, iter_skip_test.doc);
+    ASSERT_EQ(4, iter_skip_test.seq_id);
     iter_skip_test.next();
 
     ASSERT_FALSE(iter_skip_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -184,14 +186,14 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_and_test.init_status().ok());
 
     ASSERT_TRUE(iter_and_test.valid());
-    ASSERT_EQ(1, iter_and_test.doc);
+    ASSERT_EQ(1, iter_and_test.seq_id);
     iter_and_test.next();
 
     ASSERT_FALSE(iter_and_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -210,17 +212,17 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto add_op = coll->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
 
-    auto iter_or_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_or_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_or_test.init_status().ok());
 
     expected = {2, 4, 5};
     for (auto const& i : expected) {
         ASSERT_TRUE(iter_or_test.valid());
-        ASSERT_EQ(i, iter_or_test.doc);
+        ASSERT_EQ(i, iter_or_test.seq_id);
         iter_or_test.next();
     }
 
     ASSERT_FALSE(iter_or_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -228,7 +230,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_skip_complex_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_skip_complex_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_skip_complex_filter_test.init_status().ok());
 
     ASSERT_TRUE(iter_skip_complex_filter_test.valid());
     iter_skip_complex_filter_test.skip_to(4);
@@ -236,12 +239,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
     expected = {4, 5};
     for (auto const& i : expected) {
         ASSERT_TRUE(iter_skip_complex_filter_test.valid());
-        ASSERT_EQ(i, iter_skip_complex_filter_test.doc);
+        ASSERT_EQ(i, iter_skip_complex_filter_test.seq_id);
         iter_skip_complex_filter_test.next();
     }
 
     ASSERT_FALSE(iter_skip_complex_filter_test.valid());
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -249,14 +251,13 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_validate_ids_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root, iter_op);
+    auto iter_validate_ids_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_validate_ids_test.init_status().ok());
 
     expected = {0, 2, 4, 5};
     for (auto const& i : expected) {
         ASSERT_TRUE(iter_validate_ids_test.valid(i));
     }
-
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -265,14 +266,13 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(filter_op.ok());
 
     auto iter_validate_ids_not_equals_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
-                                                                             filter_tree_root, iter_op);
+                                                                             filter_tree_root);
+    ASSERT_TRUE(iter_validate_ids_not_equals_filter_test.init_status().ok());
 
     expected = {1, 3, 5};
     for (auto const& i : expected) {
         ASSERT_TRUE(iter_validate_ids_not_equals_filter_test.valid(i));
     }
-
-    ASSERT_TRUE(iter_op.ok());
 
     delete filter_tree_root;
 }

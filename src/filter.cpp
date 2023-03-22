@@ -5,7 +5,7 @@
 
 void filter_result_iterator_t::and_filter_iterators() {
     while (left_it->is_valid && right_it->is_valid) {
-        while (left_it->doc < right_it->doc) {
+        while (left_it->seq_id < right_it->seq_id) {
             left_it->next();
             if (!left_it->is_valid) {
                 is_valid = false;
@@ -13,7 +13,7 @@ void filter_result_iterator_t::and_filter_iterators() {
             }
         }
 
-        while (left_it->doc > right_it->doc) {
+        while (left_it->seq_id > right_it->seq_id) {
             right_it->next();
             if (!right_it->is_valid) {
                 is_valid = false;
@@ -21,8 +21,8 @@ void filter_result_iterator_t::and_filter_iterators() {
             }
         }
 
-        if (left_it->doc == right_it->doc) {
-            doc = left_it->doc;
+        if (left_it->seq_id == right_it->seq_id) {
+            seq_id = left_it->seq_id;
             reference.clear();
 
             for (const auto& item: left_it->reference) {
@@ -41,8 +41,8 @@ void filter_result_iterator_t::and_filter_iterators() {
 
 void filter_result_iterator_t::or_filter_iterators() {
     if (left_it->is_valid && right_it->is_valid) {
-        if (left_it->doc < right_it->doc) {
-            doc = left_it->doc;
+        if (left_it->seq_id < right_it->seq_id) {
+            seq_id = left_it->seq_id;
             reference.clear();
 
             for (const auto& item: left_it->reference) {
@@ -52,8 +52,8 @@ void filter_result_iterator_t::or_filter_iterators() {
             return;
         }
 
-        if (left_it->doc > right_it->doc) {
-            doc = right_it->doc;
+        if (left_it->seq_id > right_it->seq_id) {
+            seq_id = right_it->seq_id;
             reference.clear();
 
             for (const auto& item: right_it->reference) {
@@ -63,7 +63,7 @@ void filter_result_iterator_t::or_filter_iterators() {
             return;
         }
 
-        doc = left_it->doc;
+        seq_id = left_it->seq_id;
         reference.clear();
 
         for (const auto& item: left_it->reference) {
@@ -77,7 +77,7 @@ void filter_result_iterator_t::or_filter_iterators() {
     }
 
     if (left_it->is_valid) {
-        doc = left_it->doc;
+        seq_id = left_it->seq_id;
         reference.clear();
 
         for (const auto& item: left_it->reference) {
@@ -88,7 +88,7 @@ void filter_result_iterator_t::or_filter_iterators() {
     }
 
     if (right_it->is_valid) {
-        doc = right_it->doc;
+        seq_id = right_it->seq_id;
         reference.clear();
 
         for (const auto& item: right_it->reference) {
@@ -105,7 +105,7 @@ void filter_result_iterator_t::doc_matching_string_filter() {
     // If none of the filter value iterators are valid, mark this node as invalid.
     bool one_is_valid = false;
 
-    // Since we do OR between filter values, the lowest doc id from all is selected.
+    // Since we do OR between filter values, the lowest seq_id id from all is selected.
     uint32_t lowest_id = UINT32_MAX;
 
     for (auto& filter_value_tokens : posting_list_iterators) {
@@ -121,7 +121,7 @@ void filter_result_iterator_t::doc_matching_string_filter() {
     }
 
     if (one_is_valid) {
-        doc = lowest_id;
+        seq_id = lowest_id;
     }
 
     is_valid = one_is_valid;
@@ -139,10 +139,10 @@ void filter_result_iterator_t::next() {
             right_it->next();
             and_filter_iterators();
         } else {
-            if (left_it->doc == doc && right_it->doc == doc) {
+            if (left_it->seq_id == seq_id && right_it->seq_id == seq_id) {
                 left_it->next();
                 right_it->next();
-            } else if (left_it->doc == doc) {
+            } else if (left_it->seq_id == seq_id) {
                 left_it->next();
             } else {
                 right_it->next();
@@ -163,7 +163,7 @@ void filter_result_iterator_t::next() {
             return;
         }
 
-        doc = filter_result.docs[result_index];
+        seq_id = filter_result.docs[result_index];
         reference.clear();
         for (auto const& item: filter_result.reference_filter_results) {
             reference[item.first] = item.second[result_index];
@@ -178,7 +178,7 @@ void filter_result_iterator_t::next() {
             return;
         }
 
-        doc = filter_result.docs[result_index];
+        seq_id = filter_result.docs[result_index];
         return;
     }
 
@@ -194,7 +194,7 @@ void filter_result_iterator_t::next() {
         for (uint32_t i = 0; i < posting_list_iterators.size(); i++) {
             auto& filter_value_tokens = posting_list_iterators[i];
 
-            if (filter_value_tokens[0].valid() && filter_value_tokens[0].id() == doc) {
+            if (filter_value_tokens[0].valid() && filter_value_tokens[0].id() == seq_id) {
                 for (auto& iter: filter_value_tokens) {
                     iter.next();
                 }
@@ -391,7 +391,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
             return;
         }
 
-        doc = filter_result.docs[result_index];
+        seq_id = filter_result.docs[result_index];
         reference.clear();
         for (auto const& item: filter_result.reference_filter_results) {
             reference[item.first] = item.second[result_index];
@@ -408,7 +408,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
             return;
         }
 
-        doc = filter_result.docs[result_index];
+        seq_id = filter_result.docs[result_index];
         return;
     }
 
@@ -468,9 +468,19 @@ bool filter_result_iterator_t::valid(uint32_t id) {
             return is_valid;
         }
 
-        return doc != id;
+        return seq_id != id;
     }
 
     skip_to(id);
-    return is_valid && doc == id;
+    return is_valid && seq_id == id;
+}
+
+Option<bool> filter_result_iterator_t::init_status() {
+    if (filter_node->isOperator) {
+        auto left_status = left_it->init_status();
+
+        return !left_status.ok() ? left_status : right_it->init_status();
+    }
+
+    return status;
 }
