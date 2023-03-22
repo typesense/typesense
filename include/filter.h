@@ -42,22 +42,20 @@ private:
     void doc_matching_string_filter();
 
 public:
-    uint32_t doc;
+    uint32_t seq_id = 0;
     // Collection name -> references
     std::map<std::string, reference_filter_result_t> reference;
-    Option<bool> status;
+    Option<bool> status = Option(true);
 
     explicit filter_result_iterator_t(const std::string& collection_name,
-                                      const Index* index, filter_node_t* filter_node,
-                                      Option<bool>& status) :
+                                      const Index* index, filter_node_t* filter_node) :
                                       collection_name(collection_name),
                                       index(index),
-                                      filter_node(filter_node),
-                                      status(status) {
+                                      filter_node(filter_node) {
         // Generate the iterator tree and then initialize each node.
         if (filter_node->isOperator) {
-            left_it = new filter_result_iterator_t(collection_name, index, filter_node->left, status);
-            right_it = new filter_result_iterator_t(collection_name, index, filter_node->right, status);
+            left_it = new filter_result_iterator_t(collection_name, index, filter_node->left);
+            right_it = new filter_result_iterator_t(collection_name, index, filter_node->right);
         }
 
         init();
@@ -72,6 +70,9 @@ public:
         delete left_it;
         delete right_it;
     }
+
+    /// Returns the status of the initialization of iterator tree.
+    Option<bool> init_status();
 
     /// Returns true when doc and reference hold valid values. Used in conjunction with next() and skip_to(id).
     [[nodiscard]] bool valid();
