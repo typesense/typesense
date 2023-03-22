@@ -190,19 +190,14 @@ void filter_result_iterator_t::next() {
     field f = index->search_schema.at(a_filter.field_name);
 
     if (f.is_string()) {
-        // Advance all the filter values that are at doc. Then find the next one.
-        std::vector<uint32_t> doc_matching_indexes;
+        // Advance all the filter values that are at doc. Then find the next doc.
         for (uint32_t i = 0; i < posting_list_iterators.size(); i++) {
-            const auto& filter_value_tokens = posting_list_iterators[i];
+            auto& filter_value_tokens = posting_list_iterators[i];
 
             if (filter_value_tokens[0].valid() && filter_value_tokens[0].id() == doc) {
-                doc_matching_indexes.push_back(i);
-            }
-        }
-
-        for (const auto &lowest_id_index: doc_matching_indexes) {
-            for (auto &iter: posting_list_iterators[lowest_id_index]) {
-                iter.next();
+                for (auto& iter: filter_value_tokens) {
+                    iter.next();
+                }
             }
         }
 
@@ -363,7 +358,7 @@ bool filter_result_iterator_t::valid() {
         return is_valid;
     }
 
-    return true;
+    return false;
 }
 
 void filter_result_iterator_t::skip_to(uint32_t id) {
