@@ -43,10 +43,9 @@ new_git_repository(
     name="onnx_runtime",
     branch= "rel-1.14.0",
     build_file = "//bazel:onnxruntime.BUILD",
-    init_submodules= 1,
-    recursive_init_submodules= 1,
     remote= "https://github.com/microsoft/onnxruntime",
     patches=["//bazel:onnx.patch"],
+    patch_cmds= ["git submodule sync && git submodule foreach  'git fetch --tags' && git submodule update --init --remote"]
 )
 
 new_git_repository(
