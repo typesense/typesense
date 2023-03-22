@@ -893,7 +893,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         }
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
-            sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_count) {
+            sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found) {
                 
             const auto field_it = search_schema.find(sort_field_std.name);
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
@@ -903,8 +903,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
         }
 
-        if(sort_field_std.name == sort_field_const::group_count && is_group_by_query == false) {
-            std::string error = "group_by parameters should not be empty when using sort_by group_count";
+        if(sort_field_std.name == sort_field_const::group_found && is_group_by_query == false) {
+            std::string error = "group_by parameters should not be empty when using sort_by group_found";
             return Option<bool>(404, error);
         }
         
@@ -2483,7 +2483,7 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
         int group_sort_order = 1;
 
         for(int i = 0; i < sort_by_fields.size(); ++i) {
-            if(sort_by_fields[i].name == sort_field_const::group_count) {
+            if(sort_by_fields[i].name == sort_field_const::group_found) {
                 group_count_index = i;
                 
                 if(sort_by_fields[i].order == sort_field_const::asc) {

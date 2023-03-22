@@ -602,7 +602,7 @@ TEST_F(CollectionGroupingTest, RepeatedFieldNameGroupHitCount) {
 
 TEST_F(CollectionGroupingTest, SortingOnGroupCount) {
 
-    std::vector<sort_by> sort_fields = {sort_by("_group_count", "DESC")};
+    std::vector<sort_by> sort_fields = {sort_by("_group_found", "DESC")};
     
     auto res = coll_group->search("*", {}, "", {"brand"}, sort_fields, {0}, 50, 1, FREQUENCY,
                                    {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -626,7 +626,7 @@ TEST_F(CollectionGroupingTest, SortingOnGroupCount) {
 
     //search in asc order
 
-    std::vector<sort_by> sort_fields2 = {sort_by("_group_count", "ASC")};
+    std::vector<sort_by> sort_fields2 = {sort_by("_group_found", "ASC")};
     
     auto res2 = coll_group->search("*", {}, "", {"brand"}, sort_fields2, {0}, 50, 1, FREQUENCY,
                                    {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -706,7 +706,7 @@ TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
     }
 
     //first search in desc order
-    std::vector<sort_by> sort_fields = {sort_by("_group_count", "DESC")};
+    std::vector<sort_by> sort_fields = {sort_by("_group_found", "DESC")};
     
     auto res = coll3->search("*", {}, "", {"brand"}, sort_fields, {0}, 100, 2, FREQUENCY,
                                    {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -748,7 +748,7 @@ TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
 
     //search in asc order
 
-    std::vector<sort_by> sort_fields2 = {sort_by("_group_count", "ASC")};
+    std::vector<sort_by> sort_fields2 = {sort_by("_group_found", "ASC")};
     
     auto res2 = coll3->search("*", {}, "", {"brand"}, sort_fields2, {0}, 100, 1, FREQUENCY,
                                    {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -789,7 +789,7 @@ TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
 
 TEST_F(CollectionGroupingTest, GroupSortingWithoutGroupingFields) {
     
-    std::vector<sort_by> sort_fields = {sort_by("_group_count", "DESC")};
+    std::vector<sort_by> sort_fields = {sort_by("_group_found", "DESC")};
     
     auto res = coll_group->search("*", {}, "", {"brand"}, sort_fields, {0}, 50, 1, FREQUENCY,
                                    {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -799,5 +799,5 @@ TEST_F(CollectionGroupingTest, GroupSortingWithoutGroupingFields) {
                                    {}, {}, {});
 
     ASSERT_EQ(res.ok(), false);
-    ASSERT_EQ(res.error(), "group_by parameters should not be empty when using sort_by group_count");
+    ASSERT_EQ(res.error(), "group_by parameters should not be empty when using sort_by group_found");
 }
