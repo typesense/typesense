@@ -17,7 +17,7 @@ fi
 
 docker run --user $UID:$GID --volume="/etc/group:/etc/group:ro" --volume="/etc/passwd:/etc/passwd:ro" \
 --volume="/etc/shadow:/etc/shadow:ro" -it --rm -v $HOME/docker_bazel_cache:$HOME/docker_bazel_cache -v $PROJECT_DIR:/src \
---workdir /src typesense/bazel_dev:03032023 bazel --output_user_root=$HOME/docker_bazel_cache/cache build \
+--workdir /src typesense/typesense/bazel_dev:23032023 bazel --output_user_root=$HOME/docker_bazel_cache/cache build \
 --jobs=6 --action_env=LD_LIBRARY_PATH="/usr/local/gcc-10.3.0/lib64" \
 --define=TYPESENSE_VERSION=\"$TYPESENSE_VERSION\" //:$TYPESENSE_TARGET
 
