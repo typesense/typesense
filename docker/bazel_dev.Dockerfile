@@ -41,8 +41,25 @@ RUN /usr/bin/bazel --version
 
 RUN apt-get -y install git
 
+#RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+
 ENV CC /usr/local/gcc-10.3.0/bin/gcc
 ENV CXX /usr/local/gcc-10.3.0/bin/g++
 ENV PATH /usr/local/gcc-10.3.0/bin/:$PATH
 ENV LD_LIBRARY_PATH /usr/local/gcc-10.3.0/lib64
+
+RUN locale-gen en_US.UTF-8
+ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en' LC_ALL='en_US.UTF-8'
+
+RUN apt install -y libssl-dev
+
+ADD https://www.python.org/ftp/python/3.6.3/Python-3.6.3.tgz /opt
+RUN tar -C /opt -xf /opt/Python-3.6.3.tgz
+RUN cd /opt/Python-3.6.3 && ./configure --enable-optimizations && make install
+
+ADD https://bootstrap.pypa.io/pip/3.6/get-pip.py /opt
+RUN /usr/local/bin/python3.6 /opt/get-pip.py
+
+RUN update-alternatives --install /usr/bin/python python /usr/local/bin/python3.6 1
+
 
