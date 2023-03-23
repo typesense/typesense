@@ -1177,6 +1177,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             
             const uint64_t distinct_id = group_limit ? get_distinct_id(group_by_fields, doc_seq_id) : 0;
 
+            if(((i + 1) % 16384) == 0) {
+                RETURN_CIRCUIT_BREAKER
+            }
+
             for(size_t j = 0; j < facet_hash_count; j++) {
                 
                 if(facet_field.is_array()) {
