@@ -2965,23 +2965,16 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
 
     uint32_t seq_id = (uint32_t) std::stoul(seq_id_str);
 
-    std::string parsed_document;
-    StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
-
-    if(doc_status == StoreStatus::NOT_FOUND) {
-        LOG(ERROR) << "Sequence ID exists, but document is missing for id: " << id;
-        return Option<std::string>(404, "Could not find a document with id: " + id);
-    }
-
-    if(doc_status == StoreStatus::ERROR) {
-        return Option<std::string>(500, "Error while fetching the document.");
-    }
-
     nlohmann::json document;
-    try {
-        document = nlohmann::json::parse(parsed_document);
-    } catch(...) {
-        return Option<std::string>(500, "Error while parsing stored document.");
+    auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), document);
+
+    if(!get_doc_op.ok()) {
+        if(get_doc_op.code() == 404) {
+            LOG(ERROR) << "Sequence ID exists, but document is missing for id: " << id;
+            return Option<std::string>(404, "Could not find a document with id: " + id);
+        }
+
+        return Option<std::string>(get_doc_op.code(), get_doc_op.error());
     }
 
     remove_document(document, seq_id, remove_from_store);
@@ -2989,23 +2982,16 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
 }
 
 Option<bool> Collection::remove_if_found(uint32_t seq_id, const bool remove_from_store) {
-    std::string parsed_document;
-    StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
-
-    if(doc_status == StoreStatus::NOT_FOUND) {
-        return Option<bool>(false);
-    }
-
-    if(doc_status == StoreStatus::ERROR) {
-        return Option<bool>(500, "Error while fetching the document with seq id: " +
-                            std::to_string(seq_id));
-    }
-
     nlohmann::json document;
-    try {
-        document = nlohmann::json::parse(parsed_document);
-    } catch(...) {
-        return Option<bool>(500, "Error while parsing stored document.");
+    auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), document);
+
+    if(!get_doc_op.ok()) {
+        if(get_doc_op.code() == 404) {
+            return Option<bool>(false);
+        }
+
+        return Option<bool>(500, "Error while fetching the document with seq id: " +
+                                 std::to_string(seq_id));
     }
 
     remove_document(document, seq_id, remove_from_store);
@@ -3166,7 +3152,11 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key,
 
     if(json_doc_status != StoreStatus::FOUND) {
         const std::string& seq_id = std::to_string(get_seq_id_from_key(seq_id_key));
-        return Option<bool>(500, "Could not locate the JSON document for sequence ID: " + seq_id);
+        if(json_doc_status == StoreStatus::NOT_FOUND) {
+            return Option<bool>(404, "Could not locate the JSON document for sequence ID: " + seq_id);
+        }
+
+        return Option<bool>(500, "Error while fetching JSON document for sequence ID: " + seq_id);
     }
 
     try {
