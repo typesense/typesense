@@ -1382,6 +1382,22 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
             ASSERT_TRUE(coll_field.optional);
         }
     }
+
+    // deleting doc from coll1 and try querying again
+    coll1->remove("0");
+    results = coll1->search("brown", {"locations.address"},
+                            "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // use remove_if_found API
+    coll2->remove_if_found(0);
+    results = coll2->search("brown", {"locations.address"},
+                            "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionNestedFieldsTest, ExplicitSchemaOptionalFieldValidation) {
