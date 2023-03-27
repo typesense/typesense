@@ -77,8 +77,13 @@ public:
     /// Returns true when doc and reference hold valid values. Used in conjunction with next() and skip_to(id).
     [[nodiscard]] bool valid();
 
-    /// Returns true when id is a match to the filter. Handles moving the individual iterators internally.
-    [[nodiscard]] bool valid(uint32_t id);
+    /// Returns a tri-state:
+    ///     0: id is not valid
+    ///     1: id is valid
+    ///    -1: end of iterator
+    ///
+    ///  Handles moving the individual iterators internally.
+    [[nodiscard]] int valid(uint32_t id);
 
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.

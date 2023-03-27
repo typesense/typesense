@@ -437,20 +437,38 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     }
 }
 
-bool filter_result_iterator_t::valid(uint32_t id) {
+int filter_result_iterator_t::valid(uint32_t id) {
     if (!is_valid) {
-        return false;
+        return -1;
     }
 
     if (filter_node->isOperator) {
+        auto left_valid = left_it->valid(id), right_valid = right_it->valid(id);
+
         if (filter_node->filter_operator == AND) {
-            auto and_is_valid = left_it->valid(id) && right_it->valid(id);
             is_valid = left_it->is_valid && right_it->is_valid;
-            return and_is_valid;
+
+            if (left_valid  < 1 || right_valid < 1) {
+                if (left_valid == -1 || right_valid == -1) {
+                    return -1;
+                }
+
+                return 0;
+            }
+
+            return 1;
         } else {
-            auto or_is_valid = left_it->valid(id) || right_it->valid(id);
             is_valid = left_it->is_valid || right_it->is_valid;
-            return or_is_valid;
+
+            if (left_valid < 1 && right_valid < 1) {
+                if (left_valid == -1 && right_valid == -1) {
+                    return -1;
+                }
+
+                return 0;
+            }
+
+            return 1;
         }
     }
 
@@ -458,21 +476,21 @@ bool filter_result_iterator_t::valid(uint32_t id) {
         // Even when iterator becomes invalid, we keep it marked as valid since we are evaluating not equals.
         if (!valid()) {
             is_valid = true;
-            return is_valid;
+            return 1;
         }
 
         skip_to(id);
 
         if (!is_valid) {
             is_valid = true;
-            return is_valid;
+            return 1;
         }
 
-        return seq_id != id;
+        return seq_id != id ? 1 : 0;
     }
 
     skip_to(id);
-    return is_valid && seq_id == id;
+    return is_valid ? (seq_id == id ? 1 : 0) : -1;
 }
 
 Option<bool> filter_result_iterator_t::init_status() {
