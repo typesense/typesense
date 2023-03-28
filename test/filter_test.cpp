@@ -4,6 +4,7 @@
 #include <fstream>
 #include <collection_manager.h>
 #include <filter.h>
+#include <posting.h>
 #include "collection.h"
 
 class FilterTest : public ::testing::Test {
@@ -275,6 +276,60 @@ TEST_F(FilterTest, FilterTreeIterator) {
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
         ASSERT_EQ(expected[i], iter_validate_ids_not_equals_filter_test.valid(validate_ids[i]));
     }
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_compact_plist_contains_atleast_one_test1 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                                  filter_tree_root);
+    ASSERT_TRUE(iter_compact_plist_contains_atleast_one_test1.init_status().ok());
+
+    std::vector<uint32_t> ids = {1, 3, 5};
+    std::vector<uint32_t> offset_index = {0, 3, 6};
+    std::vector<uint32_t> offsets = {0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    compact_posting_list_t* c_list1 = compact_posting_list_t::create(3, &ids[0], &offset_index[0], 9, &offsets[0]);
+    ASSERT_FALSE(iter_compact_plist_contains_atleast_one_test1.contains_atleast_one(SET_COMPACT_POSTING(c_list1)));
+    free(c_list1);
+
+    auto iter_compact_plist_contains_atleast_one_test2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                                  filter_tree_root);
+    ASSERT_TRUE(iter_compact_plist_contains_atleast_one_test2.init_status().ok());
+
+    ids = {1, 3, 4};
+    offset_index = {0, 3, 6};
+    offsets = {0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    compact_posting_list_t* c_list2 = compact_posting_list_t::create(3, &ids[0], &offset_index[0], 9, &offsets[0]);
+    ASSERT_TRUE(iter_compact_plist_contains_atleast_one_test2.contains_atleast_one(SET_COMPACT_POSTING(c_list2)));
+    free(c_list2);
+
+    auto iter_plist_contains_atleast_one_test1 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                                  filter_tree_root);
+    ASSERT_TRUE(iter_plist_contains_atleast_one_test1.init_status().ok());
+
+    posting_list_t p_list1(2);
+    ids = {1, 3, 5};
+    for (const auto &i: ids) {
+        p_list1.upsert(i, {1, 2, 3});
+    }
+
+    ASSERT_FALSE(iter_plist_contains_atleast_one_test1.contains_atleast_one(&p_list1));
+
+    auto iter_plist_contains_atleast_one_test2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                          filter_tree_root);
+    ASSERT_TRUE(iter_plist_contains_atleast_one_test2.init_status().ok());
+
+    posting_list_t p_list2(2);
+    ids = {1, 3, 4};
+    for (const auto &i: ids) {
+        p_list1.upsert(i, {1, 2, 3});
+    }
+
+    ASSERT_TRUE(iter_plist_contains_atleast_one_test2.contains_atleast_one(&p_list1));
 
     delete filter_tree_root;
 }
