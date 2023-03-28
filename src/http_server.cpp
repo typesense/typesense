@@ -1034,6 +1034,10 @@ bool HttpServer::trigger_vote() {
     return replication_state->trigger_vote();
 }
 
+bool HttpServer::reset_peers() {
+    return replication_state->reset_peers();
+}
+
 ThreadPool* HttpServer::get_thread_pool() const {
     return thread_pool;
 }

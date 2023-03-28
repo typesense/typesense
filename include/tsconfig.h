@@ -62,6 +62,8 @@ private:
 
     std::atomic<int> log_slow_searches_time_ms;
 
+    std::atomic<bool> reset_peers_on_error;
+
 protected:
 
     Config() {
@@ -84,6 +86,7 @@ protected:
         this->memory_used_max_percentage = 100;
         this->skip_writes = false;
         this->log_slow_searches_time_ms = 30 * 1000;
+        this->reset_peers_on_error = false;
     }
 
     Config(Config const&) {
@@ -164,6 +167,10 @@ public:
 
     void set_skip_writes(bool skip_writes) {
         this->skip_writes = skip_writes;
+    }
+
+    void set_reset_peers_on_error(bool reset_peers_on_error) {
+        this->reset_peers_on_error = reset_peers_on_error;
     }
 
     // getters
@@ -263,6 +270,10 @@ public:
 
     int get_log_slow_searches_time_ms() const {
         return this->log_slow_searches_time_ms;
+    }
+
+    const std::atomic<bool>& get_reset_peers_on_error() const {
+        return reset_peers_on_error;
     }
 
     size_t get_num_collections_parallel_load() const {
@@ -419,6 +430,7 @@ public:
         }
 
         this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
+        this->reset_peers_on_error = ("TRUE" == get_env("TYPESENSE_RESET_PEERS_ON_ERROR"));
     }
 
     void load_config_file(cmdline::parser & options) {
@@ -575,6 +587,11 @@ public:
             this->skip_writes = (skip_writes_str == "true");
         }
 
+        if(reader.Exists("server", "reset-peers-on-error")) {
+            auto reset_peers_on_error_str = reader.Get("server", "reset-peers-on-error", "false");
+            this->reset_peers_on_error = (reset_peers_on_error_str == "true");
+        }
+
         if(reader.Exists("server", "model-dir")) {
             this->model_dir = reader.Get("server", "model-dir", "");
         }
@@ -715,6 +732,10 @@ public:
         if(options.exist("skip-writes")) {
             this->skip_writes = options.get<bool>("skip-writes");
         }
+
+        if(options.exist("reset-peers-on-error")) {
+            this->reset_peers_on_error = options.get<bool>("reset-peers-on-error");
+        }
     }
 
     void set_cors_domains(std::string& cors_domains_value) {
@@ -743,4 +764,8 @@ public:
     }
 
     Option<bool> update_config(const nlohmann::json& req_json);
+
+    static Option<std::string> fetch_file_contents(const std::string & file_path);
+
+    static Option<std::string> fetch_nodes_config(const std::string& path_to_nodes);
 };

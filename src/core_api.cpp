@@ -1598,6 +1598,17 @@ bool post_compact_db(const std::shared_ptr<http_req>& req, const std::shared_ptr
     return true;
 }
 
+bool post_reset_peers(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    res->status_code = 200;
+    res->content_type_header = "application/json";
+
+    nlohmann::json response;
+    response["success"] = server->reset_peers();
+    res->body = response.dump();
+
+    return true;
+}
+
 bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);

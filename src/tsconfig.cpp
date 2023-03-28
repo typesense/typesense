@@ -1,6 +1,8 @@
 #include "option.h"
 #include "json.hpp"
 #include "tsconfig.h"
+#include "file_utils.h"
+#include <fstream>
 
 Option<bool> Config::update_config(const nlohmann::json& req_json) {
     bool found_config = false;
@@ -53,4 +55,37 @@ Option<bool> Config::update_config(const nlohmann::json& req_json) {
     }
 
     return Option<bool>(true);
+}
+
+Option<std::string> Config::fetch_file_contents(const std::string & file_path) {
+    if(!file_exists(file_path)) {
+        return Option<std::string>(404, std::string("File does not exist at: ") + file_path);
+    }
+
+    std::ifstream infile(file_path);
+    std::string content((std::istreambuf_iterator<char>(infile)), (std::istreambuf_iterator<char>()));
+    infile.close();
+
+    return Option<std::string>(content);
+}
+
+Option<std::string> Config::fetch_nodes_config(const std::string& path_to_nodes) {
+    std::string nodes_config;
+
+    if(!path_to_nodes.empty()) {
+        const Option<std::string> & nodes_op = fetch_file_contents(path_to_nodes);
+
+        if(!nodes_op.ok()) {
+            return Option<std::string>(500, "Error reading file containing nodes configuration: " + nodes_op.error());
+        } else {
+            nodes_config = nodes_op.get();
+            if(nodes_config.empty()) {
+                return Option<std::string>(500, "File containing nodes configuration is empty.");
+            } else {
+                nodes_config = nodes_op.get();
+            }
+        }
+    }
+
+    return Option<std::string>(nodes_config);
 }

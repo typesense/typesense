@@ -35,6 +35,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     this->election_timeout_interval_ms = election_timeout_ms;
     this->raft_dir_path = raft_dir;
+    this->peering_endpoint = peering_endpoint;
 
     braft::NodeOptions node_options;
 
@@ -532,7 +533,8 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     return init_db_status;
 }
 
-void ReplicationState::refresh_nodes(const std::string & nodes) {
+void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raft_counter,
+                                     const std::atomic<bool>& reset_peers_on_error) {
     std::shared_lock lock(node_mutex);
 
     if(!node) {
@@ -569,8 +571,8 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
             std::vector<braft::PeerId> latest_nodes;
             new_conf.list_peers(&latest_nodes);
 
-            if(latest_nodes.size() == 1) {
-                LOG(WARNING) << "Single-node with no leader. Resetting peers.";
+            if(latest_nodes.size() == 1 || (raft_counter > 0 && reset_peers_on_error)) {
+                LOG(WARNING) << "Node with no leader. Resetting peers of size: " << latest_nodes.size();
                 node->reset_peers(new_conf);
             } else {
                 LOG(WARNING) << "Multi-node with no leader: refusing to reset peers.";
@@ -767,6 +769,35 @@ bool ReplicationState::trigger_vote() {
     if(node) {
         auto status = node->vote(election_timeout_interval_ms);
         LOG(INFO) << "Triggered vote. Ok? " << status.ok() << ", status: " << status;
+        return status.ok();
+    }
+
+    return false;
+}
+
+bool ReplicationState::reset_peers() {
+    std::shared_lock lock(node_mutex);
+
+    if(node) {
+        const Option<std::string> & refreshed_nodes_op = Config::fetch_nodes_config(config->get_nodes());
+        if(!refreshed_nodes_op.ok()) {
+            LOG(WARNING) << "Error while fetching peer configuration: " << refreshed_nodes_op.error();
+            return false;
+        }
+
+        const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint,
+                                                                            Config::get_instance().get_api_port(),
+                                                                            refreshed_nodes_op.get());
+
+        braft::Configuration peer_config;
+        peer_config.parse_from(nodes_config);
+
+        std::vector<braft::PeerId> peers;
+        peer_config.list_peers(&peers);
+
+        auto status = node->reset_peers(peer_config);
+        LOG(INFO) << "Reset peers. Ok? " << status.ok() << ", status: " << status;
+        LOG(INFO) << "New peer config is: " << peer_config;
         return status.ok();
     }
 
