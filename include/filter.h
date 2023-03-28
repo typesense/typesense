@@ -2,6 +2,7 @@
 
 #include <string>
 #include <map>
+#include "posting_list.h"
 #include "index.h"
 
 class filter_result_iterator_t {
@@ -92,4 +93,6 @@ public:
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
     void skip_to(uint32_t id);
+
+    bool contains_atleast_one(const void* obj);
 };
