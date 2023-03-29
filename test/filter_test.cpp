@@ -332,4 +332,30 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(iter_plist_contains_atleast_one_test2.contains_atleast_one(&p_list1));
 
     delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags:= [gold, silver]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_reset_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_reset_test.init_status().ok());
+
+    expected = {0, 2, 3, 4};
+    for (auto const& i : expected) {
+        ASSERT_TRUE(iter_reset_test.valid());
+        ASSERT_EQ(i, iter_reset_test.seq_id);
+        iter_reset_test.next();
+    }
+    ASSERT_FALSE(iter_reset_test.valid());
+
+    iter_reset_test.reset();
+
+    for (auto const& i : expected) {
+        ASSERT_TRUE(iter_reset_test.valid());
+        ASSERT_EQ(i, iter_reset_test.seq_id);
+        iter_reset_test.next();
+    }
+    ASSERT_FALSE(iter_reset_test.valid());
+
+    delete filter_tree_root;
 }
