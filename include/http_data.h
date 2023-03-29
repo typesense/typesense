@@ -244,13 +244,12 @@ struct http_req {
 
     int64_t log_index;
 
-    std::atomic<bool> is_http_v1;
     std::atomic<bool> is_diposed;
     std::string client_ip = "0.0.0.0";
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0), is_http_v1(true),
+                chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0),
                 is_diposed(false) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -272,7 +271,6 @@ struct http_req {
         if(_req != nullptr) {
             const auto& tv = _req->processed_at.at;
             conn_ts = (tv.tv_sec * 1000 * 1000) + tv.tv_usec;
-            is_http_v1 = (_req->version < 0x200);
         } else {
             conn_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count();
