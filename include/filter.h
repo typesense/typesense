@@ -94,5 +94,9 @@ public:
     /// this operation.
     void skip_to(uint32_t id);
 
+    /// Returns true if at least one id from the posting list object matches the filter.
     bool contains_atleast_one(const void* obj);
+
+    /// Returns to the initial state of the iterator.
+    void reset();
 };
