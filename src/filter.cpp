@@ -544,3 +544,45 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
 
     return false;
 }
+
+void filter_result_iterator_t::reset() {
+    if (filter_node->isOperator) {
+        // Reset the subtrees then apply operators to arrive at the first valid doc.
+        left_it->reset();
+        right_it->reset();
+
+        if (filter_node->filter_operator == AND) {
+            and_filter_iterators();
+        } else {
+            or_filter_iterators();
+        }
+
+        return;
+    }
+
+    const filter a_filter = filter_node->filter_exp;
+
+    bool is_referenced_filter = !a_filter.referenced_collection_name.empty();
+    if (is_referenced_filter || a_filter.field_name == "id") {
+        result_index = 0;
+        is_valid = filter_result.count > 0;
+        return;
+    }
+
+    if (!index->field_is_indexed(a_filter.field_name)) {
+        return;
+    }
+
+    field f = index->search_schema.at(a_filter.field_name);
+
+    if (f.is_string()) {
+        posting_list_iterators.clear();
+        for(auto expanded_plist: expanded_plists) {
+            delete expanded_plist;
+        }
+        expanded_plists.clear();
+
+        init();
+        return;
+    }
+}
