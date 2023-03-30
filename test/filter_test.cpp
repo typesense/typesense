@@ -61,6 +61,12 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
+
+    auto iter_null_filter_tree_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+
+    ASSERT_TRUE(iter_null_filter_tree_test.init_status().ok());
+    ASSERT_FALSE(iter_null_filter_tree_test.valid());
+
     Option<bool> filter_op = filter::parse_filter_query("name: foo", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
