@@ -207,6 +207,10 @@ void filter_result_iterator_t::next() {
 }
 
 void filter_result_iterator_t::init() {
+    if (filter_node == nullptr) {
+        return;
+    }
+
     if (filter_node->isOperator) {
         if (filter_node->filter_operator == AND) {
             and_filter_iterators();
@@ -494,7 +498,7 @@ int filter_result_iterator_t::valid(uint32_t id) {
 }
 
 Option<bool> filter_result_iterator_t::init_status() {
-    if (filter_node->isOperator) {
+    if (filter_node != nullptr && filter_node->isOperator) {
         auto left_status = left_it->init_status();
 
         return !left_status.ok() ? left_status : right_it->init_status();
@@ -546,6 +550,10 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
 }
 
 void filter_result_iterator_t::reset() {
+    if (filter_node == nullptr) {
+        return;
+    }
+
     if (filter_node->isOperator) {
         // Reset the subtrees then apply operators to arrive at the first valid doc.
         left_it->reset();
