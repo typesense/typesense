@@ -53,6 +53,11 @@ public:
                                       collection_name(collection_name),
                                       index(index),
                                       filter_node(filter_node) {
+        if (filter_node == nullptr) {
+            is_valid = false;
+            return;
+        }
+
         // Generate the iterator tree and then initialize each node.
         if (filter_node->isOperator) {
             left_it = new filter_result_iterator_t(collection_name, index, filter_node->left);
