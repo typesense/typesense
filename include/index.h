@@ -281,8 +281,6 @@ struct hnsw_index_t {
     }
 };
 
-extern std::map<std::string, std::map<std::string, uint32_t>> facet_results;
-
 class Index {
 private:
     mutable std::shared_mutex mutex;
@@ -509,7 +507,7 @@ private:
 
     static uint64_t facet_token_hash(const field & a_field, const std::string &token);
 
-    static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
+    static void compute_facet_stats(facet &a_facet, std::string raw_value, const std::string & field_type);
 
     static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
                                nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc);

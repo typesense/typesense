@@ -62,6 +62,8 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         search_schema(search_schema),
         seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
+    facet_index_v4 = new facet_index_t();
+
     for(const auto& a_field: search_schema) {
         if(!a_field.index) {
             continue;
@@ -102,9 +104,6 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
 
         if(a_field.facet) {
             //initialize_facet_indexes(a_field);
-            if(facet_index_v4 == nullptr) {
-                facet_index_v4 = new facet_index_t();
-            }
         }
 
         // initialize for non-string facet fields
@@ -1173,9 +1172,9 @@ void Index::initialize_facet_indexes(const field& facet_field) {
     // }
 }
 
-void Index::compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type) {
+void Index::compute_facet_stats(facet &a_facet, std::string raw_value, const std::string & field_type) {
     if(field_type == field_types::INT32 || field_type == field_types::INT32_ARRAY) {
-        int32_t val = raw_value;
+        int32_t val = std::stoi(raw_value);
         if (val < a_facet.stats.fvmin) {
             a_facet.stats.fvmin = val;
         }
@@ -1185,7 +1184,7 @@ void Index::compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::s
         a_facet.stats.fvsum += val;
         a_facet.stats.fvcount++;
     } else if(field_type == field_types::INT64 || field_type == field_types::INT64_ARRAY) {
-        int64_t val = raw_value;
+        int64_t val = std::stol(raw_value);
         if(val < a_facet.stats.fvmin) {
             a_facet.stats.fvmin = val;
         }
@@ -1195,7 +1194,7 @@ void Index::compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::s
         a_facet.stats.fvsum += val;
         a_facet.stats.fvcount++;
     } else if(field_type == field_types::FLOAT || field_type == field_types::FLOAT_ARRAY) {
-        float val = reinterpret_cast<float&>(raw_value);
+        float val = std::stof(raw_value);
         if(val < a_facet.stats.fvmin) {
             a_facet.stats.fvmin = val;
         }
@@ -1219,7 +1218,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         const auto& facet_field = facet_infos[findex].facet_field;
         const bool use_facet_query = facet_infos[findex].use_facet_query;
         //const auto& fquery_hashes = facet_infos[findex].hashes;
-        const auto& fquery_doc_id_tokens = facet_infos[findex].doc_id_tokens;
+        const auto& fquery_facet_tokens = facet_infos[findex].facet_tokens;
         const bool should_compute_stats = facet_infos[findex].should_compute_stats;
 
         auto sort_index_it = sort_index.find(a_facet.field_name);
@@ -1232,9 +1231,41 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         // size_t facet_hash_count = 1;
         // const auto& field_facet_mapping_it = facet_index_v3.find(a_facet.field_name);
         // const auto& field_single_val_facet_mapping_it = single_val_facet_index_v3.find(a_facet.field_name);
+        std::map<std::string, uint32_t> facet_results;
         facet_index_v4->intersect(a_facet.field_name, result_ids, 
-            results_size, max_facet_count, facet_results[a_facet.field_name]);
+            results_size, max_facet_count, facet_results);
+        //LOG(INFO) << "facet_results size " << facet_results.size();
         
+        for(const auto& kv : facet_results) {
+            //range facet processing
+            if(a_facet.is_range_query) {
+                const auto doc_val = kv.first;
+                std::pair<std::string, std::string> range_pair {};
+                if(a_facet.get_range(doc_val, range_pair)) {
+                    const auto& range_id = range_pair.first;
+                    facet_count_t& facet_count = a_facet.result_map[range_id];
+                    facet_count.count = kv.second;
+                }
+            } else if(use_facet_query) { 
+                    if (fquery_facet_tokens.find(kv.first) != fquery_facet_tokens.end()) {
+                        a_facet.facet_tokens[kv.first] = fquery_facet_tokens.at(kv.first);
+                    
+                        facet_count_t& facet_count = a_facet.result_map[kv.first];
+                        facet_count.count = kv.second;
+                    }
+            } else { 
+                facet_count_t& facet_count = a_facet.result_map[kv.first];
+                facet_count.count = kv.second;
+            }
+
+            if(should_compute_stats) {
+                //LOG(INFO) << "Computing facet stas for facet " << a_facet.field_name;
+                for(int i = 0; i < kv.second; ++i) {
+                    compute_facet_stats(a_facet, kv.first, facet_field.type);
+                }
+            } 
+        }                 
+    }
 
         // for(size_t i = 0; i < results_size; i++) {
         //     // if sampling is enabled, we will skip a portion of the results to speed up things
@@ -1266,7 +1297,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
             // const uint64_t distinct_id = group_limit ? get_distinct_id(group_by_fields, doc_seq_id) : 0;
             // //for(size_t j = 0; j < facet_hash_count; j++) {
-            // for(size_t j = 0; j < found_doc_seq_ids.size(); j++) {
             //     // if(facet_field.is_array()) {
             //     //     fhash = facet_map_it->second.hashes[j];
             //     // }
@@ -1306,7 +1336,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             //     }
             // }
         //}
-    }
+    //}
 }
 
 void Index::aggregate_topster(Topster* agg_topster, Topster* index_topster) {
@@ -2399,18 +2429,22 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             while (it.valid()) {
                 uint32_t seq_id = it.id();
                 uint64_t distinct_id = seq_id;
-                if (group_limit != 0) {
-                    distinct_id = get_distinct_id(group_by_fields, seq_id);
-                    if(excluded_group_ids.count(distinct_id) != 0) {
-                        continue;
-                    }
-                }
+                // if (group_limit != 0) {
+                //     distinct_id = get_distinct_id(group_by_fields, seq_id);
+                //     if(excluded_group_ids.count(distinct_id) != 0) {
+                //        continue;
+                //    }
+                // }
 
                 int64_t scores[3] = {0};
                 scores[0] = seq_id;
                 int64_t match_score_index = -1;
 
                 result_ids.push_back(seq_id);
+                if(group_limit == 0) {
+                    KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
+                    topster->add(&kv);
+                }
 
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, nullptr);
                 int ret = topster->add(&kv);
@@ -2507,12 +2541,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 }
 
                 uint64_t distinct_id = seq_id;
-                if (group_limit != 0) {
-                    distinct_id = get_distinct_id(group_by_fields, seq_id);
-                    if(excluded_group_ids.count(distinct_id) != 0) {
-                        continue;
-                    }
-                }
+                // if (group_limit != 0) {
+                //     distinct_id = get_distinct_id(group_by_fields, seq_id);
+                //     if(excluded_group_ids.count(distinct_id) != 0) {
+                //        continue;
+                //    }
+                // }
 
                 auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
                                       dist_label.first;
@@ -2530,9 +2564,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, nullptr);
                 int ret = topster->add(&kv);
 
-                if(group_limit != 0 && ret < 2) {
-                    groups_processed[distinct_id]++;
-                }
+                // if(group_limit != 0 && ret < 2) {
+                //     groups_processed[distinct_id]++;
+                // }
                 nearest_ids.push_back(seq_id);
             }
 
@@ -2826,7 +2860,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     bool estimate_facets = (facet_sample_percent < 100 && all_result_ids_len > facet_sample_threshold);
 
     if(!facets.empty()) {
-        const size_t num_threads = std::min(concurrency, all_result_ids_len);
+        //const size_t num_threads = std::min(concurrency, all_result_ids_len);
+        const size_t num_threads = 1;
         const size_t window_size = (num_threads == 0) ? 0 :
                                    (all_result_ids_len + num_threads - 1) / num_threads;  // rounds up
         size_t num_processed = 0;
@@ -2897,10 +2932,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 for(auto & facet_kv: this_facet.result_map) {
                     if(group_limit) {
                         // we have to add all group sets
-                        acc_facet.hash_groups[facet_kv.first].insert(
-                            this_facet.hash_groups[facet_kv.first].begin(),
-                            this_facet.hash_groups[facet_kv.first].end()
-                        );
+                        // acc_facet.hash_groups[facet_kv.first].insert(
+                        //     this_facet.hash_groups[facet_kv.first].begin(),
+                        //     this_facet.hash_groups[facet_kv.first].end()
+                        // );
                     } else {
                         size_t count = 0;
                         if(acc_facet.result_map.count(facet_kv.first) == 0) {
@@ -2912,9 +2947,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         acc_facet.result_map[facet_kv.first].count = count;
                     }
 
-                    acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
-                    acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
-                    acc_facet.hash_tokens[facet_kv.first] = this_facet.hash_tokens[facet_kv.first];
+                    //acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
+                    //acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
+                    //acc_facet.hash_tokens[facet_kv.first] = this_facet.hash_tokens[facet_kv.first];
+                    acc_facet.facet_tokens[facet_kv.first] = this_facet.facet_tokens[facet_kv.first];
                 }
 
                 if(this_facet.stats.fvcount != 0) {
@@ -2928,9 +2964,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         for(auto & acc_facet: facets) {
             for(auto& facet_kv: acc_facet.result_map) {
-                if(group_limit) {
-                    facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
-                }
+                // if(group_limit) {
+                //     facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
+                // }
 
                 if(estimate_facets) {
                     facet_kv.second.count = size_t(double(facet_kv.second.count) * (100.0f / facet_sample_percent));
@@ -2955,8 +2991,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
               facet_infos, group_limit, group_by_fields, &included_ids_vec[0], 
               included_ids_vec.size(), max_facet_values);
 
-    facet_index_v4->contains("tags");
-    
     all_result_ids_len += curated_topster->size;
 
     delete [] all_result_ids;
@@ -3665,12 +3699,12 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         }
 
         uint64_t distinct_id = seq_id;
-        if(group_limit != 0) {
-            distinct_id = get_distinct_id(group_by_fields, seq_id);
-            if(excluded_group_ids.count(distinct_id) != 0) {
-                return;
-            }
-        }
+        // if(group_limit != 0) {
+        //     distinct_id = get_distinct_id(group_by_fields, seq_id);
+        //     if(excluded_group_ids.count(distinct_id) != 0) {
+        //        return;
+        //    }
+        // }
 
         int64_t scores[3] = {0};
         int64_t match_score_index = -1;
@@ -4267,18 +4301,21 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
                                         100, scores, match_score_index);
 
                     uint64_t distinct_id = seq_id;
-                    if(group_limit != 0) {
-                        distinct_id = get_distinct_id(group_by_fields, seq_id);
-                        if(excluded_group_ids.count(distinct_id) != 0) {
-                            continue;
-                        }
+                    // if(group_limit != 0) {
+                    //     distinct_id = get_distinct_id(group_by_fields, seq_id);
+                    //     if(excluded_group_ids.count(distinct_id) != 0) {
+                    //        continue;
+                    //    }
+                    // }
+                    if(group_limit == 0) {
+                        KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
+                        int ret = actual_topster->add(&kv);
                     }
-
-                    KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
-                    int ret = actual_topster->add(&kv);
-                    if(group_limit != 0 && ret < 2) {
-                        groups_processed[distinct_id]++;
-                    }
+                    
+                    // if(group_limit != 0 && ret < 2) {
+                    //     groups_processed[distinct_id]++;
+                    // }
+                    
 
                     if(((i + 1) % (1 << 12)) == 0) {
                         BREAK_CIRCUIT_BREAKER
@@ -4374,10 +4411,6 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
         //     && (field_single_val_facet_mapping_it == single_val_facet_index_v3.end())) {
         //     continue;
         // }
-        std::map<std::string, std::vector<uint32_t>> found_doc_ids;
-        if(facet_index_v4->get(a_facet.field_name, found_doc_ids) == 0) {
-            continue;
-        }
 
         facet_infos[findex].use_facet_query = false;
 
@@ -4442,6 +4475,16 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                 for(auto leaf: searched_query) {
                     posting_lists.push_back(leaf->values);
                     std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
+                    
+                    //convert again to boolean string to help search in facet_index map
+                    if (facet_field.is_bool()) {
+                        if (tok == "1") {
+                            tok = "true";
+                        } else if (tok == "0") {
+                            tok = "false";
+                        }
+                    }
+
                     searched_tokens.push_back(tok);
                     //LOG(INFO) << "tok: " << tok;
                 }
@@ -4468,6 +4511,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                     if(!id_matched) {
                         continue;
                     }
+                    //LOG(INFO) << "seq_id matched : " << seq_id;
 
                     // if(facet_field.is_array()) {
                     //     const auto doc_fvalues_it = field_facet_mapping_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
@@ -4501,19 +4545,18 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                     //         facet_infos[findex].hashes.emplace(hash, searched_tokens);
                     //     }
                     // }
-                    for(const auto& found_doc_it : found_doc_ids) {
-                        const auto& ids = found_doc_it.second;
-                        if(std::binary_search(ids.begin(), ids.end(), seq_id)){
-                            for(const auto& doc_id : ids) {
-                                if(facet_infos[findex].doc_id_tokens.count(doc_id) == 0) {
-                                    facet_infos[findex].doc_id_tokens.emplace(doc_id, searched_tokens);
-                                }
-                            }
+                }
+                std::vector<std::string> matched_facets;
+                if(facet_index_v4->get_facet(a_facet.field_name, searched_tokens, matched_facets)) {
+                    for(const auto& facet : matched_facets) {
+                        if(facet_infos[findex].facet_tokens.count(facet) == 0) {
+                            LOG(INFO) << "adding facet " << facet << " in facet_info";
+                            facet_infos[findex].facet_tokens.emplace(facet, searched_tokens);
                         }
                     }
                 }
             }
-
+            
             delete [] field_result_ids;
         }
     }
@@ -4621,20 +4664,20 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
                                     100, scores, match_score_index);
 
                 uint64_t distinct_id = seq_id;
-                if(group_limit != 0) {
-                    distinct_id = get_distinct_id(group_by_fields, seq_id);
-                    if(excluded_group_ids.count(distinct_id) != 0) {
-                        continue;
-                    }
+                // if(group_limit != 0) {
+                //     distinct_id = get_distinct_id(group_by_fields, seq_id);
+                //     if(excluded_group_ids.count(distinct_id) != 0) {
+                //        continue;
+                //    }
+                // }
+                if(group_limit == 0) {
+                    KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
+                    int ret = topsters[thread_id]->add(&kv);
                 }
-
-                KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
-                int ret = topsters[thread_id]->add(&kv);
-
-                if(group_limit != 0 && ret < 2) {
-                    tgroups_processed[thread_id][distinct_id]++;
-                }
-
+                
+                // if(group_limit != 0 && ret < 2) {
+                //     tgroups_processed[thread_id][distinct_id]++;
+                // }
                 if(check_for_circuit_break && ((i + 1) % (1 << 15)) == 0) {
                     // check only once every 2^15 docs to reduce overhead
                     BREAK_CIRCUIT_BREAKER
@@ -5220,11 +5263,16 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     uint64_t distinct_id = seq_id;
 
-    if(group_limit != 0) {
-        distinct_id = get_distinct_id(group_by_fields, seq_id);
-    }
+    // if(group_limit != 0) {
+    //     distinct_id = get_distinct_id(group_by_fields, seq_id);
+    //     groups_processed.emplace(distinct_id);
+    // }
 
     //LOG(INFO) << "Seq id: " << seq_id << ", match_score: " << match_score;
+    if(group_limit == 0) {
+        KV kv(query_index, seq_id, distinct_id, match_score_index, scores);
+        topster->add(&kv);
+    }
     KV kv(query_index, seq_id, distinct_id, match_score_index, scores);
     int ret = topster->add(&kv);
     if(group_limit != 0 && ret < 2) {
@@ -5239,7 +5287,6 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 uint64_t Index::get_distinct_id(const std::vector<std::string>& group_by_fields,
                                 const uint32_t seq_id) const {
     uint64_t distinct_id = 1; // some constant initial value
-    std::hash<std::string> hasher;
     // calculate hash from group_by_fields
     for(const auto& field: group_by_fields) {
         // const auto& field_facet_mapping_it = facet_index_v3.find(field);
@@ -5277,9 +5324,6 @@ uint64_t Index::get_distinct_id(const std::vector<std::string>& group_by_fields,
 
         //     distinct_id = StringUtils::hash_combine(distinct_id, facet_hash);
         // }
-
-        const auto& hash = hasher(field);
-        distinct_id = StringUtils::hash_combine(distinct_id, hash);
     }
 
     return distinct_id;

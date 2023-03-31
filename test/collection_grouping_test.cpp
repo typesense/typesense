@@ -69,6 +69,8 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
                                    "", 10,
                                    {}, {}, {"size"}, 2).get();
 
+    LOG(INFO) << res.dump();
+
     ASSERT_EQ(3, res["found"].get<size_t>());
     ASSERT_EQ(3, res["grouped_hits"].size());
     ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());

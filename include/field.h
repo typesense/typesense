@@ -635,26 +635,24 @@ struct facet_stats_t {
 
 struct facet {
     const std::string field_name;
-    spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
-
+    spp::sparse_hash_map<std::string, facet_count_t> result_map;
     // used for facet value query
-    spp::sparse_hash_map<uint64_t, std::vector<std::string>> hash_tokens;
+    //spp::sparse_hash_map<uint64_t, std::vector<std::string>> hash_tokens;
+    spp::sparse_hash_map<std::string, std::vector<std::string>> facet_tokens;
 
     // used for faceting grouped results
-    spp::sparse_hash_map<uint64_t, spp::sparse_hash_set<uint64_t>> hash_groups;
+    //spp::sparse_hash_map<uint64_t, spp::sparse_hash_set<uint64_t>> hash_groups;
 
     facet_stats_t stats;
 
     //dictionary of key=>pair(range_id, range_val)
-    std::map<int64_t, std::string> facet_range_map;
+    std::map<std::string, std::string> facet_range_map;
 
     bool is_range_query;
 
     bool sampled = false;
 
-    bool is_wildcard_match = false;
-
-    bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair)
+    bool get_range(std::string key, std::pair<int64_t, std::string>& range_pair)
     {
         if(facet_range_map.empty())
         {
@@ -673,7 +671,7 @@ struct facet {
     }
 
     explicit facet(const std::string& field_name, 
-        std::map<int64_t, std::string> facet_range = {}, bool is_range_q = false)
+        std::map<std::string, std::string> facet_range = {}, bool is_range_q = false)
         :field_name(field_name){
             facet_range_map = facet_range;
             is_range_query = is_range_q;
@@ -684,7 +682,7 @@ struct facet_info_t {
     // facet hash => resolved tokens
     //std::unordered_map<uint64_t, std::vector<std::string>> hashes;
     //facet name => resolved tokens
-    std::unordered_map<uint32_t, std::vector<std::string>> doc_id_tokens;
+    std::unordered_map<std::string, std::vector<std::string>> facet_tokens;
     bool use_facet_query = false;
     bool should_compute_stats = false;
     field facet_field{"", "", false};
