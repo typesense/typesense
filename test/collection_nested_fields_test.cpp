@@ -1788,7 +1788,7 @@ TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopointArray) {
     Collection* coll1 = op.get();
 
     auto doc1 = R"({
-        "addresses": [{"geoPoint": [1.91, 23.5]}]
+        "addresses": [{"geoPoint": [1.91, 23.5]}, {"geoPoint": [12.91, 23.5]}]
     })"_json;
 
     ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
@@ -1796,15 +1796,38 @@ TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopointArray) {
     auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
 
+    results = coll1->search("*", {}, "addresses.geoPoint: (12.911, 23.5, 1 mi)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
     // with nested geopoint array
 
     auto doc2 = R"({
-        "addresses": [{"geoPoint": [[1.91, 23.5]]}]
+        "addresses": [{"geoPoint": [[1.91, 23.5]]}, {"geoPoint": [[1.91, 23.5], [1.95, 24.5]]}]
     })"_json;
 
     ASSERT_TRUE(coll1->add(doc2.dump(), CREATE).ok());
     results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // simply nested geopoint array
+
+    auto doc3 = R"({
+        "addresses": {"geoPoint": [[1.91, 23.5]]}
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc3.dump(), CREATE).ok());
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    // simply nested geopoint
+    // this technically cannot be allowed but it's really tricky to detect so we allow
+    auto doc4 = R"({
+        "addresses": {"geoPoint": [1.91, 23.5]}
+    })"_json;
+
+    auto simple_geopoint_op = coll1->add(doc4.dump(), CREATE);
+    ASSERT_TRUE(simple_geopoint_op.ok());
 
     // data validation
     auto bad_doc = R"({
