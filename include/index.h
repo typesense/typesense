@@ -528,9 +528,11 @@ private:
                                         const std::string &field_name,
                                         nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
-    static Option<uint32_t> coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                            const std::string &field_name,
-                                            nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
+    static Option<uint32_t> coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field,
+                                            nlohmann::json &document, const std::string &field_name,
+                                            nlohmann::json& lat, nlohmann::json& lng,
+                                            nlohmann::json::iterator& array_iter,
+                                            bool is_array, bool& array_ele_erased);
 
     bool common_results_exist(std::vector<art_leaf*>& leaves, bool must_match_phrase) const;
 

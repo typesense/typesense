@@ -442,6 +442,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
 
         nlohmann::json::iterator dummy_iter;
         bool array_ele_erased = false;
+        auto& doc_ele  = document[field_name];
 
         if(a_field.type == field_types::STRING && !document[field_name].is_string()) {
             Option<uint32_t> coerce_op = coerce_string(dirty_values, fallback_field_type, a_field, document, field_name, dummy_iter, false, array_ele_erased);
@@ -476,9 +477,11 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 return Option<>(400, "Field `" + field_name  + "` must be a 2 element array: [lat, lng].");
             }
 
-            if(!(document[field_name][0].is_number() && document[field_name][1].is_number())) {
-                // one or more elements is not an number, try to coerce
-                Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
+            if(!(doc_ele[0].is_number() && doc_ele[0].is_number())) {
+                // one or more elements is not a number, try to coerce
+                Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name,
+                                                             doc_ele[0], doc_ele[1],
+                                                             dummy_iter, false, array_ele_erased);
                 if(!coerce_op.ok()) {
                     return coerce_op;
                 }
@@ -496,16 +499,26 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
 
             nlohmann::json::iterator it = document[field_name].begin();
 
-            // Handle a geopoint[] type inside an array of object: it won't be an array of array, so cannot iterate
-            if(a_field.nested && a_field.type == field_types::GEOPOINT_ARRAY &&
-                it->is_number() && document[field_name].size() == 2) {
-                const auto& item = document[field_name];
-                if(!(item[0].is_number() && item[1].is_number())) {
-                    // one or more elements is not an number, try to coerce
-                    Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
-                    if(!coerce_op.ok()) {
-                        return coerce_op;
+            // have to differentiate the geopoint[] type of a nested array object's geopoint[] vs a simple nested field
+            // geopoint[] type of an array of objects field won't be an array of array
+            if(a_field.nested && a_field.type == field_types::GEOPOINT_ARRAY && it != doc_ele.end() && it->is_number()) {
+                if(!doc_ele.empty() && doc_ele.size() % 2 != 0) {
+                    return Option<>(400, "Nested field `" + field_name  + "` does not contain valid geopoint values.");
+                }
+
+                const auto& item = doc_ele;
+                for(size_t ai = 0; ai < doc_ele.size(); ai+=2) {
+                    if(!(doc_ele[ai].is_number() && doc_ele[ai+1].is_number())) {
+                        // one or more elements is not an number, try to coerce
+                        Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name,
+                                                                     doc_ele[ai], doc_ele[ai+1],
+                                                                     it, true, array_ele_erased);
+                        if(!coerce_op.ok()) {
+                            return coerce_op;
+                        }
                     }
+
+                    it++;
                 }
 
                 continue;
@@ -518,7 +531,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
             }
 
             for(; it != document[field_name].end(); ) {
-                const auto& item = it.value();
+                nlohmann::json& item = it.value();
                 array_ele_erased = false;
 
                 if (a_field.type == field_types::STRING_ARRAY && !item.is_string()) {
@@ -553,8 +566,10 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                     }
 
                     if(!(item[0].is_number() && item[1].is_number())) {
-                        // one or more elements is not an number, try to coerce
-                        Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
+                        // one or more elements is not a number, try to coerce
+                        Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name,
+                                                                     item[0], item[1],
+                                                                     it, true, array_ele_erased);
                         if(!coerce_op.ok()) {
                             return coerce_op;
                         }
@@ -899,18 +914,34 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
                 // nested geopoint value inside an array of object will be a simple array so must be treated as geopoint
                 bool nested_obj_arr_geopoint = (afield.nested && afield.type == field_types::GEOPOINT_ARRAY &&
-                                    record.doc[afield.name].size() == 2 && record.doc[afield.name][0].is_number());
+                                                !record.doc[afield.name].empty() && record.doc[afield.name][0].is_number());
 
                 if(afield.type == field_types::GEOPOINT || nested_obj_arr_geopoint) {
-                    const std::vector<double>& latlong = record.doc[afield.name];
+                    // this could be a nested gepoint array so can have more than 2 array values
+                    const std::vector<double>& latlongs = record.doc[afield.name];
+                    for(size_t li = 0; li < latlongs.size(); li+=2) {
+                        S2RegionTermIndexer::Options options;
+                        options.set_index_contains_points_only(true);
+                        S2RegionTermIndexer indexer(options);
+                        S2Point point = S2LatLng::FromDegrees(latlongs[li], latlongs[li+1]).ToPoint();
 
-                    S2RegionTermIndexer::Options options;
-                    options.set_index_contains_points_only(true);
-                    S2RegionTermIndexer indexer(options);
-                    S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+                        for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                            (*geo_index)[term].push_back(seq_id);
+                        }
+                    }
 
-                    for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                        (*geo_index)[term].push_back(seq_id);
+                    if(nested_obj_arr_geopoint) {
+                        int64_t* packed_latlongs = new int64_t[(latlongs.size()/2) + 1];
+                        packed_latlongs[0] = latlongs.size()/2;
+                        size_t j_packed_latlongs = 0;
+
+                        for(size_t li = 0; li < latlongs.size(); li+=2) {
+                            int64_t packed_latlong = GeoPoint::pack_lat_lng(latlongs[li], latlongs[li+1]);
+                            packed_latlongs[j_packed_latlongs + 1] = packed_latlong;
+                            j_packed_latlongs++;
+                        }
+
+                        geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
                     }
                 } else {
                     const std::vector<std::vector<double>>& latlongs = record.doc[afield.name];
@@ -924,12 +955,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     for(size_t li = 0; li < latlongs.size(); li++) {
                         auto& latlong = latlongs[li];
                         S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-                        std::set<std::string> terms;
                         for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                            terms.insert(term);
-                        }
-
-                        for(const auto& term: terms) {
                             (*geo_index)[term].push_back(seq_id);
                         }
 
@@ -5833,11 +5859,12 @@ Option<uint32_t> Index::coerce_bool(const DIRTY_VALUES& dirty_values, const fiel
     return Option<uint32_t>(200);
 }
 
-Option<uint32_t> Index::coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                        const std::string &field_name,
-                                        nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased) {
+Option<uint32_t> Index::coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field,
+                                        nlohmann::json &document, const std::string &field_name,
+                                        nlohmann::json& lat, nlohmann::json& lng,
+                                        nlohmann::json::iterator& array_iter,
+                                        bool is_array, bool& array_ele_erased) {
     std::string suffix = is_array ? "an array of" : "a";
-    auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
@@ -5859,19 +5886,19 @@ Option<uint32_t> Index::coerce_geopoint(const DIRTY_VALUES& dirty_values, const 
 
     // try to value coerce into a geopoint
 
-    if(!item[0].is_number() && item[0].is_string()) {
-        if(StringUtils::is_float(item[0])) {
-            item[0] = std::stof(item[0].get<std::string>());
+    if(!lat.is_number() && lat.is_string()) {
+        if(StringUtils::is_float(lat)) {
+            lat = std::stof(lat.get<std::string>());
         }
     }
 
-    if(!item[1].is_number() && item[1].is_string()) {
-        if(StringUtils::is_float(item[1])) {
-            item[1] = std::stof(item[1].get<std::string>());
+    if(!lng.is_number() && lng.is_string()) {
+        if(StringUtils::is_float(lng)) {
+            lng = std::stof(lng.get<std::string>());
         }
     }
 
-    if(!item[0].is_number() || !item[1].is_number()) {
+    if(!lat.is_number() || !lng.is_number()) {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
