@@ -145,6 +145,15 @@ Option<bool> VectorQueryOps::parse_vector_query_str(std::string vector_query_str
 
                     vector_query.flat_search_cutoff = std::stoi(param_kv[1]);
                 }
+
+                if(param_kv[0] == "similarity_cutoff") {
+                    if(!StringUtils::is_float(param_kv[1])) {
+                        return Option<bool>(400, "Malformed vector query string: "
+                                                 "`similarity_cutoff` parameter must be a float.");
+                    }
+
+                    vector_query.similarity_cutoff = std::stof(param_kv[1]);
+                }
             }
 
             if(!vector_query.query_doc_given && vector_query.values.empty()) {

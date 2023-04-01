@@ -120,6 +120,8 @@ private:
 
     tsl::htrie_map<char, field> nested_fields;
 
+    tsl::htrie_map<char, field> embedding_fields;
+
     bool enable_nested_fields;
 
     std::vector<char> symbols_to_index;
@@ -341,6 +343,8 @@ public:
     tsl::htrie_map<char, field> get_schema();
 
     tsl::htrie_map<char, field> get_nested_fields();
+
+    tsl::htrie_map<char, field> get_embedding_fields();
 
     std::string get_default_sorting_field();
 

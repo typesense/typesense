@@ -4815,13 +4815,13 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
 }
 
 TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
-        nlohmann::json schema = R"({
-                            "name": "objects",
-                            "fields": [
-                            {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
-                            ]
-                        })"_json;
+    nlohmann::json schema = R"({
+                        "name": "objects",
+                        "fields": [
+                        {"name": "name", "type": "string"},
+                        {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                        ]
+                    })"_json;
     
     TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
     TextEmbedderManager::download_default_model();
@@ -4836,3 +4836,101 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
     ASSERT_FALSE(search_res_op.ok());
     ASSERT_EQ("Wildcard query is not supported for embedding fields.", search_res_op.error());
 }
+
+TEST_F(CollectionTest, CreateModelDirIfNotExists) {
+    system("mkdir -p /tmp/typesense_test/models");
+    system("rm -rf /tmp/typesense_test/models");
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    // check if model dir is created
+    ASSERT_TRUE(std::filesystem::exists("/tmp/typesense_test/models"));
+}
+
+TEST_F(CollectionTest, EmbeddingFieldsMapTest) {
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto embedding_fields_map = coll->get_embedding_fields();
+    ASSERT_EQ(1, embedding_fields_map.size());
+    auto embedding_field_it = embedding_fields_map.find("embedding");
+    ASSERT_TRUE(embedding_field_it != embedding_fields_map.end());
+    ASSERT_EQ("embedding", embedding_field_it.value().name);
+    ASSERT_EQ(1, embedding_field_it.value().create_from.size());
+    ASSERT_EQ("name", embedding_field_it.value().create_from[0]);
+
+    // drop the embedding field
+    nlohmann::json schema_without_embedding = R"({
+                            "fields": [
+                            {"name": "embedding", "drop": true}
+                            ]
+                        })"_json;
+    auto update_op = coll->alter(schema_without_embedding);
+
+    ASSERT_TRUE(update_op.ok());
+
+    embedding_fields_map = coll->get_embedding_fields();
+    ASSERT_EQ(0, embedding_fields_map.size());
+}
+
+TEST_F(CollectionTest, EmbedStringArrayField) {
+    nlohmann::json schema = R"({
+                    "name": "objects",
+                    "fields": [
+                    {"name": "names", "type": "string[]"},
+                    {"name": "embedding", "type":"float[]", "create_from": ["names"]}
+                    ]
+                })"_json;
+    
+    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["names"].push_back("butter");
+    doc["names"].push_back("butterfly");
+    doc["names"].push_back("butterball");
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+}
+    
+TEST_F(CollectionTest, UpdateSchemaWithNewEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "names", "type": "string[]"}
+                ]
+            })"_json;
+
+    
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json update_schema = R"({
+                "fields": [
+                {"name": "embedding", "type":"float[]", "create_from": ["names"]}
+                ]
+            })"_json;
+    
+    auto res = coll->alter(update_schema);
+
+    ASSERT_FALSE(res.ok());
+    ASSERT_EQ("Embedding fields can only be added at the time of collection creation.", res.error());
+}
+

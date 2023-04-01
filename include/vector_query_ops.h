@@ -10,6 +10,7 @@ struct vector_query_t {
     std::string field_name;
     size_t k = 0;
     size_t flat_search_cutoff = 0;
+    float similarity_cutoff = 0.0;
     std::vector<float> values;
 
     uint32_t seq_id = 0;
@@ -19,6 +20,7 @@ struct vector_query_t {
         // used for testing only
         field_name.clear();
         k = 0;
+        similarity_cutoff = 0.0;
         values.clear();
         seq_id = 0;
         query_doc_given = false;

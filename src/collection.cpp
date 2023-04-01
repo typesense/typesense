@@ -1120,10 +1120,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     vector_query_t vector_query;
     if(!vector_query_str.empty()) {
-        if(raw_query != "*") {
-            return Option<nlohmann::json>(400, "Vector query is supported only on wildcard (q=*) searches.");
-        }
-
         auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query, this);
         if(!parse_vector_op.ok()) {
             return Option<nlohmann::json>(400, parse_vector_op.error());
@@ -3459,6 +3455,11 @@ tsl::htrie_map<char, field> Collection::get_nested_fields() {
     return nested_fields;
 };
 
+tsl::htrie_map<char, field> Collection::get_embedding_fields() {
+    std::shared_lock lock(mutex);
+    return embedding_fields;
+};
+
 std::string Collection::get_meta_key(const std::string & collection_name) {
     return std::string(COLLECTION_META_PREFIX) + "_" + collection_name;
 }
@@ -3747,6 +3748,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             nested_fields.erase(del_field.name);
         }
 
+        if(del_field.create_from.size() > 0) {
+            embedding_fields.erase(del_field.name);
+        }
+
         if(del_field.name == ".*") {
             fallback_field_type = "";
         }
@@ -3982,6 +3987,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     std::vector<field> diff_fields;
     tsl::htrie_map<char, field> updated_search_schema = search_schema;
     tsl::htrie_map<char, field> updated_nested_fields = nested_fields;
+    tsl::htrie_map<char, field> updated_embedding_fields = embedding_fields;
     size_t num_auto_detect_fields = 0;
 
     // since fields can be deleted and added in the same change set,
@@ -4038,10 +4044,18 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 return Option<bool>(400, "Field `" + field_name + "` is not part of collection schema.");
             }
 
+            if(found_field && field_it.value().create_from.size() > 0) {
+                updated_embedding_fields.erase(field_it.key());
+            }
+
             if(found_field) {
                 del_fields.push_back(field_it.value());
                 updated_search_schema.erase(field_it.key());
                 updated_nested_fields.erase(field_it.key());
+                
+                if(field_it.value().create_from.size() > 0) {
+                    updated_embedding_fields.erase(field_it.key());
+                }
 
                 // should also remove children if the field being dropped is an object
                 if(field_it.value().nested && enable_nested_fields) {
@@ -4052,6 +4066,10 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                             del_fields.push_back(prefix_kv.value());
                             updated_search_schema.erase(prefix_kv.key());
                             updated_nested_fields.erase(prefix_kv.key());
+
+                            if(prefix_kv.value().create_from.size() > 0) {
+                                updated_embedding_fields.erase(prefix_kv.key());
+                            }
                         }
                     }
                 }
@@ -4102,6 +4120,10 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     addition_fields.push_back(f);
                 }
 
+                if(f.create_from.size() > 0) {
+                    return Option<bool>(400, "Embedding fields can only be added at the time of collection creation.");
+                }
+
                 if(f.nested && enable_nested_fields) {
                     updated_nested_fields.emplace(f.name, f);
 
@@ -4112,6 +4134,10 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                         if(!exact_key_match) {
                             updated_search_schema.emplace(prefix_kv.key(), prefix_kv.value());
                             updated_nested_fields.emplace(prefix_kv.key(), prefix_kv.value());
+
+                            if(prefix_kv.value().create_from.size() > 0) {
+                                return Option<bool>(400, "Embedding fields can only be added at the time of collection creation.");
+                            }
 
                             if(is_reindex) {
                                 reindex_fields.push_back(prefix_kv.value());
@@ -4432,6 +4458,10 @@ Index* Collection::init_index() {
             nested_fields.emplace(field.name, field);
         }
 
+        if(field.create_from.size() > 0) {
+            embedding_fields.emplace(field.name, field);
+        }
+
         if(!field.reference.empty()) {
             auto dot_index = field.reference.find('.');
             auto collection_name = field.reference.substr(0, dot_index);
@@ -4704,30 +4734,50 @@ Option<bool> Collection::populate_include_exclude_fields_lk(const spp::sparse_ha
 
 
 Option<bool> Collection::embed_fields(nlohmann::json& document) {
-    for(const auto& field : fields) {
-        if(field.create_from.size() > 0) {
-            if(TextEmbedderManager::model_dir.empty()) {
-                return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
-            }
-            std::string text_to_embed;
-            for(const auto& field_name : field.create_from) {
-                auto field_it = document.find(field_name);
-                if(field_it != document.end()) {
-                    if(field_it->is_string()) {
-                        text_to_embed += field_it->get<std::string>() + " ";
-                    } else {
-                        return Option<bool>(400, "Field `" + field_name + "` is not a string.");
-                    }
-                } else {
-                    return Option<bool>(400, "Field `" + field_name + "` not found in document.");
-                }
-            }
-
-            TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-            auto embedder = embedder_manager.get_text_embedder(field.model_name.size() > 0 ? field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
-            std::vector<float> embedding = embedder->Embed(text_to_embed);
-            document[field.name] = embedding;
+    for(const auto& field : embedding_fields) {
+        if(TextEmbedderManager::model_dir.empty()) {
+            return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
         }
+        std::string text_to_embed;
+        for(const auto& field_name : field.create_from) {
+            auto field_it = search_schema.find(field_name);
+            if(field_it != search_schema.end()) {
+                if(field_it.value().type == field_types::STRING) {
+                    if(document.find(field_name) != document.end()) {
+                        if(document[field_name].is_string()) {
+                            text_to_embed += document[field_name].get<std::string>() + " ";
+                        } else {
+                            return Option<bool>(400, "Field `" + field_name + "` has malformed data.");
+                        }
+                    }
+                } else if(field_it.value().type == field_types::STRING_ARRAY) {
+                    if(document.find(field_name) != document.end()) {
+                        if(document[field_name].is_array()) {
+                            for(const auto& val : document[field_name]) {
+                                if(val.is_string()) {
+                                    text_to_embed += val.get<std::string>() + " ";
+                                } else {
+                                    return Option<bool>(400, "Field `" + field_name + "` has malformed data.");
+                                }
+                            }
+                        } else {
+                            return Option<bool>(400, "Field `" + field_name + "` has malformed data.");
+                        }
+                    }
+                }
+                 else {
+                    return Option<bool>(400, "Field `" + field_name + "` is not a string nor string array. Can not create vector from it.");
+                }
+            } else {
+                return Option<bool>(400, "Field `" + field_name + "` is not a valid field.");
+            }
+        }
+
+        TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
+        auto embedder = embedder_manager.get_text_embedder(field.model_name.size() > 0 ? field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
+        std::vector<float> embedding = embedder->Embed(text_to_embed);
+        document[field.name] = embedding;
     }
+
     return Option<bool>(true);
 }

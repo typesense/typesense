@@ -456,7 +456,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     if(config.get_model_dir().size() > 0) {
         LOG(INFO) << "Loading text embedding models from " << config.get_model_dir();
-        TextEmbedderManager::model_dir = config.get_model_dir();
+        TextEmbedderManager::set_model_dir(config.get_model_dir());
         TextEmbedderManager::download_default_model();
     }
     // first we start the peering service

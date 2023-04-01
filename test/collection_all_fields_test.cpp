@@ -1607,7 +1607,7 @@ TEST_F(CollectionAllFieldsTest, CreateFromFieldJSONInvalidField) {
     auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
 
     ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `create_from` can only be used with array of string fields.", field_op.error());
+    ASSERT_EQ("Property `create_from` can only be used with string or string array fields.", field_op.error());
 }
 
 TEST_F(CollectionAllFieldsTest, CreateFromFieldNoModelDir) {

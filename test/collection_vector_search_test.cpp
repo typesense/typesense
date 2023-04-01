@@ -184,17 +184,18 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Document id referenced in vector query is not found.", res_op.error());
 
+    // DEPRECATED: vector query is also supported on non-wildcard queries with hybrid search
     // only supported with wildcard queries
-    res_op = coll1->search("title", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
-                           spp::sparse_hash_set<std::string>(),
-                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
-                           "", 10, {}, {}, {}, 0,
-                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                           4, {off}, 32767, 32767, 2,
-                           false, true, "zec:([0.96826, 0.94, 0.39557, 0.4542])");
+    // res_op = coll1->search("title", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+    //                        spp::sparse_hash_set<std::string>(),
+    //                        spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+    //                        "", 10, {}, {}, {}, 0,
+    //                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+    //                        4, {off}, 32767, 32767, 2,
+    //                        false, true, "zec:([0.96826, 0.94, 0.39557, 0.4542])");
 
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Vector query is supported only on wildcard (q=*) searches.", res_op.error());
+    // ASSERT_FALSE(res_op.ok());
+    // ASSERT_EQ("Vector query is supported only on wildcard (q=*) searches.", res_op.error());
 
     // support num_dim on only float array fields
     schema = R"({
@@ -675,4 +676,44 @@ TEST_F(CollectionVectorTest, VectorWithNullValue) {
     ASSERT_FALSE(nlohmann::json::parse(json_lines[1])["success"].get<bool>());
     ASSERT_EQ("Field `vec` must be an array.",
               nlohmann::json::parse(json_lines[1])["error"].get<std::string>());
+}
+
+TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
+        nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "vec", "type": "float[]", "create_from": ["name"]}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+
+    doc["name"] = "john doe";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::string dummy_vec_string = "[0.9";
+    for (int i = 0; i < 382; i++) {
+        dummy_vec_string += ", 0.9";
+    }
+    dummy_vec_string += ", 0.9]";
+
+    auto results_op = coll1->search("john", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:(" + dummy_vec_string +")");
+    ASSERT_EQ(true, results_op.ok());
+
+
+    ASSERT_EQ(1, results_op.get()["found"].get<size_t>());
+    ASSERT_EQ(1, results_op.get()["hits"].size());
 }

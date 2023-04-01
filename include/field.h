@@ -436,7 +436,7 @@ struct field {
 
                 for(auto& create_from_field : field_json[fields::create_from]) {
                     if(!create_from_field.is_string()) {
-                        return Option<bool>(400, "Property `" + fields::create_from + "` must be an array of strings.");
+                        return Option<bool>(400, "Property `" + fields::create_from + "` must contain only field names as strings.");
                     }
                 }
 
@@ -449,8 +449,8 @@ struct field {
                     bool flag = false;
                     for(const auto& field : fields_json) {
                         if(field[fields::name] == create_from_field) {
-                            if(field[fields::type] != field_types::STRING) {
-                                return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                            if(field[fields::type] != field_types::STRING && field[fields::type] != field_types::STRING_ARRAY) {
+                                return Option<bool>(400, "Property `" + fields::create_from + "` can only have string or string array fields.");
                             }
                             flag = true;
                             break;
@@ -459,8 +459,8 @@ struct field {
                     if(!flag) {
                         for(const auto& field : the_fields) {
                             if(field.name == create_from_field) {
-                                if(field.type != field_types::STRING) {
-                                    return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                                if(field.type != field_types::STRING && field.type != field_types::STRING_ARRAY) {
+                                    return Option<bool>(400, "Property `" + fields::create_from + "` can only have used with string or string array fields.");
                                 }
                                 flag = true;
                                 break;
@@ -468,7 +468,7 @@ struct field {
                         }
                     }
                     if(!flag) {
-                        return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                        return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with string or string array fields.");
                     }
                 }   
             }
