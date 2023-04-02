@@ -2217,7 +2217,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->included_ids, search_params->excluded_ids,
            search_params->sort_fields_std, search_params->num_typos,
            search_params->topster, search_params->curated_topster,
-           search_params->per_page, search_params->page, search_params->token_order,
+           search_params->per_page, search_params->offset, search_params->token_order,
            search_params->prefixes, search_params->drop_tokens_threshold,
            search_params->all_result_ids_len, search_params->groups_processed,
            search_params->searched_queries,
@@ -2678,7 +2678,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                    const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
                    const size_t per_page,
-                   const size_t page, const token_ordering token_order, const std::vector<bool>& prefixes,
+                   const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                    const size_t drop_tokens_threshold, size_t& all_result_ids_len,
                    spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                    std::vector<std::vector<art_leaf*>>& searched_queries,
@@ -2712,6 +2712,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     if (filter_tree_root != nullptr && filter_result.count == 0) {
         return Option(true);
     }
+
+    size_t fetch_size = offset + per_page;
 
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
@@ -2793,7 +2795,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     groups_processed[distinct_id]++;
                 }
 
-                if (result_ids.size() == page * per_page) {
+                if (result_ids.size() == fetch_size) {
                     break;
                 }
 
@@ -2816,7 +2818,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
         if (!vector_query.field_name.empty()) {
-            auto k = std::max<size_t>(vector_query.k, per_page * page);
+            auto k = std::max<size_t>(vector_query.k, fetch_size);
             if(vector_query.query_doc_given) {
                 // since we will omit the query doc from results
                 k++;
@@ -3082,7 +3084,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
                 std::vector<std::pair<float, size_t>> dist_labels;
-                auto k = std::max<size_t>(vector_query.k, per_page * page);
+                auto k = std::max<size_t>(vector_query.k, fetch_size);
 
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());

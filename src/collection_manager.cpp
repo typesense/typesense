@@ -675,6 +675,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *LIMIT_HITS = "limit_hits";
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
+    const char *OFFSET = "offset";
+    const char *LIMIT = "limit";
     const char *RANK_TOKENS_BY = "rank_tokens_by";
     const char *INCLUDE_FIELDS = "include_fields";
     const char *EXCLUDE_FIELDS = "exclude_fields";
@@ -756,7 +758,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::vector<std::string> facet_fields;
     std::vector<sort_by> sort_fields;
     size_t per_page = 10;
-    size_t page = 1;
+    size_t page = 0;
+    size_t offset = UINT32_MAX;
     token_ordering token_order = NOT_SET;
 
     std::string vector_query;
@@ -809,7 +812,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {SNIPPET_THRESHOLD, &snippet_threshold},
         {HIGHLIGHT_AFFIX_NUM_TOKENS, &highlight_affix_num_tokens},
         {PAGE, &page},
+        {OFFSET, &offset},
         {PER_PAGE, &per_page},
+        {LIMIT, &per_page},
         {GROUP_LIMIT, &group_limit},
         {SEARCH_CUTOFF_MS, &search_cutoff_ms},
         {MAX_EXTRA_PREFIX, &max_extra_prefix},
@@ -947,6 +952,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
+    if(req_params[PAGE].empty() && req_params[OFFSET].empty()) {
+        page = 1;
+    }
+
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
     exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
 
@@ -1030,7 +1039,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           start_ts,
                                                           match_type,
                                                           facet_sample_percent,
-                                                          facet_sample_threshold
+                                                          facet_sample_threshold,
+                                                          offset
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1049,7 +1059,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         result["search_time_ms"] = timeMillis;
     }
 
-    result["page"] = page;
+    if(page != 0) {
+        result["page"] = page;
+    } else {
+        result["offset"] = offset;
+    }
+
     results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
     //LOG(INFO) << "Time taken: " << timeMillis << "ms";
