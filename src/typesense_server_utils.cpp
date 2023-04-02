@@ -51,18 +51,6 @@ void catch_interrupt(int sig) {
     quit_raft_service = true;
 }
 
-Option<std::string> fetch_file_contents(const std::string & file_path) {
-    if(!file_exists(file_path)) {
-        return Option<std::string>(404, std::string("File does not exist at: ") + file_path);
-    }
-
-    std::ifstream infile(file_path);
-    std::string content((std::istreambuf_iterator<char>(infile)), (std::istreambuf_iterator<char>()));
-    infile.close();
-
-    return Option<std::string>(content);
-}
-
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.set_program_name("./typesense-server");
 
@@ -106,6 +94,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<int>("disk-used-max-percentage", '\0', "Reject writes when used disk space exceeds this percentage. Default: 100 (never reject).", false, 100);
     options.add<int>("memory-used-max-percentage", '\0', "Reject writes when memory usage exceeds this percentage. Default: 100 (never reject).", false, 100);
     options.add<bool>("skip-writes", '\0', "Skip all writes except config changes. Default: false.", false, false);
+    options.add<bool>("reset-peers-on-error", '\0', "Reset node's peers on clustering error. Default: false.", false, false);
 
     options.add<int>("log-slow-searches-time-ms", '\0', "When >= 0, searches that take longer than this duration are logged.", false, 30*1000);
 
@@ -153,27 +142,6 @@ int init_root_logger(Config & config, const std::string & server_version) {
     }
 
     return 0;
-}
-
-Option<std::string> fetch_nodes_config(const std::string& path_to_nodes) {
-    std::string nodes_config;
-
-    if(!path_to_nodes.empty()) {
-        const Option<std::string> & nodes_op = fetch_file_contents(path_to_nodes);
-
-        if(!nodes_op.ok()) {
-            return Option<std::string>(500, "Error reading file containing nodes configuration: " + nodes_op.error());
-        } else {
-            nodes_config = nodes_op.get();
-            if(nodes_config.empty()) {
-                return Option<std::string>(500, "File containing nodes configuration is empty.");
-            } else {
-                nodes_config = nodes_op.get();
-            }
-        }
-    }
-
-    return Option<std::string>(nodes_config);
 }
 
 bool is_private_ip(uint32_t ip) {
@@ -251,13 +219,14 @@ const char* get_internal_ip(const std::string& subnet_cidr) {
 
 int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
                       const std::string& peering_address, uint32_t peering_port, const std::string& peering_subnet,
-                      uint32_t api_port, int snapshot_interval_seconds, int snapshot_max_byte_count_per_rpc) {
+                      uint32_t api_port, int snapshot_interval_seconds, int snapshot_max_byte_count_per_rpc,
+                      const std::atomic<bool>& reset_peers_on_error) {
 
     if(path_to_nodes.empty()) {
         LOG(INFO) << "Since no --nodes argument is provided, starting a single node Typesense cluster.";
     }
 
-    const Option<std::string>& nodes_config_op = fetch_nodes_config(path_to_nodes);
+    const Option<std::string>& nodes_config_op = Config::fetch_nodes_config(path_to_nodes);
 
     if(!nodes_config_op.ok()) {
         LOG(ERROR) << nodes_config_op.error();
@@ -311,7 +280,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
         if(raft_counter % 10 == 0) {
             // reset peer configuration periodically to identify change in cluster membership
-            const Option<std::string> & refreshed_nodes_op = fetch_nodes_config(path_to_nodes);
+            const Option<std::string> & refreshed_nodes_op = Config::fetch_nodes_config(path_to_nodes);
             if(!refreshed_nodes_op.ok()) {
                 LOG(WARNING) << "Error while refreshing peer configuration: " << refreshed_nodes_op.error();
                 continue;
@@ -319,7 +288,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
             const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
                                                                                 refreshed_nodes_op.get());
-            replication_state.refresh_nodes(nodes_config);
+            replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
 
             if(raft_counter % 60 == 0) {
                 replication_state.do_snapshot(nodes_config);
@@ -459,6 +428,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         TextEmbedderManager::set_model_dir(config.get_model_dir());
         TextEmbedderManager::download_default_model();
     }
+
     // first we start the peering service
 
     ReplicationState replication_state(server, batch_indexer, &store,
@@ -482,7 +452,8 @@ int run_server(const Config & config, const std::string & version, void (*master
                           config.get_peering_subnet(),
                           config.get_api_port(),
                           config.get_snapshot_interval_seconds(),
-                          config.get_snapshot_max_byte_count_per_rpc());
+                          config.get_snapshot_max_byte_count_per_rpc(),
+                          config.get_reset_peers_on_error());
 
         LOG(INFO) << "Shutting down batch indexer...";
         batch_indexer->stop();

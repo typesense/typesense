@@ -746,18 +746,34 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
                 // nested geopoint value inside an array of object will be a simple array so must be treated as geopoint
                 bool nested_obj_arr_geopoint = (afield.nested && afield.type == field_types::GEOPOINT_ARRAY &&
-                                    record.doc[afield.name].size() == 2 && record.doc[afield.name][0].is_number());
+                                    !record.doc[afield.name].empty() && record.doc[afield.name][0].is_number());
 
                 if(afield.type == field_types::GEOPOINT || nested_obj_arr_geopoint) {
-                    const std::vector<double>& latlong = record.doc[afield.name];
+                    // this could be a nested gepoint array so can have more than 2 array values
+                    const std::vector<double>& latlongs = record.doc[afield.name];
+                    for(size_t li = 0; li < latlongs.size(); li+=2) {
+                        S2RegionTermIndexer::Options options;
+                        options.set_index_contains_points_only(true);
+                        S2RegionTermIndexer indexer(options);
+                        S2Point point = S2LatLng::FromDegrees(latlongs[li], latlongs[li+1]).ToPoint();
 
-                    S2RegionTermIndexer::Options options;
-                    options.set_index_contains_points_only(true);
-                    S2RegionTermIndexer indexer(options);
-                    S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+                        for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                            (*geo_index)[term].push_back(seq_id);
+                        }
+                    }
 
-                    for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                        (*geo_index)[term].push_back(seq_id);
+                    if(nested_obj_arr_geopoint) {
+                        int64_t* packed_latlongs = new int64_t[(latlongs.size()/2) + 1];
+                        packed_latlongs[0] = latlongs.size()/2;
+                        size_t j_packed_latlongs = 0;
+
+                        for(size_t li = 0; li < latlongs.size(); li+=2) {
+                            int64_t packed_latlong = GeoPoint::pack_lat_lng(latlongs[li], latlongs[li+1]);
+                            packed_latlongs[j_packed_latlongs + 1] = packed_latlong;
+                            j_packed_latlongs++;
+                        }
+
+                        geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
                     }
                 } else {
                     const std::vector<std::vector<double>>& latlongs = record.doc[afield.name];
@@ -771,12 +787,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     for(size_t li = 0; li < latlongs.size(); li++) {
                         auto& latlong = latlongs[li];
                         S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-                        std::set<std::string> terms;
                         for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                            terms.insert(term);
-                        }
-
-                        for(const auto& term: terms) {
                             (*geo_index)[term].push_back(seq_id);
                         }
 
@@ -2206,7 +2217,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->included_ids, search_params->excluded_ids,
            search_params->sort_fields_std, search_params->num_typos,
            search_params->topster, search_params->curated_topster,
-           search_params->per_page, search_params->page, search_params->token_order,
+           search_params->per_page, search_params->offset, search_params->token_order,
            search_params->prefixes, search_params->drop_tokens_threshold,
            search_params->all_result_ids_len, search_params->groups_processed,
            search_params->searched_queries,
@@ -2667,7 +2678,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                    const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
                    const size_t per_page,
-                   const size_t page, const token_ordering token_order, const std::vector<bool>& prefixes,
+                   const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                    const size_t drop_tokens_threshold, size_t& all_result_ids_len,
                    spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                    std::vector<std::vector<art_leaf*>>& searched_queries,
@@ -2701,6 +2712,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     if (filter_tree_root != nullptr && filter_result.count == 0) {
         return Option(true);
     }
+
+    size_t fetch_size = offset + per_page;
 
     std::set<uint32_t> curated_ids;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
@@ -2782,7 +2795,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     groups_processed[distinct_id]++;
                 }
 
-                if (result_ids.size() == page * per_page) {
+                if (result_ids.size() == fetch_size) {
                     break;
                 }
 
@@ -2805,7 +2818,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
         if (!vector_query.field_name.empty()) {
-            auto k = std::max<size_t>(vector_query.k, per_page * page);
+            auto k = std::max<size_t>(vector_query.k, fetch_size);
             if(vector_query.query_doc_given) {
                 // since we will omit the query doc from results
                 k++;
@@ -3075,7 +3088,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
                 std::vector<std::pair<float, size_t>> dist_labels;
-                auto k = std::max<size_t>(vector_query.k, per_page * page);
+                auto k = std::max<size_t>(vector_query.k, fetch_size);
 
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());

@@ -109,7 +109,7 @@ struct search_args {
     std::vector<uint32_t> num_typos;
     size_t max_facet_values;
     size_t per_page;
-    size_t page;
+    size_t offset;
     token_ordering token_order;
     std::vector<bool> prefixes;
     size_t drop_tokens_threshold;
@@ -164,7 +164,7 @@ struct search_args {
             search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
             facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values), per_page(per_page),
-            page(page), token_order(token_order), prefixes(prefixes),
+            offset(offset), token_order(token_order), prefixes(prefixes),
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
             prioritize_exact_match(prioritize_exact_match), prioritize_token_position(prioritize_token_position),
@@ -637,7 +637,7 @@ public:
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                 const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
                 const size_t per_page,
-                const size_t page, const token_ordering token_order, const std::vector<bool>& prefixes,
+                const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                 const size_t drop_tokens_threshold, size_t& all_result_ids_len,
                 spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                 std::vector<std::vector<art_leaf*>>& searched_queries,

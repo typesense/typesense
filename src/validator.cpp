@@ -43,8 +43,10 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
         }
 
         if(!(doc_ele[0].is_number() && doc_ele[1].is_number())) {
-            // one or more elements is not an number, try to coerce
-            Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
+            // one or more elements is not a number, try to coerce
+            Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name,
+                                                         doc_ele[0], doc_ele[1],
+                                                         dummy_iter, false, array_ele_erased);
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
@@ -62,16 +64,27 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
 
         nlohmann::json::iterator it = doc_ele.begin();
 
-        // Handle a geopoint[] type inside an array of object: it won't be an array of array, so cannot iterate
-        if(a_field.nested && a_field.type == field_types::GEOPOINT_ARRAY &&
-           it->is_number() && doc_ele.size() == 2) {
+        // have to differentiate the geopoint[] type of a nested array object's geopoint[] vs a simple nested field
+        // geopoint[] type of an array of objects field won't be an array of array
+        if(a_field.nested && a_field.type == field_types::GEOPOINT_ARRAY && it != doc_ele.end() && it->is_number()) {
+            if(!doc_ele.empty() && doc_ele.size() % 2 != 0) {
+                return Option<>(400, "Nested field `" + field_name  + "` does not contain valid geopoint values.");
+            }
+
             const auto& item = doc_ele;
-            if(!(item[0].is_number() && item[1].is_number())) {
-                // one or more elements is not an number, try to coerce
-                Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
-                if(!coerce_op.ok()) {
-                    return coerce_op;
+
+            for(size_t ai = 0; ai < doc_ele.size(); ai+=2) {
+                if(!(doc_ele[ai].is_number() && doc_ele[ai+1].is_number())) {
+                    // one or more elements is not an number, try to coerce
+                    Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name,
+                                                                 doc_ele[ai], doc_ele[ai+1],
+                                                                 it, true, array_ele_erased);
+                    if(!coerce_op.ok()) {
+                        return coerce_op;
+                    }
                 }
+
+                it++;
             }
 
             return Option<uint32_t>(200);
@@ -83,7 +96,7 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
         }
 
         for(; it != doc_ele.end(); ) {
-            const auto& item = it.value();
+            nlohmann::json& item = it.value();
             array_ele_erased = false;
 
             if (a_field.type == field_types::STRING_ARRAY && !item.is_string()) {
@@ -118,8 +131,10 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
                 }
 
                 if(!(item[0].is_number() && item[1].is_number())) {
-                    // one or more elements is not an number, try to coerce
-                    Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
+                    // one or more elements is not a number, try to coerce
+                    Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name,
+                                                                 item[0], item[1],
+                                                                 it, true, array_ele_erased);
                     if(!coerce_op.ok()) {
                         return coerce_op;
                     }
@@ -396,11 +411,12 @@ Option<uint32_t> validator_t::coerce_bool(const DIRTY_VALUES& dirty_values, cons
     return Option<uint32_t>(200);
 }
 
-Option<uint32_t> validator_t::coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                        const std::string &field_name,
-                                        nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased) {
+Option<uint32_t> validator_t::coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field,
+                                              nlohmann::json &document, const std::string &field_name,
+                                              nlohmann::json& lat, nlohmann::json& lng,
+                                              nlohmann::json::iterator& array_iter,
+                                              bool is_array, bool& array_ele_erased) {
     std::string suffix = is_array ? "an array of" : "a";
-    auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
@@ -422,19 +438,19 @@ Option<uint32_t> validator_t::coerce_geopoint(const DIRTY_VALUES& dirty_values, 
 
     // try to value coerce into a geopoint
 
-    if(!item[0].is_number() && item[0].is_string()) {
-        if(StringUtils::is_float(item[0])) {
-            item[0] = std::stof(item[0].get<std::string>());
+    if(!lat.is_number() && lat.is_string()) {
+        if(StringUtils::is_float(lat)) {
+            lat = std::stof(lat.get<std::string>());
         }
     }
 
-    if(!item[1].is_number() && item[1].is_string()) {
-        if(StringUtils::is_float(item[1])) {
-            item[1] = std::stof(item[1].get<std::string>());
+    if(!lng.is_number() && lng.is_string()) {
+        if(StringUtils::is_float(lng)) {
+            lng = std::stof(lng.get<std::string>());
         }
     }
 
-    if(!item[0].is_number() || !item[1].is_number()) {
+    if(!lat.is_number() || !lng.is_number()) {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
