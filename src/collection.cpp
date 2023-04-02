@@ -1063,7 +1063,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const uint64_t search_time_start_us,
                                   const text_match_type_t match_type,
                                   const size_t facet_sample_percent,
-                                  const size_t facet_sample_threshold) const {
+                                  const size_t facet_sample_threshold,
+                                  const size_t page_offset) const {
 
     std::shared_lock lock(mutex);
 
@@ -1322,7 +1323,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     }
 
     // check for valid pagination
-    if(page < 1) {
+    if(page != 0 && page < 1) {
         std::string message = "Page must be an integer of value greater than 0.";
         return Option<nlohmann::json>(422, message);
     }
@@ -1332,7 +1333,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         return Option<nlohmann::json>(422, message);
     }
 
-    if((page * per_page) > limit_hits) {
+    size_t offset = (page != 0) ? (per_page * (page - 1)) : page_offset;
+    size_t fetch_size = offset + per_page;
+
+    if(fetch_size > limit_hits) {
         std::string message = "Only upto " + std::to_string(limit_hits) + " hits can be fetched. " +
                 "Ensure that `page` and `per_page` parameters are within this range.";
         return Option<nlohmann::json>(422, message);
@@ -1342,9 +1346,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     // ensure that `max_hits` never exceeds number of documents in collection
     if(search_fields.size() <= 1 || raw_query == "*") {
-        max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
+        max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
     } else {
-        max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
+        max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
     }
 
     if(token_order == NOT_SET) {
@@ -1501,7 +1505,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                                  match_type,
                                                  filter_tree_root, facets, included_ids, excluded_ids,
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                                 per_page, page, token_order, prefixes,
+                                                 per_page, offset, token_order, prefixes,
                                                  drop_tokens_threshold, typo_tokens_threshold,
                                                  group_by_fields, group_limit, default_sorting_field,
                                                  prioritize_exact_match, prioritize_token_position,
@@ -1635,10 +1639,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         facet_query_last_token = facet_query_tokens.empty() ? "" : facet_query_tokens.back();
     }
 
-    const long start_result_index = (page - 1) * per_page;
+    const long start_result_index = offset;
 
     // `end_result_index` could be -1 when max_hits is 0
-    const long end_result_index = std::min((page * per_page), std::min(max_hits, result_group_kvs.size())) - 1;
+    const long end_result_index = std::min(fetch_size, std::min(max_hits, result_group_kvs.size())) - 1;
 
     // handle which fields have to be highlighted
 

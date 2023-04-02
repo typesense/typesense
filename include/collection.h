@@ -457,7 +457,8 @@ public:
                                   const uint64_t search_time_start_us = 0,
                                   const text_match_type_t match_type = max_score,
                                   const size_t facet_sample_percent = 100,
-                                  const size_t facet_sample_threshold = 0) const;
+                                  const size_t facet_sample_threshold = 0,
+                                  const size_t page_offset = UINT32_MAX) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

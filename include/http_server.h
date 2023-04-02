@@ -48,7 +48,6 @@ private:
 public:
 
     bool is_req_early_exit = false;
-    bool is_req_http1 = true;
 
     bool is_res_start = true;
     h2o_send_state_t send_state = H2O_SEND_STATE_IN_PROGRESS;
@@ -125,7 +124,6 @@ public:
         h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(res->generator.load());
 
         res_state.is_req_early_exit = (res_generator->rpath->async_req && res->final && !req->last_chunk_aggregate);
-        res_state.is_req_http1 = req->is_http_v1;
         res_state.send_state = res->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
         res_state.generator = (res_generator == nullptr) ? nullptr : &res_generator->h2o_generator;
         res_state.set_response(res->status_code, res->content_type_header, res->body);
@@ -325,6 +323,8 @@ public:
     void do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
     bool trigger_vote();
+
+    bool reset_peers();
 
     void persist_applying_index();
 
