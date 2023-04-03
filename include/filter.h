@@ -5,11 +5,13 @@
 #include "posting_list.h"
 #include "index.h"
 
+class Index;
+
 class filter_result_iterator_t {
 private:
-    std::string collection_name;
-    const Index* index;
-    filter_node_t* filter_node;
+    const std::string collection_name;
+    Index const* const index = nullptr;
+    filter_node_t const* const filter_node = nullptr;
     filter_result_iterator_t* left_it = nullptr;
     filter_result_iterator_t* right_it = nullptr;
 
@@ -49,7 +51,7 @@ public:
     Option<bool> status = Option(true);
 
     explicit filter_result_iterator_t(const std::string& collection_name,
-                                      const Index* index, filter_node_t* filter_node) :
+                                      Index const* const index, filter_node_t const* const filter_node) :
                                       collection_name(collection_name),
                                       index(index),
                                       filter_node(filter_node) {
