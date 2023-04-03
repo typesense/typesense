@@ -283,3 +283,11 @@ http_file(
   sha256 = "55c1c510ca6335c049f5696f3b94ac7be61e84f3e27cd8169021929b3db99651",
   urls = ["https://gist.githubusercontent.com/kishorenc/1d330714eb07019f210f16ccb3991217/raw/bd52e05375d305d5aaa7ac06219af999726933a4/token_offsets.log"],
 )
+
+http_archive(
+    name = "elfutils",
+    build_file = "//bazel:elfutils.BUILD",
+    sha256 = "ecc406914edf335f0b7fc084ebe6c460c4d6d5175bfdd6688c1c78d9146b8858",
+    strip_prefix = "elfutils-0.182",
+    urls = ["https://sourceware.org/elfutils/ftp/0.182/elfutils-0.182.tar.bz2"],
+)
