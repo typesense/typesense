@@ -363,5 +363,18 @@ TEST_F(FilterTest, FilterTreeIterator) {
     }
     ASSERT_FALSE(iter_reset_test.valid());
 
+    auto iter_move_assignment_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+
+    iter_reset_test.reset();
+    iter_move_assignment_test = std::move(iter_reset_test);
+
+    expected = {0, 2, 3, 4};
+    for (auto const& i : expected) {
+        ASSERT_TRUE(iter_move_assignment_test.valid());
+        ASSERT_EQ(i, iter_move_assignment_test.seq_id);
+        iter_move_assignment_test.next();
+    }
+    ASSERT_FALSE(iter_move_assignment_test.valid());
+
     delete filter_tree_root;
 }
