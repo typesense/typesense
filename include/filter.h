@@ -9,9 +9,9 @@ class Index;
 
 class filter_result_iterator_t {
 private:
-    const std::string collection_name;
-    Index const* const index = nullptr;
-    filter_node_t const* const filter_node = nullptr;
+    std::string collection_name;
+    const Index* index = nullptr;
+    const filter_node_t* filter_node = nullptr;
     filter_result_iterator_t* left_it = nullptr;
     filter_result_iterator_t* right_it = nullptr;
 
@@ -50,7 +50,7 @@ public:
     std::map<std::string, reference_filter_result_t> reference;
     Option<bool> status = Option(true);
 
-    explicit filter_result_iterator_t(const std::string& collection_name,
+    explicit filter_result_iterator_t(const std::string collection_name,
                                       Index const* const index, filter_node_t const* const filter_node) :
                                       collection_name(collection_name),
                                       index(index),
@@ -77,6 +77,43 @@ public:
 
         delete left_it;
         delete right_it;
+    }
+
+    filter_result_iterator_t& operator=(filter_result_iterator_t&& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        // In case the filter was on string field.
+        for(auto expanded_plist: expanded_plists) {
+            delete expanded_plist;
+        }
+
+        delete left_it;
+        delete right_it;
+
+        collection_name = obj.collection_name;
+        index = obj.index;
+        filter_node = obj.filter_node;
+        left_it = obj.left_it;
+        right_it = obj.right_it;
+
+        obj.left_it = nullptr;
+        obj.right_it = nullptr;
+
+        result_index = obj.result_index;
+
+        filter_result = std::move(obj.filter_result);
+
+        posting_list_iterators = std::move(obj.posting_list_iterators);
+        expanded_plists = std::move(obj.expanded_plists);
+
+        is_valid = obj.is_valid;
+
+        seq_id = obj.seq_id;
+        reference = std::move(obj.reference);
+        status = std::move(obj.status);
+
+        return *this;
     }
 
     /// Returns the status of the initialization of iterator tree.
