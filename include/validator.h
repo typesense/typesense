@@ -28,6 +28,7 @@ public:
                                                      const std::string & default_sorting_field,
                                                      const tsl::htrie_map<char, field> & search_schema,
                                                      const index_operation_t op,
+                                                     const bool is_update,
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
 

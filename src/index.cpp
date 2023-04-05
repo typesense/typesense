@@ -436,6 +436,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                                                           default_sorting_field,
                                                                           search_schema,
                                                                           index_rec.operation,
+                                                                          index_rec.is_update,
                                                                           fallback_field_type,
                                                                           index_rec.dirty_values);
 
