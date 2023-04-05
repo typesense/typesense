@@ -587,7 +587,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     std::unique_lock lock(mutex);
 
     Option<uint32_t> validation_op = validator_t::validate_index_in_memory(document, seq_id, default_sorting_field,
-                                                                     search_schema, op,
+                                                                     search_schema, op, false,
                                                                      fallback_field_type, dirty_values);
 
     if(!validation_op.ok()) {
@@ -1339,12 +1339,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 return Option<nlohmann::json>(404, error);
             }
         }
-    }
-
-    // check for valid pagination
-    if(page != 0 && page < 1) {
-        std::string message = "Page must be an integer of value greater than 0.";
-        return Option<nlohmann::json>(422, message);
     }
 
     if(per_page > PER_PAGE_MAX) {
@@ -4235,6 +4229,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         auto validate_op = validator_t::validate_index_in_memory(document, seq_id, default_sorting_field,
                                                            updated_search_schema,
                                                            index_operation_t::CREATE,
+                                                           false,
                                                            fallback_field_type,
                                                            DIRTY_VALUES::REJECT);
         if(!validate_op.ok()) {

@@ -1746,6 +1746,22 @@ TEST_F(CollectionSpecificMoreTest, WildcardIncludeExclude) {
     ASSERT_EQ(1, result["hits"][0]["document"].count("username"));
 }
 
+TEST_F(CollectionSpecificMoreTest, EmplaceWithNullValue) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "is_valid", "type": "bool", "optional": true}
+        ]
+    })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["is_valid"] = nullptr;
+    ASSERT_TRUE(coll1->add(doc.dump(), EMPLACE).ok());
+}
+
 TEST_F(CollectionSpecificMoreTest, PhraseMatchRepeatingTokens) {
     nlohmann::json schema = R"({
         "name": "coll1",

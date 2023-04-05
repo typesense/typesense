@@ -1101,6 +1101,13 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+
+    results = coll1->search("*", {}, "loc: (48.90615, 2.34358, 1 km) || "
+                                     "loc: (48.8462, 2.34515, 1 km)",
+                             {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
     // pick location close to none of the spots
     results = coll1->search("*",
                             {}, "loc: (48.910544830985785, 2.337218333651177, 2 km)",

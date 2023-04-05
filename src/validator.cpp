@@ -530,12 +530,13 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
                                                  const std::string & default_sorting_field,
                                                  const tsl::htrie_map<char, field> & search_schema,
                                                  const index_operation_t op,
+                                                 const bool is_update,
                                                  const std::string& fallback_field_type,
                                                  const DIRTY_VALUES& dirty_values) {
 
     bool missing_default_sort_field = (!default_sorting_field.empty() && document.count(default_sorting_field) == 0);
 
-    if((op != UPDATE && op != EMPLACE) && missing_default_sort_field) {
+    if((op == CREATE || op == UPSERT) && missing_default_sort_field) {
         return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
                                                                   "but is not found in the document.");
     }
@@ -560,7 +561,7 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
 
         if(a_field.optional && doc_ele.is_null()) {
             // we will ignore `null` on an option field
-            if(op != UPDATE && op != EMPLACE) {
+            if(!is_update) {
                 // for updates, the erasure is done later since we need to keep the key for overwrite
                 document.erase(field_name);
             }

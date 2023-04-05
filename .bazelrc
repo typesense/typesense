@@ -2,6 +2,7 @@ build --incompatible_strict_action_env
 build --action_env=BAZEL_CXXOPTS="-std=c++17"
 build --define=TYPESENSE_VERSION=\"nightly\"
 build --cxxopt="-std=c++17"
+build --strip=never
 
 build --jobs=6
 test --jobs=6

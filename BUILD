@@ -55,6 +55,16 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "linux_deps",
+    defines = [
+        "NDEBUG",
+    ],
+    deps = [
+        "@elfutils//:libdw",
+    ],
+)
+
 COPTS = [
     "-Wall",
     "-Wextra",
@@ -75,10 +85,13 @@ cc_binary(
     ],
     linkopts = select({
         "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc"],
-        "//conditions:default": [],
     }),
-    copts = COPTS,
-    deps = [":common_deps"],
+    copts = COPTS + select({
+        "@platforms//os:linux": ["-DBACKWARD_HAS_DW=1", "-DBACKWARD_HAS_UNWIND=1"],
+    }),
+    deps = [":common_deps"] +  select({
+        "@platforms//os:linux": [":linux_deps"],
+    }),
 )
 
 cc_binary(

@@ -952,6 +952,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
+    if(!req_params[PAGE].empty() && page == 0 && offset == UINT32_MAX) {
+        return Option<bool>(422, "Parameter `page` must be an integer of value greater than 0.");
+    }
+
     if(req_params[PAGE].empty() && req_params[OFFSET].empty()) {
         page = 1;
     }

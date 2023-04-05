@@ -1058,7 +1058,6 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
                                 FREQUENCY, {true}, 1000, empty, empty, 10);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ(422, res_op.code());
-    ASSERT_STREQ("Page must be an integer of value greater than 0.", res_op.error().c_str());
 
     // do pagination
 
@@ -3031,7 +3030,6 @@ TEST_F(CollectionTest, WildcardQueryReturnsResultsBasedOnPerPageParam) {
                                      FREQUENCY, {false}, 1000, empty, empty, 10);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ(422, res_op.code());
-    ASSERT_STREQ("Page must be an integer of value greater than 0.", res_op.error().c_str());
 
     // do pagination
 
