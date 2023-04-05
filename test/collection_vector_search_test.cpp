@@ -717,3 +717,63 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     ASSERT_EQ(1, results_op.get()["found"].get<size_t>());
     ASSERT_EQ(1, results_op.get()["hits"].size());
 }
+
+TEST_F(CollectionVectorTest, DistanceThresholdTest) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["vec"] = {0.1, 0.2, 0.3};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // write a vector which is 0.5 away from the first vector
+    doc["vec"] = {0.6, 0.7, 0.8};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+
+    auto results_op = coll1->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([0.3,0.4,0.5])");
+
+    ASSERT_EQ(true, results_op.ok());
+    ASSERT_EQ(2, results_op.get()["found"].get<size_t>());
+    ASSERT_EQ(2, results_op.get()["hits"].size());
+
+    ASSERT_FLOAT_EQ(0.6, results_op.get()["hits"][0]["document"]["vec"].get<std::vector<float>>()[0]);
+    ASSERT_FLOAT_EQ(0.7, results_op.get()["hits"][0]["document"]["vec"].get<std::vector<float>>()[1]);
+    ASSERT_FLOAT_EQ(0.8, results_op.get()["hits"][0]["document"]["vec"].get<std::vector<float>>()[2]);
+
+    ASSERT_FLOAT_EQ(0.1, results_op.get()["hits"][1]["document"]["vec"].get<std::vector<float>>()[0]);
+    ASSERT_FLOAT_EQ(0.2, results_op.get()["hits"][1]["document"]["vec"].get<std::vector<float>>()[1]);
+    ASSERT_FLOAT_EQ(0.3, results_op.get()["hits"][1]["document"]["vec"].get<std::vector<float>>()[2]);
+
+    results_op = coll1->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "vec:([0.3,0.4,0.5], distance_threshold:0.01)");
+    
+    ASSERT_EQ(true, results_op.ok());
+    ASSERT_EQ(1, results_op.get()["found"].get<size_t>());
+    ASSERT_EQ(1, results_op.get()["hits"].size());
+
+    ASSERT_FLOAT_EQ(0.6, results_op.get()["hits"][0]["document"]["vec"].get<std::vector<float>>()[0]);
+    ASSERT_FLOAT_EQ(0.7, results_op.get()["hits"][0]["document"]["vec"].get<std::vector<float>>()[1]);
+    ASSERT_FLOAT_EQ(0.8, results_op.get()["hits"][0]["document"]["vec"].get<std::vector<float>>()[2]);
+
+
+}

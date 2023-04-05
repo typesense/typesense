@@ -4620,7 +4620,7 @@ TEST_F(CollectionTest, SemanticSearchTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4655,7 +4655,7 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4686,7 +4686,7 @@ TEST_F(CollectionTest, HybridSearch) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4719,7 +4719,7 @@ TEST_F(CollectionTest, EmbedFielsTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4747,7 +4747,7 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4821,7 +4821,7 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
                         ]
                     })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4853,7 +4853,7 @@ TEST_F(CollectionTest, EmbeddingFieldsMapTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4891,7 +4891,7 @@ TEST_F(CollectionTest, EmbedStringArrayField) {
                     ]
                 })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4907,28 +4907,29 @@ TEST_F(CollectionTest, EmbedStringArrayField) {
     ASSERT_TRUE(add_op.ok());
 }
     
-TEST_F(CollectionTest, UpdateSchemaWithNewEmbeddingField) {
+TEST_F(CollectionTest, MissingFieldForEmbedding) {
     nlohmann::json schema = R"({
-                "name": "objects",
-                "fields": [
-                {"name": "names", "type": "string[]"}
-                ]
-            })"_json;
-
+                    "name": "objects",
+                    "fields": [
+                    {"name": "names", "type": "string[]"},
+                    {"name": "category", "type": "string"},
+                    {"name": "embedding", "type":"float[]", "create_from": ["names", "category"]}
+                    ]
+                })"_json;
     
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     Collection* coll = op.get();
 
-    nlohmann::json update_schema = R"({
-                "fields": [
-                {"name": "embedding", "type":"float[]", "create_from": ["names"]}
-                ]
-            })"_json;
-    
-    auto res = coll->alter(update_schema);
+    nlohmann::json doc;
+    doc["names"].push_back("butter");
+    doc["names"].push_back("butterfly");
+    doc["names"].push_back("butterball");
 
-    ASSERT_FALSE(res.ok());
-    ASSERT_EQ("Embedding fields can only be added at the time of collection creation.", res.error());
+    auto add_op = coll->add(doc.dump());
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `category` is needed to create embedding.", add_op.error());
 }
-

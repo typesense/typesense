@@ -146,13 +146,13 @@ Option<bool> VectorQueryOps::parse_vector_query_str(std::string vector_query_str
                     vector_query.flat_search_cutoff = std::stoi(param_kv[1]);
                 }
 
-                if(param_kv[0] == "similarity_cutoff") {
-                    if(!StringUtils::is_float(param_kv[1])) {
+                if(param_kv[0] == "distance_threshold") {
+                    if(!StringUtils::is_float(param_kv[1]) || std::stof(param_kv[1]) < 0.0 || std::stof(param_kv[1]) > 2.0) {
                         return Option<bool>(400, "Malformed vector query string: "
-                                                 "`similarity_cutoff` parameter must be a float.");
+                                                 "`distance_threshold` parameter must be a float between 0.0-2.0.");
                     }
 
-                    vector_query.similarity_cutoff = std::stof(param_kv[1]);
+                    vector_query.distance_threshold = std::stof(param_kv[1]);
                 }
             }
 

@@ -209,6 +209,9 @@ private:
                                                       std::vector<sort_by>& sort_fields_std,
                                                       bool is_wildcard_query, bool is_group_by_query = false) const;
 
+    
+    Option<bool> validate_embed_fields(const nlohmann::json& document, const bool& error_if_field_not_found) const;
+
     Option<bool> persist_collection_meta();
 
     Option<bool> batch_alter_data(const std::vector<field>& alter_fields,

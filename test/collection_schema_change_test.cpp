@@ -1446,3 +1446,70 @@ TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(2, res_op.get()["found"].get<size_t>());
 }
+
+TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "names", "type": "string[]"}
+                ]
+            })"_json;
+
+    
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json update_schema = R"({
+                "fields": [
+                {"name": "embedding", "type":"float[]", "create_from": ["names"]}
+                ]
+            })"_json;
+    
+    auto res = coll->alter(update_schema);
+
+    ASSERT_FALSE(res.ok());
+    ASSERT_EQ("Embedding fields can only be added at the time of collection creation.", res.error());
+}
+
+TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+            {"name": "names", "type": "string[]"},
+            {"name": "category", "type":"string"}, 
+            {"name": "embedding", "type":"float[]", "create_from": ["names","category"]}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    LOG(INFO) << "Created collection";
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "names", "drop": true}
+        ]
+    })"_json;
+
+    LOG(INFO) << "Dropping field";
+
+    auto embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(2, embedding_fields["embedding"].create_from.size());
+
+    LOG(INFO) << "Before alter";
+
+    auto alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    LOG(INFO) << "After alter";
+
+    embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(1, embedding_fields["embedding"].create_from.size());
+    ASSERT_EQ("category", embedding_fields["embedding"].create_from[0]);
+}

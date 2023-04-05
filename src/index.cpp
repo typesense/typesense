@@ -2882,7 +2882,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
                                       dist_label.first;
                                       
-                if(vector_query.similarity_cutoff > 0 && vec_dist_score > vector_query.similarity_cutoff) {
+                if(vec_dist_score > vector_query.distance_threshold) {
                     continue;
                 }
 
@@ -3105,10 +3105,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                     auto vec_dist_score = (field_vector_index->distance_type == cosine) ? std::abs(dist_label.first) :
                                             dist_label.first;
-                    if(vector_query.similarity_cutoff > 0) {
-                        if(vec_dist_score > vector_query.similarity_cutoff) {
-                            continue;
-                        }
+                    if(vec_dist_score > vector_query.distance_threshold) {
+                        continue;
                     }
                     vec_results.emplace_back(seq_id, vec_dist_score);
                 }
