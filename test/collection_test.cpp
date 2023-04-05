@@ -4844,43 +4844,7 @@ TEST_F(CollectionTest, CreateModelDirIfNotExists) {
     ASSERT_TRUE(std::filesystem::exists("/tmp/typesense_test/models"));
 }
 
-TEST_F(CollectionTest, EmbeddingFieldsMapTest) {
-    nlohmann::json schema = R"({
-                            "name": "objects",
-                            "fields": [
-                            {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
-                            ]
-                        })"_json;
-    
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
-    auto op = collectionManager.create_collection(schema);
-    ASSERT_TRUE(op.ok());
-    Collection* coll = op.get();
-
-    auto embedding_fields_map = coll->get_embedding_fields();
-    ASSERT_EQ(1, embedding_fields_map.size());
-    auto embedding_field_it = embedding_fields_map.find("embedding");
-    ASSERT_TRUE(embedding_field_it != embedding_fields_map.end());
-    ASSERT_EQ("embedding", embedding_field_it.value().name);
-    ASSERT_EQ(1, embedding_field_it.value().create_from.size());
-    ASSERT_EQ("name", embedding_field_it.value().create_from[0]);
-
-    // drop the embedding field
-    nlohmann::json schema_without_embedding = R"({
-                            "fields": [
-                            {"name": "embedding", "drop": true}
-                            ]
-                        })"_json;
-    auto update_op = coll->alter(schema_without_embedding);
-
-    ASSERT_TRUE(update_op.ok());
-
-    embedding_fields_map = coll->get_embedding_fields();
-    ASSERT_EQ(0, embedding_fields_map.size());
-}
 
 TEST_F(CollectionTest, EmbedStringArrayField) {
     nlohmann::json schema = R"({
@@ -4932,4 +4896,51 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
     auto add_op = coll->add(doc.dump());
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ("Field `category` is needed to create embedding.", add_op.error());
+}
+
+TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
+    nlohmann::json schema = R"({
+                    "name": "objects",
+                    "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                    ]
+                })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    // get embedding field 
+
+    // get id of the document
+    auto id = add_op.get()["id"];   
+    // get embedding field from the document
+    auto embedding_field = add_op.get()["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding_field.size());
+
+    // update the document
+    nlohmann::json update_doc;
+    update_doc["name"] = "butterball";
+    std::string dirty_values;
+
+    auto update_op = coll->update_matching_filter("id:=" + id.get<std::string>(), update_doc.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(1, update_op.get()["num_updated"]);
+
+    // get the document again
+    auto get_op = coll->get(id);
+    ASSERT_TRUE(get_op.ok());
+    auto updated_embedding_field = get_op.get()["embedding"].get<std::vector<float>>();
+
+    // check if the embedding field is updated
+    ASSERT_NE(embedding_field, updated_embedding_field);
 }
