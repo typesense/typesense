@@ -594,3 +594,48 @@ void filter_result_iterator_t::reset() {
         return;
     }
 }
+
+uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
+    if (!valid()) {
+        return 0;
+    }
+
+    std::vector<uint32_t> filter_ids;
+    do {
+        filter_ids.push_back(seq_id);
+        next();
+    } while (valid());
+
+    filter_array = new uint32_t[filter_ids.size()];
+    std::copy(filter_ids.begin(), filter_ids.end(), filter_array);
+
+    return filter_ids.size();
+}
+
+uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results) {
+    if (!valid()) {
+        return 0;
+    }
+
+    std::vector<uint32_t> filter_ids;
+    for (uint32_t i = 0; i < lenA; i++) {
+        auto result = valid(A[i]);
+
+        if (result == -1) {
+            break;
+        }
+
+        if (result == 1) {
+            filter_ids.push_back(A[i]);
+        }
+    }
+
+    if (filter_ids.empty()) {
+        return 0;
+    }
+
+    results = new uint32_t[filter_ids.size()];
+    std::copy(filter_ids.begin(), filter_ids.end(), results);
+
+    return filter_ids.size();
+}

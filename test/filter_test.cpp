@@ -377,4 +377,43 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_FALSE(iter_move_assignment_test.valid());
 
     delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
+                                                filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_to_array_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_to_array_test.init_status().ok());
+
+    uint32_t* filter_ids = nullptr;
+    uint32_t filter_ids_length;
+
+    filter_ids_length = iter_to_array_test.to_filter_id_array(filter_ids);
+    ASSERT_EQ(3, filter_ids_length);
+
+    expected = {0, 2, 4};
+    for (uint32_t i = 0; i < filter_ids_length; i++) {
+        ASSERT_EQ(expected[i], filter_ids[i]);
+    }
+    ASSERT_FALSE(iter_to_array_test.valid());
+
+    delete filter_ids;
+
+    auto iter_and_scalar_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_and_scalar_test.init_status().ok());
+
+    uint32_t a_ids[6] = {0, 1, 3, 4, 5, 6};
+    uint32_t* and_result = nullptr;
+    uint32_t and_result_length;
+    and_result_length = iter_and_scalar_test.and_scalar(a_ids, 6, and_result);
+    ASSERT_EQ(2, and_result_length);
+
+    expected = {0, 4};
+    for (uint32_t i = 0; i < and_result_length; i++) {
+        ASSERT_EQ(expected[i], and_result[i]);
+    }
+    ASSERT_FALSE(iter_and_test.valid());
+
+    delete and_result;
+    delete filter_tree_root;
 }

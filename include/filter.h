@@ -2,10 +2,14 @@
 
 #include <string>
 #include <map>
+#include <field.h>
 #include "posting_list.h"
 #include "index.h"
 
 class Index;
+struct filter_node_t;
+struct reference_filter_result_t;
+struct filter_result_t;
 
 class filter_result_iterator_t {
 private:
@@ -52,9 +56,9 @@ public:
 
     explicit filter_result_iterator_t(const std::string collection_name,
                                       Index const* const index, filter_node_t const* const filter_node) :
-                                      collection_name(collection_name),
-                                      index(index),
-                                      filter_node(filter_node) {
+            collection_name(collection_name),
+            index(index),
+            filter_node(filter_node) {
         if (filter_node == nullptr) {
             is_valid = false;
             return;
@@ -143,4 +147,10 @@ public:
 
     /// Returns to the initial state of the iterator.
     void reset();
+
+    /// Iterates and collects all the filter ids into filter_array.
+    /// \return size of the filter array
+    uint32_t to_filter_id_array(uint32_t*& filter_array);
+
+    uint32_t and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results);
 };
