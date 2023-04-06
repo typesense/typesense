@@ -1847,6 +1847,62 @@ TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopointArray) {
     ASSERT_EQ("Field `addresses.geoPoint` must be an array of geopoint.", create_op.error());
 }
 
+TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopoint) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "enable_nested_fields": true,
+            "fields": [
+              {"name": "address.geoPoint", "type": "geopoint"}
+            ]
+        })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({"address": {"geoPoint": [19.07283, 72.88261]}})"_json;
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    LOG(INFO) << add_op.error();
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "address.geoPoint: (19.07, 72.882, 1 mi)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // data validation
+    auto bad_doc = R"({
+        "address": {"geoPoint": [1.91, "x"]}
+    })"_json;
+
+    auto create_op = coll1->add(bad_doc.dump(), CREATE);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Field `address.geoPoint` has an incorrect type.", create_op.error());
+
+    bad_doc = R"({
+        "address": {"geoPoint": [[1.91, "x"]]}
+    })"_json;
+
+    create_op = coll1->add(bad_doc.dump(), CREATE);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Field `address.geoPoint` must be a 2 element array: [lat, lng].", create_op.error());
+
+    // with nested array field
+    bad_doc = R"({
+        "address": [
+            {"geoPoint": [1.91, 2.56]},
+            {"geoPoint": [2.91, 3.56]}
+        ]
+    })"_json;
+
+    create_op = coll1->add(bad_doc.dump(), CREATE);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Field `address.geoPoint` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", create_op.error());
+}
+
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false, true),
                                  field("education.name", field_types::STRING_ARRAY, true, true),
