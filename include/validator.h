@@ -27,6 +27,7 @@ public:
     static Option<uint32_t> validate_index_in_memory(nlohmann::json &document, uint32_t seq_id,
                                                      const std::string & default_sorting_field,
                                                      const tsl::htrie_map<char, field> & search_schema,
+                                                     const tsl::htrie_map<char, field> & embedding_fields,
                                                      const index_operation_t op,
                                                      const bool is_update,
                                                      const std::string& fallback_field_type,
@@ -66,5 +67,10 @@ public:
                                             nlohmann::json& lat, nlohmann::json& lng,
                                             nlohmann::json::iterator& array_iter,
                                             bool is_array, bool& array_ele_erased);
+
+    static Option<bool> validate_embed_fields(const nlohmann::json& document, 
+                                        const tsl::htrie_map<char, field>& embedding_fields, 
+                                        const tsl::htrie_map<char, field> & search_schema,
+                                        const bool& error_if_field_not_found);
 
 };

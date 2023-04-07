@@ -210,8 +210,6 @@ private:
                                                       bool is_wildcard_query, bool is_group_by_query = false) const;
 
     
-    Option<bool> validate_embed_fields(const nlohmann::json& document, const bool& error_if_field_not_found) const;
-
     Option<bool> persist_collection_meta();
 
     Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
@@ -358,9 +356,6 @@ public:
                                 const DIRTY_VALUES dirty_values,
                                 const std::string& id="");
 
-    Option<bool> embed_fields(nlohmann::json& document);
-
-    Option<bool> embed_fields_update(const nlohmann::json& old_doc, nlohmann::json& new_doc);
 
     static uint32_t get_seq_id_from_key(const std::string & key);
 

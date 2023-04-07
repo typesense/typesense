@@ -411,6 +411,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                     const size_t batch_start_index, const size_t batch_size,
                                     const std::string& default_sorting_field,
                                     const tsl::htrie_map<char, field>& search_schema,
+                                    const tsl::htrie_map<char, field>& embedding_fields,
                                     const std::string& fallback_field_type,
                                     const std::vector<char>& token_separators,
                                     const std::vector<char>& symbols_to_index,
@@ -435,6 +436,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 Option<uint32_t> validation_op = validator_t::validate_index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                           default_sorting_field,
                                                                           search_schema,
+                                                                          embedding_fields,
                                                                           index_rec.operation,
                                                                           index_rec.is_update,
                                                                           fallback_field_type,
@@ -451,6 +453,9 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 get_doc_changes(index_rec.operation, index_rec.doc, index_rec.old_doc, index_rec.new_doc,
                                 index_rec.del_doc);
                 scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
+                embed_fields(index_rec.new_doc, embedding_fields, search_schema);
+            } else {
+                embed_fields(index_rec.doc, embedding_fields, search_schema);
             }
 
             compute_token_offsets_facets(index_rec, search_schema, token_separators, symbols_to_index);
@@ -485,6 +490,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
 size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_batch,
                                  const std::string & default_sorting_field,
                                  const tsl::htrie_map<char, field> & search_schema,
+                                 const tsl::htrie_map<char, field> & embedding_fields,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
@@ -518,7 +524,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
         index->thread_pool->enqueue([&, batch_index, batch_len]() {
             write_log_index = local_write_log_index;
             validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, search_schema,
-                                    fallback_field_type, token_separators, symbols_to_index, do_validation);
+                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation);
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
@@ -6257,6 +6263,61 @@ bool Index::common_results_exist(std::vector<art_leaf*>& leaves, bool must_match
     return phrase_exists;
 }
 
+Option<bool> Index::embed_fields(nlohmann::json& document, 
+                                 const tsl::htrie_map<char, field>& embedding_fields,
+                                 const tsl::htrie_map<char, field> & search_schema) {
+    for(const auto& field : embedding_fields) {
+        std::string text_to_embed;
+        for(const auto& field_name : field.embed_from) {
+            auto field_it = search_schema.find(field_name);
+            if(field_it.value().type == field_types::STRING) {
+                text_to_embed += document[field_name].get<std::string>() + " ";
+            } else if(field_it.value().type == field_types::STRING_ARRAY) {
+                for(const auto& val : document[field_name]) {
+                    text_to_embed += val.get<std::string>() + " ";
+                }
+            }
+        }
+        TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
+        auto embedder = embedder_manager.get_text_embedder(field.model_name.size() > 0 ? field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
+        std::vector<float> embedding = embedder->Embed(text_to_embed);
+        document[field.name] = embedding;
+    }
+
+    return Option<bool>(true);
+}
+
+
+Option<bool> Index::embed_fields_update(const nlohmann::json& old_doc, nlohmann::json& new_doc, 
+                                        const tsl::htrie_map<char, field>& embedding_fields, 
+                                        const tsl::htrie_map<char, field> & search_schema) {
+    nlohmann::json new_doc_copy = new_doc;
+    for(const auto& field : embedding_fields) {
+        std::string text_to_embed;
+        for(const auto& field_name : field.embed_from) {
+            auto field_it = search_schema.find(field_name);
+            nlohmann::json value = (new_doc.find(field_name) != new_doc.end()) ? new_doc[field_name] : old_doc[field_name];
+            if(field_it.value().type == field_types::STRING) {
+                text_to_embed += value.get<std::string>() + " ";
+            } else if(field_it.value().type == field_types::STRING_ARRAY) {
+                for(const auto& val : value) {
+                    text_to_embed += val.get<std::string>() + " ";
+                }
+            }
+        }
+
+        TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
+        auto embedder = embedder_manager.get_text_embedder(field.model_name.size() > 0 ? field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
+        std::vector<float> embedding = embedder->Embed(text_to_embed);
+        new_doc_copy[field.name] = embedding;
+    }
+    new_doc = new_doc_copy;
+    return Option<bool>(true);
+}
+
+
+
+
 /*
 // https://stackoverflow.com/questions/924171/geo-fencing-point-inside-outside-polygon
 // NOTE: polygon and point should have been transformed with `transform_for_180th_meridian`
@@ -6302,3 +6363,4 @@ void Index::transform_for_180th_meridian(GeoCoord &point, double offset) {
     point.lon = point.lon < 0.0 ? point.lon + offset : point.lon;
 }
 */
+

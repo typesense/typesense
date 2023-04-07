@@ -683,7 +683,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
         "name": "coll1",
         "fields": [
             {"name": "name", "type": "string"},
-            {"name": "vec", "type": "float[]", "create_from": ["name"]}
+            {"name": "vec", "type": "float[]", "embed_from": ["name"]}
         ]
     })"_json;
 

@@ -532,6 +532,16 @@ private:
                                    const std::string& token, uint32_t seq_id);
 
     void initialize_facet_indexes(const field& facet_field);
+
+
+
+    static Option<bool> embed_fields(nlohmann::json& document, 
+                                            const tsl::htrie_map<char, field>& embedding_fields,
+                                            const tsl::htrie_map<char, field> & search_schema);          
+                        
+    static Option<bool> embed_fields_update(const nlohmann::json& old_doc, nlohmann::json& new_doc, 
+                                            const tsl::htrie_map<char, field>& embedding_fields, 
+                                            const tsl::htrie_map<char, field> & search_schema);
     
 public:
     // for limiting number of results on multiple candidates / query rewrites
@@ -663,6 +673,7 @@ public:
                                           const size_t batch_start_index, const size_t batch_size,
                                           const std::string & default_sorting_field,
                                           const tsl::htrie_map<char, field> & search_schema,
+                                          const tsl::htrie_map<char, field> & embedding_fields,
                                           const std::string& fallback_field_type,
                                           const std::vector<char>& token_separators,
                                           const std::vector<char>& symbols_to_index,
@@ -672,6 +683,7 @@ public:
                                      std::vector<index_record>& iter_batch,
                                      const std::string& default_sorting_field,
                                      const tsl::htrie_map<char, field>& search_schema,
+                                     const tsl::htrie_map<char, field> & embedding_fields,
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,

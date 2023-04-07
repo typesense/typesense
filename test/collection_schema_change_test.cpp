@@ -1462,7 +1462,7 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
 
     nlohmann::json update_schema = R"({
                 "fields": [
-                {"name": "embedding", "type":"float[]", "create_from": ["names"]}
+                {"name": "embedding", "type":"float[]", "embed_from": ["names"]}
                 ]
             })"_json;
     
@@ -1478,7 +1478,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
             "fields": [
             {"name": "names", "type": "string[]"},
             {"name": "category", "type":"string"}, 
-            {"name": "embedding", "type":"float[]", "create_from": ["names","category"]}
+            {"name": "embedding", "type":"float[]", "embed_from": ["names","category"]}
             ]
         })"_json;
 
@@ -1500,7 +1500,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
     LOG(INFO) << "Dropping field";
 
     auto embedding_fields = coll->get_embedding_fields();
-    ASSERT_EQ(2, embedding_fields["embedding"].create_from.size());
+    ASSERT_EQ(2, embedding_fields["embedding"].embed_from.size());
 
     LOG(INFO) << "Before alter";
 
@@ -1510,8 +1510,8 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
     LOG(INFO) << "After alter";
 
     embedding_fields = coll->get_embedding_fields();
-    ASSERT_EQ(1, embedding_fields["embedding"].create_from.size());
-    ASSERT_EQ("category", embedding_fields["embedding"].create_from[0]);
+    ASSERT_EQ(1, embedding_fields["embedding"].embed_from.size());
+    ASSERT_EQ("category", embedding_fields["embedding"].embed_from[0]);
 }
 
 TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
@@ -1519,7 +1519,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
                             ]
                         })"_json;
     
@@ -1535,8 +1535,8 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
     auto embedding_field_it = embedding_fields_map.find("embedding");
     ASSERT_TRUE(embedding_field_it != embedding_fields_map.end());
     ASSERT_EQ("embedding", embedding_field_it.value().name);
-    ASSERT_EQ(1, embedding_field_it.value().create_from.size());
-    ASSERT_EQ("name", embedding_field_it.value().create_from[0]);
+    ASSERT_EQ(1, embedding_field_it.value().embed_from.size());
+    ASSERT_EQ("name", embedding_field_it.value().embed_from[0]);
 
     // drop the embedding field
     nlohmann::json schema_without_embedding = R"({

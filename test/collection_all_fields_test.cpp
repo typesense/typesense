@@ -1597,7 +1597,7 @@ TEST_F(CollectionAllFieldsTest, CreateFromFieldJSONInvalidField) {
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
-    field_json["create_from"] = {"name"};
+    field_json["embed_from"] = {"name"};
 
     std::vector<field> fields;
     std::string fallback_field_type;
@@ -1607,7 +1607,7 @@ TEST_F(CollectionAllFieldsTest, CreateFromFieldJSONInvalidField) {
     auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
 
     ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `create_from` can only be used with string or string array fields.", field_op.error());
+    ASSERT_EQ("Property `embed_from` can only be used with string or string array fields.", field_op.error());
 }
 
 TEST_F(CollectionAllFieldsTest, CreateFromFieldNoModelDir) {
@@ -1615,7 +1615,7 @@ TEST_F(CollectionAllFieldsTest, CreateFromFieldNoModelDir) {
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
-    field_json["create_from"] = {"name"};
+    field_json["embed_from"] = {"name"};
 
     std::vector<field> fields;
     std::string fallback_field_type;
@@ -1633,7 +1633,7 @@ TEST_F(CollectionAllFieldsTest, CreateFromNotArray) {
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
-    field_json["create_from"] = "name";
+    field_json["embed_from"] = "name";
 
     std::vector<field> fields;
     std::string fallback_field_type;
@@ -1643,7 +1643,7 @@ TEST_F(CollectionAllFieldsTest, CreateFromNotArray) {
     auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
 
     ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `create_from` must be an array.", field_op.error());
+    ASSERT_EQ("Property `embed_from` must be an array.", field_op.error());
 }
 
 TEST_F(CollectionAllFieldsTest, ModelPathWithoutCreateFrom) {
@@ -1660,7 +1660,7 @@ TEST_F(CollectionAllFieldsTest, ModelPathWithoutCreateFrom) {
 
     auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
     ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `model_name` can only be used with `create_from`.", field_op.error());
+    ASSERT_EQ("Property `model_name` can only be used with `embed_from`.", field_op.error());
 }
 
 
@@ -1670,7 +1670,7 @@ TEST_F(CollectionAllFieldsTest, CreateFromBasicValid) {
     TextEmbedderManager::download_default_model();
 
     field embedding = field("embedding", field_types::FLOAT_ARRAY, false);
-    embedding.create_from.push_back("name");
+    embedding.embed_from.push_back("name");
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  embedding};
     auto obj_coll_op = collectionManager.create_collection("obj_coll", 1, fields, "", 0, field_types::AUTO);
