@@ -538,10 +538,6 @@ private:
     static Option<bool> embed_fields(nlohmann::json& document, 
                                             const tsl::htrie_map<char, field>& embedding_fields,
                                             const tsl::htrie_map<char, field> & search_schema);          
-                        
-    static Option<bool> embed_fields_update(const nlohmann::json& old_doc, nlohmann::json& new_doc, 
-                                            const tsl::htrie_map<char, field>& embedding_fields, 
-                                            const tsl::htrie_map<char, field> & search_schema);
     
 public:
     // for limiting number of results on multiple candidates / query rewrites

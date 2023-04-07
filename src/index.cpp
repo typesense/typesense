@@ -6287,37 +6287,6 @@ Option<bool> Index::embed_fields(nlohmann::json& document,
     return Option<bool>(true);
 }
 
-
-Option<bool> Index::embed_fields_update(const nlohmann::json& old_doc, nlohmann::json& new_doc, 
-                                        const tsl::htrie_map<char, field>& embedding_fields, 
-                                        const tsl::htrie_map<char, field> & search_schema) {
-    nlohmann::json new_doc_copy = new_doc;
-    for(const auto& field : embedding_fields) {
-        std::string text_to_embed;
-        for(const auto& field_name : field.embed_from) {
-            auto field_it = search_schema.find(field_name);
-            nlohmann::json value = (new_doc.find(field_name) != new_doc.end()) ? new_doc[field_name] : old_doc[field_name];
-            if(field_it.value().type == field_types::STRING) {
-                text_to_embed += value.get<std::string>() + " ";
-            } else if(field_it.value().type == field_types::STRING_ARRAY) {
-                for(const auto& val : value) {
-                    text_to_embed += val.get<std::string>() + " ";
-                }
-            }
-        }
-
-        TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-        auto embedder = embedder_manager.get_text_embedder(field.model_name.size() > 0 ? field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
-        std::vector<float> embedding = embedder->Embed(text_to_embed);
-        new_doc_copy[field.name] = embedding;
-    }
-    new_doc = new_doc_copy;
-    return Option<bool>(true);
-}
-
-
-
-
 /*
 // https://stackoverflow.com/questions/924171/geo-fencing-point-inside-outside-polygon
 // NOTE: polygon and point should have been transformed with `transform_for_180th_meridian`
