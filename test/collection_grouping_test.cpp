@@ -331,8 +331,8 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
     ASSERT_EQ(2, results["grouped_hits"][2]["found"].get<int32_t>());
     ASSERT_STREQ("country", results["grouped_hits"][2]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][2]["hits"].size());
-    ASSERT_STREQ("3", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("8", results["grouped_hits"][2]["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["grouped_hits"][2]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

@@ -3810,7 +3810,7 @@ TEST_F(CollectionTest, MultiFieldMatchRankingOnArray) {
     }
 
     auto results = coll1->search("golang vue",
-                                 {"strong_skills", "skills"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+                                 {"strong_skills", "skills"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 1).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());

@@ -1813,11 +1813,10 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultiplePlaceholders) {
     auto results = coll1->search("Nike Air Jordan light yellow shoes", {"name", "category", "brand"}, "",
                             {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false}, 10).get();
 
-    // not happy with this order (0,2,1 is better)
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
 
     // query with tokens at the start that preceding the placeholders in the rule
     results = coll1->search("New Nike Air Jordan yellow shoes", {"name", "category", "brand"}, "",
@@ -1997,9 +1996,9 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithNumericalFilter) {
 
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
 
     results = coll1->search("adidas", {"name", "category", "brand"}, "",
                             {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false}, 10).get();
