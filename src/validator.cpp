@@ -529,6 +529,7 @@ Option<uint32_t> validator_t::coerce_float(const DIRTY_VALUES& dirty_values, con
 Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document, uint32_t seq_id,
                                                  const std::string & default_sorting_field,
                                                  const tsl::htrie_map<char, field> & search_schema,
+                                                 const tsl::htrie_map<char, field> & embedding_fields,
                                                  const index_operation_t op,
                                                  const bool is_update,
                                                  const std::string& fallback_field_type,
@@ -543,6 +544,11 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
 
     for(const auto& a_field: search_schema) {
         const std::string& field_name = a_field.name;
+
+        // ignore embedding fields, they will be validated later
+        if(embedding_fields.count(field_name) > 0) {
+            continue;
+        }
 
         if(field_name == "id" || a_field.is_object()) {
             continue;
@@ -574,5 +580,50 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
         }
     }
 
+    // validate embedding fields
+    auto validate_embed_op = validate_embed_fields(document, embedding_fields, search_schema, !is_update);
+    if(!validate_embed_op.ok()) {
+        return Option<>(validate_embed_op.code(), validate_embed_op.error());
+    }
+    
     return Option<>(200);
+}
+
+
+Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document, 
+                                          const tsl::htrie_map<char, field>& embedding_fields, 
+                                          const tsl::htrie_map<char, field> & search_schema,
+                                          const bool& error_if_field_not_found) {
+    if(!embedding_fields.empty() && TextEmbedderManager::model_dir.empty()) {
+        return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
+    }
+    for(const auto& field : embedding_fields) {
+        for(const auto& field_name : field.embed_from) {
+            auto schema_field_it = search_schema.find(field_name);
+            auto doc_field_it = document.find(field_name);
+            if(schema_field_it == search_schema.end()) {
+                return Option<bool>(400, "Field `" + field.name + "` has invalid fields to create embeddings from.");
+            }
+            if(doc_field_it == document.end()) {
+                if(error_if_field_not_found) {
+                    return Option<bool>(400, "Field `" + field_name + "` is needed to create embedding.");
+                } else {
+                    continue;
+                }
+            }
+            if((schema_field_it.value().type == field_types::STRING && !doc_field_it.value().is_string()) || 
+                (schema_field_it.value().type == field_types::STRING_ARRAY && !doc_field_it.value().is_array())) {
+                return Option<bool>(400, "Field `" + field_name + "` has malformed data.");
+            }
+            if(doc_field_it.value().is_array()) {
+                for(const auto& val : doc_field_it.value()) {
+                    if(!val.is_string()) {
+                        return Option<bool>(400, "Field `" + field_name + "` has malformed data.");
+                    }
+                }
+            }
+        }
+    }
+
+    return Option<bool>(true);
 }

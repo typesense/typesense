@@ -120,6 +120,8 @@ private:
 
     tsl::htrie_map<char, field> nested_fields;
 
+    tsl::htrie_map<char, field> embedding_fields;
+
     bool enable_nested_fields;
 
     std::vector<char> symbols_to_index;
@@ -159,6 +161,8 @@ private:
                           bool& found_full_highlight) const;
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
+
+    void process_remove_field_for_embedding_fields(const field& the_field, std::vector<field>& garbage_fields);
 
     void curate_results(string& actual_query, const string& filter_query, bool enable_overrides, bool already_segmented,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
@@ -205,6 +209,7 @@ private:
                                                       std::vector<sort_by>& sort_fields_std,
                                                       bool is_wildcard_query, bool is_group_by_query = false) const;
 
+    
     Option<bool> persist_collection_meta();
 
     Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
@@ -342,6 +347,8 @@ public:
 
     tsl::htrie_map<char, field> get_nested_fields();
 
+    tsl::htrie_map<char, field> get_embedding_fields();
+
     std::string get_default_sorting_field();
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
@@ -349,7 +356,6 @@ public:
                                 const DIRTY_VALUES dirty_values,
                                 const std::string& id="");
 
-    Option<bool> embed_fields(nlohmann::json& document);
 
     static uint32_t get_seq_id_from_key(const std::string & key);
 

@@ -1,6 +1,6 @@
 #pragma once
 
-
+#include <filesystem>
 #include <unordered_map>
 #include <openssl/md5.h>
 #include <fstream>
@@ -43,6 +43,10 @@ public:
     }
 
     static void set_model_dir(const std::string& dir) {
+        // create the directory if it doesn't exist
+        if(!std::filesystem::exists(dir)) {
+            std::filesystem::create_directories(dir);
+        }
         model_dir = dir;
     }
 

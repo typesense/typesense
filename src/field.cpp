@@ -672,11 +672,11 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
-    if(field_json.count(fields::model_name) > 0 && field_json.count(fields::create_from) == 0) {
-        return Option<bool>(400, "Property `" + fields::model_name + "` can only be used with `" + fields::create_from + "`.");
+    if(field_json.count(fields::model_name) > 0 && field_json.count(fields::embed_from) == 0) {
+        return Option<bool>(400, "Property `" + fields::model_name + "` can only be used with `" + fields::embed_from + "`.");
     }
 
-    if(field_json.count(fields::create_from) != 0) {
+    if(field_json.count(fields::embed_from) != 0) {
         // If the model path is not specified, use the default model and set the number of dimensions to 384 (number of dimensions of the default model)
         field_json[fields::num_dim] = static_cast<unsigned int>(384);
         if(field_json.count(fields::model_name) != 0) {
@@ -695,7 +695,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             }
         }
     } else {
-        field_json[fields::create_from] = std::vector<std::string>();
+        field_json[fields::embed_from] = std::vector<std::string>();
     }
 
 
@@ -784,7 +784,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
-                  field_json[fields::reference], field_json[fields::create_from].get<std::vector<std::string>>(),
+                  field_json[fields::reference], field_json[fields::embed_from].get<std::vector<std::string>>(),
                   field_json[fields::model_name])
     );
 

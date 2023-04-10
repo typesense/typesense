@@ -50,7 +50,7 @@ namespace fields {
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
-    static const std::string create_from = "create_from";
+    static const std::string embed_from = "embed_from";
     static const std::string model_name = "model_name";
 }
 
@@ -77,7 +77,7 @@ struct field {
     int nested_array;
 
     size_t num_dim;
-    std::vector<std::string> create_from;
+    std::vector<std::string> embed_from;
     std::string model_name;
     vector_distance_type_t vec_dist;
 
@@ -89,9 +89,9 @@ struct field {
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &create_from = {}, const std::string& model_name = "") :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &embed_from = {}, const std::string& model_name = "") :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), create_from(create_from), model_name(model_name) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed_from(embed_from), model_name(model_name) {
 
         set_computed_defaults(sort, infix);
     }
@@ -319,8 +319,8 @@ struct field {
             if (!field.reference.empty()) {
                 field_val[fields::reference] = field.reference;
             }
-            if(!field.create_from.empty()) {
-                field_val[fields::create_from] = field.create_from;
+            if(!field.embed_from.empty()) {
+                field_val[fields::embed_from] = field.embed_from;
                 if(!field.model_name.empty()) {
                     field_val[fields::model_name] = field.model_name;
                 }
@@ -421,36 +421,36 @@ struct field {
 
         for(nlohmann::json & field_json: fields_json) {
 
-            if(field_json.count(fields::create_from) != 0) {
+            if(field_json.count(fields::embed_from) != 0) {
                 if(TextEmbedderManager::model_dir.empty()) {
                     return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
                 }
 
-                if(!field_json[fields::create_from].is_array()) {
-                    return Option<bool>(400, "Property `" + fields::create_from + "` must be an array.");
+                if(!field_json[fields::embed_from].is_array()) {
+                    return Option<bool>(400, "Property `" + fields::embed_from + "` must be an array.");
                 }
 
-                if(field_json[fields::create_from].empty()) {
-                    return Option<bool>(400, "Property `" + fields::create_from + "` must have at least one element.");
+                if(field_json[fields::embed_from].empty()) {
+                    return Option<bool>(400, "Property `" + fields::embed_from + "` must have at least one element.");
                 }
 
-                for(auto& create_from_field : field_json[fields::create_from]) {
-                    if(!create_from_field.is_string()) {
-                        return Option<bool>(400, "Property `" + fields::create_from + "` must be an array of strings.");
+                for(auto& embed_from_field : field_json[fields::embed_from]) {
+                    if(!embed_from_field.is_string()) {
+                        return Option<bool>(400, "Property `" + fields::embed_from + "` must contain only field names as strings.");
                     }
                 }
 
                 if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
-                    return Option<bool>(400, "Property `" + fields::create_from + "` is only allowed on a float array field.");
+                    return Option<bool>(400, "Property `" + fields::embed_from + "` is only allowed on a float array field.");
                 }
                 
 
-                for(auto& create_from_field : field_json[fields::create_from]) {
+                for(auto& embed_from_field : field_json[fields::embed_from]) {
                     bool flag = false;
                     for(const auto& field : fields_json) {
-                        if(field[fields::name] == create_from_field) {
-                            if(field[fields::type] != field_types::STRING) {
-                                return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                        if(field[fields::name] == embed_from_field) {
+                            if(field[fields::type] != field_types::STRING && field[fields::type] != field_types::STRING_ARRAY) {
+                                return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
                             }
                             flag = true;
                             break;
@@ -458,9 +458,9 @@ struct field {
                     }
                     if(!flag) {
                         for(const auto& field : the_fields) {
-                            if(field.name == create_from_field) {
-                                if(field.type != field_types::STRING) {
-                                    return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                            if(field.name == embed_from_field) {
+                                if(field.type != field_types::STRING && field.type != field_types::STRING_ARRAY) {
+                                    return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
                                 }
                                 flag = true;
                                 break;
@@ -468,7 +468,7 @@ struct field {
                         }
                     }
                     if(!flag) {
-                        return Option<bool>(400, "Property `" + fields::create_from + "` can only be used with array of string fields.");
+                        return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
                     }
                 }   
             }

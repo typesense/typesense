@@ -4616,11 +4616,11 @@ TEST_F(CollectionTest, SemanticSearchTest) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4651,11 +4651,11 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4666,7 +4666,6 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
     object["name"] = "apple";
     auto add_op = coll->add(object.dump());
     ASSERT_TRUE(add_op.ok());
-    LOG(INFO) << "add_op.get(): " << add_op.get().dump();
     ASSERT_EQ("apple", add_op.get()["name"]);
     ASSERT_EQ(384, add_op.get()["embedding"].size());
 
@@ -4682,11 +4681,11 @@ TEST_F(CollectionTest, HybridSearch) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4695,6 +4694,7 @@ TEST_F(CollectionTest, HybridSearch) {
     nlohmann::json object;
     object["name"] = "apple";
     auto add_op = coll->add(object.dump());
+    LOG(INFO) << "add_op.error(): " << add_op.error();
     ASSERT_TRUE(add_op.ok());
 
     ASSERT_EQ("apple", add_op.get()["name"]);
@@ -4710,44 +4710,44 @@ TEST_F(CollectionTest, HybridSearch) {
     ASSERT_EQ(384, search_res["hits"][0]["document"]["embedding"].size());
 }
 
-TEST_F(CollectionTest, EmbedFielsTest) {
-        nlohmann::json schema = R"({
-                            "name": "objects",
-                            "fields": [
-                            {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
-                            ]
-                        })"_json;
+// TEST_F(CollectionTest, EmbedFielsTest) {
+//         nlohmann::json schema = R"({
+//                             "name": "objects",
+//                             "fields": [
+//                             {"name": "name", "type": "string"},
+//                             {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+//                             ]
+//                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
-    TextEmbedderManager::download_default_model();
+//     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+//     TextEmbedderManager::download_default_model();
 
-    auto op = collectionManager.create_collection(schema);
-    ASSERT_TRUE(op.ok());
-    Collection* coll = op.get();
+//     auto op = collectionManager.create_collection(schema);
+//     ASSERT_TRUE(op.ok());
+//     Collection* coll = op.get();
 
-    nlohmann::json object =  R"({
-                            "name": "apple"
-                            })"_json;
+//     nlohmann::json object =  R"({
+//                             "name": "apple"
+//                             })"_json;
 
-    auto embed_op = coll->embed_fields(object);
+//     auto embed_op = coll->embed_fields(object);
 
-    ASSERT_TRUE(embed_op.ok());
+//     ASSERT_TRUE(embed_op.ok());
 
-    ASSERT_EQ("apple", object["name"]);
-    ASSERT_EQ(384, object["embedding"].get<std::vector<float>>().size());
-}
+//     ASSERT_EQ("apple", object["name"]);
+//     ASSERT_EQ(384, object["embedding"].get<std::vector<float>>().size());
+// }
 
 TEST_F(CollectionTest, HybridSearchRankFusionTest) {
     nlohmann::json schema = R"({
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
                             ]
                         })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4813,15 +4813,15 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
 }
 
 TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
-        nlohmann::json schema = R"({
-                            "name": "objects",
-                            "fields": [
-                            {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "create_from": ["name"]}
-                            ]
-                        })"_json;
+    nlohmann::json schema = R"({
+                        "name": "objects",
+                        "fields": [
+                        {"name": "name", "type": "string"},
+                        {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                        ]
+                    })"_json;
     
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
@@ -4833,4 +4833,163 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
 
     ASSERT_FALSE(search_res_op.ok());
     ASSERT_EQ("Wildcard query is not supported for embedding fields.", search_res_op.error());
+}
+
+TEST_F(CollectionTest, CreateModelDirIfNotExists) {
+    system("mkdir -p /tmp/typesense_test/models");
+    system("rm -rf /tmp/typesense_test/models");
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    // check if model dir is created
+    ASSERT_TRUE(std::filesystem::exists("/tmp/typesense_test/models"));
+}
+
+
+
+TEST_F(CollectionTest, EmbedStringArrayField) {
+    nlohmann::json schema = R"({
+                    "name": "objects",
+                    "fields": [
+                    {"name": "names", "type": "string[]"},
+                    {"name": "embedding", "type":"float[]", "embed_from": ["names"]}
+                    ]
+                })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["names"].push_back("butter");
+    doc["names"].push_back("butterfly");
+    doc["names"].push_back("butterball");
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+}
+    
+TEST_F(CollectionTest, MissingFieldForEmbedding) {
+    nlohmann::json schema = R"({
+                    "name": "objects",
+                    "fields": [
+                    {"name": "names", "type": "string[]"},
+                    {"name": "category", "type": "string", "optional": true},
+                    {"name": "embedding", "type":"float[]", "embed_from": ["names", "category"]}
+                    ]
+                })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["names"].push_back("butter");
+    doc["names"].push_back("butterfly");
+    doc["names"].push_back("butterball");
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `category` is needed to create embedding.", add_op.error());
+}
+
+
+TEST_F(CollectionTest, WrongTypeForEmbedding) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "category", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed_from": ["category"]}
+                ]
+            })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["category"] = 1;
+    
+    auto add_op = validator_t::validate_embed_fields(doc, coll->get_embedding_fields(), coll->get_schema(), true);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `category` has malformed data.", add_op.error());
+}
+
+TEST_F(CollectionTest, WrongTypeOfElementForEmbeddingInStringArray) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+            {"name": "category", "type": "string[]"},
+            {"name": "embedding", "type":"float[]", "embed_from": ["category"]}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["category"].push_back(33);
+    
+    auto add_op = validator_t::validate_embed_fields(doc, coll->get_embedding_fields(), coll->get_schema(), true);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `category` has malformed data.", add_op.error());
+}
+
+TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
+    nlohmann::json schema = R"({
+                    "name": "objects",
+                    "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                    ]
+                })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    // get embedding field 
+
+    // get id of the document
+    auto id = add_op.get()["id"];   
+    // get embedding field from the document
+    auto embedding_field = add_op.get()["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding_field.size());
+
+    // update the document
+    nlohmann::json update_doc;
+    update_doc["name"] = "butterball";
+    std::string dirty_values;
+
+    auto update_op = coll->update_matching_filter("id:=" + id.get<std::string>(), update_doc.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(1, update_op.get()["num_updated"]);
+
+    // get the document again
+    auto get_op = coll->get(id);
+    ASSERT_TRUE(get_op.ok());
+    auto updated_embedding_field = get_op.get()["embedding"].get<std::vector<float>>();
+
+    // check if the embedding field is updated
+    ASSERT_NE(embedding_field, updated_embedding_field);
 }
