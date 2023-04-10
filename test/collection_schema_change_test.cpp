@@ -1497,21 +1497,29 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
         ]
     })"_json;
 
-    LOG(INFO) << "Dropping field";
 
     auto embedding_fields = coll->get_embedding_fields();
     ASSERT_EQ(2, embedding_fields["embedding"].embed_from.size());
 
-    LOG(INFO) << "Before alter";
-
     auto alter_op = coll->alter(schema_changes);
     ASSERT_TRUE(alter_op.ok());
-
-    LOG(INFO) << "After alter";
 
     embedding_fields = coll->get_embedding_fields();
     ASSERT_EQ(1, embedding_fields["embedding"].embed_from.size());
     ASSERT_EQ("category", embedding_fields["embedding"].embed_from[0]);
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "category", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(0, embedding_fields.size());
+    ASSERT_EQ(0, coll->_get_index()->_get_vector_index().size());
 }
 
 TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {

@@ -4666,7 +4666,6 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
     object["name"] = "apple";
     auto add_op = coll->add(object.dump());
     ASSERT_TRUE(add_op.ok());
-    LOG(INFO) << "add_op.get(): " << add_op.get().dump();
     ASSERT_EQ("apple", add_op.get()["name"]);
     ASSERT_EQ(384, add_op.get()["embedding"].size());
 
@@ -4897,6 +4896,55 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
     auto add_op = coll->add(doc.dump());
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ("Field `category` is needed to create embedding.", add_op.error());
+}
+
+
+TEST_F(CollectionTest, WrongTypeForEmbedding) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "category", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed_from": ["category"]}
+                ]
+            })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["category"] = 1;
+    
+    auto add_op = validator_t::validate_embed_fields(doc, coll->get_embedding_fields(), coll->get_schema(), true);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `category` has malformed data.", add_op.error());
+}
+
+TEST_F(CollectionTest, WrongTypeOfElementForEmbeddingInStringArray) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+            {"name": "category", "type": "string[]"},
+            {"name": "embedding", "type":"float[]", "embed_from": ["category"]}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["category"].push_back(33);
+    
+    auto add_op = validator_t::validate_embed_fields(doc, coll->get_embedding_fields(), coll->get_schema(), true);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `category` has malformed data.", add_op.error());
 }
 
 TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {

@@ -3736,7 +3736,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     }
 
     LOG(INFO) << "Finished altering " << num_found_docs << " document(s).";
-
+    std::vector<field> garbage_embedding_fields_vec;
     for(auto& del_field: del_fields) {
         search_schema.erase(del_field.name);
         auto new_end = std::remove_if(fields.begin(), fields.end(), [&del_field](const field& f) {
@@ -3765,10 +3765,13 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             default_sorting_field = "";
         }
 
-        process_remove_field_for_embedding_fields(del_field);
+        auto garbage_embedding_fields = process_remove_field_for_embedding_fields(del_field);
+        garbage_embedding_fields_vec.insert(garbage_embedding_fields_vec.end(), garbage_embedding_fields.begin(),
+                                        garbage_embedding_fields.end());
     }
 
     index->refresh_schemas({}, del_fields);
+    index->refresh_schemas({}, garbage_embedding_fields_vec);
 
     auto persist_op = persist_collection_meta();
     if(!persist_op.ok()) {
@@ -4741,26 +4744,25 @@ Option<bool> Collection::populate_include_exclude_fields_lk(const spp::sparse_ha
     return populate_include_exclude_fields(include_fields, exclude_fields, include_fields_full, exclude_fields_full);
 }
 
-
-void Collection::process_remove_field_for_embedding_fields(const field& the_field) {
-    std::vector<std::vector<field>::iterator> empty_fields;
-    for(auto& embedding_field : embedding_fields) {
-        const auto& actual_field = std::find_if(fields.begin(), fields.end(), [&embedding_field] (field other_field) {
-            return other_field.name == embedding_field.name;
-        });
-        actual_field->embed_from.erase(std::remove_if(actual_field->embed_from.begin(), actual_field->embed_from.end(), [&the_field](std::string field_name) {
+// Removes the dropped field from embed_from of all embedding fields.
+std::vector<field> Collection::process_remove_field_for_embedding_fields(const field& the_field) {
+    std::vector<field> garbage_fields;
+    for(auto& field : fields) {
+        if(field.embed_from.empty()) {
+            continue;
+        }
+        field.embed_from.erase(std::remove_if(field.embed_from.begin(), field.embed_from.end(), [&the_field](std::string field_name) {
             return the_field.name == field_name;
         }));
-        embedding_field = *actual_field;
-        // store to remove embedding field if it has no field names in 'embed_from' anymore.
-        if(embedding_field.embed_from.empty()) {
-            empty_fields.push_back(actual_field);
+        embedding_fields[field.name] = field;
+
+        // mark this embedding field as "garbage" if it has no more embed_from fields
+        if(field.embed_from.empty()) {
+            embedding_fields.erase(field.name);
+            garbage_fields.push_back(field);
         }
     }
 
-    for(const auto& empty_field : empty_fields) {
-        search_schema.erase(empty_field->name);
-        embedding_fields.erase(empty_field->name);
-        fields.erase(empty_field);
-    }
+    // return garbage embedding fields
+    return garbage_fields;
 }

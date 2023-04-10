@@ -450,7 +450,7 @@ struct field {
                     for(const auto& field : fields_json) {
                         if(field[fields::name] == embed_from_field) {
                             if(field[fields::type] != field_types::STRING && field[fields::type] != field_types::STRING_ARRAY) {
-                                return Option<bool>(400, "Property `" + fields::embed_from + "` can only have string or string array fields.");
+                                return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
                             }
                             flag = true;
                             break;
@@ -460,7 +460,7 @@ struct field {
                         for(const auto& field : the_fields) {
                             if(field.name == embed_from_field) {
                                 if(field.type != field_types::STRING && field.type != field_types::STRING_ARRAY) {
-                                    return Option<bool>(400, "Property `" + fields::embed_from + "` can only have used with string or string array fields.");
+                                    return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
                                 }
                                 flag = true;
                                 break;
@@ -468,7 +468,7 @@ struct field {
                         }
                     }
                     if(!flag) {
-                        return Option<bool>(400, "Property `" + fields::embed_from + "` can only be used with string or string array fields.");
+                        return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
                     }
                 }   
             }
