@@ -64,7 +64,10 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
         nlohmann::json document = nlohmann::json::parse(json_line);
         Option<nlohmann::json> add_op = coll1->add(document.dump());
 
-        LOG(INFO) << "Add op: " << add_op.error();
+        if (!add_op.ok()) {
+            LOG(INFO) << "Add op: " << add_op.error();
+        }
+
         ASSERT_TRUE(add_op.ok());
     }
 
