@@ -5100,6 +5100,12 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
             filter_result_iterator.next();
         } while (batch_result_ids.size() < window_size && filter_result_iterator.valid());
 
+        uint32_t* new_all_result_ids = nullptr;
+        all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, batch_result_ids.data(),
+                                                   batch_result_ids.size(), &new_all_result_ids);
+        delete [] all_result_ids;
+        all_result_ids = new_all_result_ids;
+
         num_queued++;
 
         searched_queries.push_back({});
@@ -5180,14 +5186,6 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
     /*long long int timeMillisF = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - beginF).count();
     LOG(INFO) << "Time for raw scoring: " << timeMillisF;*/
-
-// TODO: OR filter ids with all_results_ids
-//
-//    uint32_t* new_all_result_ids = nullptr;
-//    all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, filter_ids,
-//                                               filter_ids_length, &new_all_result_ids);
-//    delete [] all_result_ids;
-//    all_result_ids = new_all_result_ids;
 }
 
 void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
