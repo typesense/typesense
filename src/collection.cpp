@@ -3765,9 +3765,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             default_sorting_field = "";
         }
 
-        auto garbage_embedding_fields = process_remove_field_for_embedding_fields(del_field);
-        garbage_embedding_fields_vec.insert(garbage_embedding_fields_vec.end(), garbage_embedding_fields.begin(),
-                                        garbage_embedding_fields.end());
+        process_remove_field_for_embedding_fields(del_field, garbage_embedding_fields_vec);
     }
 
     index->refresh_schemas({}, del_fields);
@@ -4745,8 +4743,7 @@ Option<bool> Collection::populate_include_exclude_fields_lk(const spp::sparse_ha
 }
 
 // Removes the dropped field from embed_from of all embedding fields.
-std::vector<field> Collection::process_remove_field_for_embedding_fields(const field& the_field) {
-    std::vector<field> garbage_fields;
+void Collection::process_remove_field_for_embedding_fields(const field& the_field, std::vector<field>& garbage_fields) {
     for(auto& field : fields) {
         if(field.embed_from.empty()) {
             continue;
@@ -4763,6 +4760,4 @@ std::vector<field> Collection::process_remove_field_for_embedding_fields(const f
         }
     }
 
-    // return garbage embedding fields
-    return garbage_fields;
 }
