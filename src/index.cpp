@@ -4529,6 +4529,12 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
         filter_result_iterator->get_n_ids(window_size, excluded_result_index, exclude_token_ids, exclude_token_ids_size,
                                          batch_result_ids);
 
+        uint32_t* new_all_result_ids = nullptr;
+        all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, batch_result_ids.data(),
+                                                   batch_result_ids.size(), &new_all_result_ids);
+        delete [] all_result_ids;
+        all_result_ids = new_all_result_ids;
+
         num_queued++;
 
         searched_queries.push_back({});
