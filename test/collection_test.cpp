@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <cstdlib>
 #include <collection_manager.h>
+#include <validator.h>
 #include "collection.h"
 #include "text_embedder_manager.h"
 #include "http_client.h"

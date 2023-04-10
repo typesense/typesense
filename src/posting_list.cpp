@@ -1260,6 +1260,146 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
     num_exact_ids = exact_id_index;
 }
 
+bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& posting_list_iterators,
+                                       const bool field_is_array) {
+    if(posting_list_iterators.size() == 1) {
+        return is_single_token_verbatim_match(posting_list_iterators[0], field_is_array);
+    } else {
+
+        if (!field_is_array) {
+            for (uint32_t i = posting_list_iterators.size() - 1; i >= 0; i--) {
+                posting_list_t::iterator_t& it = posting_list_iterators[i];
+
+                block_t* curr_block = it.block();
+                uint32_t curr_index = it.index();
+
+                if(curr_block == nullptr || curr_index == UINT32_MAX) {
+                    return false;
+                }
+
+                uint32_t* offsets = it.offsets;
+
+                uint32_t start_offset_index = it.offset_index[curr_index];
+                uint32_t end_offset_index = (curr_index == curr_block->size() - 1) ?
+                                            curr_block->offsets.getLength() :
+                                            it.offset_index[curr_index + 1];
+
+                if(i == posting_list_iterators.size() - 1) {
+                    // check if the last query token is the last offset
+                    if( offsets[end_offset_index-1] != 0 ||
+                        (end_offset_index-2 >= 0 && offsets[end_offset_index-2] != posting_list_iterators.size())) {
+                        // not the last token for the document, so skip
+                        return false;
+                    }
+                }
+
+                // looping handles duplicate query tokens, e.g. "hip hip hurray hurray"
+                while(start_offset_index < end_offset_index) {
+                    uint32_t offset = offsets[start_offset_index];
+                    start_offset_index++;
+
+                    if(offset == (i + 1)) {
+                        // we have found a matching index, no need to look further
+                        return true;
+                    }
+
+                    if(offset > (i + 1)) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        else {
+            // field is an array
+
+            struct token_index_meta_t {
+                std::bitset<32> token_index;
+                bool has_last_token;
+            };
+
+            std::map<size_t, token_index_meta_t> array_index_to_token_index;
+
+            for(uint32_t i = posting_list_iterators.size() - 1; i >= 0; i--) {
+                posting_list_t::iterator_t& it = posting_list_iterators[i];
+
+                block_t* curr_block = it.block();
+                uint32_t curr_index = it.index();
+
+                if(curr_block == nullptr || curr_index == UINT32_MAX) {
+                    return false;
+                }
+
+                uint32_t* offsets = it.offsets;
+                uint32_t start_offset_index = it.offset_index[curr_index];
+                uint32_t end_offset_index = (curr_index == curr_block->size() - 1) ?
+                                            curr_block->offsets.getLength() :
+                                            it.offset_index[curr_index + 1];
+
+                int prev_pos = -1;
+                bool has_atleast_one_last_token = false;
+                bool found_matching_index = false;
+                size_t num_matching_index = 0;
+
+                while(start_offset_index < end_offset_index) {
+                    int pos = offsets[start_offset_index];
+                    start_offset_index++;
+
+                    if(pos == prev_pos) {  // indicates end of array index
+                        size_t array_index = (size_t) offsets[start_offset_index];
+
+                        if(start_offset_index+1 < end_offset_index) {
+                            size_t next_offset = (size_t) offsets[start_offset_index + 1];
+                            if(next_offset == 0 && pos == posting_list_iterators.size()) {
+                                // indicates that token is the last token on the doc
+                                array_index_to_token_index[array_index].has_last_token = true;
+                                has_atleast_one_last_token = true;
+                                start_offset_index++;
+                            }
+                        }
+
+                        if(found_matching_index) {
+                            array_index_to_token_index[array_index].token_index.set(i + 1);
+                        }
+
+                        start_offset_index++;  // skip current value which is the array index or flag for last index
+                        prev_pos = -1;
+                        found_matching_index = false;
+                        continue;
+                    }
+
+                    if(pos == (i + 1)) {
+                        // we have found a matching index
+                        found_matching_index = true;
+                        num_matching_index++;
+                    }
+
+                    prev_pos = pos;
+                }
+
+                // check if the last query token is the last offset of ANY array element
+                if(i == posting_list_iterators.size() - 1 && !has_atleast_one_last_token) {
+                    return false;
+                }
+
+                if(num_matching_index == 0) {
+                    // not even a single matching index found: can never be an exact match
+                    return false;
+                }
+            }
+
+            // iterate array index to token index to check if atleast 1 array position contains all tokens
+            for(auto& kv: array_index_to_token_index) {
+                if(kv.second.token_index.count() == posting_list_iterators.size() && kv.second.has_last_token) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 bool posting_list_t::found_token_sequence(const std::vector<token_positions_t>& token_positions,
                                           const size_t token_index, const uint16_t target_pos) {
 
