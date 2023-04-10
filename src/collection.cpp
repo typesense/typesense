@@ -12,6 +12,7 @@
 #include <regex>
 #include <list>
 #include <posting.h>
+#include "validator.h"
 #include "topster.h"
 #include "logger.h"
 #include "thread_local_vars.h"

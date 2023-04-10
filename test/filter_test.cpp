@@ -125,15 +125,25 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                         filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_exact_match_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
-    ASSERT_TRUE(iter_exact_match_test.init_status().ok());
+    auto iter_exact_match_1_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_exact_match_1_test.init_status().ok());
 
     for (uint32_t i = 0; i < 5; i++) {
-        ASSERT_TRUE(iter_exact_match_test.valid());
-        ASSERT_EQ(i, iter_exact_match_test.seq_id);
-        iter_exact_match_test.next();
+        ASSERT_TRUE(iter_exact_match_1_test.valid());
+        ASSERT_EQ(i, iter_exact_match_1_test.seq_id);
+        iter_exact_match_1_test.next();
     }
-    ASSERT_FALSE(iter_exact_match_test.valid());
+    ASSERT_FALSE(iter_exact_match_1_test.valid());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags:= PLATINUM", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_exact_match_2_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_exact_match_2_test.init_status().ok());
+    ASSERT_FALSE(iter_exact_match_2_test.valid());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
