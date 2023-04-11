@@ -1724,10 +1724,7 @@ int art_fuzzy_search_i(art_tree *t, const unsigned char *term, const int term_le
                   << ", filter_ids_length: " << filter_ids_length;
     }*/
 
-// TODO: Figure out this edge case.
-//    if(allowed_doc_ids != filter_ids) {
-//        delete [] allowed_doc_ids;
-//    }
+    delete [] allowed_doc_ids;
 
     return 0;
 }
