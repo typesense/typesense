@@ -4131,7 +4131,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(!f.embed_from.empty()) {
-                    return Option<bool>(400, "Embedding fields can only be added at the time of collection creation.");
+                    embedding_fields.emplace(f.name, f);
                 }
 
                 if(f.nested && enable_nested_fields) {
@@ -4146,7 +4146,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                             updated_nested_fields.emplace(prefix_kv.key(), prefix_kv.value());
 
                             if(!prefix_kv.value().embed_from.empty()) {
-                                return Option<bool>(400, "Embedding fields can only be added at the time of collection creation.");
+                                embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
                             }
 
                             if(is_reindex) {
