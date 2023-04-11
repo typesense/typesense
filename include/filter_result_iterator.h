@@ -125,12 +125,18 @@ private:
 
 public:
     uint32_t seq_id = 0;
-    // Collection name -> references
+    /// Collection name -> references
     std::map<std::string, reference_filter_result_t> reference;
     Option<bool> status = Option(true);
 
+    /// Holds the upper-bound of the number of seq ids this iterator would match.
+    /// Useful in a scenario where we need to differentiate between filter iterator not matching any document v/s filter
+    /// iterator reaching it's end. (is_valid would be false in both these cases)
+    uint32_t approx_filter_ids_length;
+
     explicit filter_result_iterator_t(const std::string collection_name,
-                                      Index const* const index, filter_node_t const* const filter_node);
+                                      Index const* const index, filter_node_t const* const filter_node,
+                                      uint32_t approx_filter_ids_length = UINT32_MAX);
 
     ~filter_result_iterator_t();
 
