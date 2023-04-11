@@ -359,6 +359,11 @@ public:
         return db->DeleteRange(rocksdb::WriteOptions(), db->DefaultColumnFamily(), begin_key, end_key);
     }
 
+    rocksdb::Status compact_range(const rocksdb::Slice& begin_key, const rocksdb::Slice& end_key) {
+        std::shared_lock lock(mutex);
+        return db->CompactRange(rocksdb::CompactRangeOptions(), &begin_key, &end_key);
+    }
+
     // Only for internal tests
     rocksdb::DB* _get_db_unsafe() const {
         return db;

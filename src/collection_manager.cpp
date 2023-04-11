@@ -465,6 +465,7 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         const std::string& del_end_prefix = std::to_string(collection->get_collection_id()) + "`";
         store->delete_range(del_key_prefix, del_end_prefix);
         store->flush();
+        store->compact_range(del_key_prefix, del_end_prefix);
 
         // delete overrides
         const std::string& del_override_prefix =
