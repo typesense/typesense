@@ -835,10 +835,12 @@ uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t&
 }
 
 filter_result_iterator_t::filter_result_iterator_t(const std::string collection_name, const Index *const index,
-                                                   const filter_node_t *const filter_node)  :
+                                                   const filter_node_t *const filter_node,
+                                                   uint32_t approx_filter_ids_length)  :
         collection_name(collection_name),
         index(index),
-        filter_node(filter_node) {
+        filter_node(filter_node),
+        approx_filter_ids_length(approx_filter_ids_length) {
     if (filter_node == nullptr) {
         is_valid = false;
         return;
