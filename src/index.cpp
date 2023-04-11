@@ -2839,7 +2839,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return rearrange_op;
     }
 
-    auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root);
+    auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root,
+                                                           approx_filter_ids_length);
     auto filter_init_op = filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
         return filter_init_op;
