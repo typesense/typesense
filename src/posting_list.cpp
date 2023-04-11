@@ -1267,7 +1267,7 @@ bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& po
     } else {
 
         if (!field_is_array) {
-            for (uint32_t i = posting_list_iterators.size() - 1; i >= 0; i--) {
+            for (int i = posting_list_iterators.size() - 1; i >= 0; i--) {
                 posting_list_t::iterator_t& it = posting_list_iterators[i];
 
                 block_t* curr_block = it.block();
@@ -1320,7 +1320,7 @@ bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& po
 
             std::map<size_t, token_index_meta_t> array_index_to_token_index;
 
-            for(uint32_t i = posting_list_iterators.size() - 1; i >= 0; i--) {
+            for(int i = posting_list_iterators.size() - 1; i >= 0; i--) {
                 posting_list_t::iterator_t& it = posting_list_iterators[i];
 
                 block_t* curr_block = it.block();
