@@ -6337,7 +6337,7 @@ Option<bool> Index::embed_fields(nlohmann::json& document,
                                  const tsl::htrie_map<char, field>& embedding_fields,
                                  const tsl::htrie_map<char, field> & search_schema) {
     for(const auto& field : embedding_fields) {
-        std::string text_to_embed;
+        std::string text_to_embed = "passage: ";
         for(const auto& field_name : field.embed_from) {
             auto field_it = search_schema.find(field_name);
             if(field_it.value().type == field_types::STRING) {

@@ -1186,7 +1186,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
                 auto embedder = embedder_manager.get_text_embedder(search_field.model_name.size() > 0 ? search_field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
 
-                std::vector<float> embedding = embedder->Embed(raw_query);
+                std::string embed_query = "query: " + raw_query;
+
+                std::vector<float> embedding = embedder->Embed(embed_query);
                 vector_query._reset();
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;
