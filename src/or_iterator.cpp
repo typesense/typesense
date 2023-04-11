@@ -208,7 +208,7 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
         return false;
     }
 
-    if (istate.fit != nullptr) {
+    if (istate.fit != nullptr && istate.fit->approx_filter_ids_length > 0) {
         return (istate.fit->valid(id) == 1);
     }
 
