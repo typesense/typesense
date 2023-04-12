@@ -162,23 +162,23 @@ TEST_F(FilterTest, FilterTreeIterator) {
     }
     ASSERT_FALSE(iter_exact_match_multi_test.valid());
 
-//    delete filter_tree_root;
-//    filter_tree_root = nullptr;
-//    filter_op = filter::parse_filter_query("tags:!= gold", coll->get_schema(), store, doc_id_prefix,
-//                                           filter_tree_root);
-//    ASSERT_TRUE(filter_op.ok());
-//
-//    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
-//    ASSERT_TRUE(iter_not_equals_test.init_status().ok());
-//
-//    std::vector<uint32_t> expected = {1, 3};
-//    for (auto const& i : expected) {
-//        ASSERT_TRUE(iter_not_equals_test.valid());
-//        ASSERT_EQ(i, iter_not_equals_test.seq_id);
-//        iter_not_equals_test.next();
-//    }
-//
-//    ASSERT_FALSE(iter_not_equals_test.valid());
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags:!= gold", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_not_equals_test.init_status().ok());
+
+    expected = {1, 3};
+    for (auto const& i : expected) {
+        ASSERT_TRUE(iter_not_equals_test.valid());
+        ASSERT_EQ(i, iter_not_equals_test.seq_id);
+        iter_not_equals_test.next();
+    }
+
+    ASSERT_FALSE(iter_not_equals_test.valid());
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -287,8 +287,8 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                                                              filter_tree_root);
     ASSERT_TRUE(iter_validate_ids_not_equals_filter_test.init_status().ok());
 
-    validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 100};
-    expected = {0, 1, 0, 1, 0, 1, 1, 1, 1};
+    validate_ids = {0, 1, 2, 3, 4, 5, 6};
+    expected = {0, 1, 0, 1, 0, 1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
         ASSERT_EQ(expected[i], iter_validate_ids_not_equals_filter_test.valid(validate_ids[i]));
     }
@@ -422,7 +422,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     for (uint32_t i = 0; i < and_result_length; i++) {
         ASSERT_EQ(expected[i], and_result[i]);
     }
-    ASSERT_FALSE(iter_and_test.valid());
+    ASSERT_FALSE(iter_and_scalar_test.valid());
 
     delete and_result;
     delete filter_tree_root;

@@ -338,6 +338,14 @@ uint32_t id_list_t::first_id() {
     return root_block.ids.at(0);
 }
 
+uint32_t id_list_t::last_id() {
+    if(id_block_map.empty()) {
+        return 0;
+    }
+
+    return id_block_map.rbegin()->first;
+}
+
 id_list_t::block_t* id_list_t::block_of(uint32_t id) {
     const auto it = id_block_map.lower_bound(id);
     if(it == id_block_map.end()) {
