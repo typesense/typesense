@@ -265,6 +265,18 @@ void filter_result_iterator_t::or_filter_iterators() {
     is_valid = false;
 }
 
+void filter_result_iterator_t::advance_string_filter_token_iterators() {
+    for (uint32_t i = 0; i < posting_list_iterators.size(); i++) {
+        auto& filter_value_tokens = posting_list_iterators[i];
+
+        if (filter_value_tokens[0].valid() && filter_value_tokens[0].id() == seq_id) {
+            for (auto& iter: filter_value_tokens) {
+                iter.next();
+            }
+        }
+    }
+}
+
 void filter_result_iterator_t::doc_matching_string_filter(bool field_is_array) {
     // If none of the filter value iterators are valid, mark this node as invalid.
     bool one_is_valid = false;
@@ -384,18 +396,38 @@ void filter_result_iterator_t::next() {
     field f = index->search_schema.at(a_filter.field_name);
 
     if (f.is_string()) {
-        // Advance all the filter values that are at doc. Then find the next doc.
-        for (uint32_t i = 0; i < posting_list_iterators.size(); i++) {
-            auto& filter_value_tokens = posting_list_iterators[i];
-
-            if (filter_value_tokens[0].valid() && filter_value_tokens[0].id() == seq_id) {
-                for (auto& iter: filter_value_tokens) {
-                    iter.next();
-                }
+        if (filter_node->filter_exp.apply_not_equals) {
+            if (++seq_id < result_index) {
+                return;
             }
+
+            uint32_t previous_match;
+            do {
+                previous_match = seq_id;
+                advance_string_filter_token_iterators();
+                doc_matching_string_filter(f.is_array());
+            } while (is_valid && previous_match + 1 == seq_id);
+
+            if (!is_valid) {
+                // We've reached the end of the index, no possible matches pending.
+                if (previous_match >= index->seq_ids->last_id()) {
+                    return;
+                }
+
+                is_valid = true;
+                result_index = index->seq_ids->last_id() + 1;
+                seq_id = previous_match + 1;
+                return;
+            }
+
+            result_index = seq_id;
+            seq_id = previous_match + 1;
+            return;
         }
 
+        advance_string_filter_token_iterators();
         doc_matching_string_filter(f.is_array());
+
         return;
     }
 }
@@ -509,6 +541,47 @@ void filter_result_iterator_t::init() {
         }
 
         doc_matching_string_filter(f.is_array());
+
+        if (filter_node->filter_exp.apply_not_equals) {
+            // filter didn't match any id. So by applying not equals, every id in the index is a match.
+            if (!is_valid) {
+                is_valid = true;
+                seq_id = 0;
+                result_index = index->seq_ids->last_id() + 1;
+                return;
+            }
+
+            // [0, seq_id) are a match for not equals.
+            if (seq_id > 0) {
+                result_index = seq_id;
+                seq_id = 0;
+                return;
+            }
+
+            // Keep ignoring the consecutive matches.
+            uint32_t previous_match;
+            do {
+                previous_match = seq_id;
+                advance_string_filter_token_iterators();
+                doc_matching_string_filter(f.is_array());
+            } while (is_valid && previous_match + 1 == seq_id);
+
+            if (!is_valid) {
+                // filter matched all the ids in the index. So for not equals, there's no match.
+                if (previous_match >= index->seq_ids->last_id()) {
+                    return;
+                }
+
+                is_valid = true;
+                result_index = index->seq_ids->last_id() + 1;
+                seq_id = previous_match + 1;
+                return;
+            }
+
+            result_index = seq_id;
+            seq_id = previous_match + 1;
+        }
+
         return;
     }
 }
@@ -543,6 +616,10 @@ bool filter_result_iterator_t::valid() {
     field f = index->search_schema.at(a_filter.field_name);
 
     if (f.is_string()) {
+        if (filter_node->filter_exp.apply_not_equals) {
+            return seq_id < result_index;
+        }
+
         bool one_is_valid = false;
         for (auto& filter_value_tokens: posting_list_iterators) {
             posting_list_t::intersect(filter_value_tokens, one_is_valid);
@@ -618,6 +695,41 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     field f = index->search_schema.at(a_filter.field_name);
 
     if (f.is_string()) {
+        if (filter_node->filter_exp.apply_not_equals) {
+            if (id < seq_id) {
+                return;
+            }
+
+            if (id < result_index) {
+                seq_id = id;
+                return;
+            }
+
+            seq_id = result_index;
+            uint32_t previous_match;
+            do {
+                previous_match = seq_id;
+                advance_string_filter_token_iterators();
+                doc_matching_string_filter(f.is_array());
+            } while (is_valid && previous_match + 1 == seq_id && seq_id >= id);
+
+            if (!is_valid) {
+                // filter matched all the ids in the index. So for not equals, there's no match.
+                if (previous_match >= index->seq_ids->last_id()) {
+                    return;
+                }
+
+                is_valid = true;
+                seq_id = previous_match + 1;
+                result_index = index->seq_ids->last_id() + 1;
+                return;
+            }
+
+            result_index = seq_id;
+            seq_id = previous_match + 1;
+            return;
+        }
+
         // Skip all the token iterators and find a new match.
         for (auto& filter_value_tokens : posting_list_iterators) {
             for (auto& token: filter_value_tokens) {
@@ -668,23 +780,6 @@ int filter_result_iterator_t::valid(uint32_t id) {
 
             return 1;
         }
-    }
-
-    if (filter_node->filter_exp.apply_not_equals) {
-        // Even when iterator becomes invalid, we keep it marked as valid since we are evaluating not equals.
-        if (!valid()) {
-            is_valid = true;
-            return 1;
-        }
-
-        skip_to(id);
-
-        if (!is_valid) {
-            is_valid = true;
-            return 1;
-        }
-
-        return seq_id != id ? 1 : 0;
     }
 
     skip_to(id);

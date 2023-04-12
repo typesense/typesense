@@ -120,6 +120,9 @@ private:
     /// Performs OR on the subtrees of operator.
     void or_filter_iterators();
 
+    /// Advance all the token iterators that are at seq_id.
+    void advance_string_filter_token_iterators();
+
     /// Finds the next match for a filter on string field.
     void doc_matching_string_filter(bool field_is_array);
 
