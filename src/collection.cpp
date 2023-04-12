@@ -1186,7 +1186,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
                 auto embedder = embedder_manager.get_text_embedder(search_field.model_name.size() > 0 ? search_field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
 
-                std::vector<float> embedding = embedder->Embed(raw_query);
+                std::string embed_query = "query: " + raw_query;
+
+                std::vector<float> embedding = embedder->Embed(embed_query);
                 vector_query._reset();
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;
@@ -4129,7 +4131,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(!f.embed_from.empty()) {
-                    return Option<bool>(400, "Embedding fields can only be added at the time of collection creation.");
+                    embedding_fields.emplace(f.name, f);
                 }
 
                 if(f.nested && enable_nested_fields) {
@@ -4144,7 +4146,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                             updated_nested_fields.emplace(prefix_kv.key(), prefix_kv.value());
 
                             if(!prefix_kv.value().embed_from.empty()) {
-                                return Option<bool>(400, "Embedding fields can only be added at the time of collection creation.");
+                                embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
                             }
 
                             if(is_reindex) {

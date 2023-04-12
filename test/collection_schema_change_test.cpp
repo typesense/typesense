@@ -1455,10 +1455,13 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
                 ]
             })"_json;
 
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
     
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     Collection* coll = op.get();
+    
 
     nlohmann::json update_schema = R"({
                 "fields": [
@@ -1468,8 +1471,17 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
     
     auto res = coll->alter(update_schema);
 
-    ASSERT_FALSE(res.ok());
-    ASSERT_EQ("Embedding fields can only be added at the time of collection creation.", res.error());
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(1, coll->get_embedding_fields().size());
+
+    nlohmann::json doc;
+    doc["names"] = {"hello", "world"};
+    auto add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+    auto added_doc = add_op.get();
+    
+    ASSERT_EQ(384, added_doc["embedding"].get<std::vector<float>>().size());
 }
 
 TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
