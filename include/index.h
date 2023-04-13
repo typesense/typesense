@@ -33,10 +33,10 @@
 #include "facet_index.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
-//using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
-//using single_val_facet_map_t = spp::sparse_hash_map<uint32_t, uint64_t>;
-//using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
-//using array_mapped_single_val_facet_t = std::array<single_val_facet_map_t*, ARRAY_FACET_DIM>;
+using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
+using single_val_facet_map_t = spp::sparse_hash_map<uint32_t, uint32_t>;
+using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
+using array_mapped_single_val_facet_t = std::array<single_val_facet_map_t*, ARRAY_FACET_DIM>;
 
 static constexpr size_t ARRAY_INFIX_DIM = 4;
 using array_mapped_infix_t = std::vector<tsl::htrie_set<char>*>;
@@ -190,7 +190,7 @@ struct search_args {
 
 struct offsets_facet_hashes_t {
     std::unordered_map<std::string, std::vector<uint32_t>> offsets;
-    std::vector<uint64_t> facet_hashes;
+    //std::vector<uint32_t> facet_hashes;
 };
 
 struct index_record {
@@ -309,11 +309,12 @@ private:
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
 
     // facet_field => (seq_id => values)
-    //spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
+    spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
+    
     facet_index_t* facet_index_v4 = nullptr;
 
     // facet_field => (seq_id => hash)
-    //spp::sparse_hash_map<std::string, array_mapped_single_val_facet_t> single_val_facet_index_v3;
+    spp::sparse_hash_map<std::string, array_mapped_single_val_facet_t> single_val_facet_index_v3;
 
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
@@ -491,15 +492,15 @@ private:
     static void tokenize_string_with_facets(const std::string& text, bool is_facet, const field& a_field,
                                             const std::vector<char>& symbols_to_index,
                                             const std::vector<char>& token_separators,
-                                            std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
-                                            std::vector<uint64_t>& facet_hashes);
+                                            std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets/*,
+                                            std::vector<uint32_t>& facet_hashes*/);
 
     static void tokenize_string_array_with_facets(const std::vector<std::string>& strings, bool is_facet,
                                            const field& a_field,
                                            const std::vector<char>& symbols_to_index,
                                            const std::vector<char>& token_separators,
-                                           std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
-                                           std::vector<uint64_t>& facet_hashes);
+                                           std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets/*,
+                                           std::vector<uint32_t>& facet_hashes*/);
 
     void collate_included_ids(const std::vector<token_t>& q_included_tokens,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
@@ -507,7 +508,7 @@ private:
 
     static uint64_t facet_token_hash(const field & a_field, const std::string &token);
 
-    static void compute_facet_stats(facet &a_facet, std::string raw_value, const std::string & field_type);
+    static void compute_facet_stats(facet &a_facet, const std::string& raw_value, const std::string & field_type);
 
     static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
                                nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc);
