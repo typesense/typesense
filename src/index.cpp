@@ -2308,9 +2308,9 @@ bool Index::static_filter_query_eval(const override_t* override,
                                      filter_node_t*& filter_tree_root) const {
     std::string query = StringUtils::join(tokens, " ");
 
-    if ((override->rule.match == override_t::MATCH_EXACT && override->rule.query == query) ||
+    if ((override->rule.match == override_t::MATCH_EXACT && override->rule.normalized_query == query) ||
         (override->rule.match == override_t::MATCH_CONTAINS &&
-         StringUtils::contains_word(query, override->rule.query))) {
+         StringUtils::contains_word(query, override->rule.normalized_query))) {
         filter_node_t* new_filter_tree_root = nullptr;
         Option<bool> filter_op = filter::parse_filter_query(override->filter_by, search_schema,
                                                             store, "", new_filter_tree_root);
@@ -2453,7 +2453,7 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
             // we will cover both original query and synonyms
 
             std::vector<std::string> rule_parts;
-            StringUtils::split(override->rule.query, rule_parts, " ");
+            StringUtils::split(override->rule.normalized_query, rule_parts, " ");
 
             uint32_t* field_override_ids = nullptr;
             size_t field_override_ids_len = 0;

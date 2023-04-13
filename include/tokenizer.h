@@ -87,4 +87,6 @@ public:
     void decr_token_counter();
 
     bool should_skip_char(char c);
+
+    static void normalize_ascii(std::string& text);
 };

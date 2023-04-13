@@ -652,9 +652,9 @@ void Collection::curate_results(string& actual_query, const string& filter_query
             bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
                                    !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
 
-            bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
+            bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.normalized_query == query) ||
                    (override.rule.match == override_t::MATCH_CONTAINS &&
-                    StringUtils::contains_word(query, override.rule.query));
+                    StringUtils::contains_word(query, override.rule.normalized_query));
 
             if (filter_by_match || query_match) {
                 if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
@@ -686,7 +686,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                     actual_query = override.replace_query;
                 } else if(override.remove_matched_tokens && override.filter_by.empty()) {
                     // don't prematurely remove tokens from query because dynamic filtering will require them
-                    StringUtils::replace_all(query, override.rule.query, "");
+                    StringUtils::replace_all(query, override.rule.normalized_query, "");
                     StringUtils::trim(query);
                     if(query.empty()) {
                         query = "*";
