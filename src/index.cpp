@@ -2094,9 +2094,8 @@ Option<bool> Index::_approximate_filter_ids(const filter& a_filter,
         }
     }
 
-    if (a_filter.apply_not_equals) {
-        auto all_ids_size = seq_ids->num_ids();
-        filter_ids_length = (all_ids_size - filter_ids_length);
+    if (a_filter.apply_not_equals && filter_ids_length == 0) {
+        filter_ids_length = seq_ids->num_ids();
     }
 
     return Option(true);
