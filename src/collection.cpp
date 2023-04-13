@@ -1828,22 +1828,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         facet_result["counts"] = nlohmann::json::array();
 
         std::vector<facet_value_t> facet_values;
-        // std::vector<std::pair<uint64_t, facet_count_t>> facet_hash_counts;
-
-        // for (const auto & kv : a_facet.result_map) {
-        //     facet_hash_counts.emplace_back(kv);
-        // }
         
-        auto the_field = search_schema.at(a_facet.field_name);
-        // keep only top K facets
-        //auto max_facets = std::min(max_facet_values, facet_hash_counts.size());
-        auto max_facets = std::min(max_facet_values, a_facet.result_map.size());
-        // std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + max_facets,
-        //                  facet_hash_counts.end(), Collection::facet_count_compare);
-        //LOG (INFO) << "found facet size " << a_facet.result_map.size();
-        for(auto& kv : a_facet.result_map) {
+        if(a_facet.is_range_query){
+            for(auto kv : a_facet.result_map){
 
-            if(a_facet.is_range_query){
                 auto facet_range_iter = a_facet.facet_range_map.find(kv.first);
                 if(facet_range_iter != a_facet.facet_range_map.end()){
                     auto & facet_count = kv.second;
@@ -1853,39 +1841,78 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 else{
                     LOG (ERROR) << "range_id not found in result map.";
                 }
-            } else {
-                //facet_value_t facet_value = { kv.first, std::string(), kv.second.count};
-                //facet_values.emplace_back(facet_value);
+            }
+        }
+
+        if(a_facet.is_intersected) {
+            std::vector<std::pair<std::string, facet_count_t>> facet_counts;
+
+            for (const auto & kv : a_facet.result_map) {
+                facet_counts.emplace_back(std::make_pair(kv.first, kv.second));
+            }
             
+            auto max_facets = std::min(max_facet_values, facet_counts.size());
+            std::sort(facet_counts.begin(), facet_counts.end(), 
+                [&](const auto& p1, const auto& p2) {
+                    return p1.second.count > p2.second.count;
+                });
+
+            for(int i = 0; i < max_facets; ++i) {
+                if(a_facet.is_range_query) {
+                    break;
+                }
+                const auto& kv = facet_counts[i];
+                facet_value_t facet_value = { kv.first, kv.first, kv.second.count};
+                facet_values.emplace_back(facet_value);
+            }
+        } else {
+
+            std::vector<std::pair<uint32_t, facet_count_t>> facet_hash_counts;
+
+            for (const auto & kv : a_facet.result_map) {
+                facet_hash_counts.emplace_back(std::make_pair(std::stoul(kv.first), kv.second));
+            }
+
+            auto the_field = search_schema.at(a_facet.field_name);
+            // keep only top K facets
+            auto max_facets = std::min(max_facet_values, facet_hash_counts.size());
+
+            std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + max_facets,
+                             facet_hash_counts.end(), Collection::facet_count_compare);
+            
+            for(size_t fi = 0; fi < max_facets; fi++) {
+
+                if(a_facet.is_range_query){
+                    break;
+                }
 
                 // remap facet value hash with actual string
-                // auto & kv = facet_hash_counts[fi];
-                // auto & facet_count = kv.second;
-                // // fetch actual facet value from representative doc id
-                // const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
-                // nlohmann::json document;
-                // const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
-                // if(!document_op.ok()) {
-                //     LOG(ERROR) << "Facet fetch error. " << document_op.error();
-                //     continue;
-                // }
-                //std::string value;
-                // bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
-                // if(!facet_found) {
-                //     continue;
-                // }
-                std::string value = kv.first;
+                auto & kv = facet_hash_counts[fi];
+                auto & facet_count = kv.second;
+                // fetch actual facet value from representative doc id
+                const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
+                nlohmann::json document;
+                const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
+                if(!document_op.ok()) {
+                    LOG(ERROR) << "Facet fetch error. " << document_op.error();
+                    continue;
+                }
+                std::string value;
+                bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
+                if(!facet_found) {
+                    continue;
+                }
                 std::unordered_map<std::string, size_t> ftoken_pos;
-                //std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
-                std::vector<string>& ftokens = a_facet.facet_tokens[kv.first];
+                std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
+                //LOG(INFO) << "working on hash_tokens for hash " << kv.first << " with size " << ftokens.size();
                 for(size_t ti = 0; ti < ftokens.size(); ti++) {
-                    // if(the_field.is_bool()) {
-                    //     if(ftokens[ti] == "1") {
-                    //         ftokens[ti] = "true";
-                    //     } else {
-                    //         ftokens[ti] = "false";
-                    //     }
-                    // }
+                    if(the_field.is_bool()) {
+                        if(ftokens[ti] == "1") {
+                            ftokens[ti] = "true";
+                        } else {
+                            ftokens[ti] = "false";
+                        }
+                    }
                     const std::string& resolved_token = ftokens[ti];
                     ftoken_pos[resolved_token] = ti;
                 }
@@ -1914,6 +1941,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                         }
                     }
                 }
+                //LOG(INFO) << "token_offsets size " << token_offsets.size();
                 auto offset_it = token_offsets.begin();
                 size_t i = 0;
                 std::stringstream highlightedss;
@@ -1943,7 +1971,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                     highlightedss << value[i];
                     i++;
                 }
-                facet_value_t facet_value = {value, highlightedss.str(), kv.second.count};
+                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
                 facet_values.emplace_back(facet_value);
             }
         }
@@ -4457,7 +4485,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             return Option<bool>(400, error);
         }
 
-        std::vector<std::tuple<int64_t, int64_t, std::string>> tupVec;
+        std::vector<std::tuple<std::string, std::string, std::string>> tupVec;
 
         auto& range_map = a_facet.facet_range_map;
         for(const auto& range : result){
@@ -4466,15 +4494,16 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                 std::string error = "Facet range value is not valid.";
                 return Option<bool>(400, error);
             }
-
             auto pos1 = range.find(":");
             std::string range_val = range.substr(0, pos1);
 
             auto pos2 = range.find(",");
             auto pos3 = range.find("]");
 
-            int64_t lower_range = std::stoll(range.substr(pos1 + 2, pos2));
-            int64_t upper_range = std::stoll(range.substr(pos2 + 1, pos3));
+            auto lower_range = range.substr(pos1 + 2, pos2-(pos1+2));
+            auto upper_range = range.substr(pos2 + 1, pos3-(pos2+1));
+            lower_range = StringUtils::trim(lower_range);
+            upper_range = StringUtils::trim(upper_range);
 
             tupVec.emplace_back(std::make_tuple(lower_range, upper_range, range_val));
         }
@@ -4484,8 +4513,8 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         for(const auto& tup : tupVec){
 
-            const std::string& lower_range = std::to_string(std::get<0>(tup));
-            const std::string& upper_range = std::to_string(std::get<1>(tup));
+            const auto& lower_range = std::get<0>(tup);
+            const auto& upper_range = std::get<1>(tup);
             const std::string& range_val = std::get<2>(tup);
             //check if ranges are continous or not
             if((!range_map.empty()) && (range_map.find(lower_range)== range_map.end())){

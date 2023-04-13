@@ -701,11 +701,10 @@ struct facet {
     const std::string field_name;
     spp::sparse_hash_map<std::string, facet_count_t> result_map;
     // used for facet value query
-    //spp::sparse_hash_map<uint64_t, std::vector<std::string>> hash_tokens;
-    spp::sparse_hash_map<std::string, std::vector<std::string>> facet_tokens;
+    spp::sparse_hash_map<uint32_t, std::vector<std::string>> hash_tokens;
 
     // used for faceting grouped results
-    //spp::sparse_hash_map<uint64_t, spp::sparse_hash_set<uint64_t>> hash_groups;
+    spp::sparse_hash_map<uint32_t, spp::sparse_hash_set<uint32_t>> hash_groups;
 
     facet_stats_t stats;
 
@@ -715,6 +714,8 @@ struct facet {
     bool is_range_query;
 
     bool sampled = false;
+
+    bool is_intersected = false;
 
     bool get_range(std::string key, std::pair<std::string, std::string>& range_pair)
     {
@@ -744,9 +745,8 @@ struct facet {
 
 struct facet_info_t {
     // facet hash => resolved tokens
-    //std::unordered_map<uint64_t, std::vector<std::string>> hashes;
+    std::unordered_map<uint64_t, std::vector<std::string>> hashes;
     //facet name => resolved tokens
-    std::unordered_map<std::string, std::vector<std::string>> facet_tokens;
     bool use_facet_query = false;
     bool should_compute_stats = false;
     field facet_field{"", "", false};
@@ -765,11 +765,12 @@ struct facet_value_t {
 
 struct facet_hash_values_t {
     uint32_t length = 0;
-    uint64_t* hashes = nullptr;
+    //uint32_t* hashes = nullptr;
+    std::vector<uint32_t> hashes;
 
     facet_hash_values_t() {
         length = 0;
-        hashes = nullptr;
+        //hashes = nullptr;
     }
 
     facet_hash_values_t(facet_hash_values_t&& hash_values) noexcept {
@@ -777,17 +778,20 @@ struct facet_hash_values_t {
         hashes = hash_values.hashes;
 
         hash_values.length = 0;
-        hash_values.hashes = nullptr;
+        //hash_values.hashes = nullptr;
+        hash_values.hashes.clear();
     }
 
     facet_hash_values_t& operator=(facet_hash_values_t&& other) noexcept {
         if (this != &other) {
-            delete[] hashes;
+            //delete[] hashes;
+            hashes.clear();
 
             hashes = other.hashes;
             length = other.length;
 
-            other.hashes = nullptr;
+            //other.hashes = nullptr;
+            other.hashes.clear();
             other.length = 0;
         }
 
@@ -795,8 +799,9 @@ struct facet_hash_values_t {
     }
 
     ~facet_hash_values_t() {
-        delete [] hashes;
-        hashes = nullptr;
+        //delete [] hashes;
+        //hashes = nullptr;
+        hashes.clear();
     }
 
     uint64_t size() const {
@@ -804,6 +809,7 @@ struct facet_hash_values_t {
     }
 
     uint64_t back() const {
-        return hashes[length - 1];
+        //return hashes[length - 1];
+        return hashes.back();
     }
 };
