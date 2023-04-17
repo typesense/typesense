@@ -3511,7 +3511,7 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key,
 
     if(!raw_doc && enable_nested_fields) {
         std::vector<field> flattened_fields;
-        field::flatten_doc(document, nested_fields, true, flattened_fields);
+        field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
     }
 
     return Option<bool>(true);
@@ -3700,7 +3700,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(enable_nested_fields) {
             std::vector<field> flattened_fields;
-            field::flatten_doc(document, nested_fields, true, flattened_fields);
+            field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
         }
 
         index_record record(num_found_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::REJECT);
@@ -4383,13 +4383,6 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                 auto& dynamic_field = dyn_field_it->second;
 
                 if(std::regex_match (kv.key(), std::regex(dynamic_field.name))) {
-                    // unless the field is auto or string*, ignore field name matching regexp pattern
-                    if(kv.key() == dynamic_field.name && !dynamic_field.is_auto() &&
-                       !dynamic_field.is_string_star()) {
-                        skip_field = true;
-                        break;
-                    }
-
                     // to prevent confusion we also disallow dynamic field names that contain ".*"
                     if((kv.key() != ".*" && kv.key().find(".*") != std::string::npos)) {
                         skip_field = true;
@@ -4437,7 +4430,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         }
 
         std::vector<field> flattened_fields;
-        auto flatten_op = field::flatten_doc(document, nested_fields, is_update, flattened_fields);
+        auto flatten_op = field::flatten_doc(document, nested_fields, dyn_fields, is_update, flattened_fields);
         if(!flatten_op.ok()) {
             return flatten_op;
         }
