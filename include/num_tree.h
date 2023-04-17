@@ -42,6 +42,11 @@ public:
 
     void range_inclusive_search(int64_t start, int64_t end, uint32_t** ids, size_t& ids_len);
 
+    void range_inclusive_search_iterators(int64_t start,
+                                          int64_t end,
+                                          std::vector<id_list_t::iterator_t>& id_list_iterators,
+                                          std::vector<id_list_t*>& expanded_id_lists);
+
     void approx_range_inclusive_search_count(int64_t start, int64_t end, uint32_t& ids_len);
 
     void range_inclusive_contains(const int64_t& start, const int64_t& end,
@@ -53,6 +58,11 @@ public:
     size_t get(int64_t value, std::vector<uint32_t>& geo_result_ids);
 
     void search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids, size_t& ids_len);
+
+    void search_iterators(NUM_COMPARATOR comparator,
+                          int64_t value,
+                          std::vector<id_list_t::iterator_t>& id_list_iterators,
+                          std::vector<id_list_t*>& expanded_id_lists);
 
     void approx_search_count(NUM_COMPARATOR comparator, int64_t value, uint32_t& ids_len);
 
