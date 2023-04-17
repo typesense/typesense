@@ -45,7 +45,7 @@ uint32_t facet_index_t::insert(const std::string& field, const std::string& valu
         for(it = counter_list.begin(); it != counter_list.end(); ++it) {
             // LOG (INFO) << "inserting in middle or front facet " << node.facet_value 
             //     << " with count " << node.count;
-            if(it->count >= facet_count) {
+            if(it->count <= facet_count) {
                 counter_list.emplace(it, node);
                 break;
             }
@@ -90,7 +90,7 @@ size_t facet_index_t::get_facet_count(const std::string& field) {
 //returns the count of matching seq_ids from result array
 int facet_index_t::intersect(const std::string& field, const uint32_t* result_ids, 
         int result_ids_len, int max_facet_count, 
-        std::map<std::string, uint32_t>& found) {
+        std::map<std::string, uint32_t>& found, bool is_wildcard_no_filter_query) {
     //LOG (INFO) << "intersecting field " << field;
 
     const auto& facet_field_it = facet_field_map.find(field);
@@ -107,27 +107,29 @@ int facet_index_t::intersect(const std::string& field, const uint32_t* result_id
     std::vector<uint32_t> id_list;
     for(const auto& counter_list_it : counter_list) {
         // LOG (INFO) << "checking ids in facet_value " << counter_list_it.facet_value 
-        //  << " having total count " << counter_list_it.count;
-
-        auto ids = facet_index_map.at(counter_list_it.facet_value).id_list_ptr;
-        ids_t::uncompress(ids, id_list);
-        const auto ids_len = id_list.size();
+        //   << " having total count " << counter_list_it.count;
         int count = 0;
-        
-        for(int i = 0; i < result_ids_len; ++i) {
-            if(std::binary_search(id_list.begin(), id_list.end(), result_ids[i])) {
-                ++count;
+
+        if(is_wildcard_no_filter_query) {
+            count = counter_list_it.count;
+        } else {
+            auto ids = facet_index_map.at(counter_list_it.facet_value).id_list_ptr;
+            ids_t::uncompress(ids, id_list);
+            const auto ids_len = id_list.size();
+            for(int i = 0; i < result_ids_len; ++i) {
+                if(std::binary_search(id_list.begin(), id_list.end(), result_ids[i])) {
+                   ++count;
+                }
             }
+            id_list.clear();
         }
-        
+
         if(count) {
             found[counter_list_it.facet_value] = count;
-            if(found.size() == 2*max_facet_count) {
+            if(found.size() == max_facet_count) {
                 break;
             }
         }
-
-        id_list.clear();
     }
     
     return found.size();

@@ -1934,31 +1934,27 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     LOG (ERROR) << "range_id not found in result map.";
                 }
             }
-        }
-
-        if(a_facet.is_intersected) {
-            std::vector<std::pair<std::string, facet_count_t>> facet_counts;
+        } else if(a_facet.is_intersected) {
+            LOG(INFO) << "used intersection";
+            std::vector<std::pair<std::string, uint32_t>> facet_counts;
 
             for (const auto & kv : a_facet.result_map) {
-                facet_counts.emplace_back(std::make_pair(kv.first, kv.second));
+                facet_counts.emplace_back(std::make_pair(kv.first, kv.second.count));
             }
             
             auto max_facets = std::min(max_facet_values, facet_counts.size());
             std::sort(facet_counts.begin(), facet_counts.end(), 
                 [&](const auto& p1, const auto& p2) {
-                    return p1.second.count > p2.second.count;
+                    return p1.second > p2.second;
                 });
 
             for(int i = 0; i < max_facets; ++i) {
-                if(a_facet.is_range_query) {
-                    break;
-                }
                 const auto& kv = facet_counts[i];
-                facet_value_t facet_value = { kv.first, kv.first, kv.second.count};
+                facet_value_t facet_value = { kv.first, kv.first, kv.second};
                 facet_values.emplace_back(facet_value);
             }
         } else {
-
+            LOG(INFO) << "used hashes";
             std::vector<std::pair<uint32_t, facet_count_t>> facet_hash_counts;
 
             for (const auto & kv : a_facet.result_map) {
@@ -1973,11 +1969,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                              facet_hash_counts.end(), Collection::facet_count_compare);
             
             for(size_t fi = 0; fi < max_facets; fi++) {
-
-                if(a_facet.is_range_query){
-                    break;
-                }
-
                 // remap facet value hash with actual string
                 auto & kv = facet_hash_counts[fi];
                 auto & facet_count = kv.second;
