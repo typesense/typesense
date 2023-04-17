@@ -381,7 +381,7 @@ private:
                    const std::vector<facet_info_t>& facet_infos,
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
                    const uint32_t* result_ids, size_t results_size,
-                   int max_facet_count) const;
+                   int max_facet_count, bool is_wildcard_query, bool no_filters_provided) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   filter_node_t*& filter_tree_root) const;
