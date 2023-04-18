@@ -1,5 +1,6 @@
 #include <string_utils.h>
 #include "override.h"
+#include "tokenizer.h"
 
 Option<bool> override_t::parse(const nlohmann::json& override_json, const std::string& id, override_t& override) {
     if(!override_json.is_object()) {
@@ -108,6 +109,11 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
     override.rule.query = json_rule.count("query") == 0 ? "" : json_rule["query"].get<std::string>();
     override.rule.match = json_rule.count("match") == 0 ? "" : json_rule["match"].get<std::string>();
 
+    if(!override.rule.query.empty()) {
+        override.rule.normalized_query = override.rule.query;
+        Tokenizer::normalize_ascii(override.rule.normalized_query);
+    }
+
     if(json_rule.count("filter_by") != 0) {
         if(!override_json["rule"]["filter_by"].is_string()) {
             return Option<bool>(400, "Override `rule.filter_by` must be a string.");
@@ -172,15 +178,15 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
 
     // we have to also detect if it is a dynamic query rule
     size_t i = 0;
-    while(i < override.rule.query.size()) {
-        if(override.rule.query[i] == '{') {
+    while(i < override.rule.normalized_query.size()) {
+        if(override.rule.normalized_query[i] == '{') {
             // look for closing curly
             i++;
-            while(i < override.rule.query.size()) {
-                if(override.rule.query[i] == '}') {
+            while(i < override.rule.normalized_query.size()) {
+                if(override.rule.normalized_query[i] == '}') {
                     override.rule.dynamic_query = true;
                     // remove spaces around curlies
-                    override.rule.query = StringUtils::trim_curly_spaces(override.rule.query);
+                    override.rule.normalized_query = StringUtils::trim_curly_spaces(override.rule.normalized_query);
                     break;
                 }
                 i++;

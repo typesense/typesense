@@ -6,9 +6,11 @@
 #include "option.h"
 #include "string_utils.h"
 #include "logger.h"
+#include "store.h"
 #include <sparsepp.h>
 #include <tsl/htrie_map.h>
 #include "json.hpp"
+#include "text_embedder_manager.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -48,6 +50,8 @@ namespace fields {
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
+    static const std::string embed_from = "embed_from";
+    static const std::string model_name = "model_name";
 }
 
 enum vector_distance_type_t {
@@ -73,6 +77,8 @@ struct field {
     int nested_array;
 
     size_t num_dim;
+    std::vector<std::string> embed_from;
+    std::string model_name;
     vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
@@ -83,9 +89,9 @@ struct field {
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "") :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &embed_from = {}, const std::string& model_name = "") :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed_from(embed_from), model_name(model_name) {
 
         set_computed_defaults(sort, infix);
     }
@@ -313,7 +319,12 @@ struct field {
             if (!field.reference.empty()) {
                 field_val[fields::reference] = field.reference;
             }
-
+            if(!field.embed_from.empty()) {
+                field_val[fields::embed_from] = field.embed_from;
+                if(!field.model_name.empty()) {
+                    field_val[fields::model_name] = field.model_name;
+                }
+            }
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {
@@ -362,7 +373,7 @@ struct field {
             }
         }
 
-        if(!default_sorting_field.empty() && !found_default_sorting_field && !fields.empty()) {
+        if(!default_sorting_field.empty() && !found_default_sorting_field) {
             return Option<bool>(400, "Default sorting field is defined as `" + default_sorting_field +
                                      "` but is not found in the schema.");
         }
@@ -409,6 +420,59 @@ struct field {
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
+
+            if(field_json.count(fields::embed_from) != 0) {
+                if(TextEmbedderManager::model_dir.empty()) {
+                    return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
+                }
+
+                if(!field_json[fields::embed_from].is_array()) {
+                    return Option<bool>(400, "Property `" + fields::embed_from + "` must be an array.");
+                }
+
+                if(field_json[fields::embed_from].empty()) {
+                    return Option<bool>(400, "Property `" + fields::embed_from + "` must have at least one element.");
+                }
+
+                for(auto& embed_from_field : field_json[fields::embed_from]) {
+                    if(!embed_from_field.is_string()) {
+                        return Option<bool>(400, "Property `" + fields::embed_from + "` must contain only field names as strings.");
+                    }
+                }
+
+                if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
+                    return Option<bool>(400, "Property `" + fields::embed_from + "` is only allowed on a float array field.");
+                }
+                
+
+                for(auto& embed_from_field : field_json[fields::embed_from]) {
+                    bool flag = false;
+                    for(const auto& field : fields_json) {
+                        if(field[fields::name] == embed_from_field) {
+                            if(field[fields::type] != field_types::STRING && field[fields::type] != field_types::STRING_ARRAY) {
+                                return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
+                            }
+                            flag = true;
+                            break;
+                        }
+                    }
+                    if(!flag) {
+                        for(const auto& field : the_fields) {
+                            if(field.name == embed_from_field) {
+                                if(field.type != field_types::STRING && field.type != field_types::STRING_ARRAY) {
+                                    return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
+                                }
+                                flag = true;
+                                break;
+                            }
+                        }
+                    }
+                    if(!flag) {
+                        return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
+                    }
+                }   
+            }
+
             auto op = json_field_to_field(enable_nested_fields,
                                           field_json, the_fields, fallback_field_type, num_auto_detect_fields);
             if(!op.ok()) {
@@ -425,13 +489,17 @@ struct field {
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
                             const field& the_field, const std::string& flat_name,
+                            const std::unordered_map<std::string, field>& dyn_fields,
                             std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                       std::vector<std::string>& path_parts, size_t path_index, bool has_array,
-                                      bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields);
+                                      bool has_obj_array,
+                                      const std::unordered_map<std::string, field>& dyn_fields,
+                                      std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields,
+                                    const std::unordered_map<std::string, field>& dyn_fields,
                                     bool missing_is_ok, std::vector<field>& flattened_fields);
 
     static void compact_nested_fields(tsl::htrie_map<char, field>& nested_fields);
@@ -449,7 +517,7 @@ struct filter {
     bool apply_not_equals = false;
 
     // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
-    std::string referenced_collection_name;
+    std::string referenced_collection_name = "";
 
     static const std::string RANGE_OPERATOR() {
         return "..";
@@ -530,19 +598,12 @@ struct filter {
                                            filter_node_t*& root);
 };
 
-struct filter_tree_metrics {
-    int filter_exp_count;
-    int and_operator_count;
-    int or_operator_count;
-};
-
 struct filter_node_t {
     filter filter_exp;
     FILTER_OPERATOR filter_operator;
     bool isOperator;
-    filter_node_t* left;
-    filter_node_t* right;
-    filter_tree_metrics* metrics = nullptr;
+    filter_node_t* left = nullptr;
+    filter_node_t* right = nullptr;
 
     filter_node_t(filter filter_exp)
             : filter_exp(std::move(filter_exp)),
@@ -559,7 +620,6 @@ struct filter_node_t {
               right(right) {}
 
     ~filter_node_t() {
-        delete metrics;
         delete left;
         delete right;
     }
@@ -569,6 +629,17 @@ struct reference_filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
 
+    reference_filter_result_t& operator=(const reference_filter_result_t& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = new uint32_t[count];
+        memcpy(docs, obj.docs, count * sizeof(uint32_t));
+
+        return *this;
+    }
+
     ~reference_filter_result_t() {
         delete[] docs;
     }
@@ -577,12 +648,57 @@ struct reference_filter_result_t {
 struct filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
-    reference_filter_result_t* reference_filter_result = nullptr;
+    // Collection name -> Reference filter result
+    std::map<std::string, reference_filter_result_t*> reference_filter_results;
+
+    filter_result_t() = default;
+
+    filter_result_t(uint32_t count, uint32_t* docs) : count(count), docs(docs) {}
+
+    filter_result_t& operator=(const filter_result_t& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = new uint32_t[count];
+        memcpy(docs, obj.docs, count * sizeof(uint32_t));
+
+        // Copy every collection's references.
+        for (const auto &item: obj.reference_filter_results) {
+            reference_filter_results[item.first] = new reference_filter_result_t[count];
+
+            for (uint32_t i = 0; i < count; i++) {
+                reference_filter_results[item.first][i] = item.second[i];
+            }
+        }
+
+        return *this;
+    }
+
+    filter_result_t& operator=(filter_result_t&& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = obj.docs;
+        reference_filter_results = std::map(obj.reference_filter_results);
+
+        obj.docs = nullptr;
+        obj.reference_filter_results.clear();
+
+        return *this;
+    }
 
     ~filter_result_t() {
         delete[] docs;
-        delete[] reference_filter_result;
+        for (const auto &item: reference_filter_results) {
+            delete[] item.second;
+        }
     }
+
+    static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
+
+    static void or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
 };
 
 namespace sort_field_const {
@@ -594,6 +710,7 @@ namespace sort_field_const {
     static const std::string text_match = "_text_match";
     static const std::string eval = "_eval";
     static const std::string seq_id = "_seq_id";
+    static const std::string group_found = "_group_found";
 
     static const std::string exclude_radius = "exclude_radius";
     static const std::string precision = "precision";
@@ -715,6 +832,8 @@ struct facet {
 
     bool sampled = false;
 
+    bool is_wildcard_match = false;
+
     bool is_intersected = false;
 
     bool get_range(std::string key, std::pair<std::string, std::string>& range_pair)
@@ -746,7 +865,6 @@ struct facet {
 struct facet_info_t {
     // facet hash => resolved tokens
     std::unordered_map<uint64_t, std::vector<std::string>> hashes;
-    //facet name => resolved tokens
     bool use_facet_query = false;
     bool should_compute_stats = false;
     field facet_field{"", "", false};
@@ -765,12 +883,10 @@ struct facet_value_t {
 
 struct facet_hash_values_t {
     uint32_t length = 0;
-    //uint32_t* hashes = nullptr;
     std::vector<uint32_t> hashes;
 
     facet_hash_values_t() {
         length = 0;
-        //hashes = nullptr;
     }
 
     facet_hash_values_t(facet_hash_values_t&& hash_values) noexcept {
@@ -778,19 +894,16 @@ struct facet_hash_values_t {
         hashes = hash_values.hashes;
 
         hash_values.length = 0;
-        //hash_values.hashes = nullptr;
         hash_values.hashes.clear();
     }
 
     facet_hash_values_t& operator=(facet_hash_values_t&& other) noexcept {
         if (this != &other) {
-            //delete[] hashes;
             hashes.clear();
 
             hashes = other.hashes;
             length = other.length;
 
-            //other.hashes = nullptr;
             other.hashes.clear();
             other.length = 0;
         }
@@ -799,8 +912,6 @@ struct facet_hash_values_t {
     }
 
     ~facet_hash_values_t() {
-        //delete [] hashes;
-        //hashes = nullptr;
         hashes.clear();
     }
 
@@ -809,7 +920,6 @@ struct facet_hash_values_t {
     }
 
     uint64_t back() const {
-        //return hashes[length - 1];
         return hashes.back();
     }
 };

@@ -58,6 +58,14 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::reference] = "";
         }
 
+        if(field_obj.count(fields::embed_from) == 0) {
+            field_obj[fields::embed_from] = std::vector<std::string>();
+        }
+
+        if(field_obj.count(fields::model_name) == 0) {
+            field_obj[fields::model_name] = "";
+        }
+
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
         if(field_obj.count(fields::vec_dist) != 0) {
@@ -70,7 +78,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference]);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed_from],
+                field_obj[fields::model_name]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -200,7 +209,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     for(size_t coll_index = 0; coll_index < num_collections; coll_index++) {
         const auto& collection_meta_json = collection_meta_jsons[coll_index];
         nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
-
         if(collection_meta.is_discarded()) {
             LOG(ERROR) << "Error while parsing collection meta, json: " << collection_meta_json;
             return Option<bool>(500, "Error while parsing collection meta.");
@@ -457,6 +465,7 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         const std::string& del_end_prefix = std::to_string(collection->get_collection_id()) + "`";
         store->delete_range(del_key_prefix, del_end_prefix);
         store->flush();
+        store->compact_range(del_key_prefix, del_end_prefix);
 
         // delete overrides
         const std::string& del_override_prefix =
@@ -667,6 +676,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *LIMIT_HITS = "limit_hits";
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
+    const char *OFFSET = "offset";
+    const char *LIMIT = "limit";
     const char *RANK_TOKENS_BY = "rank_tokens_by";
     const char *INCLUDE_FIELDS = "include_fields";
     const char *EXCLUDE_FIELDS = "exclude_fields";
@@ -748,7 +759,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::vector<std::string> facet_fields;
     std::vector<sort_by> sort_fields;
     size_t per_page = 10;
-    size_t page = 1;
+    size_t page = 0;
+    size_t offset = UINT32_MAX;
     token_ordering token_order = NOT_SET;
 
     std::string vector_query;
@@ -801,7 +813,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {SNIPPET_THRESHOLD, &snippet_threshold},
         {HIGHLIGHT_AFFIX_NUM_TOKENS, &highlight_affix_num_tokens},
         {PAGE, &page},
+        {OFFSET, &offset},
         {PER_PAGE, &per_page},
+        {LIMIT, &per_page},
         {GROUP_LIMIT, &group_limit},
         {SEARCH_CUTOFF_MS, &search_cutoff_ms},
         {MAX_EXTRA_PREFIX, &max_extra_prefix},
@@ -939,6 +953,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
+    if(!req_params[PAGE].empty() && page == 0 && offset == UINT32_MAX) {
+        return Option<bool>(422, "Parameter `page` must be an integer of value greater than 0.");
+    }
+
+    if(req_params[PAGE].empty() && req_params[OFFSET].empty()) {
+        page = 1;
+    }
+
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
     exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
 
@@ -1022,7 +1044,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           start_ts,
                                                           match_type,
                                                           facet_sample_percent,
-                                                          facet_sample_threshold
+                                                          facet_sample_threshold,
+                                                          offset
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1041,7 +1064,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         result["search_time_ms"] = timeMillis;
     }
 
-    result["page"] = page;
+    if(page != 0) {
+        result["page"] = page;
+    } else {
+        result["offset"] = offset;
+    }
+
     results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
     //LOG(INFO) << "Time taken: " << timeMillis << "ms";
@@ -1154,6 +1182,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     }
 
     const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
+
+    if(default_sorting_field == "id") {
+        return Option<Collection *>(400, "Invalid `default_sorting_field` value: cannot be `id`.");
+    }
 
     std::string fallback_field_type;
     std::vector<field> fields;
@@ -1290,7 +1322,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
         if(collection->get_enable_nested_fields()) {
             std::vector<field> flattened_fields;
-            field::flatten_doc(document, collection->get_nested_fields(), true, flattened_fields);
+            field::flatten_doc(document, collection->get_nested_fields(), {}, true, flattened_fields);
         }
 
         auto dirty_values = DIRTY_VALUES::DROP;

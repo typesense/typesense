@@ -29,7 +29,7 @@ cp -r $CURR_DIR/typesense-server /tmp/typesense-deb-build
 
 #curl -o /tmp/typesense-server-$TSV.tar.gz https://dl.typesense.org/releases/$TSV/typesense-server-$TSV-linux-${ARCH}.tar.gz
 rm -rf /tmp/typesense-server-$TSV && mkdir /tmp/typesense-server-$TSV
-tar -xzf /typesense-core/build-Linux/typesense-server-$TSV-linux-${ARCH}.tar.gz -C /tmp/typesense-server-$TSV
+tar -xzf $CURR_DIR/../bazel-bin/typesense-server-$TSV-linux-${ARCH}.tar.gz -C /tmp/typesense-server-$TSV
 
 downloaded_hash=`md5sum /tmp/typesense-server-$TSV/typesense-server | cut -d' ' -f1`
 original_hash=`cat /tmp/typesense-server-$TSV/typesense-server.md5.txt`
@@ -89,5 +89,5 @@ cd /tmp/typesense-rpm-build/typesense-server-${TSV} && \
   rpmbuild --target=${RPM_ARCH} --buildroot /tmp/typesense-rpm-build/typesense-server-${TSV} -bb \
   $SPEC_FILE
 
-cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-${ARCH}.deb" /typesense-core
-cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-1.${RPM_ARCH}.rpm" /typesense-core
+cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-${ARCH}.deb" $CURR_DIR/../bazel-bin
+cp "/tmp/typesense-rpm-build/typesense-server-${TSV}-1.${RPM_ARCH}.rpm" $CURR_DIR/../bazel-bin

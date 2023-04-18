@@ -21,7 +21,11 @@ http_archive(
 
 load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
 
-rules_foreign_cc_dependencies()
+# This sets up some common toolchains for building targets. For more details, please see
+# https://bazelbuild.github.io/rules_foreign_cc/0.9.0/flatten.html#rules_foreign_cc_dependencies
+rules_foreign_cc_dependencies(
+    cmake_version="3.25.0",
+    ninja_version="1.11.1")
 
 # brpc and its dependencies
 git_repository(
@@ -32,6 +36,24 @@ git_repository(
         "//bazel/brpc:brpc.patch",
     ],
     remote = "https://github.com/apache/incubator-brpc.git",
+)
+
+
+new_git_repository(
+    name="onnx_runtime",
+    branch= "rel-1.14.0",
+    build_file = "//bazel:onnxruntime.BUILD",
+    remote= "https://github.com/microsoft/onnxruntime",
+    patches=["//bazel:onnx.patch"],
+    patch_cmds= ["git submodule sync && git submodule foreach  'git fetch --tags' && git submodule update --init --remote"]
+)
+
+new_git_repository(
+    name = "onnx_runtime_extensions",
+    build_file = "//bazel:onnxruntime_extensions.BUILD",
+    remote = "https://github.com/microsoft/onnxruntime-extensions",
+    commit = "81e7799c69044c745239202085eb0a98f102937b",
+    patches=["//bazel:onnx_ext.patch"],
 )
 
 new_git_repository(
@@ -260,4 +282,12 @@ http_file(
   downloaded_file_path = "token_offsets.txt",
   sha256 = "55c1c510ca6335c049f5696f3b94ac7be61e84f3e27cd8169021929b3db99651",
   urls = ["https://gist.githubusercontent.com/kishorenc/1d330714eb07019f210f16ccb3991217/raw/bd52e05375d305d5aaa7ac06219af999726933a4/token_offsets.log"],
+)
+
+http_archive(
+    name = "elfutils",
+    build_file = "//bazel:elfutils.BUILD",
+    sha256 = "ecc406914edf335f0b7fc084ebe6c460c4d6d5175bfdd6688c1c78d9146b8858",
+    strip_prefix = "elfutils-0.182",
+    urls = ["https://sourceware.org/elfutils/ftp/0.182/elfutils-0.182.tar.bz2"],
 )

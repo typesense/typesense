@@ -9,6 +9,7 @@ struct override_t {
 
     struct rule_t {
         std::string query;
+        std::string normalized_query;       // not actually stored, used for lowercasing etc.
         std::string match;
         bool dynamic_query = false;
         std::string filter_by;

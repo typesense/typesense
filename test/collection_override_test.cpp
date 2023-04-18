@@ -779,6 +779,35 @@ TEST_F(CollectionOverrideTest, IncludeOverrideWithFilterBy) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // when bad filter by clause is used in override
+    override_json_include = {
+            {"id", "include-rule-2"},
+            {
+             "rule", {
+                           {"query", "test"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            },
+            {"filter_curated_hits", false},
+            {"stop_processing", false},
+            {"remove_matched_tokens", false},
+            {"filter_by", "price >55"}
+    };
+
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "2";
+    override_json_include["includes"][0]["position"] = 1;
+
+    override_t override_include2;
+    op = override_t::parse(override_json_include, "include-rule-2", override_include2);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_include2);
+
+    results = coll1->search("random-name", {"name"}, "",
+                             {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
 }
 
 TEST_F(CollectionOverrideTest, ReplaceQuery) {
@@ -844,6 +873,79 @@ TEST_F(CollectionOverrideTest, ReplaceQuery) {
     override_json["remove_matched_tokens"] = false;
     op = override_t::parse(override_json, "rule-1", override_rule);
     ASSERT_TRUE(op.ok());
+}
+
+TEST_F(CollectionOverrideTest, RuleQueryMustBeCaseInsensitive) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["points"] = 30;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Tennis Ball";
+    doc2["points"] = 50;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Golf Ball";
+    doc3["points"] = 1;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json = R"({
+       "id": "rule-1",
+       "rule": {
+            "query": "GrEat",
+            "match": "contains"
+        },
+        "replace_query": "amazing"
+    })"_json;
+
+    override_t override_rule;
+    auto op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    override_json = R"({
+       "id": "rule-2",
+       "rule": {
+            "query": "BaLL",
+            "match": "contains"
+        },
+        "filter_by": "points: 1"
+    })"_json;
+
+    override_t override_rule2;
+    op = override_t::parse(override_json, "rule-2", override_rule2);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule2);
+
+    auto results = coll1->search("great shoes", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("ball", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionOverrideTest, WindowForRule) {
@@ -1673,6 +1775,52 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMissingField) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, DynamicFilteringBadFilterBy) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["category"] = "shoes";
+    doc1["points"] = 3;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json = {
+            {"id",   "dynamic-cat-filter"},
+            {
+             "rule", {
+                             {"query", "{category}"},             // this field does NOT exist
+                             {"match", override_t::MATCH_EXACT}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"filter_by", "category: {category} && foo"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    auto results = coll1->search("shoes", {"name", "category"}, "",
+                                 {}, sort_fields, {2, 2}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, DynamicFilteringMultiplePlaceholders) {
     Collection* coll1;
 
@@ -1738,11 +1886,10 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultiplePlaceholders) {
     auto results = coll1->search("Nike Air Jordan light yellow shoes", {"name", "category", "brand"}, "",
                             {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false}, 10).get();
 
-    // not happy with this order (0,2,1 is better)
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
 
     // query with tokens at the start that preceding the placeholders in the rule
     results = coll1->search("New Nike Air Jordan yellow shoes", {"name", "category", "brand"}, "",
@@ -1922,9 +2069,9 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithNumericalFilter) {
 
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
 
     results = coll1->search("adidas", {"name", "category", "brand"}, "",
                             {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false}, 10).get();

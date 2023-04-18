@@ -353,6 +353,16 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
     nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "tagzz: gold", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
 
+    // compound filter expression containing an unknown field
+    results = coll_array_fields->search("Jeremy", query_fields,
+               "(age:>0 ||  timestamps:> 0) || tagzz: gold", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // unbalanced paranthesis
+    results = coll_array_fields->search("Jeremy", query_fields,
+                                        "(age:>0 ||  timestamps:> 0) || ", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     // searching using a string for a numeric field
     results = coll_array_fields->search("Jeremy", query_fields, "age: abcdef", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
@@ -1091,6 +1101,13 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+
+    results = coll1->search("*", {}, "loc: (48.90615, 2.34358, 1 km) || "
+                                     "loc: (48.8462, 2.34515, 1 km)",
+                             {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
     // pick location close to none of the spots
     results = coll1->search("*",
                             {}, "loc: (48.910544830985785, 2.337218333651177, 2 km)",
@@ -1117,6 +1134,14 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("5", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("3", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // when geo query had NaN
+    auto gop = coll1->search("*", {}, "loc: (NaN, nan, 1 mi)",
+                                       {}, {}, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(gop.ok());
+    ASSERT_EQ("Value of filter field `loc`: must be in the `(-44.50, 170.29, 0.75 km)` or "
+              "(56.33, -65.97, 23.82, -127.82) format.", gop.error());
 
     // when geo field is formatted as string, show meaningful error
     nlohmann::json bad_doc;

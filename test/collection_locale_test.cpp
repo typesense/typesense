@@ -820,6 +820,27 @@ TEST_F(CollectionLocaleTest, SearchOnArabicTextWithTypo) {
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionLocaleTest, SearchInGermanLocaleShouldBeTypoTolerant) {
+    nlohmann::json coll_json = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title_de", "type": "string", "locale": "de"}
+            ]
+        })"_json;
+
+    auto coll1 = collectionManager.create_collection(coll_json).get();
+
+    nlohmann::json doc;
+    doc["title_de"] = "mülltonne";
+    doc["title_en"] = "trash bin";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("mulltonne", {"title_de"}, "", {}, {},
+                                 {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
 /*
 TEST_F(CollectionLocaleTest, TranslitPad) {
     UErrorCode translit_status = U_ZERO_ERROR;

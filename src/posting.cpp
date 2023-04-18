@@ -386,7 +386,32 @@ void posting_t::merge(const std::vector<void*>& raw_posting_lists, std::vector<u
     }
 }
 
-void posting_t::intersect(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids) {
+void posting_t::intersect(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids,
+                          const uint32_t& context_ids_length,
+                          const uint32_t* context_ids) {
+    if (context_ids_length != 0) {
+        if (raw_posting_lists.empty()) {
+            return;
+        }
+
+        for (uint32_t i = 0; i < context_ids_length; i++) {
+            bool is_present = true;
+
+            for (auto const& raw_posting_list: raw_posting_lists) {
+                if (!contains(raw_posting_list, context_ids[i])) {
+                    is_present = false;
+                    break;
+                }
+            }
+
+            if (is_present) {
+                result_ids.push_back(context_ids[i]);
+            }
+        }
+
+        return;
+    }
+
     // we will have to convert the compact posting list (if any) to full form
     std::vector<posting_list_t*> plists;
     std::vector<posting_list_t*> expanded_plists;

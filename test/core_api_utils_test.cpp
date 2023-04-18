@@ -617,6 +617,141 @@ TEST_F(CoreAPIUtilsTest, PresetSingleSearch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CoreAPIUtilsTest, SearchPagination) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "name", "type": "string" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    for(size_t i = 0; i < 20; i++) {
+        nlohmann::json doc;
+        doc["name"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+        coll1->add(doc.dump(), CREATE);
+    }
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json body;
+
+    // without any pagination params, default is top 10 records by sort order
+
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+
+    req->body = body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+    nlohmann::json results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(19, results["hits"][0]["document"]["points"].get<size_t>());
+    ASSERT_EQ(1, results["page"].get<size_t>());
+
+    // when offset is used we should expect the same but "offset" should be returned in response
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["offset"] = "1";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(18, results["hits"][0]["document"]["points"].get<size_t>());
+    ASSERT_EQ(1, results["offset"].get<size_t>());
+
+    // use limit to restrict page size
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["offset"] = "1";
+    search["limit"] = "5";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(18, results["hits"][0]["document"]["points"].get<size_t>());
+    ASSERT_EQ(1, results["offset"].get<size_t>());
+
+    // when page is -1
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["page"] = "-1";
+    search["limit"] = "5";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(400, results["code"].get<size_t>());
+    ASSERT_EQ("Parameter `page` must be an unsigned integer.", results["error"].get<std::string>());
+
+    // when offset is -1
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["offset"] = "-1";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(400, results["code"].get<size_t>());
+    ASSERT_EQ("Parameter `offset` must be an unsigned integer.", results["error"].get<std::string>());
+
+    // when page is 0 and no offset is sent
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["page"] = "0";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(422, results["code"].get<size_t>());
+    ASSERT_EQ("Parameter `page` must be an integer of value greater than 0.", results["error"].get<std::string>());
+}
+
 TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     Collection *coll1;
     std::vector<field> fields = {field("title", field_types::STRING, false),

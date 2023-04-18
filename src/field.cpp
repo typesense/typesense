@@ -1,8 +1,10 @@
 #include <store.h>
 #include "field.h"
 #include "magic_enum.hpp"
+#include "text_embedder_manager.h"
 #include <stack>
 #include <collection_manager.h>
+#include <regex>
 
 Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
                                                  const std::string& format_err_msg,
@@ -38,6 +40,11 @@ Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
     if(!is_polygon) {
         // we have to ensure that this is a point + radius match
         if(!StringUtils::is_float(filter_values[0]) || !StringUtils::is_float(filter_values[1])) {
+            return Option<bool>(400, format_err_msg);
+        }
+
+        if(filter_values[0] == "nan" || filter_values[0] == "NaN" ||
+            filter_values[1] == "nan" || filter_values[1] == "NaN") {
             return Option<bool>(400, format_err_msg);
         }
     }
@@ -383,32 +390,35 @@ Option<bool> toFilter(const std::string expression,
 Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                          const tsl::htrie_map<char, field>& search_schema,
                          const Store* store,
-                         const std::string& doc_id_prefix,
-                         int& and_operator_count,
-                         int& or_operator_count) {
+                         const std::string& doc_id_prefix) {
     std::stack<filter_node_t*> nodeStack;
+    bool is_successful = true;
+    std::string error_message;
+
+    filter_node_t *filter_node = nullptr;
 
     while (!postfix.empty()) {
         const std::string expression = postfix.front();
         postfix.pop();
 
-        filter_node_t* filter_node;
         if (isOperator(expression)) {
-            auto message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
-
             if (nodeStack.empty()) {
-                return Option<bool>(400, message);
+                is_successful = false;
+                error_message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
+                break;
             }
             auto operandB = nodeStack.top();
             nodeStack.pop();
 
             if (nodeStack.empty()) {
-                return Option<bool>(400, message);
+                delete operandB;
+                is_successful = false;
+                error_message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
+                break;
             }
             auto operandA = nodeStack.top();
             nodeStack.pop();
 
-            expression == "&&" ? and_operator_count++ : or_operator_count++;
             filter_node = new filter_node_t(expression == "&&" ? AND : OR, operandA, operandB);
         } else {
             filter filter_exp;
@@ -419,24 +429,22 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
                 size_t parenthesis_index = expression.find('(');
 
                 std::string collection_name = expression.substr(1, parenthesis_index - 1);
-                auto& cm = CollectionManager::get_instance();
+                auto &cm = CollectionManager::get_instance();
                 auto collection = cm.get_collection(collection_name);
                 if (collection == nullptr) {
-                    return Option<bool>(400, "Referenced collection `" + collection_name + "` not found.");
+                    is_successful = false;
+                    error_message = "Referenced collection `" + collection_name + "` not found.";
+                    break;
                 }
 
                 filter_exp = {expression.substr(parenthesis_index + 1, expression.size() - parenthesis_index - 2)};
                 filter_exp.referenced_collection_name = collection_name;
-
-                auto op = collection->validate_reference_filter(filter_exp.field_name);
-                if (!op.ok()) {
-                    return Option<bool>(400, "Failed to parse reference filter on `" + collection_name +
-                                                "` collection: " + op.error());
-                }
             } else {
                 Option<bool> toFilter_op = toFilter(expression, filter_exp, search_schema, store, doc_id_prefix);
                 if (!toFilter_op.ok()) {
-                    return toFilter_op;
+                    is_successful = false;
+                    error_message = toFilter_op.error();
+                    break;
                 }
             }
 
@@ -446,11 +454,21 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
         nodeStack.push(filter_node);
     }
 
+    if (!is_successful) {
+        while (!nodeStack.empty()) {
+            auto filterNode = nodeStack.top();
+            delete filterNode;
+            nodeStack.pop();
+        }
+
+        return Option<bool>(400, error_message);
+    }
+
     if (nodeStack.empty()) {
         return Option<bool>(400, "Filter query cannot be empty.");
     }
-
     root = nodeStack.top();
+
     return Option<bool>(true);
 }
 
@@ -481,21 +499,14 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
         return toPostfix_op;
     }
 
-    int postfix_size = (int) postfix.size(), and_operator_count = 0, or_operator_count = 0;
     Option<bool> toParseTree_op = toParseTree(postfix,
                                               root,
                                               search_schema,
                                               store,
-                                              doc_id_prefix,
-                                              and_operator_count,
-                                              or_operator_count);
+                                              doc_id_prefix);
     if (!toParseTree_op.ok()) {
         return toParseTree_op;
     }
-
-    root->metrics = new filter_tree_metrics{static_cast<int>(postfix_size - (and_operator_count + or_operator_count)),
-                     and_operator_count,
-                     or_operator_count};
 
     return Option<bool>(true);
 }
@@ -662,6 +673,38 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
+    if(field_json.count(fields::model_name) > 0 && field_json.count(fields::embed_from) == 0) {
+        return Option<bool>(400, "Property `" + fields::model_name + "` can only be used with `" + fields::embed_from + "`.");
+    }
+
+    if(field_json.count(fields::embed_from) != 0) {
+        // If the model path is not specified, use the default model and set the number of dimensions to 384 (number of dimensions of the default model)
+        field_json[fields::num_dim] = static_cast<unsigned int>(384);
+        if(field_json.count(fields::model_name) != 0) {
+            unsigned int num_dim = 0;
+            if(!field_json[fields::model_name].is_string()) {
+                return Option<bool>(400, "Property `" + fields::model_name + "` must be a string.");
+            }
+            if(field_json[fields::model_name].get<std::string>().empty()) {
+                return Option<bool>(400, "Property `" + fields::model_name + "` must be a non-empty string.");
+            }
+
+            if(TextEmbedder::is_model_valid(field_json[fields::model_name].get<std::string>(), num_dim)) {
+                field_json[fields::num_dim] = num_dim;
+            } else {
+                return Option<bool>(400, "Property `" + fields::model_name + "` must be a valid model path.");
+            }
+        }
+    } else {
+        field_json[fields::embed_from] = std::vector<std::string>();
+    }
+
+
+    if(field_json.count(fields::model_name) == 0) {
+        field_json[fields::model_name] = "";
+    }
+
+
     auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
 
     if(field_json.count(fields::num_dim) == 0) {
@@ -697,6 +740,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             }
         }
     }
+
 
     if(field_json.count(fields::optional) == 0) {
         // dynamic type fields are always optional
@@ -741,10 +785,13 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
-                  field_json[fields::reference])
+                  field_json[fields::reference], field_json[fields::embed_from].get<std::vector<std::string>>(),
+                  field_json[fields::model_name])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
+        // Add a reference helper field in the schema. It stores the doc id of the document it references to reduce the
+        // computation while searching.
         the_fields.emplace_back(
                 field(field_json[fields::name].get<std::string>() + Collection::REFERENCE_HELPER_FIELD_SUFFIX,
                       "int64", false, field_json[fields::optional], true)
@@ -756,35 +803,55 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
 bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
                         const field& the_field, const std::string& flat_name,
+                        const std::unordered_map<std::string, field>& dyn_fields,
                         std::unordered_map<std::string, field>& flattened_fields) {
     if(value.is_object()) {
         has_obj_array = has_array;
         for(const auto& kv: value.items()) {
-            flatten_obj(doc, kv.value(), has_array, has_obj_array, the_field, flat_name + "." + kv.key(), flattened_fields);
+            flatten_obj(doc, kv.value(), has_array, has_obj_array, the_field, flat_name + "." + kv.key(),
+                        dyn_fields, flattened_fields);
         }
     } else if(value.is_array()) {
         for(const auto& kv: value.items()) {
-            flatten_obj(doc, kv.value(), true, has_obj_array, the_field, flat_name, flattened_fields);
+            flatten_obj(doc, kv.value(), true, has_obj_array, the_field, flat_name, dyn_fields, flattened_fields);
         }
     } else { // must be a primitive
         if(doc.count(flat_name) != 0 && flattened_fields.find(flat_name) == flattened_fields.end()) {
             return true;
         }
 
+        std::string detected_type;
+        bool found_dynamic_field = false;
+
+        for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
+            auto& dynamic_field = dyn_field_it->second;
+
+            if(dynamic_field.is_auto() || dynamic_field.is_string_star()) {
+                continue;
+            }
+
+            if(std::regex_match(flat_name, std::regex(flat_name))) {
+                detected_type = dynamic_field.type;
+                found_dynamic_field = true;
+                break;
+            }
+        }
+
+        if(!found_dynamic_field) {
+            if(!field::get_type(value, detected_type)) {
+                return false;
+            }
+
+            if(std::isalnum(detected_type.back()) && has_array) {
+                // convert singular type to multi valued type
+                detected_type += "[]";
+            }
+        }
+
         if(has_array) {
             doc[flat_name].push_back(value);
         } else {
             doc[flat_name] = value;
-        }
-
-        std::string detected_type;
-        if(!field::get_type(value, detected_type)) {
-            return false;
-        }
-
-        if(std::isalnum(detected_type.back()) && has_array) {
-            // convert singular type to multi valued type
-            detected_type += "[]";
         }
 
         field flattened_field = the_field;
@@ -802,22 +869,42 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
 
 Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                   std::vector<std::string>& path_parts, size_t path_index,
-                                  bool has_array, bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields) {
+                                  bool has_array, bool has_obj_array,
+                                  const std::unordered_map<std::string, field>& dyn_fields,
+                                  std::unordered_map<std::string, field>& flattened_fields) {
     if(path_index == path_parts.size()) {
         // end of path: check if obj matches expected type
         std::string detected_type;
-        if(!field::get_type(obj, detected_type)) {
-            if(obj.is_null() && the_field.optional) {
-                // null values are allowed only if field is optional
-                return Option<bool>(false);
+        bool found_dynamic_field = false;
+
+        for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
+            auto& dynamic_field = dyn_field_it->second;
+
+            if(dynamic_field.is_auto() || dynamic_field.is_string_star()) {
+                continue;
             }
 
-            return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
+            if(std::regex_match(the_field.name, std::regex(dynamic_field.name))) {
+                detected_type = dynamic_field.type;
+                found_dynamic_field = true;
+                break;
+            }
         }
 
-        if(std::isalnum(detected_type.back()) && has_array) {
-            // convert singular type to multi valued type
-            detected_type += "[]";
+        if(!found_dynamic_field) {
+            if(!field::get_type(obj, detected_type)) {
+                if(obj.is_null() && the_field.optional) {
+                    // null values are allowed only if field is optional
+                    return Option<bool>(true);
+                }
+
+                return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
+            }
+
+            if(std::isalnum(detected_type.back()) && has_array) {
+                // convert singular type to multi valued type
+                detected_type += "[]";
+            }
         }
 
         has_obj_array = has_obj_array || ((detected_type == field_types::OBJECT) && has_array);
@@ -830,12 +917,14 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
               (detected_type == field_types::INT64_ARRAY &&
                 (the_field.type == field_types::INT32_ARRAY || the_field.type == field_types::FLOAT_ARRAY)) ||
 
-              (detected_type == field_types::FLOAT_ARRAY && the_field.type == field_types::GEOPOINT_ARRAY)
+              (detected_type == field_types::FLOAT_ARRAY && the_field.type == field_types::GEOPOINT_ARRAY) ||
+
+              (detected_type == field_types::FLOAT_ARRAY && the_field.type == field_types::GEOPOINT && !has_obj_array)
            );
 
         if(detected_type == the_field.type || is_numericaly_valid) {
             if(the_field.is_object()) {
-                flatten_obj(doc, obj, has_array, has_obj_array, the_field, the_field.name, flattened_fields);
+                flatten_obj(doc, obj, has_array, has_obj_array, the_field, the_field.name, dyn_fields, flattened_fields);
             } else {
                 if(doc.count(the_field.name) != 0 && flattened_fields.find(the_field.name) == flattened_fields.end()) {
                     return Option<bool>(true);
@@ -878,14 +967,15 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             for(auto& ele: it.value()) {
                 has_obj_array = has_obj_array || ele.is_object();
                 Option<bool> op = flatten_field(doc, ele, the_field, path_parts, path_index + 1, has_array,
-                                                has_obj_array, flattened_fields);
+                                                has_obj_array, dyn_fields, flattened_fields);
                 if(!op.ok()) {
                     return op;
                 }
             }
             return Option<bool>(true);
         } else {
-            return flatten_field(doc, it.value(), the_field, path_parts, path_index + 1, has_array, has_obj_array, flattened_fields);
+            return flatten_field(doc, it.value(), the_field, path_parts, path_index + 1, has_array, has_obj_array,
+                                 dyn_fields, flattened_fields);
         }
     } {
         return Option<bool>(404, "Field `" + the_field.name + "` not found.");
@@ -894,6 +984,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
 Option<bool> field::flatten_doc(nlohmann::json& document,
                                 const tsl::htrie_map<char, field>& nested_fields,
+                                const std::unordered_map<std::string, field>& dyn_fields,
                                 bool missing_is_ok, std::vector<field>& flattened_fields) {
 
     std::unordered_map<std::string, field> flattened_fields_map;
@@ -907,7 +998,8 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
             continue;
         }
 
-        auto op = flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields_map);
+        auto op = flatten_field(document, document, nested_field, field_parts, 0, false, false,
+                                dyn_fields, flattened_fields_map);
         if(op.ok()) {
             continue;
         }
@@ -936,5 +1028,169 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
 
     for(auto& field_name: nested_fields_vec) {
         nested_fields.erase_prefix(field_name + ".");
+    }
+}
+
+void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
+    auto lenA = a.count, lenB = b.count;
+    if (lenA == 0 || lenB == 0) {
+        return;
+    }
+
+    result.docs = new uint32_t[std::min(lenA, lenB)];
+
+    auto A = a.docs, B = b.docs, out = result.docs;
+    const uint32_t *endA = A + lenA;
+    const uint32_t *endB = B + lenB;
+
+    // Add an entry of references in the result for each unique collection in a and b.
+    for (auto const& item: a.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
+    }
+    for (auto const& item: b.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
+    }
+
+    while (true) {
+        while (*A < *B) {
+            SKIP_FIRST_COMPARE:
+            if (++A == endA) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        while (*A > *B) {
+            if (++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        if (*A == *B) {
+            *out = *A;
+
+            // Copy the references of the document from every collection into result.
+            for (auto const& item: a.reference_filter_results) {
+                result.reference_filter_results[item.first][out - result.docs] = item.second[A - a.docs];
+            }
+            for (auto const& item: b.reference_filter_results) {
+                result.reference_filter_results[item.first][out - result.docs] = item.second[B - b.docs];
+            }
+
+            out++;
+
+            if (++A == endA || ++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        } else {
+            goto SKIP_FIRST_COMPARE;
+        }
+    }
+}
+
+void filter_result_t::or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
+    if (a.count == 0 && b.count == 0) {
+        return;
+    }
+
+    // If either one of a or b does not have any matches, copy other into result.
+    if (a.count == 0) {
+        result = b;
+        return;
+    }
+    if (b.count == 0) {
+        result = a;
+        return;
+    }
+
+    size_t indexA = 0, indexB = 0, res_index = 0, lenA = a.count, lenB = b.count;
+    result.docs = new uint32_t[lenA + lenB];
+
+    // Add an entry of references in the result for each unique collection in a and b.
+    for (auto const& item: a.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[lenA + lenB];
+        }
+    }
+    for (auto const& item: b.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[lenA + lenB];
+        }
+    }
+
+    while (indexA < lenA && indexB < lenB) {
+        if (a.docs[indexA] < b.docs[indexB]) {
+            // check for duplicate
+            if (res_index == 0 || result.docs[res_index - 1] != a.docs[indexA]) {
+                result.docs[res_index] = a.docs[indexA];
+                res_index++;
+            }
+
+            // Copy references of the last result document from every collection in a.
+            for (auto const& item: a.reference_filter_results) {
+                result.reference_filter_results[item.first][res_index - 1] = item.second[indexA];
+            }
+
+            indexA++;
+        } else {
+            if (res_index == 0 || result.docs[res_index - 1] != b.docs[indexB]) {
+                result.docs[res_index] = b.docs[indexB];
+                res_index++;
+            }
+
+            for (auto const& item: b.reference_filter_results) {
+                result.reference_filter_results[item.first][res_index - 1] = item.second[indexB];
+            }
+
+            indexB++;
+        }
+    }
+
+    while (indexA < lenA) {
+        if (res_index == 0 || result.docs[res_index - 1] != a.docs[indexA]) {
+            result.docs[res_index] = a.docs[indexA];
+            res_index++;
+        }
+
+        for (auto const& item: a.reference_filter_results) {
+            result.reference_filter_results[item.first][res_index - 1] = item.second[indexA];
+        }
+
+        indexA++;
+    }
+
+    while (indexB < lenB) {
+        if(res_index == 0 || result.docs[res_index - 1] != b.docs[indexB]) {
+            result.docs[res_index] = b.docs[indexB];
+            res_index++;
+        }
+
+        for (auto const& item: b.reference_filter_results) {
+            result.reference_filter_results[item.first][res_index - 1] = item.second[indexB];
+        }
+
+        indexB++;
+    }
+
+    result.count = res_index;
+
+    // shrink fit
+    auto out = new uint32_t[res_index];
+    memcpy(out, result.docs, res_index * sizeof(uint32_t));
+    delete[] result.docs;
+    result.docs = out;
+
+    for (auto &item: result.reference_filter_results) {
+        auto out_references = new reference_filter_result_t[res_index];
+
+        for (uint32_t i = 0; i < result.count; i++) {
+            out_references[i] = item.second[i];
+        }
+        delete[] item.second;
+        item.second = out_references;
     }
 }

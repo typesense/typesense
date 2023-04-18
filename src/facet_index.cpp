@@ -6,7 +6,8 @@ uint32_t facet_index_t::insert(const std::string& field, const std::string& valu
     auto& facet_index_map = facet_field_map[field].facet_index_map;
     uint32_t index;
     const auto sv = value.substr(0, 100);
-    if(facet_index_map.count(sv) == 0) {
+    const auto it = facet_index_map.find(sv);
+    if(it == facet_index_map.end()) {
         index = ++count_index;
         
         facet_index_struct fis {};

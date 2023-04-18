@@ -205,17 +205,19 @@ void BatchedIndexer::run() {
                                                           std::string(magic_enum::enum_name(resource_check));
                             LOG(ERROR) << err_msg;
                             orig_res->set_422(err_msg);
+                            orig_res->final = true;
                             async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
                             server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
-                            break;
+                            goto end;
                         }
 
                         else if(route_found) {
                             if(skip_writes && found_rpath->handler != post_config) {
                                 orig_res->set(422, "Skipping write.");
+                                orig_res->final = true;
                                 async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
                                 server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
-                                break;
+                                goto end;
                             }
 
                             async_res = found_rpath->async_res;
@@ -226,6 +228,7 @@ void BatchedIndexer::run() {
                                 LOG(ERROR) << "Raw error: " << e.what();
                                 // bad request gets a response immediately
                                 orig_res->set_400("Bad request.");
+                                orig_res->final = true;
                                 async_res = false;
                             }
                             prev_body = orig_req->body;
@@ -240,9 +243,11 @@ void BatchedIndexer::run() {
                         }
 
                         if(!route_found) {
-                            break;
+                            goto end;
                         }
                     }
+
+                    end:
 
                     queued_writes--;
                     orig_req_res.next_chunk_index++;

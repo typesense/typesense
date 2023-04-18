@@ -1446,3 +1446,128 @@ TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(2, res_op.get()["found"].get<size_t>());
 }
+
+TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "names", "type": "string[]"}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+    
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    
+
+    nlohmann::json update_schema = R"({
+                "fields": [
+                {"name": "embedding", "type":"float[]", "embed_from": ["names"]}
+                ]
+            })"_json;
+    
+    auto res = coll->alter(update_schema);
+
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(1, coll->get_embedding_fields().size());
+
+    nlohmann::json doc;
+    doc["names"] = {"hello", "world"};
+    auto add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+    auto added_doc = add_op.get();
+    
+    ASSERT_EQ(384, added_doc["embedding"].get<std::vector<float>>().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+            {"name": "names", "type": "string[]"},
+            {"name": "category", "type":"string"}, 
+            {"name": "embedding", "type":"float[]", "embed_from": ["names","category"]}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    LOG(INFO) << "Created collection";
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "names", "drop": true}
+        ]
+    })"_json;
+
+
+    auto embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(2, embedding_fields["embedding"].embed_from.size());
+
+    auto alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(1, embedding_fields["embedding"].embed_from.size());
+    ASSERT_EQ("category", embedding_fields["embedding"].embed_from[0]);
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "category", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(0, embedding_fields.size());
+    ASSERT_EQ(0, coll->_get_index()->_get_vector_index().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    TextEmbedderManager::download_default_model();
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto embedding_fields_map = coll->get_embedding_fields();
+    ASSERT_EQ(1, embedding_fields_map.size());
+    auto embedding_field_it = embedding_fields_map.find("embedding");
+    ASSERT_TRUE(embedding_field_it != embedding_fields_map.end());
+    ASSERT_EQ("embedding", embedding_field_it.value().name);
+    ASSERT_EQ(1, embedding_field_it.value().embed_from.size());
+    ASSERT_EQ("name", embedding_field_it.value().embed_from[0]);
+
+    // drop the embedding field
+    nlohmann::json schema_without_embedding = R"({
+                            "fields": [
+                            {"name": "embedding", "drop": true}
+                            ]
+                        })"_json;
+    auto update_op = coll->alter(schema_without_embedding);
+
+    ASSERT_TRUE(update_op.ok());
+
+    embedding_fields_map = coll->get_embedding_fields();
+    ASSERT_EQ(0, embedding_fields_map.size());
+}

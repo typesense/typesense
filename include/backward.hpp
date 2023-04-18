@@ -4191,6 +4191,7 @@ private:
 
             Printer printer;
             printer.address = true;
+            printer.snippet = false;
             //printer.print(st, stderr);
 
             std::stringstream error_lines;
