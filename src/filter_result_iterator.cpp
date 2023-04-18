@@ -1001,17 +1001,10 @@ uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
         return 0;
     }
 
-    if (!filter_node->isOperator) {
-        const filter a_filter = filter_node->filter_exp;
-        field f = index->search_schema.at(a_filter.field_name);
-
-        if (!a_filter.referenced_collection_name.empty() || a_filter.field_name == "id" ||
-            (index->field_is_indexed(a_filter.field_name) && (f.is_integer() || f.is_float() || f.is_bool()))) {
-
-            filter_array = new uint32_t[filter_result.count];
-            std::copy(filter_result.docs, filter_result.docs + filter_result.count, filter_array);
-            return filter_result.count;
-        }
+    if (can_get_ids()) {
+        filter_array = new uint32_t[filter_result.count];
+        std::copy(filter_result.docs, filter_result.docs + filter_result.count, filter_array);
+        return filter_result.count;
     }
 
     std::vector<uint32_t> filter_ids;
@@ -1029,6 +1022,10 @@ uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
 uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results) {
     if (!valid()) {
         return 0;
+    }
+
+    if (can_get_ids()) {
+        return ArrayUtils::and_scalar(A, lenA, filter_result.docs, filter_result.count, &results);
     }
 
     std::vector<uint32_t> filter_ids;
@@ -1120,4 +1117,18 @@ filter_result_iterator_t &filter_result_iterator_t::operator=(filter_result_iter
     status = std::move(obj.status);
 
     return *this;
+}
+
+bool filter_result_iterator_t::can_get_ids() {
+    if (!filter_node->isOperator) {
+        const filter a_filter = filter_node->filter_exp;
+        field f = index->search_schema.at(a_filter.field_name);
+
+        if (!a_filter.referenced_collection_name.empty() || a_filter.field_name == "id" ||
+            (index->field_is_indexed(a_filter.field_name) && (f.is_integer() || f.is_float() || f.is_bool()))) {
+            return true;
+        }
+    }
+
+    return false;
 }
