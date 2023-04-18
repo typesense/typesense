@@ -128,13 +128,29 @@ filegroup(
     ]),
 )
 
+TEST_COPTS = [
+    "-Wall",
+    "-Wextra",
+    "-Wno-unused-parameter",
+    "-Werror=return-type",
+    "-g",
+]
+
+config_setting(
+    name = "release_mode",
+    define_values = { "mode": "release" }
+)
+
 cc_test(
     name = "typesense-test",
     srcs = [
         ":src_files",
         ":test_src_files",
     ],
-    copts = COPTS,
+    copts = TEST_COPTS + select({
+        ":release_mode": ["-O2"],
+        "//conditions:default": ["-O0"]
+    }),
     data = [
         ":test_data_files",
         "@libart//:data",
