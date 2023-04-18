@@ -4951,14 +4951,23 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
     const auto parent_search_stop_ms = search_stop_us;
     auto parent_search_cutoff = search_cutoff;
 
-    for(size_t thread_id = 0; thread_id < num_threads && filter_result_iterator.valid(); thread_id++) {
+    for(size_t thread_id = 0; thread_id < num_threads &&
+                                (filter_result_iterator.can_get_ids() ?
+                                    filter_index < filter_result_iterator.get_length() :
+                                    filter_result_iterator.valid()); thread_id++) {
         std::vector<uint32_t> batch_result_ids;
         batch_result_ids.reserve(window_size);
 
-        do {
-            batch_result_ids.push_back(filter_result_iterator.seq_id);
-            filter_result_iterator.next();
-        } while (batch_result_ids.size() < window_size && filter_result_iterator.valid());
+        if (filter_result_iterator.can_get_ids()) {
+            while (batch_result_ids.size() < window_size && filter_index < filter_result_iterator.get_length()) {
+                batch_result_ids.push_back(filter_result_iterator.get_ids()[filter_index++]);
+            }
+        } else {
+            do {
+                batch_result_ids.push_back(filter_result_iterator.seq_id);
+                filter_result_iterator.next();
+            } while (batch_result_ids.size() < window_size && filter_result_iterator.valid());
+        }
 
         num_queued++;
 
@@ -5019,8 +5028,6 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
             parent_search_cutoff = parent_search_cutoff || search_cutoff;
             cv_process.notify_one();
         });
-
-        filter_index += batch_result_ids.size();
     }
 
     std::unique_lock<std::mutex> lock_process(m_process);
