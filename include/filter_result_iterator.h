@@ -132,6 +132,14 @@ private:
     explicit filter_result_iterator_t(uint32_t approx_filter_ids_length);
 
 public:
+    uint32_t* get_ids() {
+        return filter_result.docs;
+    }
+
+    uint32_t get_length() {
+        return filter_result.count;
+    }
+
     uint32_t seq_id = 0;
     /// Collection name -> references
     std::map<std::string, reference_filter_result_t> reference;
