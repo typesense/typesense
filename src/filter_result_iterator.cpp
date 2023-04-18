@@ -443,40 +443,6 @@ void filter_result_iterator_t::next() {
     }
 }
 
-void merge_id_list_iterators(std::vector<id_list_t::iterator_t>& id_list_iterators,
-                             std::vector<uint32_t>& result_ids) {
-    struct comp {
-        bool operator()(const id_list_t::iterator_t *lhs, const id_list_t::iterator_t *rhs) const {
-            return lhs->id() > rhs->id();
-        }
-    };
-
-    std::priority_queue<id_list_t::iterator_t*, std::vector<id_list_t::iterator_t*>, comp> iter_queue;
-    for (auto& id_list_iterator: id_list_iterators) {
-        if (id_list_iterator.valid()) {
-            iter_queue.push(&id_list_iterator);
-        }
-    }
-
-    if (iter_queue.empty()) {
-        return;
-    }
-
-    // TODO: Handle !=
-
-    do {
-        id_list_t::iterator_t* iter = iter_queue.top();
-        iter_queue.pop();
-
-        result_ids.push_back(iter->id());
-        iter->next();
-
-        if (iter->valid()) {
-            iter_queue.push(iter);
-        }
-    } while (!iter_queue.empty());
-}
-
 void filter_result_iterator_t::init() {
     if (filter_node == nullptr) {
         return;
@@ -554,108 +520,69 @@ void filter_result_iterator_t::init() {
     if (f.is_integer()) {
         auto num_tree = index->numerical_index.at(a_filter.field_name);
 
-        std::vector<uint32_t> ids;
+        // TODO: Handle not equals
+
         for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
             const std::string& filter_value = a_filter.values[fi];
             int64_t value = (int64_t)std::stol(filter_value);
-            std::vector<id_list_t::iterator_t> id_list_iterators;
-            std::vector<id_list_t*> expanded_id_lists;
 
             if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
                 const std::string& next_filter_value = a_filter.values[fi + 1];
                 auto const range_end_value = (int64_t)std::stol(next_filter_value);
-                num_tree->range_inclusive_search_iterators(value, range_end_value, id_list_iterators, expanded_id_lists);
+                num_tree->range_inclusive_search(value, range_end_value, &filter_result.docs,
+                                                 reinterpret_cast<size_t &>(filter_result.count));
                 fi++;
             } else {
-                num_tree->search_iterators(a_filter.comparators[fi] == NOT_EQUALS ? EQUALS : a_filter.comparators[fi],
-                                           value, id_list_iterators, expanded_id_lists);
-            }
-
-            merge_id_list_iterators(id_list_iterators, ids);
-
-            for(id_list_t* expanded_id_list: expanded_id_lists) {
-                delete expanded_id_list;
+                num_tree->search(a_filter.comparators[fi], value,
+                                 &filter_result.docs, reinterpret_cast<size_t &>(filter_result.count));
             }
         }
 
-        if (ids.empty()) {
+        if (filter_result.count == 0) {
             is_valid = false;
             return;
         }
-
-        filter_result.count = ids.size();
-        filter_result.docs = new uint32_t[ids.size()];
-        std::copy(ids.begin(), ids.end(), filter_result.docs);
-        seq_id = filter_result.docs[result_index];
     } else if (f.is_float()) {
         auto num_tree = index->numerical_index.at(a_filter.field_name);
 
-        std::vector<uint32_t> ids;
         for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
             const std::string& filter_value = a_filter.values[fi];
             float value = (float)std::atof(filter_value.c_str());
             int64_t float_int64 = Index::float_to_int64_t(value);
-            std::vector<id_list_t::iterator_t> id_list_iterators;
-            std::vector<id_list_t*> expanded_id_lists;
 
             if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
                 const std::string& next_filter_value = a_filter.values[fi+1];
                 int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
-                num_tree->range_inclusive_search_iterators(float_int64, range_end_value,
-                                                           id_list_iterators, expanded_id_lists);
+                num_tree->range_inclusive_search(float_int64, range_end_value, &filter_result.docs,
+                                                 reinterpret_cast<size_t &>(filter_result.count));
                 fi++;
             } else {
-                num_tree->search_iterators(a_filter.comparators[fi] == NOT_EQUALS ? EQUALS : a_filter.comparators[fi],
-                                           float_int64, id_list_iterators, expanded_id_lists);
-            }
-
-            merge_id_list_iterators(id_list_iterators, ids);
-
-            for(id_list_t* expanded_id_list: expanded_id_lists) {
-                delete expanded_id_list;
+                num_tree->search(a_filter.comparators[fi], float_int64,
+                                 &filter_result.docs, reinterpret_cast<size_t &>(filter_result.count));
             }
         }
 
-        if (ids.empty()) {
+        if (filter_result.count == 0) {
             is_valid = false;
             return;
         }
-
-        filter_result.count = ids.size();
-        filter_result.docs = new uint32_t[ids.size()];
-        std::copy(ids.begin(), ids.end(), filter_result.docs);
-        seq_id = filter_result.docs[result_index];
     } else if (f.is_bool()) {
         auto num_tree = index->numerical_index.at(a_filter.field_name);
 
-        std::vector<uint32_t> ids;
         size_t value_index = 0;
         for (const std::string& filter_value : a_filter.values) {
             int64_t bool_int64 = (filter_value == "1") ? 1 : 0;
-            std::vector<id_list_t::iterator_t> id_list_iterators;
-            std::vector<id_list_t*> expanded_id_lists;
 
-            num_tree->search_iterators(a_filter.comparators[value_index] == NOT_EQUALS ? EQUALS : a_filter.comparators[value_index],
-                                       bool_int64, id_list_iterators, expanded_id_lists);
-
-            merge_id_list_iterators(id_list_iterators, ids);
-
-            for(id_list_t* expanded_id_list: expanded_id_lists) {
-                delete expanded_id_list;
-            }
+            num_tree->search(a_filter.comparators[value_index], bool_int64,
+                             &filter_result.docs, reinterpret_cast<size_t &>(filter_result.count));
 
             value_index++;
         }
 
-        if (ids.empty()) {
+        if (filter_result.count == 0) {
             is_valid = false;
             return;
         }
-
-        filter_result.count = ids.size();
-        filter_result.docs = new uint32_t[ids.size()];
-        std::copy(ids.begin(), ids.end(), filter_result.docs);
-        seq_id = filter_result.docs[result_index];
     } else if (f.is_string()) {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
@@ -1080,9 +1007,9 @@ uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
 
         if (!a_filter.referenced_collection_name.empty() || a_filter.field_name == "id" ||
             (index->field_is_indexed(a_filter.field_name) && (f.is_integer() || f.is_float() || f.is_bool()))) {
+
             filter_array = new uint32_t[filter_result.count];
             std::copy(filter_result.docs, filter_result.docs + filter_result.count, filter_array);
-
             return filter_result.count;
         }
     }
