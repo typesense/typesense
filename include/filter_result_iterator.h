@@ -127,6 +127,14 @@ private:
     void doc_matching_string_filter(bool field_is_array);
 
 public:
+    uint32_t* get_ids() {
+        return filter_result.docs;
+    }
+
+    uint32_t get_length() {
+        return filter_result.count;
+    }
+
     uint32_t seq_id = 0;
     /// Collection name -> references
     std::map<std::string, reference_filter_result_t> reference;
@@ -180,4 +188,6 @@ public:
     /// Performs AND with the contents of A and allocates a new array of results.
     /// \return size of the results array
     uint32_t and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results);
+
+    bool can_get_ids();
 };
