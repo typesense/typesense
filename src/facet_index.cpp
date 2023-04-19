@@ -15,7 +15,7 @@ uint32_t facet_index_t::insert(const std::string& field, const std::string& valu
         fis.index = index;
         facet_index_map.emplace(sv, fis);
     }else {
-        auto ids = facet_index_map[sv].id_list_ptr;
+        auto ids = it->id_list_ptr;
         if (!ids_t::contains(ids, id)) {
             ids_t::upsert(ids, id);
             facet_index_map[sv].id_list_ptr = ids;

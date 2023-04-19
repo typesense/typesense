@@ -320,15 +320,15 @@ void Index::compute_token_offsets_facets(index_record& record,
             if(the_field.type == field_types::STRING) {
                 tokenize_string_with_facets(document[field_name], is_facet, the_field,
                                             local_symbols_to_index, local_token_separators,
-                                            offset_facet_hashes.offsets/*, offset_facet_hashes.facet_hashes*/);
+                                            offset_facet_hashes.offsets);
             } else {
                 tokenize_string_array_with_facets(document[field_name], is_facet, the_field,
                                                   local_symbols_to_index, local_token_separators,
-                                                  offset_facet_hashes.offsets/*, offset_facet_hashes.facet_hashes*/);
+                                                  offset_facet_hashes.offsets);
             }
         }
 
-        if(!offset_facet_hashes.offsets.empty() /*|| !offset_facet_hashes.facet_hashes.empty()*/) {
+        if(!offset_facet_hashes.offsets.empty()) {
             record.field_index.emplace(field_name, std::move(offset_facet_hashes));
         }
     }
@@ -3234,7 +3234,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     bool estimate_facets = (facet_sample_percent < 100 && all_result_ids_len > facet_sample_threshold);
 
     if(!facets.empty()) {
-        //const size_t num_threads = std::min(concurrency, all_result_ids_len);
         const size_t num_threads = 1;
 
         const size_t window_size = (num_threads == 0) ? 0 :

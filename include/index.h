@@ -190,7 +190,6 @@ struct search_args {
 
 struct offsets_facet_hashes_t {
     std::unordered_map<std::string, std::vector<uint32_t>> offsets;
-    //std::vector<uint32_t> facet_hashes;
 };
 
 struct index_record {
