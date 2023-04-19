@@ -488,18 +488,16 @@ private:
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
-    static void tokenize_string_with_facets(const std::string& text, bool is_facet, const field& a_field,
-                                            const std::vector<char>& symbols_to_index,
-                                            const std::vector<char>& token_separators,
-                                            std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets/*,
-                                            std::vector<uint32_t>& facet_hashes*/);
+    static void tokenize_string(const std::string& text, bool is_facet, const field& a_field,
+                                const std::vector<char>& symbols_to_index,
+                                const std::vector<char>& token_separators,
+                                std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets);
 
-    static void tokenize_string_array_with_facets(const std::vector<std::string>& strings, bool is_facet,
-                                           const field& a_field,
-                                           const std::vector<char>& symbols_to_index,
-                                           const std::vector<char>& token_separators,
-                                           std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets/*,
-                                           std::vector<uint32_t>& facet_hashes*/);
+    static void tokenize_string_array(const std::vector<std::string>& strings, bool is_facet,
+                                      const field& a_field,
+                                      const std::vector<char>& symbols_to_index,
+                                      const std::vector<char>& token_separators,
+                                      std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets);
 
     void collate_included_ids(const std::vector<token_t>& q_included_tokens,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,

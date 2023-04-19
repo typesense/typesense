@@ -267,7 +267,7 @@ void Index::compute_token_offsets_facets(index_record& record,
             continue;
         }
 
-        offsets_facet_hashes_t offset_facet_hashes;
+        std::unordered_map<std::string, std::vector<uint32_t>> offsets;
 
         bool is_facet = search_schema.at(field_name).facet;
 
@@ -294,9 +294,9 @@ void Index::compute_token_offsets_facets(index_record& record,
                     }
                 }
 
-                tokenize_string_array_with_facets(strings, is_facet, the_field,
-                                                  local_symbols_to_index, local_token_separators,
-                                                  offset_facet_hashes.offsets/*, offset_facet_hashes.facet_hashes*/);
+                tokenize_string_array(strings, is_facet, the_field,
+                                      local_symbols_to_index, local_token_separators,
+                                      offsets);
             } else {
                 std::string text;
 
@@ -310,27 +310,27 @@ void Index::compute_token_offsets_facets(index_record& record,
                     text = std::to_string(document[field_name].get<bool>());
                 }
 
-                tokenize_string_with_facets(text, is_facet, the_field,
-                                            local_symbols_to_index, local_token_separators,
-                                            offset_facet_hashes.offsets/*, offset_facet_hashes.facet_hashes*/);
+                tokenize_string(text, is_facet, the_field,
+                                local_symbols_to_index, local_token_separators,
+                                offsets);
             }
         }
 
         if(the_field.is_string()) {
 
             if(the_field.type == field_types::STRING) {
-                tokenize_string_with_facets(document[field_name], is_facet, the_field,
-                                            local_symbols_to_index, local_token_separators,
-                                            offset_facet_hashes.offsets);
+                tokenize_string(document[field_name], is_facet, the_field,
+                                local_symbols_to_index, local_token_separators,
+                                offsets);
             } else {
-                tokenize_string_array_with_facets(document[field_name], is_facet, the_field,
-                                                  local_symbols_to_index, local_token_separators,
-                                                  offset_facet_hashes.offsets);
+                tokenize_string_array(document[field_name], is_facet, the_field,
+                                      local_symbols_to_index, local_token_separators,
+                                      offsets);
             }
         }
 
-        if(!offset_facet_hashes.offsets.empty()) {
-            record.field_index.emplace(field_name, std::move(offset_facet_hashes));
+        if(!offsets.empty()) {
+            record.field_index.emplace(field_name, std::move(offsets));
         }
     }
 }
@@ -660,38 +660,34 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                    facet_hash_values_t fhashvalues;
                    
                    if(afield.type == field_types::INT32_ARRAY) {
-                        for(int i = 0; i < document[afield.name].size(); ++i) {
+                        for(size_t i = 0; i < document[afield.name].size(); ++i) {
                             int32_t raw_val = document[afield.name][i].get<int32_t>();
                             value = std::to_string(raw_val);
                             auto index = facet_index_v4->insert(afield.name, value, seq_id);
                             fhashvalues.hashes.emplace_back(index);
                         }
-                    }
-                    else if(afield.type == field_types::INT64_ARRAY) {
-                        for(int i = 0; i < document[afield.name].size(); ++i) {
+                    } else if(afield.type == field_types::INT64_ARRAY) {
+                        for(size_t i = 0; i < document[afield.name].size(); ++i) {
                             int64_t raw_val = document[afield.name][i].get<int64_t>();
                             value = std::to_string(raw_val);
                             auto index = facet_index_v4->insert(afield.name, value, seq_id);
                             fhashvalues.hashes.emplace_back(index);
                         }
-                    }
-                    else if(afield.type == field_types::STRING_ARRAY) {
-                        for(int i = 0; i < document[afield.name].size(); ++i) {
+                    } else if(afield.type == field_types::STRING_ARRAY) {
+                        for(size_t i = 0; i < document[afield.name].size(); ++i) {
                             value = document[afield.name][i];
                             auto index = facet_index_v4->insert(afield.name, value, seq_id);
                             fhashvalues.hashes.emplace_back(index);
                         }
-                    }
-                    else if(afield.type == field_types::FLOAT_ARRAY) {
-                        for(int i = 0; i < document[afield.name].size(); ++i) {
+                    } else if(afield.type == field_types::FLOAT_ARRAY) {
+                        for(size_t i = 0; i < document[afield.name].size(); ++i) {
                             float raw_val = document[afield.name][i].get<float>();
                             value = StringUtils::float_to_str(raw_val);
                             auto index = facet_index_v4->insert(afield.name, value, seq_id);
                             fhashvalues.hashes.emplace_back(index);
                         }
-                    }
-                    else if(afield.type == field_types::BOOL_ARRAY) {
-                        for(int i = 0; i < document[afield.name].size(); ++i) {
+                    } else if(afield.type == field_types::BOOL_ARRAY) {
+                        for(size_t i = 0; i < document[afield.name].size(); ++i) {
                             value = std::to_string(document[afield.name][i].get<bool>());
                             //value = (value == "1") ? "true" : "false";
                             auto index = facet_index_v4->insert(afield.name, value, seq_id);
@@ -1056,11 +1052,10 @@ uint64_t Index::facet_token_hash(const field & a_field, const std::string &token
     return hash;
 }
 
-void Index::tokenize_string_with_facets(const std::string& text, bool is_facet, const field& a_field,
-                                        const std::vector<char>& symbols_to_index,
-                                        const std::vector<char>& token_separators,
-                                        std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets/*,
-                                        std::vector<uint32_t>& facet_hashes*/) {
+void Index::tokenize_string(const std::string& text, bool is_facet, const field& a_field,
+                            const std::vector<char>& symbols_to_index,
+                            const std::vector<char>& token_separators,
+                            std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets) {
 
     Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators);
     std::string token;
@@ -1099,12 +1094,11 @@ void Index::tokenize_string_with_facets(const std::string& text, bool is_facet, 
     // }
 }
 
-void Index::tokenize_string_array_with_facets(const std::vector<std::string>& strings, bool is_facet,
-                                              const field& a_field,
-                                              const std::vector<char>& symbols_to_index,
-                                              const std::vector<char>& token_separators,
-                                              std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets/*,
-                                              std::vector<uint32_t>& facet_hashes*/) {
+void Index::tokenize_string_array(const std::vector<std::string>& strings, bool is_facet,
+                                  const field& a_field,
+                                  const std::vector<char>& symbols_to_index,
+                                  const std::vector<char>& token_separators,
+                                  std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets) {
 
     for(size_t array_index = 0; array_index < strings.size(); array_index++) {
         const std::string& str = strings[array_index];
@@ -1229,8 +1223,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
         const auto facet_records = facet_index_v4->get_facet_count(a_facet.field_name);
 
-        if(results_size && facet_records && (facet_records <= 10 || is_wildcard_query == true) 
-            && use_facet_query == false && group_limit == 0 && no_filters_provided == true) {
+        if(results_size && facet_records && (facet_records <= 10 || is_wildcard_query) &&
+            !use_facet_query && group_limit == 0 && no_filters_provided) {
             //LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
 
