@@ -447,16 +447,7 @@ void filter_result_iterator_t::next() {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_integer() || f.is_float() || f.is_bool()) {
-        result_index++;
-        if (result_index >= filter_result.count) {
-            is_valid = false;
-            return;
-        }
-
-        seq_id = filter_result.docs[result_index];
-        return;
-    } else if (f.is_string()) {
+    if (f.is_string()) {
         if (filter_node->filter_exp.apply_not_equals) {
             if (++seq_id < result_index) {
                 return;
@@ -996,17 +987,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_integer() || f.is_float() || f.is_bool()) {
-        while(result_index < filter_result.count && filter_result.docs[result_index] < id) {
-            result_index++;
-        }
-
-        if (result_index >= filter_result.count) {
-            is_valid = false;
-        }
-
-        return;
-    } else if (f.is_string()) {
+    if (f.is_string()) {
         if (filter_node->filter_exp.apply_not_equals) {
             if (id < seq_id) {
                 return;
