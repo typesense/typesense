@@ -991,7 +991,7 @@ const uint32_t* get_allowed_doc_ids(art_tree *t, const std::string& prev_token,
     std::vector<uint32_t> prev_leaf_ids;
     posting_t::merge({prev_leaf->values}, prev_leaf_ids);
 
-    if(filter_result_iterator.valid()) {
+    if(filter_result_iterator.is_valid) {
         prev_token_doc_ids_len = filter_result_iterator.and_scalar(prev_leaf_ids.data(), prev_leaf_ids.size(),
                                                                    prev_token_doc_ids);
     } else {
@@ -1692,6 +1692,7 @@ int art_fuzzy_search_i(art_tree *t, const unsigned char *term, const int term_le
     // documents that contain the previous token and/or filter ids
     size_t allowed_doc_ids_len = 0;
     const uint32_t* allowed_doc_ids = get_allowed_doc_ids(t, prev_token, filter_result_iterator,  allowed_doc_ids_len);
+    filter_result_iterator.reset();
 
     for(auto node: nodes) {
         art_topk_iter(node, token_order, max_words, exact_leaf,

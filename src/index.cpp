@@ -2741,7 +2741,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return filter_init_op;
     }
 
-    if (filter_tree_root != nullptr && !filter_result_iterator.valid()) {
+    if (filter_tree_root != nullptr && !filter_result_iterator.is_valid) {
         return Option(true);
     }
 
@@ -2806,7 +2806,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_query && field_query_tokens[0].q_phrases.empty()) {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
-        bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator.valid());
+        bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator.is_valid);
 
         if(no_filters_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
            sort_fields_std.size() == 1 && sort_fields_std[0].name == sort_field_const::seq_id &&
@@ -2855,11 +2855,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                                       store, doc_id_prefix, filter_tree_root);
 
             filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root);
+            approx_filter_ids_length = filter_result_iterator.is_valid;
         }
 
-// TODO: Curate ids at last
-//        curate_filtered_ids(curated_ids, excluded_result_ids,
-//                            excluded_result_ids_size, filter_result.docs, filter_result.count, curated_ids_sorted);
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
         if (!vector_query.field_name.empty()) {
@@ -2875,8 +2873,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             uint32_t filter_id_count = 0;
             while (!no_filters_provided &&
-                    filter_id_count < vector_query.flat_search_cutoff &&
-                    filter_result_iterator.valid()) {
+                    filter_id_count < vector_query.flat_search_cutoff && filter_result_iterator.is_valid) {
                 auto seq_id = filter_result_iterator.seq_id;
                 std::vector<float> values;
 
@@ -2904,7 +2901,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             if(no_filters_provided ||
-                (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator.valid())) {
+                (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator.is_valid)) {
                 dist_labels.clear();
 
                 VectorFilterFunctor filterFunctor(&filter_result_iterator);
@@ -2973,7 +2970,19 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             all_result_ids, all_result_ids_len,
                             filter_result_iterator, approx_filter_ids_length, concurrency,
                             sort_order, field_values, geopoint_indices);
+            filter_result_iterator.reset();
         }
+
+        // filter tree was initialized to have all sequence ids in this flow.
+        if (no_filters_provided) {
+            delete filter_tree_root;
+            filter_tree_root = nullptr;
+        }
+
+        uint32_t _all_result_ids_len = all_result_ids_len;
+        curate_filtered_ids(curated_ids, excluded_result_ids,
+                            excluded_result_ids_size, all_result_ids, _all_result_ids_len, curated_ids_sorted);
+        all_result_ids_len = _all_result_ids_len;
     } else {
         // Non-wildcard
         // In multi-field searches, a record can be matched across different fields, so we use this for aggregation
@@ -3414,7 +3423,7 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
     // if `filter_curated_hits` is enabled, we will remove curated hits that don't match filter condition
     std::set<uint32_t> included_ids_set;
 
-    if(filter_result_iterator.valid() && filter_curated_hits) {
+    if(filter_result_iterator.is_valid && filter_curated_hits) {
         for (const auto &included_id: included_ids_vec) {
             auto result = filter_result_iterator.valid(included_id);
 
@@ -3683,6 +3692,7 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         art_fuzzy_search_i(search_index.at(the_field.name), (const unsigned char *) token.c_str(), token_len,
                                          costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
                                          false, "", filter_result_iterator, field_leaves, unique_tokens);
+                        filter_result_iterator.reset();
 
                         if(field_leaves.empty()) {
                             // look at the next field
@@ -4649,7 +4659,7 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
                     raw_infix_ids_length = infix_ids.size();
                 }
 
-                if(filter_result_iterator.valid()) {
+                if(filter_result_iterator.is_valid) {
                     uint32_t *filtered_raw_infix_ids = nullptr;
 
                     raw_infix_ids_length = filter_result_iterator.and_scalar(raw_infix_ids, raw_infix_ids_length,
@@ -4971,29 +4981,16 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
     std::condition_variable cv_process;
 
     size_t num_queued = 0;
-    size_t filter_index = 0;
 
     const auto parent_search_begin = search_begin_us;
     const auto parent_search_stop_ms = search_stop_us;
     auto parent_search_cutoff = search_cutoff;
 
-    for(size_t thread_id = 0; thread_id < num_threads &&
-                                (filter_result_iterator.can_get_ids() ?
-                                    filter_index < filter_result_iterator.get_length() :
-                                    filter_result_iterator.valid()); thread_id++) {
+    for(size_t thread_id = 0; thread_id < num_threads && filter_result_iterator.is_valid; thread_id++) {
         std::vector<uint32_t> batch_result_ids;
         batch_result_ids.reserve(window_size);
 
-        if (filter_result_iterator.can_get_ids()) {
-            while (batch_result_ids.size() < window_size && filter_index < filter_result_iterator.get_length()) {
-                batch_result_ids.push_back(filter_result_iterator.get_ids()[filter_index++]);
-            }
-        } else {
-            do {
-                batch_result_ids.push_back(filter_result_iterator.seq_id);
-                filter_result_iterator.next();
-            } while (batch_result_ids.size() < window_size && filter_result_iterator.valid());
-        }
+        filter_result_iterator.get_n_ids(window_size, batch_result_ids);
 
         num_queued++;
 

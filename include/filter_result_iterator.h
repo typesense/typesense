@@ -99,6 +99,7 @@ private:
 
     /// Stores the result of the filters that cannot be iterated.
     filter_result_t filter_result;
+    bool is_filter_result_initialized = false;
 
     /// Initialized in case of filter on string field.
     /// Sample filter values: ["foo bar", "baz"]. Each filter value is split into tokens. We get posting list iterator
@@ -107,9 +108,6 @@ private:
     /// Multiple filter values: Multiple tokens: posting list iterator
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
-
-    /// Set to false when this iterator or it's subtree becomes invalid.
-    bool is_valid = true;
 
     /// Initializes the state of iterator node after it's creation.
     void init();
@@ -126,18 +124,18 @@ private:
     /// Finds the next match for a filter on string field.
     void doc_matching_string_filter(bool field_is_array);
 
+    /// Returns true when doc and reference hold valid values. Used in conjunction with next() and skip_to(id).
+    [[nodiscard]] bool valid();
+
 public:
-    uint32_t* get_ids() {
-        return filter_result.docs;
-    }
-
-    uint32_t get_length() {
-        return filter_result.count;
-    }
-
     uint32_t seq_id = 0;
     /// Collection name -> references
     std::map<std::string, reference_filter_result_t> reference;
+
+    /// Set to false when this iterator or it's subtree becomes invalid.
+    bool is_valid = true;
+
+    /// Initialization status of the iterator.
     Option<bool> status = Option(true);
 
     /// Holds the upper-bound of the number of seq ids this iterator would match.
@@ -156,9 +154,6 @@ public:
     /// Returns the status of the initialization of iterator tree.
     Option<bool> init_status();
 
-    /// Returns true when doc and reference hold valid values. Used in conjunction with next() and skip_to(id).
-    [[nodiscard]] bool valid();
-
     /// Returns a tri-state:
     ///     0: id is not valid
     ///     1: id is valid
@@ -170,6 +165,9 @@ public:
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.
     void next();
+
+    /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
+    void get_n_ids(const uint32_t& n, std::vector<uint32_t>& results);
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
@@ -188,6 +186,4 @@ public:
     /// Performs AND with the contents of A and allocates a new array of results.
     /// \return size of the results array
     uint32_t and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results);
-
-    bool can_get_ids();
 };
