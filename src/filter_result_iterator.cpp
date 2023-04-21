@@ -858,11 +858,15 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
             seq_id = result_index;
             uint32_t previous_match;
+
+            // Keep ignoring the found gaps till they cannot contain id.
             do {
-                previous_match = seq_id;
-                advance_string_filter_token_iterators();
-                doc_matching_string_filter(f.is_array());
-            } while (is_valid && previous_match + 1 == seq_id && seq_id >= id);
+                do {
+                    previous_match = seq_id;
+                    advance_string_filter_token_iterators();
+                    doc_matching_string_filter(f.is_array());
+                } while (is_valid && previous_match + 1 == seq_id);
+            } while (is_valid && seq_id <= id);
 
             if (!is_valid) {
                 // filter matched all the ids in the index. So for not equals, there's no match.
@@ -873,11 +877,22 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
                 is_valid = true;
                 seq_id = previous_match + 1;
                 result_index = index->seq_ids->last_id() + 1;
+
+                // Skip to id, if possible.
+                if (seq_id < id && id < result_index) {
+                    seq_id = id;
+                }
+
                 return;
             }
 
             result_index = seq_id;
             seq_id = previous_match + 1;
+
+            if (seq_id < id && id < result_index) {
+                seq_id = id;
+            }
+
             return;
         }
 
