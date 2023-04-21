@@ -2833,7 +2833,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                                       store, doc_id_prefix, filter_tree_root);
 
             filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root);
-            approx_filter_ids_length = filter_result_iterator.is_valid;
+            approx_filter_ids_length = filter_result_iterator.approx_filter_ids_length;
         }
 
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
@@ -2955,6 +2955,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         if (no_filters_provided) {
             delete filter_tree_root;
             filter_tree_root = nullptr;
+            approx_filter_ids_length = 0;
         }
 
         uint32_t _all_result_ids_len = all_result_ids_len;
