@@ -52,6 +52,8 @@ namespace fields {
     static const std::string reference = "reference";
     static const std::string embed_from = "embed_from";
     static const std::string model_name = "model_name";
+    static const std::string openai_api_key = "openai_api_key";
+    static const std::string model_parameters = "model_parameters";
 }
 
 enum vector_distance_type_t {
@@ -78,7 +80,7 @@ struct field {
 
     size_t num_dim;
     std::vector<std::string> embed_from;
-    std::string model_name;
+    nlohmann::json model_parameters;
     vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
@@ -89,9 +91,10 @@ struct field {
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &embed_from = {}, const std::string& model_name = "") :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &embed_from = {}, 
+          const nlohmann::json& model_parameters = nlohmann::json()) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed_from(embed_from), model_name(model_name) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed_from(embed_from), model_parameters(model_parameters) {
 
         set_computed_defaults(sort, infix);
     }
@@ -321,8 +324,12 @@ struct field {
             }
             if(!field.embed_from.empty()) {
                 field_val[fields::embed_from] = field.embed_from;
-                if(!field.model_name.empty()) {
-                    field_val[fields::model_name] = field.model_name;
+                if(!field.model_parameters.empty()) {
+                    field_val[fields::model_parameters] = field.model_parameters;
+                    // hide openai api key
+                    if(field_val[fields::model_parameters].count("openai_api_key") != 0) {
+                        field_val[fields::model_parameters]["openai_api_key"] = "<hidden>";
+                    }
                 }
             }
             fields_json.push_back(field_val);

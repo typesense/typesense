@@ -244,8 +244,12 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::embed_from] = coll_field.embed_from;
         }
 
-        if(coll_field.model_name.size() > 0) {
-            field_json[fields::model_name] = coll_field.model_name;
+        if(coll_field.model_parameters.size() > 0) {
+            field_json[fields::model_parameters] = coll_field.model_parameters;
+            // Hide OpenAI API key from the response.
+            if(field_json[fields::model_parameters].count(fields::openai_api_key) != 0) {
+                field_json[fields::model_parameters][fields::openai_api_key] = "<hidden>";
+            }
         }
         
         if(coll_field.num_dim > 0) {
@@ -1184,11 +1188,15 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 }
 
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-                auto embedder = embedder_manager.get_text_embedder(search_field.model_name.size() > 0 ? search_field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
+                auto embedder = embedder_manager.get_text_embedder(search_field.model_parameters);
 
                 std::string embed_query = "query: " + raw_query;
+                auto embedding_op = embedder->Embed(embed_query);
+                if(!embedding_op.ok()) {
+                    return Option<nlohmann::json>(400, embedding_op.error());
+                }
 
-                std::vector<float> embedding = embedder->Embed(embed_query);
+                std::vector<float> embedding = embedding_op.get();
                 vector_query._reset();
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;

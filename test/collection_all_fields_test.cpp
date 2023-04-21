@@ -1646,12 +1646,12 @@ TEST_F(CollectionAllFieldsTest, EmbedFromNotArray) {
     ASSERT_EQ("Property `embed_from` must be an array.", field_op.error());
 }
 
-TEST_F(CollectionAllFieldsTest, ModelPathWithoutEmbedFrom) {
+TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
     TextEmbedderManager::model_dir = "/tmp/models";
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
-    field_json["model_name"] = "model";
+    field_json["model_parameters"] = {{"model_name", "bert-base-uncased"}};
 
     std::vector<field> fields;
     std::string fallback_field_type;
@@ -1660,7 +1660,7 @@ TEST_F(CollectionAllFieldsTest, ModelPathWithoutEmbedFrom) {
 
     auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
     ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `model_name` can only be used with `embed_from`.", field_op.error());
+    ASSERT_EQ("Property `model_parameters` can only be used with `embed_from`.", field_op.error());
 }
 
 

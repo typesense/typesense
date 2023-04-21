@@ -32,7 +32,7 @@ private:
 
     static size_t curl_req_send_callback(char* buffer, size_t size, size_t nitems, void *userdata);
 
-    static long perform_curl(CURL *curl, std::map<std::string, std::string>& res_headers);
+    static long perform_curl(CURL *curl, std::map<std::string, std::string>& res_headers, struct curl_slist *chunk = nullptr);
 
 public:
     static HttpClient & get_instance() {
@@ -48,13 +48,13 @@ public:
     static long download_file(const std::string& url, const std::string& file_path);
 
     static long get_response(const std::string& url, std::string& response,
-                             std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
+                             std::map<std::string, std::string>& res_headers, const std::unordered_map<std::string, std::string>& headers = {}, long timeout_ms=4000);
 
     static long delete_response(const std::string& url, std::string& response,
                                 std::map<std::string, std::string>& res_headers, long timeout_ms=120000);
 
     static long post_response(const std::string & url, const std::string & body, std::string & response,
-                              std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
+                              std::map<std::string, std::string>& res_headers, const std::unordered_map<std::string, std::string>& headers = {}, long timeout_ms=4000);
 
     static long post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
                                     const std::shared_ptr<http_res> response,

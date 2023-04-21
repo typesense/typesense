@@ -1,5 +1,5 @@
 #pragma once
-
+#include <memory>
 #include <filesystem>
 #include <unordered_map>
 #include <openssl/md5.h>
@@ -7,6 +7,7 @@
 #include "logger.h"
 #include "http_client.h"
 #include "text_embedder.h"
+
 
 // singleton class
 class TextEmbedderManager {
@@ -21,24 +22,33 @@ public:
     TextEmbedderManager(const TextEmbedderManager&) = delete;
     TextEmbedderManager& operator=(const TextEmbedderManager&) = delete;
 
-    TextEmbedder* get_text_embedder(const std::string& model_path) {
-        if (text_embedders.find(model_path) == text_embedders.end()) {
-            text_embedders[model_path] = new TextEmbedder(model_path);
+    TextEmbedder* get_text_embedder(const nlohmann::json& model_parameters) {
+        if(model_parameters.count("model_name") == 0) {
+            if(text_embedders[DEFAULT_MODEL_NAME] == nullptr) {
+                text_embedders[DEFAULT_MODEL_NAME] = std::make_shared<TextEmbedder>(DEFAULT_MODEL_NAME);
+            }
+            return text_embedders[DEFAULT_MODEL_NAME].get();
+        } else {
+            const std::string& model_name = model_parameters.at("model_name");
+            if(text_embedders[model_name] == nullptr) {
+                if(model_parameters.count("openai_api_key") == 0) {
+                    text_embedders[model_name] = std::make_shared<TextEmbedder>(model_name);
+                } else {
+                    text_embedders[model_name] = std::make_shared<TextEmbedder>(model_name, model_parameters.at("openai_api_key"));
+                }
+            }
+            return text_embedders[model_name].get();
         }
-        return text_embedders[model_path];
+
     }
 
     void delete_text_embedder(const std::string& model_path) {
         if (text_embedders.find(model_path) != text_embedders.end()) {
-            delete text_embedders[model_path];
             text_embedders.erase(model_path);
         }
     }
 
     void delete_all_text_embedders() {
-        for (auto& text_embedder : text_embedders) {
-            delete text_embedder.second;
-        }
         text_embedders.clear();
     }
 
@@ -120,7 +130,7 @@ public:
     }
 private:
     TextEmbedderManager() = default;
-    std::unordered_map<std::string, TextEmbedder*> text_embedders;
+    std::unordered_map<std::string, std::shared_ptr<TextEmbedder>> text_embedders;
 };
 
 

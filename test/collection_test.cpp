@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <filesystem>
+#include <cstdlib>
 #include <collection_manager.h>
 #include "collection.h"
 #include "text_embedder_manager.h"
@@ -4993,3 +4994,39 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
     // check if the embedding field is updated
     ASSERT_NE(embedding_field, updated_embedding_field);
 }
+
+
+TEST_F(CollectionTest, DISABLED_CreateOpenAIEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed_from": ["name"], "model_parameters": {"model_name": "openai/text-embedding-ada-002"}}
+                ]
+            })"_json;
+
+    if (std::getenv("OPENAI_API_KEY") == nullptr) {
+        LOG(INFO) << "Skipping test as OPENAI_API_KEY is not set.";
+        return;
+    }
+
+    auto openai_api_key = std::string(std::getenv("OPENAI_API_KEY"));
+    schema["fields"][1]["model_parameters"]["openai_api_key"] = openai_api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto summary = op.get()->get_summary_json();
+    ASSERT_EQ("openai/text-embedding-ada-002", summary["fields"][1]["model_parameters"]["model_name"]);
+    ASSERT_EQ(1536, summary["fields"][1]["num_dim"]);
+    // make sure openai_api_key is <hidden>
+    ASSERT_EQ("<hidden>", summary["fields"][1]["model_parameters"]["openai_api_key"]);
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+
+    auto add_op = op.get()->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    ASSERT_EQ(1536, add_op.get()["embedding"].size());    
+}
+
+

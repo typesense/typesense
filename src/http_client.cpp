@@ -16,15 +16,23 @@ struct client_state_t: public req_state_t {
 };
 
 long HttpClient::post_response(const std::string &url, const std::string &body, std::string &response,
-                               std::map<std::string, std::string>& res_headers, long timeout_ms) {
+                               std::map<std::string, std::string>& res_headers, const std::unordered_map<std::string, std::string>& headers, long timeout_ms) {
     CURL *curl = init_curl(url, response);
     if(curl == nullptr) {
         return 500;
     }
 
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    return perform_curl(curl, res_headers);
+
+    struct curl_slist *chunk = nullptr;
+    for(const auto& header: headers) {
+        std::string header_str = header.first + ": " + header.second;
+        chunk = curl_slist_append(chunk, header_str.c_str());
+    }
+
+    return perform_curl(curl, res_headers, chunk);
 }
+
 
 long HttpClient::post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
                                      const std::shared_ptr<http_res> response, HttpServer* server) {
@@ -82,13 +90,18 @@ long HttpClient::delete_response(const std::string &url, std::string &response,
 }
 
 long HttpClient::get_response(const std::string &url, std::string &response,
-                              std::map<std::string, std::string>& res_headers, long timeout_ms) {
+                              std::map<std::string, std::string>& res_headers, const std::unordered_map<std::string, std::string>& headers, long timeout_ms) {
     CURL *curl = init_curl(url, response);
     if(curl == nullptr) {
         return 500;
     }
+    struct curl_slist *chunk = nullptr;
+    for(const auto& header: headers) {
+        std::string header_str = header.first + ": " + header.second;
+        chunk = curl_slist_append(chunk, header_str.c_str());
+    }
 
-    return perform_curl(curl, res_headers);
+    return perform_curl(curl, res_headers, chunk);
 }
 
 void HttpClient::init(const std::string &api_key) {
@@ -115,8 +128,7 @@ void HttpClient::init(const std::string &api_key) {
     }
 }
 
-long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& res_headers) {
-    struct curl_slist *chunk = nullptr;
+long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& res_headers, struct curl_slist *chunk) {
     std::string api_key_header = std::string("x-typesense-api-key: ") + HttpClient::api_key;
     chunk = curl_slist_append(chunk, api_key_header.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
