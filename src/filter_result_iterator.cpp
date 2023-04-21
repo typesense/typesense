@@ -553,7 +553,7 @@ void filter_result_iterator_t::init() {
             return;
         }
 
-        filter_result.count = index->seq_ids->num_ids();
+        approx_filter_ids_length = filter_result.count = index->seq_ids->num_ids();
         filter_result.docs = index->seq_ids->uncompress();
 
         seq_id = filter_result.docs[result_index];
@@ -1321,6 +1321,8 @@ filter_result_iterator_t &filter_result_iterator_t::operator=(filter_result_iter
     reference = std::move(obj.reference);
     status = std::move(obj.status);
     is_filter_result_initialized = obj.is_filter_result_initialized;
+
+    approx_filter_ids_length = obj.approx_filter_ids_length;
 
     return *this;
 }
