@@ -186,16 +186,29 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_skip_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
-    ASSERT_TRUE(iter_skip_test.init_status().ok());
+    auto iter_skip_test1 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_skip_test1.init_status().ok());
 
-    ASSERT_TRUE(iter_skip_test.is_valid);
-    iter_skip_test.skip_to(3);
-    ASSERT_TRUE(iter_skip_test.is_valid);
-    ASSERT_EQ(4, iter_skip_test.seq_id);
-    iter_skip_test.next();
+    ASSERT_TRUE(iter_skip_test1.is_valid);
+    iter_skip_test1.skip_to(3);
+    ASSERT_TRUE(iter_skip_test1.is_valid);
+    ASSERT_EQ(4, iter_skip_test1.seq_id);
+    iter_skip_test1.next();
 
-    ASSERT_FALSE(iter_skip_test.is_valid);
+    ASSERT_FALSE(iter_skip_test1.is_valid);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: != silver", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_skip_test2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_skip_test2.init_status().ok());
+
+    ASSERT_TRUE(iter_skip_test2.is_valid);
+    iter_skip_test2.skip_to(3);
+    ASSERT_FALSE(iter_skip_test2.is_valid);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -425,5 +438,46 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_FALSE(iter_and_scalar_test.is_valid);
 
     delete and_result;
+    delete filter_tree_root;
+
+    doc = R"({
+            "name": "James Rowdy",
+            "age": 36,
+            "years": [2005, 2022],
+            "rating": 6.03,
+            "tags": ["FINE PLATINUM"]
+        })"_json;
+    add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: != FINE PLATINUM", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_skip_test3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_skip_test3.init_status().ok());
+
+    ASSERT_TRUE(iter_skip_test3.is_valid);
+    iter_skip_test3.skip_to(4);
+    ASSERT_EQ(4, iter_skip_test3.seq_id);
+
+    ASSERT_TRUE(iter_skip_test3.is_valid);
+
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: != gold", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_skip_test4 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_skip_test4.init_status().ok());
+
+    ASSERT_TRUE(iter_skip_test4.is_valid);
+    iter_skip_test4.skip_to(6);
+    ASSERT_EQ(6, iter_skip_test4.seq_id);
+    ASSERT_TRUE(iter_skip_test4.is_valid);
+
     delete filter_tree_root;
 }
