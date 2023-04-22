@@ -232,7 +232,7 @@ struct index_record {
     }
 };
 
-class VectorFilterFunctor: public hnswlib::FilterFunctor {
+class VectorFilterFunctor: public hnswlib::BaseFilterFunctor {
     const uint32_t* filter_ids = nullptr;
     const uint32_t filter_ids_length = 0;
 
@@ -240,7 +240,7 @@ public:
     explicit VectorFilterFunctor(const uint32_t* filter_ids, const uint32_t filter_ids_length) :
             filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
 
-    bool operator()(unsigned int id) {
+    bool operator()(hnswlib::labeltype id) override {
         if(filter_ids_length == 0) {
             return true;
         }
@@ -251,13 +251,13 @@ public:
 
 struct hnsw_index_t {
     hnswlib::InnerProductSpace* space;
-    hnswlib::HierarchicalNSW<float, VectorFilterFunctor>* vecdex;
+    hnswlib::HierarchicalNSW<float>* vecdex;
     size_t num_dim;
     vector_distance_type_t distance_type;
 
     hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type):
         space(new hnswlib::InnerProductSpace(num_dim)),
-        vecdex(new hnswlib::HierarchicalNSW<float, VectorFilterFunctor>(space, init_size, 16, 200, 100, true)),
+        vecdex(new hnswlib::HierarchicalNSW<float>(space, init_size, 16, 200, 100, true)),
         num_dim(num_dim), distance_type(distance_type) {
 
     }

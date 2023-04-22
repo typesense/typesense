@@ -850,9 +850,9 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                                 if(afield.vec_dist == cosine) {
                                     std::vector<float> normalized_vals(afield.num_dim);
                                     hnsw_index_t::normalize_vector(float_vals, normalized_vals);
-                                    vec_index->insertPoint(normalized_vals.data(), (size_t)record.seq_id);
+                                    vec_index->addPoint(normalized_vals.data(), (size_t)record.seq_id, true);
                                 } else {
-                                    vec_index->insertPoint(float_vals.data(), (size_t)record.seq_id);
+                                    vec_index->addPoint(float_vals.data(), (size_t)record.seq_id, true);
                                 }
                             } catch(const std::exception &e) {
                                 record.index_failure(400, e.what());
@@ -2866,9 +2866,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());
                     hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, filterFunctor);
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, &filterFunctor);
                 } else {
-                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, filterFunctor);
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, &filterFunctor);
                 }
             }
 
@@ -3113,9 +3113,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());
                     hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, filterFunctor);
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, &filterFunctor);
                 } else {
-                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, filterFunctor);
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, &filterFunctor);
                 }
 
                 std::vector<std::pair<uint32_t,float>> vec_results;
