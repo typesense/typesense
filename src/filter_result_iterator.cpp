@@ -1348,16 +1348,23 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, std::vector<uint32_t
 }
 
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
+                                         size_t& excluded_result_index,
                                          uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
                                          std::vector<uint32_t>& results) {
-    if (excluded_result_ids == nullptr || excluded_result_ids_size == 0) {
+    if (excluded_result_ids == nullptr || excluded_result_ids_size == 0 ||
+        excluded_result_index >= excluded_result_ids_size) {
         return get_n_ids(n, results);
     }
 
     if (is_filter_result_initialized) {
         for (uint32_t count = 0; count < n && result_index < filter_result.count;) {
             auto id = filter_result.docs[result_index++];
-            if (!std::binary_search(excluded_result_ids, excluded_result_ids + excluded_result_ids_size, id)) {
+
+            while (excluded_result_index < excluded_result_ids_size && excluded_result_ids[excluded_result_index] < id) {
+                excluded_result_index++;
+            }
+
+            if (excluded_result_index >= excluded_result_ids_size || excluded_result_ids[excluded_result_index] != id) {
                 results.push_back(id);
                 count++;
             }
@@ -1368,7 +1375,11 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
     }
 
     for (uint32_t count = 0; count < n && is_valid;) {
-        if (!std::binary_search(excluded_result_ids, excluded_result_ids + excluded_result_ids_size, seq_id)) {
+        while (excluded_result_index < excluded_result_ids_size && excluded_result_ids[excluded_result_index] < seq_id) {
+            excluded_result_index++;
+        }
+
+        if (excluded_result_index >= excluded_result_ids_size || excluded_result_ids[excluded_result_index] != seq_id) {
             results.push_back(seq_id);
             count++;
         }
