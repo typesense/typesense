@@ -1275,6 +1275,10 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string collection_
     }
 
     init();
+
+    if (!is_valid) {
+        this->approx_filter_ids_length = 0;
+    }
 }
 
 filter_result_iterator_t::~filter_result_iterator_t() {
@@ -1339,6 +1343,35 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, std::vector<uint32_t
 
     for (uint32_t count = 0; count < n && is_valid; count++) {
         results.push_back(seq_id);
+        next();
+    }
+}
+
+void filter_result_iterator_t::get_n_ids(const uint32_t& n,
+                                         uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
+                                         std::vector<uint32_t>& results) {
+    if (excluded_result_ids == nullptr || excluded_result_ids_size == 0) {
+        return get_n_ids(n, results);
+    }
+
+    if (is_filter_result_initialized) {
+        for (uint32_t count = 0; count < n && result_index < filter_result.count;) {
+            auto id = filter_result.docs[result_index++];
+            if (!std::binary_search(excluded_result_ids, excluded_result_ids + excluded_result_ids_size, id)) {
+                results.push_back(id);
+                count++;
+            }
+        }
+
+        is_valid = result_index < filter_result.count;
+        return;
+    }
+
+    for (uint32_t count = 0; count < n && is_valid;) {
+        if (!std::binary_search(excluded_result_ids, excluded_result_ids + excluded_result_ids_size, seq_id)) {
+            results.push_back(seq_id);
+            count++;
+        }
         next();
     }
 }
