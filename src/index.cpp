@@ -1992,8 +1992,14 @@ void Index::aproximate_numerical_match(num_tree_t* const num_tree,
         uint32_t to_exclude_ids_len = 0;
         num_tree->approx_search_count(EQUALS, value, to_exclude_ids_len);
 
-        auto all_ids_size = seq_ids->num_ids();
-        filter_ids_length += (all_ids_size - to_exclude_ids_len);
+        if (to_exclude_ids_len == 0) {
+            filter_ids_length += seq_ids->num_ids();
+        } else if (to_exclude_ids_len >= seq_ids->num_ids()) {
+            filter_ids_length += 0;
+        } else {
+            filter_ids_length += (seq_ids->num_ids() - to_exclude_ids_len);
+        }
+
         return;
     }
 
@@ -4991,7 +4997,7 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
         std::vector<uint32_t> batch_result_ids;
         batch_result_ids.reserve(window_size);
 
-        filter_result_iterator.get_n_ids(window_size, batch_result_ids);
+        filter_result_iterator.get_n_ids(window_size, exclude_token_ids, exclude_token_ids_size, batch_result_ids);
 
         num_queued++;
 

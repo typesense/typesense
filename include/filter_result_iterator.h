@@ -169,6 +169,12 @@ public:
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
     void get_n_ids(const uint32_t& n, std::vector<uint32_t>& results);
 
+    /// Collects n doc ids while advancing the iterator. The ids present in excluded_result_ids are ignored. The
+    /// iterator may become invalid during this operation.
+    void get_n_ids(const uint32_t &n,
+                   uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
+                   std::vector<uint32_t> &results);
+
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
     void skip_to(uint32_t id);
