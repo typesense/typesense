@@ -5106,12 +5106,14 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
     const auto parent_search_begin = search_begin_us;
     const auto parent_search_stop_ms = search_stop_us;
     auto parent_search_cutoff = search_cutoff;
+    size_t excluded_result_index = 0;
 
     for(size_t thread_id = 0; thread_id < num_threads && filter_result_iterator.is_valid; thread_id++) {
         std::vector<uint32_t> batch_result_ids;
         batch_result_ids.reserve(window_size);
 
-        filter_result_iterator.get_n_ids(window_size, exclude_token_ids, exclude_token_ids_size, batch_result_ids);
+        filter_result_iterator.get_n_ids(window_size, excluded_result_index, exclude_token_ids, exclude_token_ids_size,
+                                         batch_result_ids);
 
         num_queued++;
 
