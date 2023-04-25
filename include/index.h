@@ -236,7 +236,7 @@ public:
     explicit VectorFilterFunctor(filter_result_iterator_t* const filter_result_iterator) :
     filter_result_iterator(filter_result_iterator) {}
 
-    bool operator()(unsigned int id) {
+    bool operator()(hnswlib::labeltype id) override {
         filter_result_iterator->reset();
         return filter_result_iterator->valid(id) == 1;
     }
