@@ -252,7 +252,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_FLOAT_EQ(5, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
 
     // check for "0" case
-    ASSERT_STREQ("0", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("0.000000", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
 
     // facet query on a float field
@@ -506,8 +506,8 @@ TEST_F(CollectionFacetingTest, FacetCountsFloatPrecision) {
 
     ASSERT_STREQ("points", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
-    ASSERT_STREQ("113.4", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("113.4",results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("113.400002", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("113.400002",results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

@@ -1,8 +1,10 @@
 #include "facet_index.h"
 #include <tokenizer.h>
 #include "string_utils.h"
+#include "array_utils.h"
 
-uint32_t facet_index_t::insert(const std::string& field, const std::string& value, uint32_t id) {
+uint32_t facet_index_t::insert(const std::string& field, const std::string& value, 
+    uint32_t id, bool is_string) {
     auto& facet_index_map = facet_field_map[field].facet_index_map;
     uint32_t index;
     const auto sv = value.substr(0, 100);
@@ -12,49 +14,56 @@ uint32_t facet_index_t::insert(const std::string& field, const std::string& valu
         index = ++count_index;
         
         facet_index_struct fis {};
-        fis.id_list_ptr = SET_COMPACT_IDS(compact_id_list_t::create(1, {id}));
         fis.index = index;
+        if(is_string) {
+            fis.id_list_ptr = SET_COMPACT_IDS(compact_id_list_t::create(1, {id}));
+        }
         facet_index_map.emplace(sv, fis);
     } else {
-        auto ids = it->id_list_ptr;
-        if (!ids_t::contains(ids, id)) {
-            ids_t::upsert(ids, id);
-            facet_index_map[sv].id_list_ptr = ids;
+        if(is_string) {
+            auto ids = it->id_list_ptr;
+            if (!ids_t::contains(ids, id)) {
+                ids_t::upsert(ids, id);
+                facet_index_map[sv].id_list_ptr = ids;
+            }
         }
         index = facet_index_map[sv].index;
     }
-    const auto facet_count = ids_t::num_ids(facet_index_map.at(sv).id_list_ptr);
-    //LOG(INFO) << "Facet count in facet " << sv << " : " << facet_count;
-    auto& counter_list = facet_field_map[field].counter_list;
 
-    if(counter_list.empty()) {
-        counter_list.emplace_back(sv, facet_count);
-    } else {
-        auto counter_it = counter_list.begin();
-        //remove node from list
-       for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
-            if(counter_it->facet_value == sv) {
-                //found facet in first node
-                counter_list.erase(counter_it);
-                break;
+    if(is_string) {
+        const auto facet_count = ids_t::num_ids(facet_index_map.at(sv).id_list_ptr);
+        //LOG(INFO) << "Facet count in facet " << sv << " : " << facet_count;
+        auto& counter_list = facet_field_map[field].counter_list;
+
+        if(counter_list.empty()) {
+            counter_list.emplace_back(sv, facet_count);
+        } else {
+            auto counter_it = counter_list.begin();
+            //remove node from list
+           for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
+                if(counter_it->facet_value == sv) {
+                    //found facet in first node
+                    counter_list.erase(counter_it);
+                    break;
+                }
             }
-        }
 
-        //find position in list and add node with updated count
-        count_list node(sv, facet_count); 
+            //find position in list and add node with updated count
+            count_list node(sv, facet_count); 
 
-        for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
-            // LOG (INFO) << "inserting in middle or front facet " << node.facet_value 
-            //     << " with count " << node.count;
-            if(counter_it->count <= facet_count) {
-                counter_list.emplace(counter_it, node);
-                break;
+            for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
+                // LOG (INFO) << "inserting in middle or front facet " << node.facet_value 
+                //     << " with count " << node.count;
+                if(counter_it->count <= facet_count) {
+                    counter_list.emplace(counter_it, node);
+                    break;
+                }
             }
-        }
-        if(counter_it == counter_list.end()) {
-            // LOG (INFO) << "inserting at last facet " << node.facet_value 
-            //     << " with count " << node.count;
-            counter_list.emplace_back(node);
+            if(counter_it == counter_list.end()) {
+                // LOG (INFO) << "inserting at last facet " << node.facet_value 
+                //     << " with count " << node.count;
+                counter_list.emplace_back(node);
+            }
         }
     }
     
@@ -118,9 +127,12 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
             ids_t::uncompress(ids, id_list);
             const auto ids_len = id_list.size();
             for(int i = 0; i < result_ids_len; ++i) {
-                if(std::binary_search(id_list.begin(), id_list.end(), result_ids[i])) {
-                   ++count;
-                }
+                // if(std::binary_search(id_list.begin(), id_list.end(), result_ids[i])) {
+                //    ++count;
+                // }
+                uint32_t* out = nullptr;
+                count = ArrayUtils::and_scalar(id_list.data(), id_list.size(),
+                    result_ids, result_ids_len, &out);
             }
             id_list.clear();
         }

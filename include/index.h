@@ -188,10 +188,6 @@ struct search_args {
     };
 };
 
-struct offsets_facet_hashes_t {
-    std::unordered_map<std::string, std::vector<uint32_t>> offsets;
-};
-
 struct index_record {
     size_t position;                    // position of record in the original request
     uint32_t seq_id;
@@ -205,7 +201,8 @@ struct index_record {
     bool is_update;
 
     // pre-processed data primed for indexing
-    std::unordered_map<std::string, offsets_facet_hashes_t> field_index;
+    std::unordered_map<std::string, 
+        std::unordered_map<std::string, std::vector<uint32_t>>> field_index;
     int64_t points;
 
     Option<bool> indexed;               // indicates if the indexing operation was a success
