@@ -2859,6 +2859,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             while (!no_filters_provided &&
                     filter_id_count < vector_query.flat_search_cutoff && filter_result_iterator.is_valid) {
                 auto seq_id = filter_result_iterator.seq_id;
+                filter_result_iterator.next();
                 std::vector<float> values;
 
                 try {
@@ -2880,7 +2881,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 }
 
                 dist_labels.emplace_back(dist, seq_id);
-                filter_result_iterator.next();
                 filter_id_count++;
             }
 
