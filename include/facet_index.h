@@ -43,7 +43,7 @@ public:
 
     ~facet_index_t();
 
-    uint32_t insert(const std::string& field, const std::string& value, uint32_t id);
+    uint32_t insert(const std::string& field, const std::string& value, uint32_t id, bool is_string = false);
 
     void erase(const std::string& field);
 

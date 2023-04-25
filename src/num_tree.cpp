@@ -2,7 +2,7 @@
 #include "parasort.h"
 #include "timsort.hpp"
 
-void num_tree_t::insert(int64_t value, uint32_t id) {
+void num_tree_t::insert(int64_t value, uint32_t id, bool is_facet) {
     if (int64map.count(value) == 0) {
         int64map.emplace(value, SET_COMPACT_IDS(compact_id_list_t::create(1, {id})));
     } else {
@@ -11,6 +11,43 @@ void num_tree_t::insert(int64_t value, uint32_t id) {
             ids_t::upsert(ids, id);
             int64map[value] = ids;
         }
+    }
+
+    if(is_facet) {
+
+        const auto facet_count = ids_t::num_ids(int64map.at(value));
+        //LOG(INFO) << "Facet count in facet " << value << " : " << facet_count;
+    
+        if(counter_list.empty()) {
+            counter_list.emplace_back(value, facet_count);
+        } else {
+            auto counter_it = counter_list.begin();
+            //remove node from list
+           for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
+                if(counter_it->facet_value == value) {
+                    //found facet in first node
+                    counter_list.erase(counter_it);
+                    break;
+                }
+            }
+    
+            //find position in list and add node with updated count
+            count_list node(value, facet_count); 
+    
+            for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
+                // LOG (INFO) << "inserting in middle or front facet " << node.facet_value 
+                //     << " with count " << node.count;
+                if(counter_it->count <= facet_count) {
+                    counter_list.emplace(counter_it, node);
+                    break;
+                }
+            }
+            if(counter_it == counter_list.end()) {
+                // LOG (INFO) << "inserting at last facet " << node.facet_value 
+                //     << " with count " << node.count;
+                counter_list.emplace_back(node);
+            }
+        }    
     }
 }
 
@@ -322,8 +359,53 @@ size_t num_tree_t::size() {
     return int64map.size();
 }
 
+size_t num_tree_t::counter_list_size() const {
+    return counter_list.size();
+}
+
 num_tree_t::~num_tree_t() {
     for(auto& kv: int64map) {
         ids_t::destroy_list(kv.second);
     }
+}
+
+size_t num_tree_t::intersect(const uint32_t* result_ids, int result_ids_len, int max_facet_count, 
+        std::map<int64_t, uint32_t>& found, bool is_wildcard_no_filter_query) {
+    //LOG (INFO) << "intersecting field " << field;
+   
+    // LOG (INFO) << "int64map size " << int64map.size() 
+    //     << " , counter_list size " << counter_list.size();
+    
+    std::vector<uint32_t> id_list;
+    for(const auto& counter_list_it : counter_list) {
+        // LOG (INFO) << "checking ids in facet_value " << counter_list_it.facet_value 
+        //   << " having total count " << counter_list_it.count;
+        uint32_t count = 0;
+
+        if(is_wildcard_no_filter_query) {
+            count = counter_list_it.count;
+        } else {
+            auto ids = int64map.at(counter_list_it.facet_value);
+            ids_t::uncompress(ids, id_list);
+            const auto ids_len = id_list.size();
+            for(int i = 0; i < result_ids_len; ++i) {
+                // if(std::binary_search(id_list.begin(), id_list.end(), result_ids[i])) {
+                //    ++count;
+                // }
+                uint32_t* out = nullptr;
+                count = ArrayUtils::and_scalar(id_list.data(), id_list.size(),
+                    result_ids, result_ids_len, &out);
+            }
+            id_list.clear();
+        }
+
+        if(count) {
+            found[counter_list_it.facet_value] = count;
+            if(found.size() == max_facet_count) {
+                break;
+            }
+        }
+    }
+    
+    return found.size();
 }
