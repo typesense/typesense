@@ -2347,7 +2347,7 @@ bool Index::static_filter_query_eval(const override_t* override,
             if (filter_tree_root == nullptr) {
                 filter_tree_root = new_filter_tree_root;
             } else {
-                filter_node_t* root = new filter_node_t(AND, filter_tree_root,
+                auto root = new filter_node_t(AND, filter_tree_root,
                                                         new_filter_tree_root);
                 filter_tree_root = root;
             }
@@ -2710,7 +2710,7 @@ void Index::search_infix(const std::string& query, const std::string& field_name
 
 Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                    const text_match_type_t match_type,
-                   filter_node_t* filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
+                   filter_node_t*& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                    const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                    const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
@@ -2796,6 +2796,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     // handle phrase searches
     uint32_t* phrase_result_ids = nullptr;
     uint32_t phrase_result_count = 0;
+    std::unique_ptr<uint32_t> phrase_result_ids_guard;
+
     if (!field_query_tokens[0].q_phrases.empty()) {
         do_phrase_search(num_search_fields, the_fields, field_query_tokens,
                          sort_fields_std, searched_queries, group_limit, group_by_fields,
@@ -2804,6 +2806,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                          excluded_result_ids, excluded_result_ids_size, excluded_group_ids, curated_topster,
                          included_ids_map, is_wildcard_query,
                          phrase_result_ids, phrase_result_count);
+
+        phrase_result_ids_guard.reset(phrase_result_ids);
+
         if (phrase_result_count == 0) {
             goto process_search_results;
         }
