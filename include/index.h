@@ -472,30 +472,11 @@ private:
 
     bool field_is_indexed(const std::string& field_name) const;
 
-    Option<bool> do_filtering(filter_node_t* const root,
-                              filter_result_t& result,
-                              const std::string& collection_name = "",
-                              const uint32_t& context_ids_length = 0,
-                              uint32_t* const& context_ids = nullptr) const;
-
     void aproximate_numerical_match(num_tree_t* const num_tree,
                                     const NUM_COMPARATOR& comparator,
                                     const int64_t& value,
                                     const int64_t& range_end_value,
                                     uint32_t& filter_ids_length) const;
-
-    /// Traverses through filter tree to get the filter_result.
-    ///
-    /// \param filter_tree_root
-    /// \param filter_result
-    /// \param collection_name Name of the collection to which current index belongs. Used to find the reference field in other collection.
-    /// \param context_ids_length Number of docs matching the search query.
-    /// \param context_ids Array of doc ids matching the search query.
-    Option<bool> recursive_filter(filter_node_t* const filter_tree_root,
-                                  filter_result_t& filter_result,
-                                  const std::string& collection_name = "",
-                                  const uint32_t& context_ids_length = 0,
-                                  uint32_t* const& context_ids = nullptr) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
