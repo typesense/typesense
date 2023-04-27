@@ -291,7 +291,7 @@ void filter_result_iterator_t::advance_string_filter_token_iterators() {
     }
 }
 
-void filter_result_iterator_t::doc_matching_string_filter(bool field_is_array) {
+void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is_array) {
     // If none of the filter value iterators are valid, mark this node as invalid.
     bool one_is_valid = false;
 
@@ -412,7 +412,7 @@ void filter_result_iterator_t::next() {
             do {
                 previous_match = seq_id;
                 advance_string_filter_token_iterators();
-                doc_matching_string_filter(f.is_array());
+                get_string_filter_next_match(f.is_array());
             } while (is_valid && previous_match + 1 == seq_id);
 
             if (!is_valid) {
@@ -433,7 +433,7 @@ void filter_result_iterator_t::next() {
         }
 
         advance_string_filter_token_iterators();
-        doc_matching_string_filter(f.is_array());
+        get_string_filter_next_match(f.is_array());
 
         return;
     }
@@ -472,6 +472,50 @@ void apply_not_equals(uint32_t*&& all_ids,
 
     result_ids = to_include_ids;
     result_ids_len = to_include_ids_len;
+}
+
+void filter_result_iterator_t::get_string_filter_first_match(const bool& field_is_array) {
+    get_string_filter_next_match(field_is_array);
+
+    if (filter_node->filter_exp.apply_not_equals) {
+        // filter didn't match any id. So by applying not equals, every id in the index is a match.
+        if (!is_valid) {
+            is_valid = true;
+            seq_id = 0;
+            result_index = index->seq_ids->last_id() + 1;
+            return;
+        }
+
+        // [0, seq_id) are a match for not equals.
+        if (seq_id > 0) {
+            result_index = seq_id;
+            seq_id = 0;
+            return;
+        }
+
+        // Keep ignoring the consecutive matches.
+        uint32_t previous_match;
+        do {
+            previous_match = seq_id;
+            advance_string_filter_token_iterators();
+            get_string_filter_next_match(field_is_array);
+        } while (is_valid && previous_match + 1 == seq_id);
+
+        if (!is_valid) {
+            // filter matched all the ids in the index. So for not equals, there's no match.
+            if (previous_match >= index->seq_ids->last_id()) {
+                return;
+            }
+
+            is_valid = true;
+            result_index = index->seq_ids->last_id() + 1;
+            seq_id = previous_match + 1;
+            return;
+        }
+
+        result_index = seq_id;
+        seq_id = previous_match + 1;
+    }
 }
 
 void filter_result_iterator_t::init() {
@@ -807,7 +851,7 @@ void filter_result_iterator_t::init() {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
         for (const std::string& filter_value : a_filter.values) {
-            std::vector<void*> posting_lists;
+            std::vector<void*> raw_posting_lists;
 
             // there could be multiple tokens in a filter value, which we have to treat as ANDs
             // e.g. country: South Africa
@@ -826,117 +870,27 @@ void filter_result_iterator_t::init() {
                     continue;
                 }
 
-                posting_lists.push_back(leaf->values);
+                raw_posting_lists.push_back(leaf->values);
             }
 
-            if (posting_lists.size() != str_tokens.size()) {
+            if (raw_posting_lists.size() != str_tokens.size()) {
                 continue;
             }
 
             std::vector<posting_list_t*> plists;
-            posting_t::to_expanded_plists(posting_lists, plists, expanded_plists);
+            posting_t::to_expanded_plists(raw_posting_lists, plists, expanded_plists);
 
+            posting_lists.push_back(plists);
             posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());
-
             for (auto const& plist: plists) {
                 posting_list_iterators.back().push_back(plist->new_iterator());
             }
         }
 
-        doc_matching_string_filter(f.is_array());
-
-        if (filter_node->filter_exp.apply_not_equals) {
-            // filter didn't match any id. So by applying not equals, every id in the index is a match.
-            if (!is_valid) {
-                is_valid = true;
-                seq_id = 0;
-                result_index = index->seq_ids->last_id() + 1;
-                return;
-            }
-
-            // [0, seq_id) are a match for not equals.
-            if (seq_id > 0) {
-                result_index = seq_id;
-                seq_id = 0;
-                return;
-            }
-
-            // Keep ignoring the consecutive matches.
-            uint32_t previous_match;
-            do {
-                previous_match = seq_id;
-                advance_string_filter_token_iterators();
-                doc_matching_string_filter(f.is_array());
-            } while (is_valid && previous_match + 1 == seq_id);
-
-            if (!is_valid) {
-                // filter matched all the ids in the index. So for not equals, there's no match.
-                if (previous_match >= index->seq_ids->last_id()) {
-                    return;
-                }
-
-                is_valid = true;
-                result_index = index->seq_ids->last_id() + 1;
-                seq_id = previous_match + 1;
-                return;
-            }
-
-            result_index = seq_id;
-            seq_id = previous_match + 1;
-        }
+        get_string_filter_first_match(f.is_array());
 
         return;
     }
-}
-
-bool filter_result_iterator_t::valid() {
-    if (!is_valid) {
-        return false;
-    }
-
-    if (filter_node->isOperator) {
-        if (filter_node->filter_operator == AND) {
-            is_valid = left_it->valid() && right_it->valid();
-            return is_valid;
-        } else {
-            is_valid = left_it->valid() || right_it->valid();
-            return is_valid;
-        }
-    }
-
-    if (is_filter_result_initialized) {
-        is_valid = result_index < filter_result.count;
-        return is_valid;
-    }
-
-    const filter a_filter = filter_node->filter_exp;
-
-    if (!index->field_is_indexed(a_filter.field_name)) {
-        is_valid = false;
-        return is_valid;
-    }
-
-    field f = index->search_schema.at(a_filter.field_name);
-
-    if (f.is_string()) {
-        if (filter_node->filter_exp.apply_not_equals) {
-            return seq_id < result_index;
-        }
-
-        bool one_is_valid = false;
-        for (auto& filter_value_tokens: posting_list_iterators) {
-            posting_list_t::intersect(filter_value_tokens, one_is_valid);
-
-            if (one_is_valid) {
-                break;
-            }
-        }
-
-        is_valid = one_is_valid;
-        return is_valid;
-    }
-
-    return false;
 }
 
 void filter_result_iterator_t::skip_to(uint32_t id) {
@@ -1003,7 +957,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
                 do {
                     previous_match = seq_id;
                     advance_string_filter_token_iterators();
-                    doc_matching_string_filter(f.is_array());
+                    get_string_filter_next_match(f.is_array());
                 } while (is_valid && previous_match + 1 == seq_id);
             } while (is_valid && seq_id <= id);
 
@@ -1047,7 +1001,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
             }
         }
 
-        doc_matching_string_filter(f.is_array());
+        get_string_filter_next_match(f.is_array());
         return;
     }
 }
@@ -1190,13 +1144,16 @@ void filter_result_iterator_t::reset() {
     field f = index->search_schema.at(a_filter.field_name);
 
     if (f.is_string()) {
-        posting_list_iterators.clear();
-        for(auto expanded_plist: expanded_plists) {
-            delete expanded_plist;
-        }
-        expanded_plists.clear();
+        for (uint32_t i = 0; i < posting_lists.size(); i++) {
+            auto const& plists = posting_lists[i];
 
-        init();
+            posting_list_iterators[i].clear();
+            for (auto const& plist: plists) {
+                posting_list_iterators[i].push_back(plist->new_iterator());
+            }
+        }
+
+        get_string_filter_first_match(f.is_array());
         return;
     }
 }

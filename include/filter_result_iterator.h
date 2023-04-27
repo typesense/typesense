@@ -85,7 +85,6 @@ struct filter_result_t {
     static void or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
 };
 
-
 class filter_result_iterator_t {
 private:
     std::string collection_name;
@@ -106,6 +105,7 @@ private:
     /// for each token.
     ///
     /// Multiple filter values: Multiple tokens: posting list iterator
+    std::vector<std::vector<posting_list_t*>> posting_lists;
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
 
@@ -121,11 +121,11 @@ private:
     /// Advance all the token iterators that are at seq_id.
     void advance_string_filter_token_iterators();
 
-    /// Finds the next match for a filter on string field.
-    void doc_matching_string_filter(bool field_is_array);
+    /// Finds the first match for a filter on string field.
+    void get_string_filter_first_match(const bool& field_is_array);
 
-    /// Returns true when doc and reference hold valid values. Used in conjunction with next() and skip_to(id).
-    [[nodiscard]] bool valid();
+    /// Finds the next match for a filter on string field.
+    void get_string_filter_next_match(const bool& field_is_array);
 
 public:
     uint32_t seq_id = 0;
