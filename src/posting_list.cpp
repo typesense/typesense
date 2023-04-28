@@ -2,6 +2,7 @@
 #include <bitset>
 #include "for.h"
 #include "array_utils.h"
+#include "filter_result_iterator.h"
 
 /* block_t operations */
 
@@ -1780,4 +1781,32 @@ posting_list_t::iterator_t posting_list_t::iterator_t::clone() const {
 
 uint32_t posting_list_t::iterator_t::get_field_id() const {
     return field_id;
+}
+
+bool result_iter_state_t::is_filter_provided() const {
+    return filter_ids_length > 0 || (fit != nullptr && fit->approx_filter_ids_length > 0);
+}
+
+bool result_iter_state_t::is_filter_valid() const {
+    if (filter_ids_length > 0) {
+        return filter_ids_index < filter_ids_length;
+    }
+
+    if (fit != nullptr) {
+        return fit->is_valid;
+    }
+
+    return false;
+}
+
+uint32_t result_iter_state_t::get_filter_id() const {
+    if (filter_ids_length > 0 && filter_ids_index < filter_ids_length) {
+        return filter_ids[filter_ids_index];
+    }
+
+    if (fit != nullptr && fit->is_valid) {
+        return fit->seq_id;
+    }
+
+    return 0;
 }
