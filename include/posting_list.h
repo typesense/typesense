@@ -33,6 +33,12 @@ struct result_iter_state_t {
                         filter_result_iterator_t* fit) : excluded_result_ids(excluded_result_ids),
                                                                    excluded_result_ids_size(excluded_result_ids_size),
                                                                    fit(fit){}
+
+    [[nodiscard]] bool is_filter_provided() const;
+
+    [[nodiscard]] bool is_filter_valid() const;
+
+    [[nodiscard]] uint32_t get_filter_id() const;
 };
 
 /*
