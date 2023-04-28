@@ -284,10 +284,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_validate_ids_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_validate_ids_test.init_status().ok());
 
-    std::vector<int> validate_ids = {0, 1, 2, 3, 4, 5, 6};
+    std::vector<int> validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {0, 2, 2, 3, 4, 5, 5};
     expected = {1, 0, 1, 0, 1, 1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
         ASSERT_EQ(expected[i], iter_validate_ids_test.valid(validate_ids[i]));
+        ASSERT_EQ(seq_ids[i], iter_validate_ids_test.seq_id);
     }
 
     delete filter_tree_root;
@@ -301,9 +302,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(iter_validate_ids_not_equals_filter_test.init_status().ok());
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6};
+    seq_ids = {1, 1, 3, 3, 5, 5, 5};
     expected = {0, 1, 0, 1, 0, 1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
         ASSERT_EQ(expected[i], iter_validate_ids_not_equals_filter_test.valid(validate_ids[i]));
+        ASSERT_EQ(seq_ids[i], iter_validate_ids_not_equals_filter_test.seq_id);
     }
 
     delete filter_tree_root;
