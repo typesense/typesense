@@ -209,7 +209,16 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
     }
 
     if (istate.fit != nullptr && istate.fit->approx_filter_ids_length > 0) {
-        return (istate.fit->valid(id) == 1);
+        if (istate.fit->valid(id) == -1) {
+            return false;
+        }
+
+        if (istate.fit->seq_id == id) {
+            istate.fit->next();
+            return true;
+        }
+
+        return false;
     }
 
     return true;
@@ -245,5 +254,3 @@ or_iterator_t::~or_iterator_t() noexcept {
         it.reset_cache();
     }
 }
-
-
