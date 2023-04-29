@@ -52,7 +52,12 @@ namespace fields {
     static const std::string reference = "reference";
     static const std::string embed_from = "embed_from";
     static const std::string model_name = "model_name";
-    static const std::string openai_api_key = "openai_api_key";
+
+    // Some models require additional parameters to be passed to the model during indexing/querying
+    // For e.g. e5-small model requires prefix "passage:" for indexing and "query:" for querying
+    static const std::string indexing_prefix = "indexing_prefix";
+    static const std::string query_prefix = "query_prefix";
+    static const std::string api_key = "api_key";
     static const std::string model_parameters = "model_parameters";
 }
 
@@ -326,10 +331,6 @@ struct field {
                 field_val[fields::embed_from] = field.embed_from;
                 if(!field.model_parameters.empty()) {
                     field_val[fields::model_parameters] = field.model_parameters;
-                    // hide openai api key
-                    if(field_val[fields::model_parameters].count("openai_api_key") != 0) {
-                        field_val[fields::model_parameters]["openai_api_key"] = "<hidden>";
-                    }
                 }
             }
             fields_json.push_back(field_val);
@@ -429,9 +430,9 @@ struct field {
         for(nlohmann::json & field_json: fields_json) {
 
             if(field_json.count(fields::embed_from) != 0) {
-                if(TextEmbedderManager::model_dir.empty()) {
-                    return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
-                }
+                // if(TextEmbedderManager::model_dir.empty()) {
+                //     return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
+                // }
 
                 if(!field_json[fields::embed_from].is_array()) {
                     return Option<bool>(400, "Property `" + fields::embed_from + "` must be an array.");

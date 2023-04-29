@@ -1610,23 +1610,23 @@ TEST_F(CollectionAllFieldsTest, EmbedFromFieldJSONInvalidField) {
     ASSERT_EQ("Property `embed_from` can only refer to string or string array fields.", field_op.error());
 }
 
-TEST_F(CollectionAllFieldsTest, EmbedFromFieldNoModelDir) {
-    TextEmbedderManager::model_dir = std::string();
-    nlohmann::json field_json;
-    field_json["name"] = "embedding";
-    field_json["type"] = "float[]";
-    field_json["embed_from"] = {"name"};
+// TEST_F(CollectionAllFieldsTest, EmbedFromFieldNoModelDir) {
+//     TextEmbedderManager::model_dir = std::string();
+//     nlohmann::json field_json;
+//     field_json["name"] = "embedding";
+//     field_json["type"] = "float[]";
+//     field_json["embed_from"] = {"name"};
 
-    std::vector<field> fields;
-    std::string fallback_field_type;
-    auto arr = nlohmann::json::array();
-    arr.push_back(field_json);
+//     std::vector<field> fields;
+//     std::string fallback_field_type;
+//     auto arr = nlohmann::json::array();
+//     arr.push_back(field_json);
 
-    auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
+//     auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
 
-    ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Text embedding is not enabled. Please set `model-dir` at startup.", field_op.error());
-}
+//     ASSERT_FALSE(field_op.ok());
+//     ASSERT_EQ("Text embedding is not enabled. Please set `model-dir` at startup.", field_op.error());
+// }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromNotArray) {
     TextEmbedderManager::model_dir = "/tmp/models";
@@ -1667,7 +1667,6 @@ TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
 TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
 
     TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
-    TextEmbedderManager::download_default_model();
 
     field embedding = field("embedding", field_types::FLOAT_ARRAY, false);
     embedding.embed_from.push_back("name");

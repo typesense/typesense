@@ -689,8 +689,21 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                 if(model_parameters[fields::model_name].get<std::string>().empty()) {
                     return Option<bool>(400, "Property `" + fields::model_name + "` must be a non-empty string.");
                 }
-                if(model_parameters.count("openai_api_key") != 0) {
-                    auto res = TextEmbedder::is_model_valid(model_parameters[fields::model_name].get<std::string>(), model_parameters[fields::openai_api_key].get<std::string>(), num_dim);
+
+                if(model_parameters.count(fields::indexing_prefix) != 0) {
+                    if(!model_parameters[fields::indexing_prefix].is_string()) {
+                        return Option<bool>(400, "Property `" + fields::indexing_prefix + "` must be a string.");
+                    }
+                }
+
+                if(model_parameters.count(fields::query_prefix) != 0) {
+                    if(!model_parameters[fields::query_prefix].is_string()) {
+                        return Option<bool>(400, "Property `" + fields::query_prefix + "` must be a string.");
+                    }
+                }
+
+                if(model_parameters.count("api_key") != 0) {
+                    auto res = TextEmbedder::is_model_valid(model_parameters[fields::model_name].get<std::string>(), model_parameters[fields::api_key].get<std::string>(), num_dim);
                     if(res.ok()) {
                         field_json[fields::num_dim] = num_dim;
                     } else {

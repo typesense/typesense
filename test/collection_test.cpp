@@ -4622,7 +4622,6 @@ TEST_F(CollectionTest, SemanticSearchTest) {
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4657,7 +4656,6 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     LOG(INFO) << "op.error(): " << op.error();
@@ -4687,7 +4685,6 @@ TEST_F(CollectionTest, HybridSearch) {
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4721,7 +4718,7 @@ TEST_F(CollectionTest, HybridSearch) {
 //                         })"_json;
     
 //     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-//     TextEmbedderManager::download_default_model();
+//
 
 //     auto op = collectionManager.create_collection(schema);
 //     ASSERT_TRUE(op.ok());
@@ -4749,7 +4746,6 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4823,7 +4819,6 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
                     })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4857,7 +4852,6 @@ TEST_F(CollectionTest, EmbedStringArrayField) {
                 })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4883,7 +4877,6 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
                 })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4910,7 +4903,6 @@ TEST_F(CollectionTest, WrongTypeForEmbedding) {
             })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4934,7 +4926,6 @@ TEST_F(CollectionTest, WrongTypeOfElementForEmbeddingInStringArray) {
         })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4958,7 +4949,6 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
                 })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5005,21 +4995,21 @@ TEST_F(CollectionTest, DISABLED_CreateOpenAIEmbeddingField) {
                 ]
             })"_json;
 
-    if (std::getenv("OPENAI_API_KEY") == nullptr) {
-        LOG(INFO) << "Skipping test as OPENAI_API_KEY is not set.";
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
         return;
     }
 
-    auto openai_api_key = std::string(std::getenv("OPENAI_API_KEY"));
-    schema["fields"][1]["model_parameters"]["openai_api_key"] = openai_api_key;
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["model_parameters"]["api_key"] = api_key;
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     auto summary = op.get()->get_summary_json();
     ASSERT_EQ("openai/text-embedding-ada-002", summary["fields"][1]["model_parameters"]["model_name"]);
     ASSERT_EQ(1536, summary["fields"][1]["num_dim"]);
-    // make sure openai_api_key is <hidden>
-    ASSERT_EQ("<hidden>", summary["fields"][1]["model_parameters"]["openai_api_key"]);
+    // make sure api_key is <hidden>
+    ASSERT_EQ("<hidden>", summary["fields"][1]["model_parameters"]["api_key"]);
 
     nlohmann::json doc;
     doc["name"] = "butter";

@@ -11,7 +11,6 @@ class Config {
 private:
     std::string data_dir;
     std::string log_dir;
-    std::string model_dir;
 
     std::string api_key;
 
@@ -112,10 +111,6 @@ public:
         this->log_dir = log_dir;
     }
 
-    void set_model_dir(const std::string & model_dir) {
-        this->model_dir = model_dir;
-    }
-
     void set_api_key(const std::string & api_key) {
         this->api_key = api_key;
     }
@@ -183,9 +178,6 @@ public:
         return this->log_dir;
     }
 
-    std::string get_model_dir() const {
-        return this->model_dir;
-    }
 
     std::string get_api_key() const {
         return this->api_key;
@@ -592,9 +584,6 @@ public:
             this->reset_peers_on_error = (reset_peers_on_error_str == "true");
         }
 
-        if(reader.Exists("server", "model-dir")) {
-            this->model_dir = reader.Get("server", "model-dir", "");
-        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -610,10 +599,6 @@ public:
             this->api_key = options.get<std::string>("api-key");
         }
 
-        if(options.exist("model-dir")) {
-            LOG(INFO) << "model-dir found";
-            this->model_dir = options.get<std::string>("model-dir");
-        }
 
         // @deprecated
         if(options.exist("search-only-api-key")) {

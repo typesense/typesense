@@ -688,7 +688,6 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
@@ -787,7 +786,6 @@ TEST_F(CollectionVectorTest, EmbeddingFieldVectorIndexTest) {
             })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());

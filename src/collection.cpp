@@ -247,8 +247,8 @@ nlohmann::json Collection::get_summary_json() const {
         if(coll_field.model_parameters.size() > 0) {
             field_json[fields::model_parameters] = coll_field.model_parameters;
             // Hide OpenAI API key from the response.
-            if(field_json[fields::model_parameters].count(fields::openai_api_key) != 0) {
-                field_json[fields::model_parameters][fields::openai_api_key] = "<hidden>";
+            if(field_json[fields::model_parameters].count(fields::api_key) != 0) {
+                field_json[fields::model_parameters][fields::api_key] = "<hidden>";
             }
         }
         
@@ -1177,10 +1177,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     return Option<nlohmann::json>(400, error);
                 }
 
-                if(TextEmbedderManager::model_dir.empty()) {
-                    std::string error = "Text embedding is not enabled. Please set `model-dir` at startup.";
-                    return Option<nlohmann::json>(400, error);
-                }
+                // if(TextEmbedderManager::model_dir.empty()) {
+                //     std::string error = "Text embedding is not enabled. Please set `model-dir` at startup.";
+                //     return Option<nlohmann::json>(400, error);
+                // }
 
                 if(raw_query == "*") {
                     std::string error = "Wildcard query is not supported for embedding fields.";
@@ -1190,7 +1190,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
                 auto embedder = embedder_manager.get_text_embedder(search_field.model_parameters);
 
-                std::string embed_query = "query: " + raw_query;
+                std::string embed_query = embedder_manager.get_query_prefix(search_field.model_parameters) + raw_query;
                 auto embedding_op = embedder->Embed(embed_query);
                 if(!embedding_op.ok()) {
                     return Option<nlohmann::json>(400, embedding_op.error());

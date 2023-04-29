@@ -1456,7 +1456,6 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
             })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
     
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1495,7 +1494,6 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
         })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1544,7 +1542,6 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());

@@ -594,9 +594,6 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                                           const tsl::htrie_map<char, field>& embedding_fields, 
                                           const tsl::htrie_map<char, field> & search_schema,
                                           const bool& error_if_field_not_found) {
-    if(!embedding_fields.empty() && TextEmbedderManager::model_dir.empty()) {
-        return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
-    }
     for(const auto& field : embedding_fields) {
         for(const auto& field_name : field.embed_from) {
             auto schema_field_it = search_schema.find(field_name);
