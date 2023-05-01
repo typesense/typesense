@@ -1611,6 +1611,28 @@ TEST_F(CollectionFacetingTest, FacetOnArrayFieldWithSpecialChars) {
     }
 }
 
+TEST_F(CollectionFacetingTest, FloatFieldValueTruncation) {
+    std::vector<field> fields = {
+            field("tags", field_types::STRING_ARRAY, true),
+            field("points", field_types::FLOAT, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["tags"] = {"gamma"};
+    doc["points"] = 300;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"points"}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_EQ("300", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+}
+
 
 class CollectionOptimizedFacetingTest : public ::testing::Test {
 protected:
