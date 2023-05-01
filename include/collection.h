@@ -461,7 +461,7 @@ public:
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0,
                                   const size_t page_offset = UINT32_MAX,
-                                  bool force_intersection = false
+                                  bool use_facet_intersection = false
                                   ) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
