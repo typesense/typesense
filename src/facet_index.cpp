@@ -39,23 +39,17 @@ uint32_t facet_index_t::insert(const std::string& field, const std::string& valu
             counter_list.emplace_back(sv, facet_count);
         } else {
             auto counter_it = counter_list.begin();
-            //remove node from list
-           for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
-                if(counter_it->facet_value == sv) {
-                    //found facet in first node
-                    counter_list.erase(counter_it);
-                    break;
-                }
-            }
-
-            //find position in list and add node with updated count
+   
             count_list node(sv, facet_count); 
 
             for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
-                // LOG (INFO) << "inserting in middle or front facet " << node.facet_value 
-                //     << " with count " << node.count;
-                if(counter_it->count <= facet_count) {
-                    counter_list.emplace(counter_it, node);
+                if(counter_it->facet_value == sv) {
+                    counter_it->count = facet_count;
+
+                    auto prev_node = std::prev(counter_it);
+                    if(prev_node->count < counter_it->count) {
+                        std::swap(prev_node, counter_it);
+                    }
                     break;
                 }
             }
@@ -127,9 +121,6 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
             ids_t::uncompress(ids, id_list);
             const auto ids_len = id_list.size();
             for(int i = 0; i < result_ids_len; ++i) {
-                // if(std::binary_search(id_list.begin(), id_list.end(), result_ids[i])) {
-                //    ++count;
-                // }
                 uint32_t* out = nullptr;
                 count = ArrayUtils::and_scalar(id_list.data(), id_list.size(),
                     result_ids, result_ids_len, &out);
@@ -146,24 +137,6 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
     }
     
     return found.size();
-}
-
-std::string facet_index_t::get_facet_by_count_index(const std::string& field, uint32_t count_index) {
-
-    const auto& facet_field_it = facet_field_map.find(field);
-
-    if(facet_field_it == facet_field_map.end()) {
-        return "";
-    }
-    std::string result = "";
-    auto facet_index_map = facet_field_it->second.facet_index_map;
-
-    for(auto it = facet_index_map.begin(); it != facet_index_map.end(); ++it) {
-        if(it.value().index == count_index) {
-            result = it.key();
-        }
-    }
-    return result;
 }
 
 facet_index_t::~facet_index_t() {

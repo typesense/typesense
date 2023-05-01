@@ -1194,12 +1194,66 @@ void Index::compute_facet_stats(facet &a_facet, const std::string& raw_value, co
     }
 }
 
+void Index::compute_facet_stats(facet &a_facet, const int64_t raw_value, const std::string & field_type) {
+    if(field_type == field_types::INT32 || field_type == field_types::INT32_ARRAY) {
+        int32_t val = raw_value;
+        if (val < a_facet.stats.fvmin) {
+            a_facet.stats.fvmin = val;
+        }
+        if (val > a_facet.stats.fvmax) {
+            a_facet.stats.fvmax = val;
+        }
+        a_facet.stats.fvsum += val;
+        a_facet.stats.fvcount++;
+    } else if(field_type == field_types::INT64 || field_type == field_types::INT64_ARRAY) {
+        int64_t val = raw_value;
+        if(val < a_facet.stats.fvmin) {
+            a_facet.stats.fvmin = val;
+        }
+        if(val > a_facet.stats.fvmax) {
+            a_facet.stats.fvmax = val;
+        }
+        a_facet.stats.fvsum += val;
+        a_facet.stats.fvcount++;
+    } else if(field_type == field_types::FLOAT || field_type == field_types::FLOAT_ARRAY) {
+        float val = int64_t_to_float(raw_value);
+        if(val < a_facet.stats.fvmin) {
+            a_facet.stats.fvmin = val;
+        }
+        if(val > a_facet.stats.fvmax) {
+            a_facet.stats.fvmax = val;
+        }
+        a_facet.stats.fvsum += val;
+        a_facet.stats.fvcount++;
+    }
+}
+
+int64_t Index::get_doc_val_from_sort_index(const std::string& field_name, uint32_t doc_seq_id) const {
+
+    auto sort_index_it = sort_index.find(field_name);
+                    
+    if(sort_index_it != sort_index.end()){
+        auto doc_id_val_map = sort_index_it->second;
+        auto doc_seq_id_it = doc_id_val_map->find(doc_seq_id);
+
+        if(doc_seq_id_it != doc_id_val_map->end()){
+            return doc_seq_id_it->second;
+        }
+    }
+
+    return 0;
+}
+
 void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                       bool estimate_facets, size_t facet_sample_percent,
                       const std::vector<facet_info_t>& facet_infos,
                       const size_t group_limit, const std::vector<std::string>& group_by_fields,
                       const uint32_t* result_ids, size_t results_size, 
-                      int max_facet_count, bool is_wildcard_query, bool no_filters_provided) const {
+                      int max_facet_count, bool is_wildcard_query, bool no_filters_provided
+#ifdef FORCE_INTERSECTION
+                      , bool force_intersection
+#endif
+                      ) const {
     // assumed that facet fields have already been validated upstream
     for(size_t findex=0; findex < facets.size(); findex++) {
         auto& a_facet = facets[findex];
@@ -1227,32 +1281,45 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             }
         }
 
-        if(results_size && facet_records && (facet_records <= 10 || is_wildcard_query) &&
-            !use_facet_query && group_limit == 0 && no_filters_provided) {
+#ifdef FORCE_INTERSECTION
+        bool use_hashes = false;
+
+        if(!force_intersection) {
+            use_hashes = true;
+        }
+#endif
+
+        if(results_size && facet_records && ((facet_records <= 10 || is_wildcard_query) &&
+            !use_facet_query && group_limit == 0 && no_filters_provided)
+#ifdef FORCE_INTERSECTION
+            && !use_hashes || force_intersection
+#endif
+            ) {
             //LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
 
             std::map<std::string, uint32_t> facet_results;
-
-            if(facet_field.is_string()) {
-                facet_index_v4->intersect(a_facet.field_name, result_ids, 
-                    results_size, max_facet_count, facet_results, is_wildcard_query & no_filters_provided);
-            } else {
-                std::map<int64_t, uint32_t> facet_counts;
-                numerical_index.at(a_facet.field_name)->intersect(result_ids, 
+            if(!facet_field.name.empty()) {
+                if(facet_field.is_string()) {
+                    facet_index_v4->intersect(a_facet.field_name, result_ids, 
+                        results_size, max_facet_count, facet_results, is_wildcard_query & no_filters_provided);
+                } else {
+                    std::map<int64_t, uint32_t> facet_counts;
+                    numerical_index.at(a_facet.field_name)->intersect(result_ids, 
                     results_size, max_facet_count, facet_counts, is_wildcard_query & no_filters_provided);
                 
-                for(const auto& kv : facet_counts) {
-                    std::string val;
-                    if(facet_field.is_float()) {
-                        val = std::to_string(int64_t_to_float(kv.first));
-                    } else if(facet_field.is_bool()) {
-                        val = kv.first == 1 ? "true" : "false";
-                    } else {
-                        val = std::to_string(kv.first);
+                    for(const auto& kv : facet_counts) {
+                        std::string val;
+                        if(facet_field.is_float()) {
+                            val = StringUtils::float_to_str(int64_t_to_float(kv.first));
+                        } else if(facet_field.is_bool()) {
+                            val = kv.first == 1 ? "true" : "false";
+                        } else {
+                            val = std::to_string(kv.first);
+                        }
+
+                        facet_results[val] = kv.second;
                     }
-                    
-                    facet_results[val] = kv.second;
                 }
             }
 
@@ -1322,27 +1389,18 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         fhash = facet_map_it->second.hashes[j];
                     }
                     if(should_compute_stats) {
-                        std::string fvalue = 
-                            facet_index_v4->get_facet_by_count_index(a_facet.field_name, fhash);
-                        if(!fvalue.empty()) {
-                            compute_facet_stats(a_facet, fvalue, facet_field.type);
-                        }
+                        doc_val = get_doc_val_from_sort_index(a_facet.field_name, doc_seq_id);
+                        compute_facet_stats(a_facet, doc_val, facet_field.type);
                     }
+
                     if(a_facet.is_range_query) {
-                        auto sort_index_it = sort_index.find(a_facet.field_name);
-                        if(sort_index_it != sort_index.end()){
-                            auto doc_id_val_map = sort_index_it->second;
-                            auto doc_seq_id_it = doc_id_val_map->find(doc_seq_id);
-                            if(doc_seq_id_it != doc_id_val_map->end()){
+                        doc_val = get_doc_val_from_sort_index(a_facet.field_name, doc_seq_id); 
                             
-                                std::string doc_val = std::to_string(doc_seq_id_it->second);
-                                std::pair<std::string, std::string> range_pair {};
-                                if(a_facet.get_range(doc_val, range_pair)) {
-                                    const auto& range_id = range_pair.first;
-                                    facet_count_t& facet_count = a_facet.result_map[range_id];
-                                    facet_count.count += 1;
-                                }
-                            }
+                        std::pair<std::string, std::string> range_pair {};
+                        if(a_facet.get_range(std::to_string(doc_val), range_pair)) {
+                            const auto& range_id = range_pair.first;
+                            facet_count_t& facet_count = a_facet.result_map[range_id];
+                            facet_count.count += 1;
                         }
                     } else if(!use_facet_query || fquery_hashes.find(fhash) != fquery_hashes.end()) {
                         std::string fhash_str = std::to_string(fhash);
@@ -1875,7 +1933,11 @@ Option<bool> Index::get_approximate_reference_filter_ids_with_lock(filter_node_t
     return rearrange_filter_tree(filter_tree_root, filter_ids_length);
 }
 
-Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name) {
+Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name
+#ifdef FORCE_INTERSECTION
+                            , bool force_intersection
+#endif
+    ) {
     return search(search_params->field_query_tokens,
            search_params->search_fields,
            search_params->match_type,
@@ -1910,7 +1972,11 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->vector_query,
            search_params->facet_sample_percent,
            search_params->facet_sample_threshold,
-           collection_name);
+           collection_name
+#ifdef FORCE_INTERSECTION
+           , force_intersection
+#endif
+           );
 }
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
@@ -2362,7 +2428,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const bool filter_curated_hits, const enable_t split_join_tokens,
                    const vector_query_t& vector_query,
                    size_t facet_sample_percent, size_t facet_sample_threshold,
-                   const std::string& collection_name) const {
+                   const std::string& collection_name
+#ifdef FORCE_INTERSECTION
+                   , bool force_intersection
+#endif
+                    ) const {
     std::shared_lock lock(mutex);
 
     uint32_t approx_filter_ids_length = 0;
@@ -2925,7 +2995,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          batch_result_ids, batch_res_len, &facet_infos, max_facet_values,
                                          is_wildcard_query, no_filters_provided, estimate_facets, facet_sample_percent,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
-                                         &num_processed, &m_process, &cv_process]() {
+                                         &num_processed, &m_process, &cv_process
+#ifdef FORCE_INTERSECTION
+                                         , force_intersection
+#endif
+                                         ]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = parent_search_cutoff;
@@ -2935,7 +3009,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 do_facets(facet_batches[thread_id], fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields,
                           batch_result_ids, batch_res_len, max_facet_values, 
-                          is_wildcard_query, no_filters_provided);
+                          is_wildcard_query, no_filters_provided
+#ifdef FORCE_INTERSECTION
+                        , force_intersection
+#endif
+                          );
                 std::unique_lock<std::mutex> lock(m_process);
                 num_processed++;
                 parent_search_cutoff = parent_search_cutoff || search_cutoff;
@@ -3020,7 +3098,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         max_candidates, facet_infos);
     do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
               facet_infos, group_limit, group_by_fields, &included_ids_vec[0], 
-              included_ids_vec.size(), max_facet_values, is_wildcard_query, no_filters_provided);
+              included_ids_vec.size(), max_facet_values, is_wildcard_query, no_filters_provided
+#ifdef FORCE_INTERSECTION
+              , force_intersection
+#endif
+              );
 
     all_result_ids_len += curated_topster->size;
 

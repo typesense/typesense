@@ -1073,7 +1073,11 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const text_match_type_t match_type,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold,
-                                  const size_t page_offset) const {
+                                  const size_t page_offset
+#ifdef FORCE_INTERSECTION
+                                  , bool force_intersection
+#endif
+                                  ) const {
 
     std::shared_lock lock(mutex);
 
@@ -1523,11 +1527,16 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
-    auto search_op = index->run_search(search_params, name);
+    auto search_op = index->run_search(search_params, name
+#ifdef FORCE_INTERSECTION
+                                    , force_intersection
+#endif
+                                    );
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();
     filter_tree_root_guard.reset(filter_tree_root);
+
 
     if (!search_op.ok()) {
         return Option<nlohmann::json>(search_op.code(), search_op.error());
@@ -1945,7 +1954,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             auto max_facets = std::min(max_facet_values, facet_counts.size());
             std::sort(facet_counts.begin(), facet_counts.end(), 
                 [&](const auto& p1, const auto& p2) {
-                    return p1.second > p2.second;
+                    return std::tie(p1.second, p1.first) > std::tie(p2.second, p2.first);
                 });
 
             for(int i = 0; i < max_facets; ++i) {
