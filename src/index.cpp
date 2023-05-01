@@ -1194,11 +1194,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                       const std::vector<facet_info_t>& facet_infos,
                       const size_t group_limit, const std::vector<std::string>& group_by_fields,
                       const uint32_t* result_ids, size_t results_size, 
-                      int max_facet_count, bool is_wildcard_query, bool no_filters_provided
-#ifdef FORCE_INTERSECTION
-                      , bool force_intersection
-#endif
-                      ) const {
+                      int max_facet_count, bool is_wildcard_query, bool no_filters_provided,
+                      bool force_intersection) const {
     // assumed that facet fields have already been validated upstream
     for(size_t findex=0; findex < facets.size(); findex++) {
         auto& a_facet = facets[findex];
@@ -1224,20 +1221,21 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             }
         }
 
-#ifdef FORCE_INTERSECTION
         bool use_hashes = false;
 
         if(!force_intersection) {
             use_hashes = true;
         }
+
+#ifndef TEST_BUILD
+        // non-test build should not accidentally set this flag
+        force_intersection = false;
+        use_hashes = false;
 #endif
 
         if(results_size && facet_records && ((facet_records <= 10 || is_wildcard_query) &&
             !use_facet_query && group_limit == 0 && no_filters_provided)
-#ifdef FORCE_INTERSECTION
-            && !use_hashes || force_intersection
-#endif
-            ) {
+            && !use_hashes || force_intersection) {
             //LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
 
@@ -2347,11 +2345,8 @@ Option<bool> Index::get_approximate_reference_filter_ids_with_lock(filter_node_t
     return rearrange_filter_tree(filter_tree_root, filter_ids_length);
 }
 
-Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name
-#ifdef FORCE_INTERSECTION
-                            , bool force_intersection
-#endif
-    ) {
+Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
+                                bool force_intersection) {
     return search(search_params->field_query_tokens,
            search_params->search_fields,
            search_params->match_type,
@@ -2386,11 +2381,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->vector_query,
            search_params->facet_sample_percent,
            search_params->facet_sample_threshold,
-           collection_name
-#ifdef FORCE_INTERSECTION
-           , force_intersection
-#endif
-           );
+           collection_name,
+           force_intersection);
 }
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
@@ -2839,11 +2831,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const bool filter_curated_hits, const enable_t split_join_tokens,
                    const vector_query_t& vector_query,
                    size_t facet_sample_percent, size_t facet_sample_threshold,
-                   const std::string& collection_name
-#ifdef FORCE_INTERSECTION
-                   , bool force_intersection
-#endif
-                    ) const {
+                   const std::string& collection_name, bool force_intersection) const {
     std::shared_lock lock(mutex);
 
     uint32_t filter_ids_length = 0;
@@ -3368,11 +3356,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          batch_result_ids, batch_res_len, &facet_infos, max_facet_values,
                                          is_wildcard_query, no_filters_provided, estimate_facets, facet_sample_percent,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
-                                         &num_processed, &m_process, &cv_process
-#ifdef FORCE_INTERSECTION
-                                         , force_intersection
-#endif
-                                         ]() {
+                                         &num_processed, &m_process, &cv_process, force_intersection]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = parent_search_cutoff;
@@ -3382,11 +3366,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 do_facets(facet_batches[thread_id], fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields,
                           batch_result_ids, batch_res_len, max_facet_values, 
-                          is_wildcard_query, no_filters_provided
-#ifdef FORCE_INTERSECTION
-                        , force_intersection
-#endif
-                          );
+                          is_wildcard_query, no_filters_provided,
+                          force_intersection);
                 std::unique_lock<std::mutex> lock(m_process);
                 num_processed++;
                 parent_search_cutoff = parent_search_cutoff || search_cutoff;
@@ -3471,11 +3452,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         max_candidates, facet_infos);
     do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
               facet_infos, group_limit, group_by_fields, &included_ids_vec[0], 
-              included_ids_vec.size(), max_facet_values, is_wildcard_query, no_filters_provided
-#ifdef FORCE_INTERSECTION
-              , force_intersection
-#endif
-              );
+              included_ids_vec.size(), max_facet_values, is_wildcard_query, no_filters_provided,
+              force_intersection);
 
     all_result_ids_len += curated_topster->size;
 

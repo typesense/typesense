@@ -134,7 +134,7 @@ TEST_COPTS = [
     "-Wno-unused-parameter",
     "-Werror=return-type",
     "-g",
-    "-DFORCE_INTERSECTION",
+    "-DTEST_BUILD"
 ]
 
 config_setting(
