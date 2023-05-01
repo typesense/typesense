@@ -52,6 +52,8 @@ cc_library(
         "@rocksdb",
         "@s2geometry",
         "@hnsw",
+        # "@zip",
+        "@sentencepiece"
     ],
 )
 

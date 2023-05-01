@@ -6,18 +6,19 @@
 #include <sstream>
 #include <filesystem>
 
-TextEmbedder::TextEmbedder(const std::string& model_name) {
+TextEmbedder::TextEmbedder(const std::string& model_name, TokenizerType tokenizer_type) {
     // create environment
     Ort::SessionOptions session_options;
     std::string abs_path = TextEmbedderManager::get_absolute_model_path(model_name);
     LOG(INFO) << "Loading model from: " << abs_path;
     session_ = std::make_unique<Ort::Session>(env_, abs_path.c_str(), session_options);
-    std::ifstream stream(TextEmbedderManager::get_absolute_vocab_path(model_name));
-    std::stringstream ss;
-    ss << stream.rdbuf();
-    auto vocab_ = ss.str();
-    tokenizer_ = std::make_unique<BertTokenizer>(vocab_, true, true, ustring("[UNK]"), ustring("[SEP]"), ustring("[PAD]"),
-                    ustring("[CLS]"), ustring("[MASK]"), true, true, ustring("##"),512, std::string("longest_first"));
+    if(tokenizer_type == TokenizerType::bert) {
+        auto vocab_path = TextEmbedderManager::get_absolute_vocab_path(model_name);
+        tokenizer_ = std::make_unique<BertTokenizerWrapper>(vocab_path);
+    } else {
+        auto spiece_model_path = TextEmbedderManager::get_absolute_sentencepiece_model_path(model_name);
+        tokenizer_ = std::make_unique<XLMRobertaTokenizer>(spiece_model_path);
+    }
     auto output_tensor_count = session_->GetOutputCount();
     for (size_t i = 0; i < output_tensor_count; i++) {
         auto shape = session_->GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
@@ -31,22 +32,6 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
 
 TextEmbedder::TextEmbedder(const std::string& openai_model_path, const std::string& api_key) : api_key(api_key), openai_model_path(openai_model_path) {
 
-}
-
-
-encoded_input_t TextEmbedder::Encode(const std::string& text) {
-
-    auto encoded = tokenizer_->Encode(tokenizer_->Tokenize(ustring(text)));
-    auto input_ids = tokenizer_->AddSpecialToken(encoded);
-    auto token_type_ids = tokenizer_->GenerateTypeId(encoded);
-    auto attention_mask = std::vector<int64_t>(input_ids.size(), 1);
-    // BERT supports max sequence length of 512
-    if (input_ids.size() > 512) {
-        input_ids.resize(512);
-        token_type_ids.resize(512);
-        attention_mask.resize(512);
-    }
-    return {input_ids, token_type_ids, attention_mask};
 }
 
 
@@ -82,14 +67,14 @@ Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
         }
         return Option<std::vector<float>>(nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>());
     } else {
-        auto encoded_input = Encode(text);
+        auto encoded_input = tokenizer_->Encode(text);
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
         std::vector<Ort::Value> input_tensors;
         std::vector<std::vector<int64_t>> input_shapes;
         std::vector<const char*> input_node_names = {"input_ids", "attention_mask"};
-        // If model is DistilBERT, it has 2 inputs, else it has 3 inputs
+        // If model is DistilBERT or sentencepiece, it has 2 inputs, else it has 3 inputs
         if(session_->GetInputCount() == 3) {
             input_node_names.push_back("token_type_ids");
         }
@@ -171,11 +156,6 @@ bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& n
         TextEmbedderManager::get_instance().download_public_model(model_name);
     }
 
-    std::string vocab_path = TextEmbedderManager::get_absolute_vocab_path(model_name);
-    if(!std::filesystem::exists(vocab_path)) {
-        LOG(ERROR) << "Vocab file not found: " << vocab_path;
-        return false;
-    }
 
     Ort::SessionOptions session_options;
     Ort::Env env;
@@ -211,8 +191,6 @@ bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& n
             LOG(ERROR) << "Invalid model: token_type_ids tensor not found";
             return false;
         }
-    } else {
-        LOG(INFO) << "Model is DistilBERT";
     }
 
     auto output_tensor_count = session.GetOutputCount();

@@ -1,20 +1,16 @@
 #pragma once
 
+#include <sentencepiece_processor.h>
 #include <core/session/onnxruntime_cxx_api.h>
 #include <tokenizer/bert_tokenizer.hpp>
 #include <vector>
 #include "option.h"
-
-struct encoded_input_t {
-    std::vector<int64_t> input_ids;
-    std::vector<int64_t> token_type_ids;
-    std::vector<int64_t> attention_mask;
-};
+#include "text_embedder_tokenizer.h"
 
 
 class TextEmbedder {
     public:
-        TextEmbedder(const std::string& model_path);
+        TextEmbedder(const std::string& model_path, TokenizerType tokenizer_type = TokenizerType::bert);
         TextEmbedder(const std::string& openai_model_path, const std::string& api_key);
         ~TextEmbedder();
         Option<std::vector<float>> Embed(const std::string& text);
@@ -30,7 +26,7 @@ class TextEmbedder {
         std::unique_ptr<Ort::Session> session_;
         Ort::Env env_;
         encoded_input_t Encode(const std::string& text);
-        std::unique_ptr<BertTokenizer> tokenizer_;
+        std::unique_ptr<TextEmbeddingTokenizer> tokenizer_;
         static std::vector<float> mean_pooling(const std::vector<std::vector<float>>& input);
         std::string output_tensor_name;
         std::string api_key;

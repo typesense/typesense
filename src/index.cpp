@@ -6348,7 +6348,7 @@ Option<bool> Index::embed_fields(nlohmann::json& document,
                                  const tsl::htrie_map<char, field>& embedding_fields,
                                  const tsl::htrie_map<char, field> & search_schema) {
     for(const auto& field : embedding_fields) {
-        std::string text_to_embed = TextEmbedderManager::get_indexing_prefix(field.model_parameters);
+        std::string text_to_embed = TextEmbedderManager::get_instance().get_indexing_prefix(field.model_parameters);
         for(const auto& field_name : field.embed_from) {
             auto field_it = search_schema.find(field_name);
             if(field_it.value().type == field_types::STRING) {
@@ -6378,7 +6378,7 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
     for(const auto& field : embedding_fields) {
         std::vector<std::string> text_to_embed;
         for(auto& document : documents) {
-            std::string text = TextEmbedderManager::get_indexing_prefix(field.model_parameters);
+            std::string text = TextEmbedderManager::get_instance().get_indexing_prefix(field.model_parameters);
             for(const auto& field_name : field.embed_from) {
                 auto field_it = search_schema.find(field_name);
                 if(field_it.value().type == field_types::STRING) {
