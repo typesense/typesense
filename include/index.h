@@ -363,10 +363,8 @@ private:
                    const std::vector<facet_info_t>& facet_infos,
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
                    const uint32_t* result_ids, size_t results_size,
-                   int max_facet_count, bool is_wildcard_query, bool no_filters_provided
-#ifdef FORCE_INTERSECTION
-                   , bool force_intersection = false
-#endif
+                   int max_facet_count, bool is_wildcard_query, bool no_filters_provided,
+                   bool force_intersection = false
                    ) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
@@ -627,12 +625,8 @@ public:
 
     // Public operations
 
-    Option<bool> run_search(search_args* search_params, 
-                            const std::string& collection_name
-#ifdef FORCE_INTERSECTION
-                            , bool force_intersection
-#endif
-                            );
+    Option<bool> run_search(search_args* search_params, const std::string& collection_name,
+                            bool force_intersection);
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
@@ -657,11 +651,7 @@ public:
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, enable_t split_join_tokens,
                 const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
-                const std::string& collection_name
-#ifdef FORCE_INTERSECTION
-                , bool force_intersection = false
-#endif
-                ) const;
+                const std::string& collection_name, bool force_intersection = false) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name);
 
