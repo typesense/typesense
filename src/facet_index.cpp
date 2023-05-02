@@ -108,6 +108,7 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
     // LOG (INFO) << "facet_index_map size " << facet_index_map.size() 
     //     << " , counter_list size " << counter_list.size();
     
+    size_t max_facets = std::min((size_t)2 * max_facet_count, counter_list.size());
     std::vector<uint32_t> id_list;
     for(const auto& counter_list_it : counter_list) {
         // LOG (INFO) << "checking ids in facet_value " << counter_list_it.facet_value 
@@ -130,7 +131,7 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
 
         if(count) {
             found[counter_list_it.facet_value] = count;
-            if(found.size() == max_facet_count) {
+            if(found.size() == max_facets) {
                 break;
             }
         }
