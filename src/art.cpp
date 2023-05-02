@@ -1031,7 +1031,7 @@ bool validate_and_add_leaf(art_leaf* leaf,
         posting_t::merge({prev_leaf->values, leaf->values}, leaf_ids);
 
         bool found = false;
-        for (uint32_t i = 0; i < leaf_ids.size() && !found; i++) {
+        for (uint32_t i = 0; i < leaf_ids.size() && filter_result_iterator.is_valid && !found; i++) {
             found = (filter_result_iterator.valid(leaf_ids[i]) == 1);
         }
 
