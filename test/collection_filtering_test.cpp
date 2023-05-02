@@ -2629,3 +2629,45 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
 
     collectionManager.drop_collection("ComplexFilterQueryCollection");
 }
+
+TEST_F(CollectionFilteringTest, PrefixSearchWithFilter) {
+    std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
+    std::vector<field> search_fields = {
+            field("title", field_types::STRING, false),
+            field("points", field_types::INT32, false)
+    };
+
+    query_fields = {"title"};
+    sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
+
+    auto collection = collectionManager.create_collection("collection", 4, search_fields, "points").get();
+
+    std::string json_line;
+
+    // dummy record for record id 0: to make the test record IDs to match with line numbers
+    json_line = "{\"points\":10,\"title\":\"z\"}";
+    collection->add(json_line);
+
+    while (std::getline(infile, json_line)) {
+        collection->add(json_line);
+    }
+
+    infile.close();
+
+    std::vector<std::string> facets;
+    auto results = collection->search("what ex", query_fields, "points: >10", facets, sort_fields, {0}, 10, 1, MAX_SCORE, {true}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
+    ASSERT_EQ(7, results["hits"].size());
+    std::vector<std::string> ids = {"6", "12", "19", "22", "13", "8", "15"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    collectionManager.drop_collection("collection");
+}
