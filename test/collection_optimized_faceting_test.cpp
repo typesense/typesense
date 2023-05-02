@@ -185,6 +185,42 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCounts) {
 
     facets.clear();
     facets.push_back("tags");
+
+    results = coll_array_fields->search("*", query_fields, "age: >24", facets, sort_fields, {0}, 10, 1, FREQUENCY, 
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, "", 30UL, 4UL, 
+                                        "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {}, 
+                                        4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                        7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                        "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, true).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][3]["count"]);
+
+    ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("bronze", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
+
+     // facet with wildcard
+    results = coll_array_fields->search("Jeremy", query_fields, "", {"ag*"}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, "", 30UL, 4UL, 
+                                        "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {}, 
+                                        4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                        7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                        "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, true).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("age", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     
     // empty facet query value should return all facets without any filtering of facets
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
@@ -515,7 +551,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCountOnSimilarStrings) {
 
     std::vector<std::string> facets = {"categories"};
 
-    nlohmann::json results = coll1->search("*", {"categories"}, "", facets, sort_fields, {0}, 10, 1,
+    nlohmann::json results = coll1->search("*", {"categories"}, "points:[25, 50]", facets, sort_fields, {0}, 10, 1,
                                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10, "", 30UL, 4UL, 
                                             "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {}, 

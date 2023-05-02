@@ -1232,7 +1232,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 #endif
 
         if(results_size && facet_records && ((facet_records <= 10 || is_wildcard_query) &&
-            !use_facet_query && group_limit == 0 && no_filters_provided)
+            !use_facet_query && group_limit == 0)
             && !use_hashes || use_facet_intersection) {
             //LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
