@@ -131,9 +131,6 @@ private:
 
     explicit filter_result_iterator_t(uint32_t approx_filter_ids_length);
 
-    /// Returns true when doc and reference hold valid values. Used in conjunction with next() and skip_to(id).
-    [[nodiscard]] bool valid();
-
 public:
     uint32_t seq_id = 0;
     /// Collection name -> references
