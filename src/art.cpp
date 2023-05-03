@@ -1003,7 +1003,7 @@ bool validate_and_add_leaf(art_leaf* leaf, const bool last_token, const std::str
 bool validate_and_add_leaf(art_leaf* leaf,
                            const std::string& prev_token, const art_leaf* prev_leaf,
                            const art_leaf* exact_leaf,
-                           filter_result_iterator_t& filter_result_iterator,
+                           filter_result_iterator_t* const filter_result_iterator,
                            std::set<std::string>& exclude_leaves,
                            std::vector<art_leaf *>& results) {
     if(leaf == exact_leaf) {
@@ -1016,10 +1016,10 @@ bool validate_and_add_leaf(art_leaf* leaf,
     }
 
     if(prev_token.empty() || !prev_leaf) {
-        if (filter_result_iterator.is_valid && !filter_result_iterator.contains_atleast_one(leaf->values)) {
+        if (filter_result_iterator->is_valid && !filter_result_iterator->contains_atleast_one(leaf->values)) {
             return false;
         }
-    } else if (!filter_result_iterator.is_valid) {
+    } else if (!filter_result_iterator->is_valid) {
         std::vector<uint32_t> prev_leaf_ids;
         posting_t::merge({prev_leaf->values}, prev_leaf_ids);
 
@@ -1031,8 +1031,8 @@ bool validate_and_add_leaf(art_leaf* leaf,
         posting_t::merge({prev_leaf->values, leaf->values}, leaf_ids);
 
         bool found = false;
-        for (uint32_t i = 0; i < leaf_ids.size() && filter_result_iterator.is_valid && !found; i++) {
-            found = (filter_result_iterator.valid(leaf_ids[i]) == 1);
+        for (uint32_t i = 0; i < leaf_ids.size() && filter_result_iterator->is_valid && !found; i++) {
+            found = (filter_result_iterator->valid(leaf_ids[i]) == 1);
         }
 
         if (!found) {
@@ -1145,7 +1145,7 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
 int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_results,
                   const art_leaf* exact_leaf,
                   const bool last_token, const std::string& prev_token,
-                  filter_result_iterator_t& filter_result_iterator,
+                  filter_result_iterator_t* const filter_result_iterator,
                   const art_tree* t, std::set<std::string>& exclude_leaves, std::vector<art_leaf *>& results) {
 
     printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
@@ -1177,7 +1177,7 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
 
             validate_and_add_leaf(l, prev_token, prev_leaf, exact_leaf, filter_result_iterator,
                                   exclude_leaves, results);
-            filter_result_iterator.reset();
+            filter_result_iterator->reset();
 
             if (++num_processed % 1024 == 0 && (microseconds(
                     std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
@@ -1767,7 +1767,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
 int art_fuzzy_search_i(art_tree *t, const unsigned char *term, const int term_len, const int min_cost, const int max_cost,
                        const size_t max_words, const token_ordering token_order,
                        const bool prefix, bool last_token, const std::string& prev_token,
-                       filter_result_iterator_t& filter_result_iterator,
+                       filter_result_iterator_t* const filter_result_iterator,
                        std::vector<art_leaf *> &results, std::set<std::string>& exclude_leaves) {
 
     std::vector<const art_node*> nodes;

@@ -482,5 +482,19 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_EQ(6, iter_skip_test4.seq_id);
     ASSERT_TRUE(iter_skip_test4.is_valid);
 
+    auto iter_add_phrase_ids_test = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    std::unique_ptr<filter_result_iterator_t> filter_iter_guard(iter_add_phrase_ids_test);
+    ASSERT_TRUE(iter_add_phrase_ids_test->init_status().ok());
+
+    auto phrase_ids = new uint32_t[4];
+    for (uint32_t i = 0; i < 4; i++) {
+        phrase_ids[i] = i * 2;
+    }
+    filter_result_iterator_t::add_phrase_ids(iter_add_phrase_ids_test, phrase_ids, 4);
+    filter_iter_guard.reset(iter_add_phrase_ids_test);
+
+    ASSERT_TRUE(iter_add_phrase_ids_test->is_valid);
+    ASSERT_EQ(6, iter_add_phrase_ids_test->seq_id);
+
     delete filter_tree_root;
 }
