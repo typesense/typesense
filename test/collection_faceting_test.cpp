@@ -1130,9 +1130,10 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
         ASSERT_TRUE(expected.count(wildcard_facets[i].field_name) == 1);
     }
 
+    // should also allow zero or more spaces after ","
     std::vector<std::string> mixed_facet_fields {
             "score",
-            "grade(A:[80, 100], B:[60, 80], C:[40, 60])",
+            "grade(A:[80, 100], B:[60,  80], C:[40,60])",
             "ra*",
     };
 
