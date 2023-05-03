@@ -109,6 +109,8 @@ private:
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
 
+    bool delete_filter_node = false;
+
     /// Initializes the state of iterator node after it's creation.
     void init();
 
@@ -127,6 +129,8 @@ private:
     /// Finds the next match for a filter on string field.
     void get_string_filter_next_match(const bool& field_is_array);
 
+    explicit filter_result_iterator_t(uint32_t approx_filter_ids_length);
+
 public:
     uint32_t seq_id = 0;
     /// Collection name -> references
@@ -142,6 +146,8 @@ public:
     /// Useful in a scenario where we need to differentiate between filter iterator not matching any document v/s filter
     /// iterator reaching it's end. (is_valid would be false in both these cases)
     uint32_t approx_filter_ids_length;
+
+    explicit filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count);
 
     explicit filter_result_iterator_t(const std::string collection_name,
                                       Index const* const index, filter_node_t const* const filter_node,
@@ -193,4 +199,7 @@ public:
     /// Performs AND with the contents of A and allocates a new array of results.
     /// \return size of the results array
     uint32_t and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results);
+
+    static void add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
+                               uint32_t* phrase_result_ids, const uint32_t& phrase_result_count);
 };

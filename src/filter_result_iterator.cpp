@@ -1252,6 +1252,10 @@ filter_result_iterator_t::~filter_result_iterator_t() {
         delete expanded_plist;
     }
 
+    if (delete_filter_node) {
+        delete filter_node;
+    }
+
     delete left_it;
     delete right_it;
 }
@@ -1342,4 +1346,45 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         }
         next();
     }
+}
+
+filter_result_iterator_t::filter_result_iterator_t(uint32_t approx_filter_ids_length) :
+    approx_filter_ids_length(approx_filter_ids_length) {
+    filter_node = new filter_node_t(AND, nullptr, nullptr);
+    delete_filter_node = true;
+}
+
+filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count) {
+    filter_result.count = approx_filter_ids_length = ids_count;
+    filter_result.docs = ids;
+    is_valid = ids_count > 0;
+
+    if (is_valid) {
+        seq_id = filter_result.docs[result_index];
+        is_filter_result_initialized = true;
+        filter_node = new filter_node_t({"dummy", {}, {}});
+        delete_filter_node = true;
+    }
+}
+
+void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
+                                              uint32_t* phrase_result_ids, const uint32_t& phrase_result_count) {
+    auto root_iterator = new filter_result_iterator_t(std::min(phrase_result_count, filter_result_iterator->approx_filter_ids_length));
+    root_iterator->left_it = new filter_result_iterator_t(phrase_result_ids, phrase_result_count);
+    root_iterator->right_it = filter_result_iterator;
+
+    auto& left_it = root_iterator->left_it;
+    auto& right_it = root_iterator->right_it;
+
+    while (left_it->is_valid && right_it->is_valid && left_it->seq_id != right_it->seq_id) {
+        if (left_it->seq_id < right_it->seq_id) {
+            left_it->skip_to(right_it->seq_id);
+        } else {
+            right_it->skip_to(left_it->seq_id);
+        }
+    }
+
+    root_iterator->is_valid = left_it->is_valid && right_it->is_valid;
+    root_iterator->seq_id = left_it->seq_id;
+    filter_result_iterator = root_iterator;
 }
