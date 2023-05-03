@@ -279,7 +279,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
 int art_fuzzy_search_i(art_tree *t, const unsigned char *term, const int term_len, const int min_cost, const int max_cost,
                      const size_t max_words, const token_ordering token_order,
                      const bool prefix, bool last_token, const std::string& prev_token,
-                     filter_result_iterator_t& filter_result_iterator,
+                     filter_result_iterator_t* const filter_result_iterator,
                      std::vector<art_leaf *> &results, std::set<std::string>& exclude_leaves);
 
 void encode_int32(int32_t n, unsigned char *chars);
