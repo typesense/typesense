@@ -43,7 +43,7 @@ struct StringUtils {
             else if(range_pos < normal_pos){
                 delim="),";
                 subend = std::search(substart, s.end(), delim.begin(), delim.end());
-		        temp = std::string(substart, subend + 1);
+		        temp = std::string(substart, subend);
             }
             else{
                 delim=",";
