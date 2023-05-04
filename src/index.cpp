@@ -1739,7 +1739,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 
     uint32_t* reference_docs = nullptr;
     uint32_t count = filter_result_iterator.to_filter_id_array(reference_docs);
-    std::unique_ptr<uint32_t> docs_guard(reference_docs);
+    std::unique_ptr<uint32_t[]> docs_guard(reference_docs);
 
     // doc id -> reference doc ids
     std::map<uint32_t, std::vector<uint32_t>> reference_map;
