@@ -1966,10 +1966,12 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             auto the_field = search_schema.at(a_facet.field_name);
             // keep only top K facets
             auto max_facets = std::min(max_facet_values, facet_hash_counts.size());
-
-            std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + max_facets,
-                             facet_hash_counts.end(), Collection::facet_count_compare);
             
+            auto nthElement = max_facets == facet_hash_counts.size() ? max_facets - 1 : max_facets;
+
+            std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + nthElement,
+                            facet_hash_counts.end(), Collection::facet_count_compare);
+
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
                 auto & kv = facet_hash_counts[fi];
@@ -2680,13 +2682,9 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
     } else if(search_schema.at(a_facet.field_name).type == field_types::FLOAT) {
         float raw_val = document[a_facet.field_name].get<float>();
         value = StringUtils::float_to_str(raw_val);
-        if(value != "0") {
-            value.erase ( value.find_last_not_of('0') + 1, std::string::npos ); // remove trailing zeros
-        }
     } else if(search_schema.at(a_facet.field_name).type == field_types::FLOAT_ARRAY) {
         float raw_val = document[a_facet.field_name][facet_count.array_pos].get<float>();
         value = StringUtils::float_to_str(raw_val);
-        value.erase ( value.find_last_not_of('0') + 1, std::string::npos );  // remove trailing zeros
     } else if(search_schema.at(a_facet.field_name).type == field_types::BOOL) {
         value = std::to_string(document[a_facet.field_name].get<bool>());
         value = (value == "1") ? "true" : "false";
