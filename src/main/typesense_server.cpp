@@ -4,6 +4,7 @@
 #include "stackprinter.h"
 #include "backward.hpp"
 
+#ifndef ASAN_BUILD
 extern "C" {
 #include "jemalloc.h"
 }
@@ -12,6 +13,7 @@ extern "C" {
 extern "C" {
     extern void je_zone_register();
 }
+#endif
 #endif
 
 void master_server_routes() {
@@ -108,6 +110,7 @@ void crash_callback(int sig, backward::StackTrace& st) {
 }
 
 int main(int argc, char **argv) {
+#ifndef ASAN_BUILD
     #ifdef __APPLE__
     // On OS X, je_zone_register registers jemalloc with the system allocator.
     // We have to force the presence of these symbols on macOS by explicitly calling this method.
@@ -116,6 +119,7 @@ int main(int argc, char **argv) {
     // - https://github.com/ClickHouse/ClickHouse/pull/11897
     je_zone_register();
     #endif
+#endif
 
     Config& config = Config::get_instance();
 

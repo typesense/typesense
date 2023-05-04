@@ -20,7 +20,10 @@
 #include "typesense_server_utils.h"
 #include "file_utils.h"
 #include "threadpool.h"
+
+#ifndef ASAN_BUILD
 #include "jemalloc.h"
+#endif
 
 #include "stackprinter.h"
 
@@ -323,7 +326,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
 int run_server(const Config & config, const std::string & version, void (*master_server_routes)()) {
     LOG(INFO) << "Starting Typesense " << version << std::flush;
-
+#ifndef ASAN_BUILD
     if(using_jemalloc()) {
         LOG(INFO) << "Typesense is using jemalloc.";
 
@@ -339,6 +342,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     } else {
         LOG(WARNING) << "Typesense is NOT using jemalloc.";
     }
+#endif
 
     quit_raft_service = false;
 
