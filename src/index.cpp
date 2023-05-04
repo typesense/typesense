@@ -3879,8 +3879,8 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
                 continue;
             }
 
-            LOG(INFO) << "Token: " << token << ", field_name: " << field_name
-                        << ", num_ids: " << posting_t::num_ids(leaf->values);
+            /*LOG(INFO) << "Token: " << token << ", field_name: " << field_name
+                        << ", num_ids: " << posting_t::num_ids(leaf->values);*/
 
             if(IS_COMPACT_POSTING(leaf->values)) {
                 auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
