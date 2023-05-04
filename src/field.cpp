@@ -679,43 +679,49 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     if(field_json.count(fields::embed_from) != 0) {
         // If the model path is not specified, use the default model and set the number of dimensions to 384 (number of dimensions of the default model)
         field_json[fields::num_dim] = static_cast<unsigned int>(384);
-        if(field_json.count(fields::model_parameters) != 0) {
-            auto model_parameters = field_json[fields::model_parameters];
-            if(model_parameters.count(fields::model_name) != 0) {
-                unsigned int num_dim = 0;
-                if(!model_parameters[fields::model_name].is_string()) {
-                    return Option<bool>(400, "Property `" + fields::model_name + "` must be a string.");
-                }
-                if(model_parameters[fields::model_name].get<std::string>().empty()) {
-                    return Option<bool>(400, "Property `" + fields::model_name + "` must be a non-empty string.");
-                }
 
-                if(model_parameters.count(fields::indexing_prefix) != 0) {
-                    if(!model_parameters[fields::indexing_prefix].is_string()) {
-                        return Option<bool>(400, "Property `" + fields::indexing_prefix + "` must be a string.");
-                    }
-                }
+        if(field_json.count(fields::model_parameters) == 0) {
+            return Option<bool>(400, "Property `" + fields::model_parameters + "` must be specified with `" + fields::embed_from + "`.");
+        }
 
-                if(model_parameters.count(fields::query_prefix) != 0) {
-                    if(!model_parameters[fields::query_prefix].is_string()) {
-                        return Option<bool>(400, "Property `" + fields::query_prefix + "` must be a string.");
-                    }
-                }
+        auto& model_parameters = field_json[fields::model_parameters];
+        
+        if(model_parameters.count(fields::model_name) == 0) {
+            return Option<bool>(400, "Property `" + fields::model_parameters + "." + fields::model_name + "` must be specified with `" + fields::embed_from + "`.");
+        }
 
-                if(model_parameters.count("api_key") != 0) {
-                    auto res = TextEmbedder::is_model_valid(model_parameters[fields::model_name].get<std::string>(), model_parameters[fields::api_key].get<std::string>(), num_dim);
-                    if(res.ok()) {
-                        field_json[fields::num_dim] = num_dim;
-                    } else {
-                        return Option<bool>(res.code(), res.error());
-                    }
-                } else {
-                    if(TextEmbedder::is_model_valid(model_parameters[fields::model_name].get<std::string>(), num_dim)) {
-                        field_json[fields::num_dim] = num_dim;
-                    } else {
-                        return Option<bool>(400, "Property `" + fields::model_name + "` must be a valid model path.");
-                    }
-                }
+        unsigned int num_dim = 0;
+        if(!model_parameters[fields::model_name].is_string()) {
+            return Option<bool>(400, "Property `" + fields::model_parameters + "." + fields::model_name + "` must be a string.");
+        }
+        if(model_parameters[fields::model_name].get<std::string>().empty()) {
+            return Option<bool>(400, "Property `" + fields::model_parameters + "." + fields::model_name + "` cannot be empty.");
+        }
+
+        if(model_parameters.count(fields::indexing_prefix) != 0) {
+            if(!model_parameters[fields::indexing_prefix].is_string()) {
+                return Option<bool>(400, "Property `" + fields::model_parameters + "." + fields::indexing_prefix + "` must be a string.");
+            }
+        }
+
+        if(model_parameters.count(fields::query_prefix) != 0) {
+            if(!model_parameters[fields::query_prefix].is_string()) {
+                return Option<bool>(400, "Property `" + fields::model_parameters + "." + fields::query_prefix + "` must be a string.");
+            }
+        }
+
+        if(model_parameters.count("api_key") != 0) {
+            auto res = TextEmbedder::is_model_valid(model_parameters[fields::model_name].get<std::string>(), model_parameters[fields::api_key].get<std::string>(), num_dim);
+            if(res.ok()) {
+                field_json[fields::num_dim] = num_dim;
+            } else {
+                return Option<bool>(res.code(), res.error());
+            }
+        } else {
+            if(TextEmbedder::is_model_valid(model_parameters[fields::model_name].get<std::string>(), num_dim)) {
+                field_json[fields::num_dim] = num_dim;
+            } else {
+                return Option<bool>(400, "Property `" + fields::model_parameters + "." + fields::model_name + "` is invalid.");
             }
         }
     } else {

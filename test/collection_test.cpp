@@ -4617,7 +4617,7 @@ TEST_F(CollectionTest, SemanticSearchTest) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"], "model_parameters": {"model_name": "ts/e5-small"}}
                             ]
                         })"_json;
     
@@ -4651,7 +4651,7 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"], "model_parameters": {"model_name": "ts/e5-small"}}
                             ]
                         })"_json;
     
@@ -4680,7 +4680,7 @@ TEST_F(CollectionTest, HybridSearch) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"], "model_parameters": {"model_name": "ts/e5-small"}}
                             ]
                         })"_json;
     
@@ -4741,7 +4741,7 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"], "model_parameters": {"model_name": "ts/e5-small"}}
                             ]
                         })"_json;
     
@@ -4814,7 +4814,7 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
                         "name": "objects",
                         "fields": [
                         {"name": "name", "type": "string"},
-                        {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                        {"name": "embedding", "type":"float[]", "embed_from": ["name"], "model_parameters": {"model_name": "ts/e5-small"}}
                         ]
                     })"_json;
     
@@ -4847,7 +4847,7 @@ TEST_F(CollectionTest, EmbedStringArrayField) {
                     "name": "objects",
                     "fields": [
                     {"name": "names", "type": "string[]"},
-                    {"name": "embedding", "type":"float[]", "embed_from": ["names"]}
+                    {"name": "embedding", "type":"float[]", "embed_from": ["names"], "model_parameters": {"model_name": "ts/e5-small"}}
                     ]
                 })"_json;
     
@@ -4872,7 +4872,7 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
                     "fields": [
                     {"name": "names", "type": "string[]"},
                     {"name": "category", "type": "string", "optional": true},
-                    {"name": "embedding", "type":"float[]", "embed_from": ["names", "category"]}
+                    {"name": "embedding", "type":"float[]", "embed_from": ["names", "category"], "model_parameters": {"model_name": "ts/e5-small"}}
                     ]
                 })"_json;
     
@@ -4898,7 +4898,7 @@ TEST_F(CollectionTest, WrongTypeForEmbedding) {
                 "name": "objects",
                 "fields": [
                 {"name": "category", "type": "string"},
-                {"name": "embedding", "type":"float[]", "embed_from": ["category"]}
+                {"name": "embedding", "type":"float[]", "embed_from": ["category"], "model_parameters": {"model_name": "ts/e5-small"}}
                 ]
             })"_json;
     
@@ -4921,7 +4921,7 @@ TEST_F(CollectionTest, WrongTypeOfElementForEmbeddingInStringArray) {
             "name": "objects",
             "fields": [
             {"name": "category", "type": "string[]"},
-            {"name": "embedding", "type":"float[]", "embed_from": ["category"]}
+            {"name": "embedding", "type":"float[]", "embed_from": ["category"], "model_parameters": {"model_name": "ts/e5-small"}}
             ]
         })"_json;
 
@@ -4944,7 +4944,7 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
                     "name": "objects",
                     "fields": [
                     {"name": "name", "type": "string"},
-                    {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                    {"name": "embedding", "type":"float[]", "embed_from": ["name"], "model_parameters": {"model_name": "ts/e5-small"}}
                     ]
                 })"_json;
     

@@ -1593,11 +1593,13 @@ TEST_F(CollectionAllFieldsTest, FieldNameMatchingRegexpShouldNotBeIndexedInNonAu
 }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromFieldJSONInvalidField) {
-    TextEmbedderManager::model_dir = "/tmp/models";
+    TextEmbedderManager::set_model_dir("/tmp/typensense_test/models");
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
     field_json["embed_from"] = {"name"};
+    field_json["model_parameters"] = nlohmann::json::object();
+    field_json["model_parameters"]["model_name"] = "ts/e5-small";
 
     std::vector<field> fields;
     std::string fallback_field_type;
@@ -1629,11 +1631,13 @@ TEST_F(CollectionAllFieldsTest, EmbedFromFieldJSONInvalidField) {
 // }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromNotArray) {
-    TextEmbedderManager::model_dir = "/tmp/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
     field_json["embed_from"] = "name";
+    field_json["model_parameters"] = nlohmann::json::object();
+    field_json["model_parameters"]["model_name"] = "ts/e5-small";
 
     std::vector<field> fields;
     std::string fallback_field_type;
@@ -1647,11 +1651,12 @@ TEST_F(CollectionAllFieldsTest, EmbedFromNotArray) {
 }
 
 TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
-    TextEmbedderManager::model_dir = "/tmp/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
-    field_json["model_parameters"] = {{"model_name", "bert-base-uncased"}};
+    field_json["model_parameters"] = nlohmann::json::object();
+    field_json["model_parameters"]["model_name"] = "ts/e5-small";
 
     std::vector<field> fields;
     std::string fallback_field_type;
@@ -1666,10 +1671,11 @@ TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
 
 TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
 
-    TextEmbedderManager::model_dir = "/tmp/typesense_test/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     field embedding = field("embedding", field_types::FLOAT_ARRAY, false);
     embedding.embed_from.push_back("name");
+    embedding.model_parameters["model_name"] = "ts/e5-small";
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  embedding};
     auto obj_coll_op = collectionManager.create_collection("obj_coll", 1, fields, "", 0, field_types::AUTO);
@@ -1690,11 +1696,13 @@ TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
 }
 
 TEST_F(CollectionAllFieldsTest, WrongDataTypeForEmbedFrom) {
-    TextEmbedderManager::model_dir = "/tmp/models";
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
     field_json["embed_from"] = {"age"};
+    field_json["model_parameters"] = nlohmann::json::object();
+    field_json["model_parameters"]["model_name"] = "ts/e5-small";
 
     std::vector<field> fields;
     std::string fallback_field_type;

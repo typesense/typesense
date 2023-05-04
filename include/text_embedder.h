@@ -10,11 +10,12 @@
 
 class TextEmbedder {
     public:
-        TextEmbedder(const std::string& model_path, TokenizerType tokenizer_type = TokenizerType::bert);
+        TextEmbedder(const std::string& model_path);
         TextEmbedder(const std::string& openai_model_path, const std::string& api_key);
         ~TextEmbedder();
         Option<std::vector<float>> Embed(const std::string& text);
         Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs);
+        const std::string& get_vocab_file_name() const;
 
         bool is_openai() {
             return !api_key.empty();
@@ -27,6 +28,7 @@ class TextEmbedder {
         Ort::Env env_;
         encoded_input_t Encode(const std::string& text);
         std::unique_ptr<TextEmbeddingTokenizer> tokenizer_;
+        std::string vocab_file_name;
         static std::vector<float> mean_pooling(const std::vector<std::vector<float>>& input);
         std::string output_tensor_name;
         std::string api_key;

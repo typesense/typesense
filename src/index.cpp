@@ -455,10 +455,8 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                 index_rec.del_doc);
                 scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
                 docs_to_embed.push_back(&index_rec.new_doc);
-                //embed_fields(index_rec.new_doc, embedding_fields, search_schema);
             } else {
                 docs_to_embed.push_back(&index_rec.doc);
-                //embed_fields(index_rec.doc, embedding_fields, search_schema);
             }
 
             compute_token_offsets_facets(index_rec, search_schema, token_separators, symbols_to_index);
@@ -6344,33 +6342,6 @@ bool Index::common_results_exist(std::vector<art_leaf*>& leaves, bool must_match
     return phrase_exists;
 }
 
-Option<bool> Index::embed_fields(nlohmann::json& document, 
-                                 const tsl::htrie_map<char, field>& embedding_fields,
-                                 const tsl::htrie_map<char, field> & search_schema) {
-    for(const auto& field : embedding_fields) {
-        std::string text_to_embed = TextEmbedderManager::get_instance().get_indexing_prefix(field.model_parameters);
-        for(const auto& field_name : field.embed_from) {
-            auto field_it = search_schema.find(field_name);
-            if(field_it.value().type == field_types::STRING) {
-                text_to_embed += document[field_name].get<std::string>() + " ";
-            } else if(field_it.value().type == field_types::STRING_ARRAY) {
-                for(const auto& val : document[field_name]) {
-                    text_to_embed += val.get<std::string>() + " ";
-                }
-            }
-        }
-        TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-        auto embedder = embedder_manager.get_text_embedder(field.model_parameters);
-        auto embedding_op = embedder->Embed(text_to_embed);
-
-        if(!embedding_op.ok()) {
-            return Option<bool>(400, embedding_op.error());
-        }
-
-        document[field.name] = embedding_op.get();
-    }
-    return Option<bool>(true);
-}
 
 Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents, 
                                        const tsl::htrie_map<char, field>& embedding_fields,

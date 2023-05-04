@@ -428,11 +428,7 @@ struct field {
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
-
             if(field_json.count(fields::embed_from) != 0) {
-                // if(TextEmbedderManager::model_dir.empty()) {
-                //     return Option<bool>(400, "Text embedding is not enabled. Please set `model-dir` at startup.");
-                // }
 
                 if(!field_json[fields::embed_from].is_array()) {
                     return Option<bool>(400, "Property `" + fields::embed_from + "` must be an array.");

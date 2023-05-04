@@ -8,7 +8,7 @@
 
 enum class TokenizerType {
     bert,
-    distilBert,
+    distilbert,
     xlm_roberta
 };
 
@@ -35,9 +35,9 @@ class BertTokenizerWrapper : public TextEmbeddingTokenizer {
         encoded_input_t Encode(const std::string& text) override;
 };
 
-class DistilBertTokenizer : public BertTokenizerWrapper {
+class DistilbertTokenizer : public BertTokenizerWrapper {
     public:
-        DistilBertTokenizer(const std::string& vocab_path);
+        DistilbertTokenizer(const std::string& vocab_path);
         encoded_input_t Encode(const std::string& text) override;
 };
 

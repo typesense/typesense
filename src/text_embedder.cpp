@@ -6,18 +6,24 @@
 #include <sstream>
 #include <filesystem>
 
-TextEmbedder::TextEmbedder(const std::string& model_name, TokenizerType tokenizer_type) {
+TextEmbedder::TextEmbedder(const std::string& model_name) {
     // create environment
     Ort::SessionOptions session_options;
     std::string abs_path = TextEmbedderManager::get_absolute_model_path(model_name);
     LOG(INFO) << "Loading model from: " << abs_path;
     session_ = std::make_unique<Ort::Session>(env_, abs_path.c_str(), session_options);
+    std::ifstream config_file(TextEmbedderManager::get_absolute_config_path(model_name));
+    nlohmann::json config;
+    config_file >> config;
+    TokenizerType tokenizer_type = TextEmbedderManager::get_tokenizer_type(config);
+    auto vocab_path = TextEmbedderManager::get_absolute_vocab_path(model_name, config["vocab_file_name"].get<std::string>());
     if(tokenizer_type == TokenizerType::bert) {
-        auto vocab_path = TextEmbedderManager::get_absolute_vocab_path(model_name);
         tokenizer_ = std::make_unique<BertTokenizerWrapper>(vocab_path);
-    } else {
-        auto spiece_model_path = TextEmbedderManager::get_absolute_sentencepiece_model_path(model_name);
-        tokenizer_ = std::make_unique<XLMRobertaTokenizer>(spiece_model_path);
+    } else if(tokenizer_type == TokenizerType::distilbert) {
+        tokenizer_ = std::make_unique<DistilbertTokenizer>(vocab_path);
+    }
+    else if(tokenizer_type == TokenizerType::xlm_roberta) {
+        tokenizer_ = std::make_unique<XLMRobertaTokenizer>(vocab_path);
     }
     auto output_tensor_count = session_->GetOutputCount();
     for (size_t i = 0; i < output_tensor_count; i++) {
@@ -67,6 +73,7 @@ Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
         }
         return Option<std::vector<float>>(nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>());
     } else {
+        LOG(INFO) << "Embedding text: " << text;
         auto encoded_input = tokenizer_->Encode(text);
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;
@@ -159,11 +166,30 @@ bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& n
 
     Ort::SessionOptions session_options;
     Ort::Env env;
-    std::string abs_path = TextEmbedderManager::get_absolute_model_path(model_name);
+    std::string abs_path = TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::get_model_name_without_namespace(model_name));
 
     if(!std::filesystem::exists(abs_path)) {
         LOG(ERROR) << "Model file not found: " << abs_path;
         return false;
+    }
+
+    if(!TextEmbedderManager::get_instance().is_public_model(model_name)) {
+        if(!std::filesystem::exists(TextEmbedderManager::get_absolute_config_path(model_name))) {
+            LOG(ERROR) << "Config file not found: " << TextEmbedderManager::get_absolute_config_path(model_name);
+            return false;
+        }
+        std::ifstream config_file(TextEmbedderManager::get_absolute_config_path(model_name));
+        nlohmann::json config;
+        config_file >> config;
+        if(config["model_type"].is_null() || config["vocab_file_name"].is_null()) {
+            LOG(ERROR) << "Invalid config file: " << TextEmbedderManager::get_absolute_config_path(model_name);
+            return false;
+        }
+
+        if(!std::filesystem::exists(TextEmbedderManager::get_model_subdir(model_name) + "/" + config["vocab_file_name"].get<std::string>())) {
+            LOG(ERROR) << "Vocab file not found: " << TextEmbedderManager::get_model_subdir(model_name) + "/" + config["vocab_file_name"].get<std::string>();
+            return false;
+        }
     }
 
     Ort::Session session(env, abs_path.c_str(), session_options);

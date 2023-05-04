@@ -101,6 +101,9 @@ long HttpClient::get_response(const std::string &url, std::string &response,
         chunk = curl_slist_append(chunk, header_str.c_str());
     }
 
+    // follow redirects
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
     return perform_curl(curl, res_headers, chunk);
 }
 

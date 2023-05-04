@@ -1464,7 +1464,7 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
 
     nlohmann::json update_schema = R"({
                 "fields": [
-                {"name": "embedding", "type":"float[]", "embed_from": ["names"]}
+                {"name": "embedding", "type":"float[]", "embed_from": ["names"], "model_parameters": {"model_name": "ts/e5-small"}}
                 ]
             })"_json;
     
@@ -1489,7 +1489,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
             "fields": [
             {"name": "names", "type": "string[]"},
             {"name": "category", "type":"string"}, 
-            {"name": "embedding", "type":"float[]", "embed_from": ["names","category"]}
+            {"name": "embedding", "type":"float[]", "embed_from": ["names","category"], "model_parameters": {"model_name": "ts/e5-small"}}
             ]
         })"_json;
 
@@ -1537,7 +1537,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed_from": ["name"], "model_parameters": {"model_name": "ts/e5-small"}}
                             ]
                         })"_json;
     

@@ -683,7 +683,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
         "name": "coll1",
         "fields": [
             {"name": "name", "type": "string"},
-            {"name": "vec", "type": "float[]", "embed_from": ["name"]}
+            {"name": "vec", "type": "float[]", "embed_from": ["name"], "model_parameters": {"model_name": "ts/e5-small"}}
         ]
     })"_json;
 
@@ -781,7 +781,7 @@ TEST_F(CollectionVectorTest, EmbeddingFieldVectorIndexTest) {
                 "name": "objects",
                 "fields": [
                 {"name": "name", "type": "string"},
-                {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                {"name": "embedding", "type":"float[]", "embed_from": ["name"], "model_parameters": {"model_name": "ts/e5-small"}}
                 ]
             })"_json;
 

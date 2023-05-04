@@ -28,10 +28,10 @@ encoded_input_t BertTokenizerWrapper::Encode(const std::string& text) {
 
 
 
-DistilBertTokenizer::DistilBertTokenizer(const std::string& vocab_path) : BertTokenizerWrapper(vocab_path) {}
+DistilbertTokenizer::DistilbertTokenizer(const std::string& vocab_path) : BertTokenizerWrapper(vocab_path) {}
 
 
-encoded_input_t DistilBertTokenizer::Encode(const std::string& text) {
+encoded_input_t DistilbertTokenizer::Encode(const std::string& text) {
     auto encoded = bert_tokenizer_->Encode(bert_tokenizer_->Tokenize(ustring(text)));
     auto input_ids = bert_tokenizer_->AddSpecialToken(encoded);
     auto attention_mask = std::vector<int64_t>(input_ids.size(), 1);
