@@ -4553,8 +4553,8 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         const field& a_field = search_schema.at(field_name);
 
-        if(!a_field.is_int32() && !a_field.is_int64()){
-            std::string error = "Range facet is restricted to only int32 and int64 fields.";
+        if(!a_field.is_integer() && !a_field.is_float()){
+            std::string error = "Range facet is restricted to only integer and float fields.";
             return Option<bool>(400, error);
         }
 
@@ -4621,8 +4621,18 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             auto pos2 = range.find(",");
             auto pos3 = range.find("]");
 
-            int64_t lower_range = std::stoll(range.substr(pos1 + 2, pos2));
-            int64_t upper_range = std::stoll(range.substr(pos2 + 1, pos3));
+            int64_t lower_range, upper_range;
+
+            if(a_field.is_integer()) {
+                lower_range = std::stoll(range.substr(pos1 + 2, pos2));
+                upper_range = std::stoll(range.substr(pos2 + 1, pos3));
+            } else {
+                float val = std::stof(range.substr(pos1 + 2, pos2));
+                lower_range = Index::float_to_int64_t(val);
+
+                val = std::stof(range.substr(pos2 + 1, pos3));
+                upper_range = Index::float_to_int64_t(val);
+            }
 
             tupVec.emplace_back(std::make_tuple(lower_range, upper_range, range_val));
         }

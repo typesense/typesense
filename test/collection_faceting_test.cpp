@@ -1166,6 +1166,7 @@ TEST_F(CollectionFacetingTest, RangeFacetTest) {
     std::vector<field> fields = {field("place", field_types::STRING, false),
                                  field("state", field_types::STRING, false),
                                  field("visitors", field_types::INT32, true),
+                                 field("rating", field_types::FLOAT, true),
                                  field("trackingFrom", field_types::INT32, true),};
     Collection* coll1 = collectionManager.create_collection(
             "coll1", 1, fields, "", 0, "", {}, {}
@@ -1175,6 +1176,7 @@ TEST_F(CollectionFacetingTest, RangeFacetTest) {
     doc1["place"] = "Mysore Palace";
     doc1["state"] = "Karnataka";
     doc1["visitors"] = 235486;
+    doc1["rating"] = 4.7;
     doc1["trackingFrom"] = 1900;
 
     nlohmann::json doc2;
@@ -1182,6 +1184,7 @@ TEST_F(CollectionFacetingTest, RangeFacetTest) {
     doc2["place"] = "Hampi";
     doc2["state"] = "Karnataka";
     doc2["visitors"] = 187654;
+    doc2["rating"] = 2.9;
     doc2["trackingFrom"] = 1900;
 
     nlohmann::json doc3;
@@ -1189,6 +1192,7 @@ TEST_F(CollectionFacetingTest, RangeFacetTest) {
     doc3["place"] = "Mahabalipuram";
     doc3["state"] = "TamilNadu";
     doc3["visitors"] = 174684;
+    doc3["rating"] = 3.8;
     doc3["trackingFrom"] = 1900;
 
     nlohmann::json doc4;
@@ -1196,6 +1200,7 @@ TEST_F(CollectionFacetingTest, RangeFacetTest) {
     doc4["place"] = "Meenakshi Amman Temple";
     doc4["state"] = "TamilNadu";
     doc4["visitors"] = 246676;
+    doc4["rating"] = 4.5;
     doc4["trackingFrom"] = 2000;
 
     nlohmann::json doc5;
@@ -1203,6 +1208,7 @@ TEST_F(CollectionFacetingTest, RangeFacetTest) {
     doc5["place"] = "Staue of Unity";
     doc5["state"] = "Gujarat";
     doc5["visitors"] = 345878;
+    doc5["rating"] = 3.5;
     doc5["trackingFrom"] = 2000;
 
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
@@ -1267,6 +1273,35 @@ TEST_F(CollectionFacetingTest, RangeFacetTest) {
     ASSERT_EQ(2, results4["facet_counts"][0]["counts"][1]["count"].get<std::size_t>());
     ASSERT_EQ("New", results4["facet_counts"][0]["counts"][1]["value"].get<std::string>());
 
+    //range faceting on float fields
+    results4 = coll1->search("*", {"state"},
+                                  "", {"rating(Average:[0, 3], Good:[3, 4], Best:[4, 5])"},
+                                  {}, {2}, 10,
+                                  1, FREQUENCY, {true},
+                                  10, spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                  "<mark>", "</mark>", {}, 1000,
+                                  true, false, true, "", true).get();
+
+    ASSERT_EQ(3, results4["facet_counts"][0]["counts"].size());
+
+    ASSERT_EQ(2, results4["facet_counts"][0]["counts"][0]["count"].get<std::size_t>());
+    ASSERT_EQ("Good", results4["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    ASSERT_EQ(2, results4["facet_counts"][0]["counts"][1]["count"].get<std::size_t>());
+    ASSERT_EQ("Best", results4["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+
+    ASSERT_EQ(1, results4["facet_counts"][0]["counts"][2]["count"].get<std::size_t>());
+    ASSERT_EQ("Average", results4["facet_counts"][0]["counts"][2]["value"].get<std::string>());
+    
+    //stats on float field
+    ASSERT_EQ(5, results4["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(3.8799999713897706, results4["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(2.9000000953674316, results4["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(4.699999809265137, results4["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(19.399999856948853, results4["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(3, results4["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+
     // ensure that only integer fields are allowed
     auto rop = coll1->search("Karnataka", {"state"},
                                  "", {"state(Busy:[0, 200000], VeryBusy:[200000, 500000])"},
@@ -1278,7 +1313,7 @@ TEST_F(CollectionFacetingTest, RangeFacetTest) {
                                  true, false, true, "", true);
 
     ASSERT_FALSE(rop.ok());
-    ASSERT_EQ("Range facet is restricted to only int32 and int64 fields.", rop.error());
+    ASSERT_EQ("Range facet is restricted to only integer and float fields.", rop.error());
 
     // ensure that bad facet range values are handled
     rop = coll1->search("Karnataka", {"state"},
