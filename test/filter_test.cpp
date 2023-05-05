@@ -423,7 +423,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     }
     ASSERT_FALSE(iter_to_array_test.is_valid);
 
-    delete filter_ids;
+    delete[] filter_ids;
 
     auto iter_and_scalar_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_and_scalar_test.init_status().ok());
@@ -440,7 +440,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     }
     ASSERT_FALSE(iter_and_scalar_test.is_valid);
 
-    delete and_result;
+    delete[] and_result;
     delete filter_tree_root;
 
     doc = R"({
@@ -491,6 +491,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
         phrase_ids[i] = i * 2;
     }
     filter_result_iterator_t::add_phrase_ids(iter_add_phrase_ids_test, phrase_ids, 4);
+    filter_iter_guard.release();
     filter_iter_guard.reset(iter_add_phrase_ids_test);
 
     ASSERT_TRUE(iter_add_phrase_ids_test->is_valid);
