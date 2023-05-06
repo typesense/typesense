@@ -3,6 +3,7 @@
 #include "tsconfig.h"
 #include "stackprinter.h"
 #include "backward.hpp"
+#include "butil/at_exit.h"
 
 #ifndef ASAN_BUILD
 extern "C" {
@@ -120,6 +121,8 @@ int main(int argc, char **argv) {
     je_zone_register();
     #endif
 #endif
+
+    butil::AtExitManager exit_manager;
 
     Config& config = Config::get_instance();
 

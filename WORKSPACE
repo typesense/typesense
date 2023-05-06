@@ -32,10 +32,9 @@ git_repository(
     name = "com_github_brpc_brpc",
     commit = "70d702f1c7c4f663d30cd0ca284bf838a8cf7afb",
     patches = [
-        "//bazel/brpc:butil.patch",
         "//bazel/brpc:brpc.patch",
     ],
-    remote = "https://github.com/apache/incubator-brpc.git",
+    remote = "https://github.com/apache/brpc.git",
 )
 
 
