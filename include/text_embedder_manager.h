@@ -34,13 +34,13 @@ public:
     TextEmbedderManager(const TextEmbedderManager&) = delete;
     TextEmbedderManager& operator=(const TextEmbedderManager&) = delete;
 
-    TextEmbedder* get_text_embedder(const nlohmann::json& model_parameters);
+    TextEmbedder* get_text_embedder(const nlohmann::json& model_config);
     void delete_text_embedder(const std::string& model_path);
     void delete_all_text_embedders();
 
-    static const TokenizerType get_tokenizer_type(const nlohmann::json& model_parameters);
-    const std::string get_indexing_prefix(const nlohmann::json& model_parameters);
-    const std::string get_query_prefix(const nlohmann::json& model_parameters);
+    static const TokenizerType get_tokenizer_type(const nlohmann::json& model_config);
+    const std::string get_indexing_prefix(const nlohmann::json& model_config);
+    const std::string get_query_prefix(const nlohmann::json& model_config);
     static void set_model_dir(const std::string& dir);
     static const std::string& get_model_dir();
 

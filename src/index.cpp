@@ -6349,7 +6349,7 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
     for(const auto& field : embedding_fields) {
         std::vector<std::string> text_to_embed;
         for(auto& document : documents) {
-            std::string text = TextEmbedderManager::get_instance().get_indexing_prefix(field.model_parameters);
+            std::string text = TextEmbedderManager::get_instance().get_indexing_prefix(field.model_config);
             for(const auto& field_name : field.embed_from) {
                 auto field_it = search_schema.find(field_name);
                 if(field_it.value().type == field_types::STRING) {
@@ -6363,7 +6363,7 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
             text_to_embed.push_back(text);
         }
         TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-        auto embedder = embedder_manager.get_text_embedder(field.model_parameters);
+        auto embedder = embedder_manager.get_text_embedder(field.model_config);
         auto embedding_op = embedder->batch_embed(text_to_embed);
 
         if(!embedding_op.ok()) {

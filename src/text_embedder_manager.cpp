@@ -6,18 +6,18 @@ TextEmbedderManager& TextEmbedderManager::get_instance() {
     return instance;
 }
 
-TextEmbedder* TextEmbedderManager::get_text_embedder(const nlohmann::json& model_parameters) {
+TextEmbedder* TextEmbedderManager::get_text_embedder(const nlohmann::json& model_config) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    const std::string& model_name = model_parameters.at("model_name");
+    const std::string& model_name = model_config.at("model_name");
     if(text_embedders[model_name] == nullptr) {
-        if(model_parameters.count("api_key") == 0) {
+        if(model_config.count("api_key") == 0) {
             if(is_public_model(model_name)) {
                 // download the model if it doesn't exist
                 download_public_model(model_name);
             }
             text_embedders[model_name] = std::make_shared<TextEmbedder>(get_model_name_without_namespace(model_name));
         } else {
-            text_embedders[model_name] = std::make_shared<TextEmbedder>(model_name, model_parameters.at("api_key").get<std::string>());
+            text_embedders[model_name] = std::make_shared<TextEmbedder>(model_name, model_config.at("api_key").get<std::string>());
         }
     }
     return text_embedders[model_name].get();
@@ -35,11 +35,11 @@ void TextEmbedderManager::delete_all_text_embedders() {
     text_embedders.clear();
 }
 
-const TokenizerType TextEmbedderManager::get_tokenizer_type(const nlohmann::json& model_parameters) {
-    if(model_parameters.find("model_type") == model_parameters.end()) {
+const TokenizerType TextEmbedderManager::get_tokenizer_type(const nlohmann::json& model_config) {
+    if(model_config.find("model_type") == model_config.end()) {
         return TokenizerType::bert;
     } else {
-        std::string tokenizer_type = model_parameters.at("model_type").get<std::string>();
+        std::string tokenizer_type = model_config.at("model_type").get<std::string>();
         if(tokenizer_type == "distilbert") {
             return TokenizerType::distilbert;
         } else if(tokenizer_type == "xlm_roberta") {
@@ -50,12 +50,12 @@ const TokenizerType TextEmbedderManager::get_tokenizer_type(const nlohmann::json
     }
 }
 
-const std::string TextEmbedderManager::get_indexing_prefix(const nlohmann::json& model_parameters) {
+const std::string TextEmbedderManager::get_indexing_prefix(const nlohmann::json& model_config) {
     std::string val;
-    if(is_public_model(model_parameters["model_name"].get<std::string>())) {
-        val = public_models[model_parameters["model_name"].get<std::string>()].indexing_prefix;
+    if(is_public_model(model_config["model_name"].get<std::string>())) {
+        val = public_models[model_config["model_name"].get<std::string>()].indexing_prefix;
     } else {
-        val = model_parameters.count("indexing_prefix") == 0 ? "" : model_parameters["indexing_prefix"].get<std::string>();
+        val = model_config.count("indexing_prefix") == 0 ? "" : model_config["indexing_prefix"].get<std::string>();
     }
     if(!val.empty()) {
         val += " ";
@@ -64,12 +64,12 @@ const std::string TextEmbedderManager::get_indexing_prefix(const nlohmann::json&
     return val;
 }
 
-const std::string TextEmbedderManager::get_query_prefix(const nlohmann::json& model_parameters) {
+const std::string TextEmbedderManager::get_query_prefix(const nlohmann::json& model_config) {
     std::string val;
-    if(is_public_model(model_parameters["model_name"].get<std::string>())) {
-        val = public_models[model_parameters["model_name"].get<std::string>()].query_prefix;
+    if(is_public_model(model_config["model_name"].get<std::string>())) {
+        val = public_models[model_config["model_name"].get<std::string>()].query_prefix;
     } else {
-        val = model_parameters.count("query_prefix") == 0 ? "" : model_parameters["query_prefix"].get<std::string>();
+        val = model_config.count("query_prefix") == 0 ? "" : model_config["query_prefix"].get<std::string>();
     }
     if(!val.empty()) {
         val += " ";

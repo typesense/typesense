@@ -50,6 +50,8 @@ namespace fields {
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
     static const std::string reference = "reference";
+    static const std::string embed = "embed";
+    static const std::string from = "from";
     static const std::string embed_from = "embed_from";
     static const std::string model_name = "model_name";
 
@@ -58,7 +60,7 @@ namespace fields {
     static const std::string indexing_prefix = "indexing_prefix";
     static const std::string query_prefix = "query_prefix";
     static const std::string api_key = "api_key";
-    static const std::string model_parameters = "model_parameters";
+    static const std::string model_config = "model_config";
 }
 
 enum vector_distance_type_t {
@@ -85,7 +87,7 @@ struct field {
 
     size_t num_dim;
     std::vector<std::string> embed_from;
-    nlohmann::json model_parameters;
+    nlohmann::json model_config;
     vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
@@ -97,9 +99,9 @@ struct field {
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &embed_from = {}, 
-          const nlohmann::json& model_parameters = nlohmann::json()) :
+          const nlohmann::json& model_config = nlohmann::json()) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed_from(embed_from), model_parameters(model_parameters) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed_from(embed_from), model_config(model_config) {
 
         set_computed_defaults(sort, infix);
     }
@@ -328,10 +330,9 @@ struct field {
                 field_val[fields::reference] = field.reference;
             }
             if(!field.embed_from.empty()) {
-                field_val[fields::embed_from] = field.embed_from;
-                if(!field.model_parameters.empty()) {
-                    field_val[fields::model_parameters] = field.model_parameters;
-                }
+                field_val[fields::embed] = nlohmann::json::object();
+                field_val[fields::embed][fields::from] = field.embed_from;
+                field_val[fields::embed][fields::model_config] = field.model_config;
             }
             fields_json.push_back(field_val);
 
@@ -428,33 +429,40 @@ struct field {
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
-            if(field_json.count(fields::embed_from) != 0) {
-
-                if(!field_json[fields::embed_from].is_array()) {
-                    return Option<bool>(400, "Property `" + fields::embed_from + "` must be an array.");
+            if(field_json.count(fields::embed) != 0) {
+                
+                if(!field_json[fields::embed].is_object()) {
+                    return Option<bool>(400, "Property `" + fields::embed + "` must be an object.");
                 }
 
-                if(field_json[fields::embed_from].empty()) {
-                    return Option<bool>(400, "Property `" + fields::embed_from + "` must have at least one element.");
+                if(field_json[fields::embed].count(fields::from) == 0) {
+                    return Option<bool>(400, "Property `" + fields::embed + "` must contain a `" + fields::from + "` property.");
                 }
 
-                for(auto& embed_from_field : field_json[fields::embed_from]) {
+                if(!field_json[fields::embed][fields::from].is_array()) {
+                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must be an array.");
+                }
+
+                if(field_json[fields::embed][fields::from].empty()) {
+                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must have at least one element.");
+                }
+
+                for(auto& embed_from_field : field_json[fields::embed][fields::from]) {
                     if(!embed_from_field.is_string()) {
-                        return Option<bool>(400, "Property `" + fields::embed_from + "` must contain only field names as strings.");
+                        return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must contain only field names as strings.");
                     }
                 }
 
                 if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
-                    return Option<bool>(400, "Property `" + fields::embed_from + "` is only allowed on a float array field.");
+                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` is only allowed on a float array field.");
                 }
-                
 
-                for(auto& embed_from_field : field_json[fields::embed_from]) {
+                for(auto& embed_from_field : field_json[fields::embed][fields::from]) {
                     bool flag = false;
                     for(const auto& field : fields_json) {
                         if(field[fields::name] == embed_from_field) {
                             if(field[fields::type] != field_types::STRING && field[fields::type] != field_types::STRING_ARRAY) {
-                                return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
+                                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
                             }
                             flag = true;
                             break;
@@ -464,7 +472,7 @@ struct field {
                         for(const auto& field : the_fields) {
                             if(field.name == embed_from_field) {
                                 if(field.type != field_types::STRING && field.type != field_types::STRING_ARRAY) {
-                                    return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
+                                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
                                 }
                                 flag = true;
                                 break;
@@ -472,9 +480,9 @@ struct field {
                         }
                     }
                     if(!flag) {
-                        return Option<bool>(400, "Property `" + fields::embed_from + "` can only refer to string or string array fields.");
+                        return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
                     }
-                }   
+                } 
             }
 
             auto op = json_field_to_field(enable_nested_fields,

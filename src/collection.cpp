@@ -239,16 +239,17 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::sort] = coll_field.sort;
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
+        field_json[fields::embed] = nlohmann::json::object();
         
         if(!coll_field.embed_from.empty()) {
-            field_json[fields::embed_from] = coll_field.embed_from;
+            field_json[fields::embed][fields::from] = coll_field.embed_from;
         }
 
-        if(coll_field.model_parameters.size() > 0) {
-            field_json[fields::model_parameters] = coll_field.model_parameters;
+        if(coll_field.model_config.size() > 0) {
+            field_json[fields::embed][fields::model_config] = coll_field.model_config;
             // Hide OpenAI API key from the response.
-            if(field_json[fields::model_parameters].count(fields::api_key) != 0) {
-                field_json[fields::model_parameters][fields::api_key] = "<hidden>";
+            if(field_json[fields::embed][fields::model_config].count(fields::api_key) != 0) {
+                field_json[fields::embed][fields::model_config][fields::api_key] = "<hidden>";
             }
         }
         
@@ -1172,7 +1173,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             auto search_field = search_schema.at(expanded_search_field);
 
             if(search_field.num_dim > 0) {
-                if(has_embedding_query) {
+                if(!vector_query.field_name.empty()) {
                     std::string error = "Only one embedding field is allowed in the query.";
                     return Option<nlohmann::json>(400, error);
                 }
@@ -1188,9 +1189,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 }
 
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-                auto embedder = embedder_manager.get_text_embedder(search_field.model_parameters);
+                auto embedder = embedder_manager.get_text_embedder(search_field.model_config);
 
-                std::string embed_query = embedder_manager.get_query_prefix(search_field.model_parameters) + raw_query;
+                std::string embed_query = embedder_manager.get_query_prefix(search_field.model_config) + raw_query;
                 auto embedding_op = embedder->Embed(embed_query);
                 if(!embedding_op.ok()) {
                     return Option<nlohmann::json>(400, embedding_op.error());
@@ -1200,7 +1201,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 vector_query._reset();
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;
-                has_embedding_query = true;
                 continue;
             }
 
@@ -1212,7 +1212,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     }
 
     std::string real_raw_query = raw_query;
-    if(has_embedding_query && processed_search_fields.size() == 0) {
+    if(!vector_query.field_name.empty() && processed_search_fields.size() == 0) {
         raw_query = "*";
     }
 
