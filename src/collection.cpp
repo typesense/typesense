@@ -3784,6 +3784,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::unique_lock lock(mutex);
 
+    LOG(INFO) << "Collection " << name << " is being prepared for alter...";
+
     // Validate that all stored documents are compatible with the proposed schema changes.
     std::vector<field> del_fields;
     std::vector<field> addition_fields;
