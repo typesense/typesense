@@ -790,8 +790,6 @@ TEST_F(CollectionLocaleTest, SearchOnArabicText) {
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     auto results = coll1->search("جوهينة", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}).get();
-    LOG(INFO) << results;
-
     ASSERT_STREQ("<mark>جهينة</mark>",
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 }
@@ -804,11 +802,11 @@ TEST_F(CollectionLocaleTest, SearchOnArabicTextWithTypo) {
     std::string title2 = "داوني";
 
     nlohmann::json doc;
-    doc["title"] = "0";
+    doc["id"] = "0";
     doc["title"] = "ينوس";
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
-    doc["title"] = "1";
+    doc["id"] = "1";
     doc["title"] = "ينواد";
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
@@ -818,6 +816,23 @@ TEST_F(CollectionLocaleTest, SearchOnArabicTextWithTypo) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionLocaleTest, HighlightOfAllQueryTokensShouldConsiderUnicodePoints) {
+    // For perfomance reasons, we highlight all query tokens in a text only on smaller text
+    // Here, "small" threshold must be defined using unicode points and not raw string size.
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, ""),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "رجلا منهم اجتهد اربعين ليله ثم دعا فلم يستجب له فاتي عيسي ابن مريم عليه السلام يشكو اليه ما هو فيه ويساله الدعاء له فتطهر عيسي وصلي ثم";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("لة ثم دعا فلم يستجب له فأتى عيسى ابن مريم عليه السلام يشكو إل", {"title"}, "", {}, {},
+                                 {2}, 10, 1, FREQUENCY, {true}, 1).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(17, results["hits"][0]["highlights"][0]["matched_tokens"].size());
 }
 
 TEST_F(CollectionLocaleTest, SearchInGermanLocaleShouldBeTypoTolerant) {

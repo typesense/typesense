@@ -3025,6 +3025,8 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
     std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
     bool found_first_match = false;
 
+    size_t text_len = Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text);
+
     while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
         if(use_word_tokenizer) {
             bool found_token = word_tokenizer.tokenize(raw_token);
@@ -3053,8 +3055,8 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
         // Token might not appear in the best matched window, which is limited to a size of 10.
         // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
         // locate all tokens that appear in the query / query candidates
-        bool raw_token_found = !match_offset_found && (highlight_fully || text.size() < snippet_threshold * 6) &&
-                                                        qtoken_leaves.find(raw_token) != qtoken_leaves.end();
+        bool raw_token_found = !match_offset_found && (highlight_fully || text_len < snippet_threshold * 6) &&
+                                qtoken_leaves.find(raw_token) != qtoken_leaves.end();
 
         if (match_offset_found || raw_token_found) {
             if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
