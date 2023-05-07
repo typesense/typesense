@@ -86,8 +86,7 @@ struct field {
     int nested_array;
 
     size_t num_dim;
-    std::vector<std::string> embed_from;
-    nlohmann::json model_config;
+    nlohmann::json embed;
     vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
@@ -98,10 +97,9 @@ struct field {
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const std::vector<std::string> &embed_from = {}, 
-          const nlohmann::json& model_config = nlohmann::json()) :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const nlohmann::json& embed = nlohmann::json()) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed_from(embed_from), model_config(model_config) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed(embed) {
 
         set_computed_defaults(sort, infix);
     }
@@ -315,6 +313,10 @@ struct field {
             field_val[fields::infix] = field.infix;
 
             field_val[fields::locale] = field.locale;
+            
+            if(field.embed.count(fields::from) != 0) {
+                field_val[fields::embed] = field.embed;
+            }
 
             field_val[fields::nested] = field.nested;
             if(field.nested) {
@@ -329,11 +331,7 @@ struct field {
             if (!field.reference.empty()) {
                 field_val[fields::reference] = field.reference;
             }
-            if(!field.embed_from.empty()) {
-                field_val[fields::embed] = nlohmann::json::object();
-                field_val[fields::embed][fields::from] = field.embed_from;
-                field_val[fields::embed][fields::model_config] = field.model_config;
-            }
+
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {

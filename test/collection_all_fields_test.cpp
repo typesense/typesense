@@ -63,8 +63,6 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     while (std::getline(infile, json_line)) {
         nlohmann::json document = nlohmann::json::parse(json_line);
         Option<nlohmann::json> add_op = coll1->add(document.dump());
-
-        LOG(INFO) << "Add op: " << add_op.error();
         ASSERT_TRUE(add_op.ok());
     }
 
@@ -1658,8 +1656,8 @@ TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     field embedding = field("embedding", field_types::FLOAT_ARRAY, false);
-    embedding.embed_from.push_back("name");
-    embedding.model_config["model_name"] = "ts/e5-small";
+    embedding.embed["from"].push_back("name");
+    embedding.embed["model_config"]["model_name"] = "ts/e5-small";
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  embedding};
     auto obj_coll_op = collectionManager.create_collection("obj_coll", 1, fields, "", 0, field_types::AUTO);

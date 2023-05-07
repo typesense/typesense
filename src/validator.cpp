@@ -595,7 +595,8 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                                           const tsl::htrie_map<char, field> & search_schema,
                                           const bool& error_if_field_not_found) {
     for(const auto& field : embedding_fields) {
-        for(const auto& field_name : field.embed_from) {
+        auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
+        for(const auto& field_name : embed_from) {
             auto schema_field_it = search_schema.find(field_name);
             auto doc_field_it = document.find(field_name);
             if(schema_field_it == search_schema.end()) {

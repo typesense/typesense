@@ -58,8 +58,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::reference] = "";
         }
 
-        if(field_obj.count(fields::embed_from) == 0) {
-            field_obj[fields::embed_from] = std::vector<std::string>();
+        if(field_obj.count(fields::embed) == 0) {
+            field_obj[fields::embed] = nlohmann::json::object();
         }
 
         if(field_obj.count(fields::model_config) == 0) {
@@ -77,8 +77,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed_from],
-                field_obj[fields::model_config]);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {

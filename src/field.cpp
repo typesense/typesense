@@ -672,15 +672,15 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
-    if(field_json.count(fields::model_config) > 0 && field_json.count(fields::embed_from) == 0) {
-        return Option<bool>(400, "Property `" + fields::model_config + "` can only be used with `" + fields::embed_from + "`.");
-    }
-
     if(field_json.count(fields::embed) != 0) {
         // If the model path is not specified, use the default model and set the number of dimensions to 384 (number of dimensions of the default model)
         field_json[fields::num_dim] = static_cast<unsigned int>(384);
 
         auto& embed_json = field_json[fields::embed];
+
+        if(embed_json.count(fields::from) == 0) {
+            return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` not found.");
+        }
 
         if(embed_json.count(fields::model_config) == 0) {
             return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "` not found.");
@@ -725,7 +725,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         field_json[fields::num_dim] = num_dim;
     } else {
         field_json[fields::embed] = nlohmann::json::object();
-        field_json[fields::embed][fields::from] = nlohmann::json::array();
     }
 
     auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
@@ -808,8 +807,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
-                  field_json[fields::reference], field_json[fields::embed][fields::from].get<std::vector<std::string>>(), 
-                  field_json[fields::embed][fields::model_config])
+                  field_json[fields::reference], field_json[fields::embed])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
