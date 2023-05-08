@@ -53,7 +53,8 @@ cc_library(
         "@s2geometry",
         "@hnsw",
         # "@zip",
-        "@sentencepiece"
+        "@sentencepiece",
+        "@sentencepiece//:sentencepiece_headers"
     ],
 )
 
