@@ -2383,7 +2383,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     res = coll1->search("lazy", {"title"}, "", {"tags"}, sort_fields, {0}, 10, 1,
                         token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
-
+    
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(1, res["facet_counts"].size());
     ASSERT_STREQ("tags", res["facet_counts"][0]["field_name"].get<std::string>().c_str());

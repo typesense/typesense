@@ -816,18 +816,17 @@ struct facet_stats_t {
 
 struct facet {
     const std::string field_name;
-    spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
-
+    spp::sparse_hash_map<std::string, facet_count_t> result_map;
     // used for facet value query
-    spp::sparse_hash_map<uint64_t, std::vector<std::string>> hash_tokens;
+    spp::sparse_hash_map<uint32_t, std::vector<std::string>> hash_tokens;
 
     // used for faceting grouped results
-    spp::sparse_hash_map<uint64_t, spp::sparse_hash_set<uint64_t>> hash_groups;
+    spp::sparse_hash_map<uint32_t, spp::sparse_hash_set<uint32_t>> hash_groups;
 
     facet_stats_t stats;
 
     //dictionary of key=>pair(range_id, range_val)
-    std::map<int64_t, std::string> facet_range_map;
+    std::map<std::string, std::string> facet_range_map;
 
     bool is_range_query;
 
@@ -835,7 +834,9 @@ struct facet {
 
     bool is_wildcard_match = false;
 
-    bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair)
+    bool is_intersected = false;
+
+    bool get_range(std::string key, std::pair<std::string, std::string>& range_pair)
     {
         if(facet_range_map.empty())
         {
@@ -854,7 +855,7 @@ struct facet {
     }
 
     explicit facet(const std::string& field_name, 
-        std::map<int64_t, std::string> facet_range = {}, bool is_range_q = false)
+        std::map<std::string, std::string> facet_range = {}, bool is_range_q = false)
         :field_name(field_name){
             facet_range_map = facet_range;
             is_range_query = is_range_q;
@@ -863,7 +864,7 @@ struct facet {
 
 struct facet_info_t {
     // facet hash => resolved tokens
-    std::unordered_map<uint64_t, std::vector<std::string>> hashes;
+    std::unordered_map<uint32_t, std::vector<std::string>> hashes;
     bool use_facet_query = false;
     bool should_compute_stats = false;
     field facet_field{"", "", false};
@@ -882,11 +883,10 @@ struct facet_value_t {
 
 struct facet_hash_values_t {
     uint32_t length = 0;
-    uint64_t* hashes = nullptr;
+    std::vector<uint32_t> hashes;
 
     facet_hash_values_t() {
         length = 0;
-        hashes = nullptr;
     }
 
     facet_hash_values_t(facet_hash_values_t&& hash_values) noexcept {
@@ -894,17 +894,17 @@ struct facet_hash_values_t {
         hashes = hash_values.hashes;
 
         hash_values.length = 0;
-        hash_values.hashes = nullptr;
+        hash_values.hashes.clear();
     }
 
     facet_hash_values_t& operator=(facet_hash_values_t&& other) noexcept {
         if (this != &other) {
-            delete[] hashes;
+            hashes.clear();
 
             hashes = other.hashes;
             length = other.length;
 
-            other.hashes = nullptr;
+            other.hashes.clear();
             other.length = 0;
         }
 
@@ -912,8 +912,7 @@ struct facet_hash_values_t {
     }
 
     ~facet_hash_values_t() {
-        delete [] hashes;
-        hashes = nullptr;
+        hashes.clear();
     }
 
     uint64_t size() const {
@@ -921,6 +920,6 @@ struct facet_hash_values_t {
     }
 
     uint64_t back() const {
-        return hashes[length - 1];
+        return hashes.back();
     }
 };

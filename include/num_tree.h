@@ -22,11 +22,23 @@ private:
         return ids_t::contains(ids, id);
     }
 
+    struct count_list {
+        count_list(const int64_t& sv, uint32_t facet_count) {
+            facet_value = sv;
+            count = facet_count;
+        }
+
+        int64_t facet_value;
+        uint32_t count;
+    };
+
+    std::vector<count_list> counter_list;
+
 public:
 
     ~num_tree_t();
 
-    void insert(int64_t value, uint32_t id);
+    void insert(int64_t value, uint32_t id, bool is_facet=false);
 
     void range_inclusive_search(int64_t start, int64_t end, uint32_t** ids, size_t& ids_len);
 
@@ -53,4 +65,10 @@ public:
                   uint32_t* const& context_ids,
                   size_t& result_ids_len,
                   uint32_t*& result_ids) const;
+    
+    size_t intersect(const uint32_t* result_ids, int result_id_len,
+        int max_facet_count, std::map<int64_t, uint32_t>& found, 
+        bool is_wildcard_no_filter_query);
+    
+    size_t counter_list_size() const;
 };

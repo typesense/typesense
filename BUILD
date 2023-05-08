@@ -134,6 +134,7 @@ TEST_COPTS = [
     "-Wno-unused-parameter",
     "-Werror=return-type",
     "-g",
+    "-DTEST_BUILD"
 ]
 
 ASAN_COPTS = [

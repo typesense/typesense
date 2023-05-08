@@ -30,10 +30,11 @@
 #include "override.h"
 #include "vector_query_ops.h"
 #include "hnswlib/hnswlib.h"
+#include "facet_index.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
-using single_val_facet_map_t = spp::sparse_hash_map<uint32_t, uint64_t>;
+using single_val_facet_map_t = spp::sparse_hash_map<uint32_t, uint32_t>;
 using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
 using array_mapped_single_val_facet_t = std::array<single_val_facet_map_t*, ARRAY_FACET_DIM>;
 
@@ -187,11 +188,6 @@ struct search_args {
     };
 };
 
-struct offsets_facet_hashes_t {
-    std::unordered_map<std::string, std::vector<uint32_t>> offsets;
-    std::vector<uint64_t> facet_hashes;
-};
-
 struct index_record {
     size_t position;                    // position of record in the original request
     uint32_t seq_id;
@@ -205,7 +201,8 @@ struct index_record {
     bool is_update;
 
     // pre-processed data primed for indexing
-    std::unordered_map<std::string, offsets_facet_hashes_t> field_index;
+    std::unordered_map<std::string, 
+        std::unordered_map<std::string, std::vector<uint32_t>>> field_index;
     int64_t points;
 
     Option<bool> indexed;               // indicates if the indexing operation was a success
@@ -309,12 +306,16 @@ private:
 
     // facet_field => (seq_id => values)
     spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
+    
+    facet_index_t* facet_index_v4 = nullptr;
 
     // facet_field => (seq_id => hash)
     spp::sparse_hash_map<std::string, array_mapped_single_val_facet_t> single_val_facet_index_v3;
 
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
+    typedef spp::sparse_hash_map<std::string, 
+        spp::sparse_hash_map<uint32_t, int64_t>*>::iterator sort_index_iterator;
 
     // str_sort_field => adi_tree_t
     spp::sparse_hash_map<std::string, adi_tree_t*> str_sort_index;
@@ -363,7 +364,10 @@ private:
                    bool estimate_facets, size_t facet_sample_percent,
                    const std::vector<facet_info_t>& facet_infos,
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
-                   const uint32_t* result_ids, size_t results_size) const;
+                   const uint32_t* result_ids, size_t results_size,
+                   int max_facet_count, bool is_wildcard_query, bool no_filters_provided,
+                   bool use_facet_intersection = false
+                   ) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   filter_node_t*& filter_tree_root) const;
@@ -504,26 +508,24 @@ private:
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
-    static void tokenize_string_with_facets(const std::string& text, bool is_facet, const field& a_field,
-                                            const std::vector<char>& symbols_to_index,
-                                            const std::vector<char>& token_separators,
-                                            std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
-                                            std::vector<uint64_t>& facet_hashes);
+    static void tokenize_string(const std::string& text, bool is_facet, const field& a_field,
+                                const std::vector<char>& symbols_to_index,
+                                const std::vector<char>& token_separators,
+                                std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets);
 
-    static void tokenize_string_array_with_facets(const std::vector<std::string>& strings, bool is_facet,
-                                           const field& a_field,
-                                           const std::vector<char>& symbols_to_index,
-                                           const std::vector<char>& token_separators,
-                                           std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
-                                           std::vector<uint64_t>& facet_hashes);
+    static void tokenize_string_array(const std::vector<std::string>& strings, bool is_facet,
+                                      const field& a_field,
+                                      const std::vector<char>& symbols_to_index,
+                                      const std::vector<char>& token_separators,
+                                      std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets);
 
     void collate_included_ids(const std::vector<token_t>& q_included_tokens,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                               Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries) const;
 
-    static uint64_t facet_token_hash(const field & a_field, const std::string &token);
+    static void compute_facet_stats(facet &a_facet, const std::string& raw_value, const std::string & field_type);
 
-    static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
+    static void compute_facet_stats(facet &a_facet, const int64_t raw_value, const std::string & field_type);
 
     static void get_doc_changes(const index_operation_t op, nlohmann::json &update_doc,
                                 const nlohmann::json &old_doc, nlohmann::json &new_doc, nlohmann::json &del_doc);
@@ -636,11 +638,13 @@ public:
 
     // Public operations
 
-    Option<bool> run_search(search_args* search_params, const std::string& collection_name);
+    Option<bool> run_search(search_args* search_params, const std::string& collection_name,
+                            bool use_facet_intersection);
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
                 filter_node_t* filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
+                const int max_facet_values,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                 const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
@@ -660,7 +664,7 @@ public:
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, enable_t split_join_tokens,
                 const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
-                const std::string& collection_name) const;
+                const std::string& collection_name, bool use_facet_intersection = false) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name);
 
@@ -952,6 +956,8 @@ public:
                         std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
                         std::vector<uint32_t>& included_ids_vec,
                         std::unordered_set<uint32_t>& excluded_group_ids) const;
+    
+    int64_t get_doc_val_from_sort_index(sort_index_iterator it, uint32_t doc_seq_id) const;
 };
 
 template<class T>
