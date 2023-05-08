@@ -1466,6 +1466,7 @@ void Index::search_all_candidates(const size_t num_search_fields,
                              id_buff, all_result_ids, all_result_ids_len);
 
         query_hashes.insert(qhash);
+        filter_result_iterator->reset();
     }
 }
 
@@ -2675,7 +2676,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             typo_tokens_threshold, exhaustive_search,
                             max_candidates, min_len_1typo, min_len_2typo, syn_orig_num_tokens, sort_order,
                             field_values, geopoint_indices);
-        filter_result_iterator->reset();
 
         // try split/joining tokens if no results are found
         if(split_join_tokens == always || (all_result_ids_len == 0 && split_join_tokens == fallback)) {
@@ -2712,7 +2712,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                     all_result_ids, all_result_ids_len, group_limit, group_by_fields, prioritize_exact_match,
                                     prioritize_token_position, query_hashes, token_order, prefixes, typo_tokens_threshold, exhaustive_search,
                                     max_candidates, min_len_1typo, min_len_2typo, syn_orig_num_tokens, sort_order, field_values, geopoint_indices);
-                filter_result_iterator->reset();
             }
         }
 
@@ -2785,7 +2784,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                             token_order, prefixes, typo_tokens_threshold,
                                             exhaustive_search, max_candidates, min_len_1typo,
                                             min_len_2typo, -1, sort_order, field_values, geopoint_indices);
-                        filter_result_iterator->reset();
 
                     } else {
                         break;
