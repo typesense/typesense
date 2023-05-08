@@ -63,4 +63,9 @@ public:
                   uint32_t* const& context_ids,
                   size_t& result_ids_len,
                   uint32_t*& result_ids) const;
+
+    void merge_id_list_iterators(std::vector<id_list_t::iterator_t>& id_list_iterators,
+                                 const NUM_COMPARATOR &comparator,
+                                 uint32_t*& result_ids,
+                                 uint32_t& result_ids_len) const;
 };
