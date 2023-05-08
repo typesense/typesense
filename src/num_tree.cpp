@@ -429,3 +429,40 @@ num_tree_t::~num_tree_t() {
         ids_t::destroy_list(kv.second);
     }
 }
+
+void num_tree_t::merge_id_list_iterators(std::vector<id_list_t::iterator_t>& id_list_iterators,
+                                         const NUM_COMPARATOR &comparator,
+                                         uint32_t*& result_ids,
+                                         uint32_t& result_ids_len) const {
+    struct comp {
+        bool operator()(const id_list_t::iterator_t *lhs, const id_list_t::iterator_t *rhs) const {
+            return lhs->id() > rhs->id();
+        }
+    };
+
+    std::priority_queue<id_list_t::iterator_t*, std::vector<id_list_t::iterator_t*>, comp> iter_queue;
+    for (auto& id_list_iterator: id_list_iterators) {
+        if (id_list_iterator.valid()) {
+            iter_queue.push(&id_list_iterator);
+        }
+    }
+
+    std::vector<uint32_t> consolidated_ids;
+    while (!iter_queue.empty()) {
+        id_list_t::iterator_t* iter = iter_queue.top();
+        iter_queue.pop();
+
+        consolidated_ids.push_back(iter->id());
+        iter->next();
+
+        if (iter->valid()) {
+            iter_queue.push(iter);
+        }
+    }
+
+    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+
+    result_ids_len = consolidated_ids.size();
+    result_ids = new uint32_t[consolidated_ids.size()];
+    std::copy(consolidated_ids.begin(), consolidated_ids.end(), result_ids);
+}
