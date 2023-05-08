@@ -126,6 +126,7 @@ private:
     std::string raft_dir_path;
 
     std::string ext_snapshot_path;
+    std::atomic<bool> ext_snapshot_succeeded;
 
     int election_timeout_interval_ms;
 
@@ -204,6 +205,8 @@ public:
                                        const std::string &nodes_config);
 
     void set_ext_snapshot_path(const std::string &snapshot_path);
+
+    bool get_ext_snapshot_succeeded();
 
     const std::string& get_ext_snapshot_path() const;
 

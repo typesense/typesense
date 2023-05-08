@@ -429,8 +429,10 @@ void* ReplicationState::save_snapshot(void* arg) {
         const butil::FilePath& src_snapshot_dir = butil::FilePath(sa->state_dir_path + "/snapshot");
         const butil::FilePath& src_meta_dir = butil::FilePath(sa->state_dir_path + "/meta");
 
-        butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
-        butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
+        bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
+        bool meta_copied = butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
+
+        sa->replication_state->ext_snapshot_succeeded = snapshot_copied && meta_copied;
 
         // notify on demand closure that external snapshotting is done
         sa->replication_state->notify();
@@ -949,6 +951,10 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
     last_snapshot_ts = current_ts;
 }
 
+bool ReplicationState::get_ext_snapshot_succeeded() {
+    return ext_snapshot_succeeded;
+}
+
 void TimedSnapshotClosure::Run() {
     // Auto delete this after Done()
     std::unique_ptr<TimedSnapshotClosure> self_guard(this);
@@ -973,12 +979,17 @@ void OnDemandSnapshotClosure::Run() {
     nlohmann::json response;
     uint32_t status_code;
 
-    if(status().ok()) {
+    if(status().ok() && replication_state->get_ext_snapshot_succeeded()) {
         LOG(INFO) << "On demand snapshot succeeded!";
         status_code = 201;
         response["success"] = true;
     } else {
-        LOG(ERROR) << "On demand snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
+        LOG(ERROR) << "On demand snapshot failed, error: ";
+        if(replication_state->get_ext_snapshot_succeeded()) {
+            LOG(ERROR) << status().error_str() << ", code: " << status().error_code();
+        } else {
+            LOG(ERROR) << "Copy failed.";
+        }
         status_code = 500;
         response["success"] = false;
         response["error"] = status().error_str();
