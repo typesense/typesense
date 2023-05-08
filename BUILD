@@ -137,9 +137,20 @@ TEST_COPTS = [
     "-DTEST_BUILD"
 ]
 
+ASAN_COPTS = [
+    "-fsanitize=address",
+    "-fno-omit-frame-pointer",
+    "-DASAN_BUILD"
+]
+
 config_setting(
     name = "release_mode",
     define_values = { "mode": "release" }
+)
+
+config_setting(
+    name = "asan_mode",
+    define_values = { "mode": "asan" }
 )
 
 cc_test(
@@ -150,6 +161,7 @@ cc_test(
     ],
     copts = TEST_COPTS + select({
         ":release_mode": ["-O2"],
+        ":asan_mode": ["-O0"] + ASAN_COPTS,
         "//conditions:default": ["-O0"]
     }),
     data = [
@@ -164,6 +176,10 @@ cc_test(
     defines = [
         "ROOT_DIR="
     ],
+    linkopts = select({
+       ":asan_mode": ["-fsanitize=address"],
+       "//conditions:default": []
+   })
 )
 
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")

@@ -3044,6 +3044,8 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
     std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
     bool found_first_match = false;
 
+    size_t text_len = Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text);
+
     while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
         if(use_word_tokenizer) {
             bool found_token = word_tokenizer.tokenize(raw_token);
@@ -3072,8 +3074,8 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
         // Token might not appear in the best matched window, which is limited to a size of 10.
         // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
         // locate all tokens that appear in the query / query candidates
-        bool raw_token_found = !match_offset_found && (highlight_fully || text.size() < snippet_threshold * 6) &&
-                                                        qtoken_leaves.find(raw_token) != qtoken_leaves.end();
+        bool raw_token_found = !match_offset_found && (highlight_fully || text_len < snippet_threshold * 6) &&
+                                qtoken_leaves.find(raw_token) != qtoken_leaves.end();
 
         if (match_offset_found || raw_token_found) {
             if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
@@ -3802,6 +3804,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
 Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::unique_lock lock(mutex);
+
+    LOG(INFO) << "Collection " << name << " is being prepared for alter...";
 
     // Validate that all stored documents are compatible with the proposed schema changes.
     std::vector<field> del_fields;
@@ -4554,7 +4558,7 @@ bool Collection::get_enable_nested_fields() {
 
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const{
    const std::regex base_pattern(".+\\(.*\\)");
-   const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\, ([0-9]+)\\]");
+   const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\,\\s*([0-9]+)\\]");
    
    if(facet_field.find(":") != std::string::npos) { //range based facet
         if(!std::regex_match(facet_field, base_pattern)){
@@ -4572,8 +4576,8 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         const field& a_field = search_schema.at(field_name);
 
-        if(!a_field.is_int32() && !a_field.is_int64()){
-            std::string error = "Range facet is restricted to only int32 and int64 fields.";
+        if(!a_field.is_integer() && !a_field.is_float()){
+            std::string error = "Range facet is restricted to only integer and float fields.";
             return Option<bool>(400, error);
         }
 
@@ -4639,10 +4643,18 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             auto pos2 = range.find(",");
             auto pos3 = range.find("]");
 
-            auto lower_range = range.substr(pos1 + 2, pos2-(pos1+2));
-            auto upper_range = range.substr(pos2 + 1, pos3-(pos2+1));
-            lower_range = StringUtils::trim(lower_range);
-            upper_range = StringUtils::trim(upper_range);
+            int64_t lower_range, upper_range;
+
+            if(a_field.is_integer()) {
+                lower_range = std::stoll(range.substr(pos1 + 2, pos2));
+                upper_range = std::stoll(range.substr(pos2 + 1, pos3));
+            } else {
+                float val = std::stof(range.substr(pos1 + 2, pos2));
+                lower_range = Index::float_to_int64_t(val);
+
+                val = std::stof(range.substr(pos2 + 1, pos3));
+                upper_range = Index::float_to_int64_t(val);
+            }
 
             tupVec.emplace_back(std::make_tuple(lower_range, upper_range, range_val));
         }

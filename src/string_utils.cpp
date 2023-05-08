@@ -490,6 +490,56 @@ Option<bool> StringUtils::split_include_fields(const std::string& include_fields
     return Option<bool>(true);
 }
 
+size_t StringUtils::split_facet(const std::string &s, std::vector<std::string> &result, const bool keep_empty,
+                                const size_t start_index, const size_t max_values) {
+
+
+    std::string::const_iterator substart = s.begin()+start_index, subend;
+    size_t end_index = start_index;
+    std::string delim(""), temp("");
+    std::string current_str=s;
+    while (true) {
+        auto range_pos = current_str.find("(");
+        auto normal_pos = current_str.find(",");
+
+        if(range_pos == std::string::npos && normal_pos == std::string::npos){
+            if(!current_str.empty()){
+                result.push_back(trim(current_str));
+            }
+            break;
+        }
+        else if(range_pos < normal_pos){
+            delim="),";
+            subend = std::search(substart, s.end(), delim.begin(), delim.end());
+            temp = std::string(substart, subend) + (*subend == ')' ? ")" : "");
+        }
+        else{
+            delim=",";
+            subend = std::search(substart, s.end(), delim.begin(), delim.end());
+            temp = std::string(substart, subend);
+        }
+
+        end_index += temp.size() + delim.size();
+        temp = trim(temp);
+
+        if (keep_empty || !temp.empty()) {
+            result.push_back(temp);
+        }
+
+        if(result.size() == max_values) {
+            break;
+        }
+
+        if (subend == s.end()) {
+            break;
+        }
+        substart = subend + delim.size();
+        current_str = std::string(substart, s.end());
+    }
+
+    return std::min(end_index, s.size());
+}
+
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();
