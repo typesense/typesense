@@ -444,37 +444,74 @@ num_tree_t::~num_tree_t() {
 size_t num_tree_t::intersect(const uint32_t* result_ids, int result_ids_len, int max_facet_count, 
         std::map<int64_t, uint32_t>& found, bool is_wildcard_no_filter_query) {
     //LOG (INFO) << "intersecting field " << field;
-   
+
     // LOG (INFO) << "int64map size " << int64map.size() 
     //     << " , counter_list size " << counter_list.size();
-    
+
     std::vector<uint32_t> id_list;
-    for(const auto& counter_list_it : counter_list) {
+    for (const auto &counter_list_it: counter_list) {
         // LOG (INFO) << "checking ids in facet_value " << counter_list_it.facet_value 
         //   << " having total count " << counter_list_it.count;
         uint32_t count = 0;
 
-        if(is_wildcard_no_filter_query) {
+        if (is_wildcard_no_filter_query) {
             count = counter_list_it.count;
         } else {
             auto ids = int64map.at(counter_list_it.facet_value);
             ids_t::uncompress(ids, id_list);
             const auto ids_len = id_list.size();
-            for(int i = 0; i < result_ids_len; ++i) {
-                uint32_t* out = nullptr;
+            for (int i = 0; i < result_ids_len; ++i) {
+                uint32_t *out = nullptr;
                 count = ArrayUtils::and_scalar(id_list.data(), id_list.size(),
-                    result_ids, result_ids_len, &out);
+                                               result_ids, result_ids_len, &out);
             }
             id_list.clear();
         }
 
-        if(count) {
+        if (count) {
             found[counter_list_it.facet_value] = count;
-            if(found.size() == max_facet_count) {
+            if (found.size() == max_facet_count) {
                 break;
             }
         }
     }
-    
+
     return found.size();
+}
+
+void num_tree_t::merge_id_list_iterators(std::vector<id_list_t::iterator_t>& id_list_iterators,
+                                         const NUM_COMPARATOR &comparator,
+                                         uint32_t*& result_ids,
+                                         uint32_t& result_ids_len) const {
+    struct comp {
+        bool operator()(const id_list_t::iterator_t *lhs, const id_list_t::iterator_t *rhs) const {
+            return lhs->id() > rhs->id();
+        }
+    };
+
+    std::priority_queue<id_list_t::iterator_t*, std::vector<id_list_t::iterator_t*>, comp> iter_queue;
+    for (auto& id_list_iterator: id_list_iterators) {
+        if (id_list_iterator.valid()) {
+            iter_queue.push(&id_list_iterator);
+        }
+    }
+
+    std::vector<uint32_t> consolidated_ids;
+    while (!iter_queue.empty()) {
+        id_list_t::iterator_t* iter = iter_queue.top();
+        iter_queue.pop();
+
+        consolidated_ids.push_back(iter->id());
+        iter->next();
+
+        if (iter->valid()) {
+            iter_queue.push(iter);
+        }
+    }
+
+    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+
+    result_ids_len = consolidated_ids.size();
+    result_ids = new uint32_t[consolidated_ids.size()];
+    std::copy(consolidated_ids.begin(), consolidated_ids.end(), result_ids);
 }

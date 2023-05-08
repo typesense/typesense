@@ -81,4 +81,9 @@ public:
         bool is_wildcard_no_filter_query);
     
     size_t counter_list_size() const;
+
+    void merge_id_list_iterators(std::vector<id_list_t::iterator_t>& id_list_iterators,
+                                 const NUM_COMPARATOR &comparator,
+                                 uint32_t*& result_ids,
+                                 uint32_t& result_ids_len) const;
 };
