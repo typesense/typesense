@@ -243,6 +243,10 @@ public:
     filter_result_iterator(filter_result_iterator) {}
 
     bool operator()(hnswlib::labeltype id) override {
+        if (filter_result_iterator->approx_filter_ids_length == 0) {
+            return true;
+        }
+
         filter_result_iterator->reset();
         return filter_result_iterator->valid(id) == 1;
     }
