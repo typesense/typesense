@@ -542,10 +542,6 @@ public:
     // in the query that have the least individual hits one by one until enough results are found.
     static const int DROP_TOKENS_THRESHOLD = 1;
 
-    // "_all_" is a special field that maps to all the ids in the index.
-    static constexpr const char* SEQ_IDS_FIELD = "_all_";
-    static constexpr const char* SEQ_IDS_FILTER = "_all_: 1";
-
     Index() = delete;
 
     Index(const std::string& name,

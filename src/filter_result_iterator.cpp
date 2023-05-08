@@ -591,18 +591,6 @@ void filter_result_iterator_t::init() {
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
         return;
-    } else if (a_filter.field_name == Index::SEQ_IDS_FIELD) {
-        if (index->seq_ids->num_ids() == 0) {
-            is_valid = false;
-            return;
-        }
-
-        approx_filter_ids_length = filter_result.count = index->seq_ids->num_ids();
-        filter_result.docs = index->seq_ids->uncompress();
-
-        seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
-        return;
     }
 
     if (!index->field_is_indexed(a_filter.field_name)) {
