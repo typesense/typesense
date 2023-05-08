@@ -2388,11 +2388,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         // if filters were not provided, use the seq_ids index to generate the list of all document ids
         if (no_filters_provided) {
-            const std::string doc_id_prefix = std::to_string(collection_id) + "_" + Collection::DOC_ID_PREFIX + "_";
-            Option<bool> parse_filter_op = filter::parse_filter_query(SEQ_IDS_FILTER, search_schema,
-                                                                      store, doc_id_prefix, filter_tree_root);
-
-            filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root);
+            filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids());
             filter_iterator_guard.reset(filter_result_iterator);
 
             approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
@@ -2511,13 +2507,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             filter_result_iterator, approx_filter_ids_length, concurrency,
                             sort_order, field_values, geopoint_indices);
             filter_result_iterator->reset();
-        }
-
-        // filter tree was initialized to have all sequence ids in this flow.
-        if (no_filters_provided) {
-            delete filter_tree_root;
-            filter_tree_root = nullptr;
-            approx_filter_ids_length = 0;
         }
 
         uint32_t _all_result_ids_len = all_result_ids_len;

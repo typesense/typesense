@@ -283,9 +283,6 @@ Option<bool> toFilter(const std::string expression,
             }
         }
         return Option<bool>(true);
-    } else if (field_name == Index::SEQ_IDS_FIELD) {
-        filter_exp = {field_name, {}, {}};
-        return Option<bool>(true);
     }
 
     auto field_it = search_schema.find(field_name);
