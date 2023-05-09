@@ -860,7 +860,7 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetTest) {
                                  "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, true);
 
     ASSERT_FALSE(rop.ok());
-    ASSERT_EQ("Range facet is restricted to only int32 and int64 fields.", rop.error());
+    ASSERT_EQ("Range facet is restricted to only integer and float fields.", rop.error());
 
     // ensure that bad facet range values are handled
     rop = coll1->search("Karnataka", {"state"},
