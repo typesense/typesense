@@ -299,48 +299,93 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
     uint32_t lowest_id = UINT32_MAX;
 
     if (filter_node->filter_exp.comparators[0] == EQUALS || filter_node->filter_exp.comparators[0] == NOT_EQUALS) {
-        for (auto& filter_value_tokens : posting_list_iterators) {
-            bool tokens_iter_is_valid, exact_match = false;
-            while(true) {
-                // Perform AND between tokens of a filter value.
-                posting_list_t::intersect(filter_value_tokens, tokens_iter_is_valid);
+        bool exact_match_found = false;
+        switch (posting_list_iterators.size()) {
+            case 1:
+                while(true) {
+                    // Perform AND between tokens of a filter value.
+                    posting_list_t::intersect(posting_list_iterators[0], one_is_valid);
 
-                if (!tokens_iter_is_valid) {
-                    break;
+                    if (!one_is_valid) {
+                        break;
+                    }
+
+                    if (posting_list_t::has_exact_match(posting_list_iterators[0], field_is_array)) {
+                        exact_match_found = true;
+                        break;
+                    } else {
+                        // Keep advancing token iterators till exact match is not found.
+                        for (auto& iter: posting_list_iterators[0]) {
+                            if (!iter.valid()) {
+                                break;
+                            }
+
+                            iter.next();
+                        }
+                    }
                 }
 
-                if (posting_list_t::has_exact_match(filter_value_tokens, field_is_array)) {
-                    exact_match = true;
-                    break;
-                } else {
-                    // Keep advancing token iterators till exact match is not found.
-                    for (auto &iter: filter_value_tokens) {
-                        if (!iter.valid()) {
+                if (one_is_valid && exact_match_found) {
+                    lowest_id = posting_list_iterators[0][0].id();
+                }
+            break;
+
+            default :
+                for (auto& filter_value_tokens : posting_list_iterators) {
+                    bool tokens_iter_is_valid;
+                    while(true) {
+                        // Perform AND between tokens of a filter value.
+                        posting_list_t::intersect(filter_value_tokens, tokens_iter_is_valid);
+
+                        if (!tokens_iter_is_valid) {
                             break;
                         }
 
-                        iter.next();
+                        if (posting_list_t::has_exact_match(filter_value_tokens, field_is_array)) {
+                            exact_match_found = true;
+                            break;
+                        } else {
+                            // Keep advancing token iterators till exact match is not found.
+                            for (auto &iter: filter_value_tokens) {
+                                if (!iter.valid()) {
+                                    break;
+                                }
+
+                                iter.next();
+                            }
+                        }
+                    }
+
+                    one_is_valid = tokens_iter_is_valid || one_is_valid;
+
+                    if (tokens_iter_is_valid && exact_match_found && filter_value_tokens[0].id() < lowest_id) {
+                        lowest_id = filter_value_tokens[0].id();
                     }
                 }
-            }
-
-            one_is_valid = tokens_iter_is_valid || one_is_valid;
-
-            if (tokens_iter_is_valid && exact_match && filter_value_tokens[0].id() < lowest_id) {
-                lowest_id = filter_value_tokens[0].id();
-            }
         }
     } else {
-        for (auto& filter_value_tokens : posting_list_iterators) {
-            // Perform AND between tokens of a filter value.
-            bool tokens_iter_is_valid;
-            posting_list_t::intersect(filter_value_tokens, tokens_iter_is_valid);
+        switch (posting_list_iterators.size()) {
+            case 1:
+                // Perform AND between tokens of a filter value.
+                posting_list_t::intersect(posting_list_iterators[0], one_is_valid);
 
-            one_is_valid = tokens_iter_is_valid || one_is_valid;
+                if (one_is_valid) {
+                    lowest_id = posting_list_iterators[0][0].id();
+                }
+            break;
 
-            if (tokens_iter_is_valid && filter_value_tokens[0].id() < lowest_id) {
-                lowest_id = filter_value_tokens[0].id();
-            }
+            default:
+                for (auto& filter_value_tokens : posting_list_iterators) {
+                    // Perform AND between tokens of a filter value.
+                    bool tokens_iter_is_valid;
+                    posting_list_t::intersect(filter_value_tokens, tokens_iter_is_valid);
+
+                    one_is_valid = tokens_iter_is_valid || one_is_valid;
+
+                    if (tokens_iter_is_valid && filter_value_tokens[0].id() < lowest_id) {
+                        lowest_id = filter_value_tokens[0].id();
+                    }
+                }
         }
     }
 
