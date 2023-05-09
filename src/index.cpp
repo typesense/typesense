@@ -1151,6 +1151,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         const auto& fquery_hashes = facet_infos[findex].hashes;
         const bool should_compute_stats = facet_infos[findex].should_compute_stats;
 
+        auto sort_index_it = sort_index.find(a_facet.field_name);
+
         size_t mod_value = 100 / facet_sample_percent;
 
         facet_map_t::iterator facet_map_it;
@@ -1209,14 +1211,11 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     compute_facet_stats(a_facet, fhash, facet_field.type);
                 }
                 if(a_facet.is_range_query) {
-                    auto sort_index_it = sort_index.find(a_facet.field_name);
-                
                     if(sort_index_it != sort_index.end()){
                         auto doc_id_val_map = sort_index_it->second;
                         auto doc_seq_id_it = doc_id_val_map->find(doc_seq_id);
                 
                         if(doc_seq_id_it != doc_id_val_map->end()){
-                
                             int64_t doc_val = doc_seq_id_it->second;
                             std::pair<int64_t, std::string> range_pair {};
                             if(a_facet.get_range(doc_val, range_pair)) {
