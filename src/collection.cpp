@@ -242,13 +242,13 @@ nlohmann::json Collection::get_summary_json() const {
         if(coll_field.embed.count(fields::from) != 0) {
             field_json[fields::embed] = coll_field.embed;
 
-            if(field_json[fields::embed].count(fields::api_key) != 0) {
+            if(field_json[fields::embed].count(fields::model_config) != 0 && field_json[fields::embed][fields::model_config].count(fields::api_key) != 0) {
                 // hide api key with * except first 3 chars
-                std::string api_key = field_json[fields::embed][fields::api_key];
+                std::string api_key = field_json[fields::embed][fields::model_config][fields::api_key];
                 if(api_key.size() > 3) {
-                    field_json[fields::embed][fields::api_key] = api_key.replace(3, api_key.size() - 3, api_key.size() - 3, '*');
+                    field_json[fields::embed][fields::model_config][fields::api_key] = api_key.replace(3, api_key.size() - 3, api_key.size() - 3, '*');
                 } else {
-                    field_json[fields::embed][fields::api_key] = api_key.replace(0, api_key.size(), api_key.size(), '*');
+                    field_json[fields::embed][fields::model_config][fields::api_key] = api_key.replace(0, api_key.size(), api_key.size(), '*');
                 }
             }
         }
@@ -1189,7 +1189,19 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 }
 
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-                auto embedder = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
+                auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
+                if(!embedder_op.ok()) {
+                    return Option<nlohmann::json>(400, embedder_op.error());
+                }
+                auto embedder = embedder_op.get();
+
+                if(embedder->is_openai()) {
+                    // return error if prefix search is used with openai embedder
+                    if((prefixes.size() == 1 && prefixes[0] == true) || (prefixes.size() > 1 &&  prefixes[i] == true)) {
+                        std::string error = "Prefix search is not supported for OpenAI embedder.";
+                        return Option<nlohmann::json>(400, error);
+                    }
+                }
 
                 std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + raw_query;
                 auto embedding_op = embedder->Embed(embed_query);

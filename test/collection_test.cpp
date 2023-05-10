@@ -4892,6 +4892,21 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
     ASSERT_EQ("Field `category` is needed to create embedding.", add_op.error());
 }
 
+TEST_F(CollectionTest, WrongTypeInEmbedFrom) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+            {"name": "category", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": [1122], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Property `embed.from` must contain only field names as strings.", op.error());
+}
 
 TEST_F(CollectionTest, WrongTypeForEmbedding) {
     nlohmann::json schema = R"({
@@ -4991,7 +5006,7 @@ TEST_F(CollectionTest, DISABLED_CreateOpenAIEmbeddingField) {
                 "name": "objects",
                 "fields": [
                 {"name": "name", "type": "string"},
-                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
                 ]
             })"_json;
 
@@ -5001,15 +5016,13 @@ TEST_F(CollectionTest, DISABLED_CreateOpenAIEmbeddingField) {
     }
 
     auto api_key = std::string(std::getenv("api_key"));
-    schema["fields"][1]["model_config"]["api_key"] = api_key;
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     auto summary = op.get()->get_summary_json();
-    ASSERT_EQ("openai/text-embedding-ada-002", summary["fields"][1]["model_config"]["model_name"]);
+    ASSERT_EQ("openai/text-embedding-ada-002", summary["fields"][1]["embed"]["model_config"]["model_name"]);
     ASSERT_EQ(1536, summary["fields"][1]["num_dim"]);
-    // make sure api_key is <hidden>
-    ASSERT_EQ("<hidden>", summary["fields"][1]["model_config"]["api_key"]);
 
     nlohmann::json doc;
     doc["name"] = "butter";
@@ -5019,7 +5032,68 @@ TEST_F(CollectionTest, DISABLED_CreateOpenAIEmbeddingField) {
     ASSERT_EQ(1536, add_op.get()["embedding"].size());    
 }
 
-TEST_F(CollectionTest, MoreThganOneEmbeddingField) {
+TEST_F(CollectionTest, DISABLED_HideOpenAIApiKey) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+                ]
+            })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto summary = op.get()->get_summary_json();
+    // hide api key with * after first 3 characters
+    ASSERT_EQ(summary["fields"][1]["embed"]["model_config"]["api_key"].get<std::string>(), api_key.replace(3, api_key.size() - 3, api_key.size() - 3, '*'));
+}
+
+TEST_F(CollectionTest, DISABLED_PrefixSearchDisabledForOpenAI) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+                ]
+            })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+
+    auto add_op = op.get()->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    auto search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+
+    ASSERT_FALSE(search_res_op.ok());
+    ASSERT_EQ("Prefix search is not supported for OpenAI embedder.", search_res_op.error());
+
+    search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+    ASSERT_FALSE(search_res_op.ok());
+}
+
+
+TEST_F(CollectionTest, MoreThanOneEmbeddingField) {
     nlohmann::json schema = R"({
                 "name": "objects",
                 "fields": [

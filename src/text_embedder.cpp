@@ -73,7 +73,6 @@ Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
         }
         return Option<std::vector<float>>(nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>());
     } else {
-        LOG(INFO) << "Embedding text: " << text;
         auto encoded_input = tokenizer_->Encode(text);
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;
@@ -160,7 +159,11 @@ bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& n
     LOG(INFO) << "Loading model: " << model_name;
 
     if(TextEmbedderManager::get_instance().is_public_model(model_name)) {
-        TextEmbedderManager::get_instance().download_public_model(model_name);
+       auto res = TextEmbedderManager::get_instance().download_public_model(model_name);
+       if(!res.ok()) {
+              LOG(ERROR) << res.error();
+              return false;
+       }
     }
 
 

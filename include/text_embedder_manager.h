@@ -8,6 +8,7 @@
 #include <fstream>
 #include "logger.h"
 #include "http_client.h"
+#include "option.h"
 #include "text_embedder.h"
 
 struct text_embedding_model {
@@ -34,7 +35,7 @@ public:
     TextEmbedderManager(const TextEmbedderManager&) = delete;
     TextEmbedderManager& operator=(const TextEmbedderManager&) = delete;
 
-    TextEmbedder* get_text_embedder(const nlohmann::json& model_config);
+    Option<TextEmbedder*> get_text_embedder(const nlohmann::json& model_config);
     void delete_text_embedder(const std::string& model_path);
     void delete_all_text_embedders();
 
@@ -59,7 +60,7 @@ public:
     static const std::string get_model_name_without_namespace(const std::string& model_name);
     static const std::string get_model_subdir(const std::string& model_name);
     static const bool check_md5(const std::string& file_path, const std::string& target_md5);
-    void download_public_model(const std::string& model_name);
+    Option<bool> download_public_model(const std::string& model_name);
 
     const bool is_public_model(const std::string& model_name);
 
