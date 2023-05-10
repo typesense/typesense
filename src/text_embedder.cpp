@@ -10,7 +10,7 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
     // create environment
     Ort::SessionOptions session_options;
     std::string abs_path = TextEmbedderManager::get_absolute_model_path(model_name);
-    LOG(INFO) << "Loading model from: " << abs_path;
+    LOG(INFO) << "Loading model from disk: " << abs_path;
     session_ = std::make_unique<Ort::Session>(env_, abs_path.c_str(), session_options);
     std::ifstream config_file(TextEmbedderManager::get_absolute_config_path(model_name));
     nlohmann::json config;
@@ -156,7 +156,7 @@ TextEmbedder::~TextEmbedder() {
 
 
 bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& num_dims) {
-    LOG(INFO) << "Loading model: " << model_name;
+    LOG(INFO) << "Validating model: " << model_name;
 
     if(TextEmbedderManager::get_instance().is_public_model(model_name)) {
        auto res = TextEmbedderManager::get_instance().download_public_model(model_name);
