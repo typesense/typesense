@@ -159,11 +159,19 @@ Option<uint32_t> validator_t::coerce_string(const DIRTY_VALUES& dirty_values, co
     auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
+        if(a_field.nested && item.is_array()) {
+            return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                  "Hint: field inside an array of objects must be an array type as well.");
+        }
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
     }
 
     if(dirty_values == DIRTY_VALUES::DROP) {
         if(!a_field.optional) {
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
         }
 
@@ -195,7 +203,7 @@ Option<uint32_t> validator_t::coerce_string(const DIRTY_VALUES& dirty_values, co
             if(!a_field.optional) {
                 if(a_field.nested && item.is_array()) {
                     return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
-                                                                  "Hint: field inside an array of objects must be an array type as well.");
+                                         "Hint: field inside an array of objects must be an array type as well.");
                 }
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
             }
@@ -210,7 +218,7 @@ Option<uint32_t> validator_t::coerce_string(const DIRTY_VALUES& dirty_values, co
             // COERCE_OR_REJECT / non-optional + DROP
             if(a_field.nested && item.is_array()) {
                 return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
-                                                              "Hint: field inside an array of objects must be an array type as well.");
+                                      "Hint: field inside an array of objects must be an array type as well.");
             }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
         }
@@ -226,11 +234,19 @@ Option<uint32_t> validator_t::coerce_int32_t(const DIRTY_VALUES& dirty_values, c
     auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
+        if(a_field.nested && item.is_array()) {
+            return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                  "Hint: field inside an array of objects must be an array type as well.");
+        }
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
     }
 
     if(dirty_values == DIRTY_VALUES::DROP) {
         if(!a_field.optional) {
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
         }
 
@@ -261,6 +277,10 @@ Option<uint32_t> validator_t::coerce_int32_t(const DIRTY_VALUES& dirty_values, c
     else {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
+                if(a_field.nested && item.is_array()) {
+                    return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                          "Hint: field inside an array of objects must be an array type as well.");
+                }
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
             }
 
@@ -272,6 +292,10 @@ Option<uint32_t> validator_t::coerce_int32_t(const DIRTY_VALUES& dirty_values, c
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
         }
     }
@@ -294,11 +318,19 @@ Option<uint32_t> validator_t::coerce_int64_t(const DIRTY_VALUES& dirty_values, c
     auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
+        if(a_field.nested && item.is_array()) {
+            return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                  "Hint: field inside an array of objects must be an array type as well.");
+        }
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int64.");
     }
 
     if(dirty_values == DIRTY_VALUES::DROP) {
         if(!a_field.optional) {
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int64.");
         }
 
@@ -328,6 +360,10 @@ Option<uint32_t> validator_t::coerce_int64_t(const DIRTY_VALUES& dirty_values, c
     else {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
+                if(a_field.nested && item.is_array()) {
+                    return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                          "Hint: field inside an array of objects must be an array type as well.");
+                }
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int64.");
             }
 
@@ -339,6 +375,10 @@ Option<uint32_t> validator_t::coerce_int64_t(const DIRTY_VALUES& dirty_values, c
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int64.");
         }
     }
@@ -353,11 +393,19 @@ Option<uint32_t> validator_t::coerce_bool(const DIRTY_VALUES& dirty_values, cons
     auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
+        if(a_field.nested && item.is_array()) {
+            return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                  "Hint: field inside an array of objects must be an array type as well.");
+        }
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
     }
 
     if(dirty_values == DIRTY_VALUES::DROP) {
         if(!a_field.optional) {
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
         }
 
@@ -393,6 +441,10 @@ Option<uint32_t> validator_t::coerce_bool(const DIRTY_VALUES& dirty_values, cons
     else {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
+                if(a_field.nested && item.is_array()) {
+                    return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                          "Hint: field inside an array of objects must be an array type as well.");
+                }
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
             }
 
@@ -404,6 +456,10 @@ Option<uint32_t> validator_t::coerce_bool(const DIRTY_VALUES& dirty_values, cons
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
         }
     }
@@ -478,11 +534,19 @@ Option<uint32_t> validator_t::coerce_float(const DIRTY_VALUES& dirty_values, con
     auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
+        if(a_field.nested && item.is_array()) {
+            return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                  "Hint: field inside an array of objects must be an array type as well.");
+        }
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " float.");
     }
 
     if(dirty_values == DIRTY_VALUES::DROP) {
         if(!a_field.optional) {
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " float.");
         }
 
@@ -508,6 +572,10 @@ Option<uint32_t> validator_t::coerce_float(const DIRTY_VALUES& dirty_values, con
     else {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
+                if(a_field.nested && item.is_array()) {
+                    return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                          "Hint: field inside an array of objects must be an array type as well.");
+                }
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " float.");
             }
 
@@ -519,6 +587,10 @@ Option<uint32_t> validator_t::coerce_float(const DIRTY_VALUES& dirty_values, con
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
+            if(a_field.nested && item.is_array()) {
+                return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
+                                      "Hint: field inside an array of objects must be an array type as well.");
+            }
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " float.");
         }
     }

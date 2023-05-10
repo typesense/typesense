@@ -2542,8 +2542,9 @@ TEST_F(CollectionNestedFieldsTest, HighlightArrayOfObjects) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "enable_nested_fields": true,
-        "fields": [
-          {"name": ".*", "type": "auto"}
+       "fields": [
+            {"name": "variants", "type": "object[]", "facet": true, "index": true},
+            {"name": "variants.sellingPrice", "type": "int32", "facet": true}
         ]
     })"_json;
 
@@ -2552,45 +2553,83 @@ TEST_F(CollectionNestedFieldsTest, HighlightArrayOfObjects) {
     Collection* coll1 = op.get();
 
     auto doc1 = R"({
-        "details": [
-            {"foo": "John Smith"},
-            {"name": "James Peterson"},
-            {"bar": "John Galt"}
-        ]
+       "variants": [
+      {
+        "sellingPrice": 2300,
+        "timestamp": 10000,
+        "is_deleted": false,
+        "price": 50.50
+      },
+      {
+        "sellingPrice": 1200,
+        "timestamp": 10000,
+        "is_deleted": false,
+        "price": 150.50
+      }
+    ]
+
     })"_json;
 
     auto add_op = coll1->add(doc1.dump(), CREATE);
-    ASSERT_TRUE(add_op.ok());
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `variants.sellingPrice` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
 
-    auto results = coll1->search("james", {"details.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
-                                 {true}, 1, spp::sparse_hash_set<std::string>(),
-                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
-    ASSERT_EQ(1, results["found"].get<size_t>());
-    ASSERT_EQ(3, results["hits"][0]["highlight"]["details"].size());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["details"][0].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][1].size());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["details"][2].size());
+    schema = R"({
+        "name": "coll2",
+        "enable_nested_fields": true,
+       "fields": [
+            {"name": "variants", "type": "object[]", "facet": true, "index": true},
+            {"name": "variants.timestamp", "type": "int64", "facet": true}
+        ]
+    })"_json;
 
-    results = coll1->search("james", {"details.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
-                            {true}, 1, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {1}, 10000, true, false, true, "details.name").get();
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
 
-    ASSERT_EQ(1, results["found"].get<size_t>());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["details"][0].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][1].size());
-    ASSERT_EQ(0, results["hits"][0]["highlight"]["details"][2].size());
+    add_op = coll2->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `variants.timestamp` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
 
-    results = coll1->search("james", {"details.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
-                            {true}, 1, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {1}, 10000, true, false, true, "details").get();
+    schema = R"({
+        "name": "coll3",
+        "enable_nested_fields": true,
+       "fields": [
+            {"name": "variants", "type": "object[]", "facet": true, "index": true},
+            {"name": "variants.is_deleted", "type": "bool", "facet": true}
+        ]
+    })"_json;
 
-    ASSERT_EQ(1, results["found"].get<size_t>());
-    ASSERT_EQ(3, results["hits"][0]["highlight"]["details"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][0].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][1].size());
-    ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][2].size());
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll3 = op.get();
+
+    add_op = coll3->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `variants.is_deleted` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
+
+    // float
+
+    schema = R"({
+        "name": "coll4",
+        "enable_nested_fields": true,
+       "fields": [
+            {"name": "variants", "type": "object[]", "facet": true, "index": true},
+            {"name": "variants.price", "type": "float", "facet": true}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll4 = op.get();
+
+    add_op = coll4->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `variants.price` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
 }
 
 TEST_F(CollectionNestedFieldsTest, HighlightOnFlatFieldWithSnippeting) {
