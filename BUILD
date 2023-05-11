@@ -85,12 +85,15 @@ cc_binary(
     ],
     linkopts = select({
         "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc"],
+        "//conditions:default": [],
     }),
     copts = COPTS + select({
         "@platforms//os:linux": ["-DBACKWARD_HAS_DW=1", "-DBACKWARD_HAS_UNWIND=1"],
+        "//conditions:default": [],
     }),
     deps = [":common_deps"] +  select({
         "@platforms//os:linux": [":linux_deps"],
+        "//conditions:default": [],
     }),
 )
 
