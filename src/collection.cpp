@@ -1195,10 +1195,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 }
                 auto embedder = embedder_op.get();
 
-                if(embedder->is_openai()) {
+                if(embedder->is_remote()) {
                     // return error if prefix search is used with openai embedder
                     if((prefixes.size() == 1 && prefixes[0] == true) || (prefixes.size() > 1 &&  prefixes[i] == true)) {
-                        std::string error = "Prefix search is not supported for OpenAI embedder.";
+                        std::string error = "Prefix search is not supported for remote embedders.";
                         return Option<nlohmann::json>(400, error);
                     }
                 }

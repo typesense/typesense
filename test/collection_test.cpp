@@ -5001,7 +5001,7 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
 }
 
 
-TEST_F(CollectionTest, DISABLED_CreateOpenAIEmbeddingField) {
+TEST_F(CollectionTest, CreateOpenAIEmbeddingField) {
     nlohmann::json schema = R"({
                 "name": "objects",
                 "fields": [
@@ -5032,7 +5032,7 @@ TEST_F(CollectionTest, DISABLED_CreateOpenAIEmbeddingField) {
     ASSERT_EQ(1536, add_op.get()["embedding"].size());    
 }
 
-TEST_F(CollectionTest, DISABLED_HideOpenAIApiKey) {
+TEST_F(CollectionTest, HideOpenAIApiKey) {
     nlohmann::json schema = R"({
                 "name": "objects",
                 "fields": [
@@ -5056,7 +5056,7 @@ TEST_F(CollectionTest, DISABLED_HideOpenAIApiKey) {
     ASSERT_EQ(summary["fields"][1]["embed"]["model_config"]["api_key"].get<std::string>(), api_key.replace(3, api_key.size() - 3, api_key.size() - 3, '*'));
 }
 
-TEST_F(CollectionTest, DISABLED_PrefixSearchDisabledForOpenAI) {
+TEST_F(CollectionTest, PrefixSearchDisabledForOpenAI) {
     nlohmann::json schema = R"({
                 "name": "objects",
                 "fields": [
@@ -5086,10 +5086,10 @@ TEST_F(CollectionTest, DISABLED_PrefixSearchDisabledForOpenAI) {
     auto search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
 
     ASSERT_FALSE(search_res_op.ok());
-    ASSERT_EQ("Prefix search is not supported for OpenAI embedder.", search_res_op.error());
+    ASSERT_EQ("Prefix search is not supported for remote embedders.", search_res_op.error());
 
     search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
-    ASSERT_FALSE(search_res_op.ok());
+    ASSERT_TRUE(search_res_op.ok());
 }
 
 

@@ -36,8 +36,15 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
     }
 }
 
-TextEmbedder::TextEmbedder(const std::string& openai_model_path, const std::string& api_key) : api_key(api_key), openai_model_path(openai_model_path) {
+TextEmbedder::TextEmbedder(const std::string& model_name, const std::string& api_key) {
+    LOG(INFO) << "Loading model from remote: " << model_name;
+    auto model_namespace = TextEmbedderManager::get_model_namespace(model_name);
 
+    if (model_namespace == "openai") {
+        remote_embedder_ = std::make_unique<OpenAIEmbedder>(model_name, api_key);
+    } else if (model_namespace == "google") {
+        remote_embedder_ = std::make_unique<GoogleEmbedder>(api_key);
+    } 
 }
 
 
@@ -55,23 +62,8 @@ std::vector<float> TextEmbedder::mean_pooling(const std::vector<std::vector<floa
 }
 
 Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
-    if(is_openai()) {
-        HttpClient& client = HttpClient::get_instance();
-        std::unordered_map<std::string, std::string> headers;
-        std::map<std::string, std::string> res_headers;
-        headers["Authorization"] = "Bearer " + api_key;
-        headers["Content-Type"] = "application/json";
-        std::string res;
-            nlohmann::json req_body;
-        req_body["input"] = text;
-        // remove "openai/" prefix
-        req_body["model"] = openai_model_path.substr(7);
-        auto res_code = client.post_response(TextEmbedder::OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
-        if (res_code != 200) {
-            LOG(ERROR) << "OpenAI API error: " << res;
-            return Option<std::vector<float>>(400, "OpenAI API error: " + res);
-        }
-        return Option<std::vector<float>>(nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>());
+    if(is_remote()) {
+        return remote_embedder_->Embed(text);
     } else {
         auto encoded_input = tokenizer_->Encode(text);
         // create input tensor object from data values
@@ -119,34 +111,13 @@ Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
 
 Option<std::vector<std::vector<float>>> TextEmbedder::batch_embed(const std::vector<std::string>& inputs) {
     std::vector<std::vector<float>> outputs;
-    if(!is_openai()) {
+    if(!is_remote()) {
         // for now only openai is supported for batch embedding
         for(const auto& input : inputs) {
             outputs.push_back(Embed(input).get());
         }
     } else {
-        nlohmann::json req_body;
-        req_body["input"] = inputs;
-        // remove "openai/" prefix
-        req_body["model"] = openai_model_path.substr(7);
-        std::unordered_map<std::string, std::string> headers;
-        headers["Authorization"] = "Bearer " + api_key;
-        headers["Content-Type"] = "application/json";
-        std::map<std::string, std::string> res_headers;
-        std::string res;
-        HttpClient& client = HttpClient::get_instance();
-
-        auto res_code = client.post_response(OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
-
-        if(res_code != 200) {
-            LOG(ERROR) << "OpenAI API error: " << res;
-            return Option<std::vector<std::vector<float>>>(400, res);
-        }
-
-        nlohmann::json res_json = nlohmann::json::parse(res);
-        for(auto& data : res_json["data"]) {
-            outputs.push_back(data["embedding"].get<std::vector<float>>());
-        }
+        outputs = std::move(remote_embedder_->batch_embed(inputs).get());
     }
     return Option<std::vector<std::vector<float>>>(outputs);
 }
@@ -252,55 +223,14 @@ bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& n
 }
 
 
-Option<bool> TextEmbedder::is_model_valid(const std::string openai_model_path, const std::string api_key, unsigned int& num_dims) {
-    if (openai_model_path.empty() || api_key.empty() || openai_model_path.length() < 7) {
-        return Option<bool>(400, "Invalid OpenAI model path or API key");
-    }
+Option<bool> TextEmbedder::is_model_valid(const std::string model_name, const std::string api_key, unsigned int& num_dims) {
+    auto model_namespace = TextEmbedderManager::get_model_namespace(model_name);
 
-    HttpClient& client = HttpClient::get_instance();
-    std::unordered_map<std::string, std::string> headers;
-    std::map<std::string, std::string> res_headers;
-    headers["Authorization"] = "Bearer " + api_key;
-    std::string res;
-    auto res_code = client.get_response(TextEmbedder::OPENAI_LIST_MODELS, res, res_headers, headers);
-    if (res_code != 200) {
-        LOG(ERROR) << "OpenAI API error: " << res;
-        return Option<bool>(400, "OpenAI API error: " + res);
-    }
-
-    auto models_json = nlohmann::json::parse(res);
-    bool found = false;
-    // extract model name by removing "openai/" prefix
-    auto model_name = openai_model_path.substr(7);
-    for (auto& model : models_json["data"]) {
-        if (model["id"] == model_name) {
-            found = true;
-            break;
-        }
-    }
-
-    if (!found) {
-        return Option<bool>(400, "OpenAI model not found");
-    }
-
-    // This part is hard coded for now. Because OpenAI API does not provide a way to get the output dimensions of the model.
-    if(model_name.find("-ada-") != std::string::npos) {
-        if(model_name.substr(model_name.length() - 3) == "002") {
-            num_dims = 1536;
-        } else {
-            num_dims = 1024;
-        }
-    }
-    else if(model_name.find("-davinci-") != std::string::npos) {
-        num_dims = 12288;
-    } else if(model_name.find("-curie-") != std::string::npos) {
-        num_dims = 4096;
-    } else if(model_name.find("-babbage-") != std::string::npos) {
-        num_dims = 2048;
+    if(model_namespace == "openai") {
+        return OpenAIEmbedder::is_model_valid(model_name, api_key, num_dims);
+    } else if(model_namespace == "google") {
+        return GoogleEmbedder::is_model_valid(model_name, api_key, num_dims);
     } else {
-        num_dims = 768;
+        return Option<bool>(400, "Invalid model namespace");
     }
-
-
-    return Option<bool>(true);
 }

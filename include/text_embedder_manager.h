@@ -58,6 +58,7 @@ public:
     static const std::string get_vocab_url(const text_embedding_model& model);
     static Option<nlohmann::json> get_public_model_config(const std::string& model_name);
     static const std::string get_model_name_without_namespace(const std::string& model_name);
+    static const std::string get_model_namespace(const std::string& model_name);
     static const std::string get_model_subdir(const std::string& model_name);
     static const bool check_md5(const std::string& file_path, const std::string& target_md5);
     Option<bool> download_public_model(const std::string& model_name);

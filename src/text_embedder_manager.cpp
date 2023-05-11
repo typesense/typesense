@@ -255,3 +255,11 @@ const std::string TextEmbedderManager::get_model_url(const text_embedding_model&
 const std::string TextEmbedderManager::get_vocab_url(const text_embedding_model& model) {
     return MODELS_REPO_URL + model.model_name + "/" + model.vocab_file_name;
 }
+
+const std::string TextEmbedderManager::get_model_namespace(const std::string& model_name) {
+    if(model_name.find("/") != std::string::npos) {
+        return model_name.substr(0, model_name.find("/"));
+    } else {
+        return "ts";
+    }
+}
