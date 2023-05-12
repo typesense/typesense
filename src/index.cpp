@@ -2428,6 +2428,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     auto is_wildcard_query = !field_query_tokens.empty() && !field_query_tokens[0].q_include_tokens.empty() &&
                              field_query_tokens[0].q_include_tokens[0].value == "*";
 
+    bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator->is_valid);
 
     // handle phrase searches
     if (!field_query_tokens[0].q_phrases.empty()) {
@@ -2449,7 +2450,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_query && field_query_tokens[0].q_phrases.empty()) {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
-        bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator->is_valid);
 
         if(no_filters_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
            sort_fields_std.size() == 1 && sort_fields_std[0].name == sort_field_const::seq_id &&
