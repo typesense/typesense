@@ -1198,6 +1198,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         const auto& fquery_hashes = facet_infos[findex].hashes;
         const bool should_compute_stats = facet_infos[findex].should_compute_stats;
 
+        auto sort_index_it = sort_index.find(a_facet.field_name);
+
         size_t mod_value = 100 / facet_sample_percent;
 
         auto facet_records = 0;

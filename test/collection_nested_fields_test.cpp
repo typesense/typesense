@@ -2542,6 +2542,100 @@ TEST_F(CollectionNestedFieldsTest, HighlightArrayOfObjects) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "enable_nested_fields": true,
+       "fields": [
+            {"name": "variants", "type": "object[]", "facet": true, "index": true},
+            {"name": "variants.sellingPrice", "type": "int32", "facet": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+       "variants": [
+      {
+        "sellingPrice": 2300,
+        "timestamp": 10000,
+        "is_deleted": false,
+        "price": 50.50
+      },
+      {
+        "sellingPrice": 1200,
+        "timestamp": 10000,
+        "is_deleted": false,
+        "price": 150.50
+      }
+    ]
+
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `variants.sellingPrice` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
+
+    schema = R"({
+        "name": "coll2",
+        "enable_nested_fields": true,
+       "fields": [
+            {"name": "variants", "type": "object[]", "facet": true, "index": true},
+            {"name": "variants.timestamp", "type": "int64", "facet": true}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+
+    add_op = coll2->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `variants.timestamp` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
+
+    schema = R"({
+        "name": "coll3",
+        "enable_nested_fields": true,
+       "fields": [
+            {"name": "variants", "type": "object[]", "facet": true, "index": true},
+            {"name": "variants.is_deleted", "type": "bool", "facet": true}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll3 = op.get();
+
+    add_op = coll3->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `variants.is_deleted` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
+
+    // float
+
+    schema = R"({
+        "name": "coll4",
+        "enable_nested_fields": true,
+       "fields": [
+            {"name": "variants", "type": "object[]", "facet": true, "index": true},
+            {"name": "variants.price", "type": "float", "facet": true}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll4 = op.get();
+
+    add_op = coll4->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `variants.price` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
+}
+
+TEST_F(CollectionNestedFieldsTest, HighlightArrayOfObjects) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
         "fields": [
           {"name": ".*", "type": "auto"}
         ]
