@@ -2538,7 +2538,7 @@ TEST_F(CollectionNestedFieldsTest, UpdateNestedDocumentAutoSchema) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
-TEST_F(CollectionNestedFieldsTest, HighlightArrayOfObjects) {
+TEST_F(CollectionNestedFieldsTest, ImproveErrorMessageForNestedArrayNumericalFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "enable_nested_fields": true,
