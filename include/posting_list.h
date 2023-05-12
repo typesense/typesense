@@ -8,6 +8,7 @@
 #include "thread_local_vars.h"
 
 typedef uint32_t last_id_t;
+class filter_result_iterator_t;
 
 struct result_iter_state_t {
     const uint32_t* excluded_result_ids = nullptr;
@@ -19,12 +20,25 @@ struct result_iter_state_t {
     size_t excluded_result_ids_index = 0;
     size_t filter_ids_index = 0;
 
+    filter_result_iterator_t* fit = nullptr;
+
     result_iter_state_t() = default;
 
     result_iter_state_t(const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
                         const uint32_t* filter_ids, const size_t filter_ids_length) : excluded_result_ids(excluded_result_ids),
                                                                                       excluded_result_ids_size(excluded_result_ids_size),
                                                                                       filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
+
+    result_iter_state_t(const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
+                        filter_result_iterator_t* fit) : excluded_result_ids(excluded_result_ids),
+                                                                   excluded_result_ids_size(excluded_result_ids_size),
+                                                                   fit(fit){}
+
+    [[nodiscard]] bool is_filter_provided() const;
+
+    [[nodiscard]] bool is_filter_valid() const;
+
+    [[nodiscard]] uint32_t get_filter_id() const;
 };
 
 /*
@@ -164,6 +178,8 @@ public:
 
     static void intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
+    static void intersect(std::vector<posting_list_t::iterator_t>& posting_list_iterators, bool& is_valid);
+
     template<class T>
     static bool block_intersect(
         std::vector<posting_list_t::iterator_t>& its,
@@ -183,6 +199,9 @@ public:
     static void get_exact_matches(std::vector<iterator_t>& its, bool field_is_array,
                                   const uint32_t* ids, const uint32_t num_ids,
                                   uint32_t*& exact_ids, size_t& num_exact_ids);
+
+    static bool has_exact_match(std::vector<posting_list_t::iterator_t>& posting_list_iterators,
+                                  const bool field_is_array);
 
     static void get_phrase_matches(std::vector<iterator_t>& its, bool field_is_array,
                                    const uint32_t* ids, const uint32_t num_ids,

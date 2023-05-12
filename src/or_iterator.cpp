@@ -1,5 +1,5 @@
 #include "or_iterator.h"
-
+#include "filter.h"
 
 bool or_iterator_t::at_end(const std::vector<or_iterator_t>& its) {
     // if any iterator is invalid, we stop
@@ -208,6 +208,19 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
         return false;
     }
 
+    if (istate.fit != nullptr && istate.fit->approx_filter_ids_length > 0) {
+        if (istate.fit->valid(id) == -1) {
+            return false;
+        }
+
+        if (istate.fit->seq_id == id) {
+            istate.fit->next();
+            return true;
+        }
+
+        return false;
+    }
+
     return true;
 }
 
@@ -241,5 +254,3 @@ or_iterator_t::~or_iterator_t() noexcept {
         it.reset_cache();
     }
 }
-
-

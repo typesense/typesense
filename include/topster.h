@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <field.h>
+#include "filter_result_iterator.h"
 
 struct KV {
     int8_t match_score_index{};
