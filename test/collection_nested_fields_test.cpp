@@ -2054,6 +2054,119 @@ TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
         "name": "coll1",
         "enable_nested_fields": true,
         "fields": [
+          {"name":"name", "type": "string", "index": false, "optional": true},
+          {"name":"brand","type":"object","optional":true},
+          {"name":"brand.id","type":"int32","sort":false},
+          {"name":"brand.name","type":"string","index":false,"sort":false,"optional":true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "b4db5f0456a93320428365f92c2a54ce15df2d0a",
+        "product_id": 63992305,
+        "name": "Chips",
+        "link": "http://wicked-uncle.biz",
+        "meta": {
+            "valid": true
+        },
+        "brand": {
+            "id": 34002,
+            "name": "Hodkiewicz - Rempel"
+        }
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    // action=update - `name` changed, `id` not sent
+    // `id` field should not be deleted
+
+    auto doc_update = R"({
+        "id": "b4db5f0456a93320428365f92c2a54ce15df2d0a",
+        "brand": {
+            "name": "Rempel"
+        }
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPDATE).ok());
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(6, results["hits"][0]["document"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"]["brand"].size());
+    ASSERT_EQ("Rempel", results["hits"][0]["document"]["brand"]["name"].get<std::string>());
+
+    // action=emplace
+    doc_update = R"({
+        "id": "b4db5f0456a93320428365f92c2a54ce15df2d0a",
+        "brand": {
+            "name": "The Rempel"
+        }
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc_update.dump(), EMPLACE).ok());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(6, results["hits"][0]["document"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"]["brand"].size());
+    ASSERT_EQ("The Rempel", results["hits"][0]["document"]["brand"]["name"].get<std::string>());
+
+    // action=upsert requires the full document
+    doc_update = R"({
+        "id": "b4db5f0456a93320428365f92c2a54ce15df2d0a",
+        "brand": {
+            "name": "Xomel"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc_update.dump(), UPSERT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `brand.id` has been declared in the schema, but is not found in the document.", add_op.error());
+
+    doc_update = R"({
+        "id": "b4db5f0456a93320428365f92c2a54ce15df2d0a",
+        "name": "Chips",
+        "brand": {
+            "id": 34002,
+            "name": "Xomel"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc_update.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"]["brand"].size());
+    ASSERT_EQ("Xomel", results["hits"][0]["document"]["brand"]["name"].get<std::string>());
+
+    // upsert with brand.name missing is allowed because it's optional
+    doc_update = R"({
+        "id": "b4db5f0456a93320428365f92c2a54ce15df2d0a",
+        "name": "Potato Chips",
+        "brand": {
+            "id": 34002
+        }
+    })"_json;
+
+    add_op = coll1->add(doc_update.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());
+    ASSERT_EQ(1, results["hits"][0]["document"]["brand"].size());
+    ASSERT_EQ(34002, results["hits"][0]["document"]["brand"]["id"].get<size_t>());
+}
+
+TEST_F(CollectionNestedFieldsTest, UpdateOfNestFieldsWithWildcardSchema) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
           {"name": ".*", "type": "auto"}
         ]
     })"_json;
@@ -2092,10 +2205,10 @@ TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
     results = coll1->search("beta", {"studies.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
 
-    // try removing fields via upsert
+    // try removing fields via upsert, dropping "company.year"
     doc_update = R"({
         "id": "0",
-        "company": {"num_employees": 2000, "founded": 1976},
+        "company": {"num_employees": 4000, "founded": 1976},
         "studies": [{"name": "College Alpha"}]
     })"_json;
     ASSERT_TRUE(coll1->add(doc_update.dump(), UPSERT).ok());
@@ -2110,10 +2223,11 @@ TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
     ASSERT_EQ(0, results["found"].get<size_t>());
 
     results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"][0]["document"].size());
     ASSERT_EQ(2, results["hits"][0]["document"]["company"].size());
-    ASSERT_EQ(2000, results["hits"][0]["document"]["company"]["num_employees"].get<size_t>());
+    ASSERT_EQ(4000, results["hits"][0]["document"]["company"]["num_employees"].get<size_t>());
     ASSERT_EQ(1976, results["hits"][0]["document"]["company"]["founded"].get<size_t>());
     ASSERT_EQ(1, results["hits"][0]["document"]["studies"].size());
     ASSERT_EQ(1, results["hits"][0]["document"]["studies"][0].size());
@@ -2129,6 +2243,13 @@ TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
 
     results = coll1->search("*", {}, "company.founded: 1976", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"]["company"].size());
+    ASSERT_EQ(2000, results["hits"][0]["document"]["company"]["num_employees"].get<size_t>());
+    ASSERT_EQ(1976, results["hits"][0]["document"]["company"]["founded"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][0]["document"]["studies"].size());
+    ASSERT_EQ(1, results["hits"][0]["document"]["studies"][0].size());
+    ASSERT_EQ("College Alpha", results["hits"][0]["document"]["studies"][0]["name"].get<std::string>());
 
     // via emplace (should not remove, since document can be partial)
     doc_update = R"({
@@ -2140,6 +2261,14 @@ TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
 
     results = coll1->search("*", {}, "company.num_employees: 2000", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"]["company"].size());
+    ASSERT_EQ(2000, results["hits"][0]["document"]["company"]["num_employees"].get<size_t>());
+    ASSERT_EQ(1976, results["hits"][0]["document"]["company"]["founded"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][0]["document"]["studies"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"]["studies"][0].size());
+    ASSERT_EQ("College Alpha", results["hits"][0]["document"]["studies"][0]["name"].get<std::string>());
+    ASSERT_EQ(1977, results["hits"][0]["document"]["studies"][0]["year"].get<size_t>());
 }
 
 TEST_F(CollectionNestedFieldsTest, NestedSchemaWithSingularType) {
