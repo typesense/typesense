@@ -74,6 +74,12 @@ COPTS = [
     "-g",
 ]
 
+ASAN_COPTS = [
+    "-fsanitize=address",
+    "-fno-omit-frame-pointer",
+    "-DASAN_BUILD"
+]
+
 cc_binary(
     name = "typesense-server",
     srcs = [
@@ -137,12 +143,6 @@ TEST_COPTS = [
     "-Wno-unused-parameter",
     "-Werror=return-type",
     "-g",
-]
-
-ASAN_COPTS = [
-    "-fsanitize=address",
-    "-fno-omit-frame-pointer",
-    "-DASAN_BUILD"
 ]
 
 config_setting(
