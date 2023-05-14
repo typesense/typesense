@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <mutex>
 
 class JapaneseLocalizer {
 private:
@@ -9,6 +10,8 @@ private:
     ~JapaneseLocalizer() = default;
 
     static void write_data_file(const std::string& base64_data, const std::string& file_name);
+
+    std::mutex m;
 
 public:
 

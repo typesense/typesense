@@ -43,6 +43,7 @@ bool JapaneseLocalizer::init() {
 }
 
 char* JapaneseLocalizer::normalize(const std::string& text) {
+    std::unique_lock lk(m);
     return kakasi_do((char *)text.c_str());
 }
 
