@@ -169,5 +169,7 @@ int main(int argc, char **argv) {
     signal(SIGINT, catch_interrupt);
     signal(SIGTERM, catch_interrupt);
 
+    init_api(config.get_cache_num_entries());
+
     return run_server(config, TYPESENSE_VERSION, &master_server_routes);
 }

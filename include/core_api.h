@@ -155,3 +155,5 @@ bool is_doc_write_route(uint64_t route_hash);
 bool is_doc_del_route(uint64_t route_hash);
 
 Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata);
+
+void init_api(uint32_t cache_num_entries);

@@ -19,6 +19,10 @@ using namespace std::chrono_literals;
 std::shared_mutex mutex;
 LRU::Cache<uint64_t, cached_res_t> res_cache;
 
+void init_api(uint32_t cache_num_entries) {
+    res_cache.capacity(cache_num_entries);
+}
+
 bool handle_authentication(std::map<std::string, std::string>& req_params,
                            std::vector<nlohmann::json>& embedded_params_vec,
                            const std::string& body,
@@ -355,7 +359,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
                 return true;
             }
 
-            //LOG(INFO) << "Result found in cache but ttl lapsed.";
+            // Result found in cache but ttl has lapsed.
+            res_cache.erase(req_hash);
         }
     }
 
@@ -447,6 +452,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
                 return true;
             }
+
+            // Result found in cache but ttl has lapsed.
+            res_cache.erase(req_hash);
         }
     }
 
