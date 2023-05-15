@@ -450,8 +450,8 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
 
             if(index_rec.is_update) {
                 // scrub string fields to reduce delete ops
-                get_doc_changes(index_rec.operation, index_rec.doc, index_rec.old_doc, index_rec.new_doc,
-                                index_rec.del_doc);
+                get_doc_changes(index_rec.operation, search_schema, index_rec.doc, index_rec.old_doc,
+                                index_rec.new_doc, index_rec.del_doc);
                 scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
                 embed_fields(index_rec.new_doc, embedding_fields, search_schema);
             } else {
@@ -6129,13 +6129,53 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
     }
 }
 
-void Index::get_doc_changes(const index_operation_t op, nlohmann::json& update_doc,
-                            const nlohmann::json& old_doc, nlohmann::json& new_doc, nlohmann::json& del_doc) {
+void Index::handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
+                           nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc) {
+
+    /*
+        {
+           "$operations": {
+              "increment": {"likes": 1, "views": 20}
+           }
+        }
+    */
+
+    auto ops_it = update_doc.find("$operations");
+    if(ops_it != update_doc.end()) {
+        const auto& operations = ops_it.value();
+        if(operations.contains("increment") && operations["increment"].is_object()) {
+            for(const auto& item: operations["increment"].items()) {
+                auto field_it = search_schema.find(item.key());
+                if(field_it != search_schema.end()) {
+                    if(field_it->type == field_types::INT32 && item.value().is_number_integer()) {
+                        int32_t existing_value = 0;
+                        if(old_doc.contains(item.key())) {
+                            existing_value = old_doc[item.key()].get<int32_t>();
+                        }
+
+                        auto updated_value = existing_value + item.value().get<int32>();
+                        new_doc[item.key()] = updated_value;
+                        update_doc[item.key()] = updated_value;
+                    }
+                }
+            }
+        }
+
+        update_doc.erase("$operations");
+    }
+}
+
+void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
+                            nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc,
+                            nlohmann::json& del_doc) {
 
     if(op == UPSERT) {
         new_doc = update_doc;
     } else {
         new_doc = old_doc;
+
+        handle_doc_ops(search_schema, update_doc, old_doc, new_doc);
+
         new_doc.merge_patch(update_doc);
         if(old_doc.contains(".flat")) {
             new_doc[".flat"] = old_doc[".flat"];

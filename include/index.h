@@ -525,8 +525,12 @@ private:
 
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
-    static void get_doc_changes(const index_operation_t op, nlohmann::json &update_doc,
-                                const nlohmann::json &old_doc, nlohmann::json &new_doc, nlohmann::json &del_doc);
+    static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
+                               nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc);
+
+    static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
+                                nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
+                                nlohmann::json &del_doc);
 
     bool common_results_exist(std::vector<art_leaf*>& leaves, bool must_match_phrase) const;
 
