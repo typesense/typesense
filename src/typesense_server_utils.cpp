@@ -100,6 +100,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<bool>("reset-peers-on-error", '\0', "Reset node's peers on clustering error. Default: false.", false, false);
 
     options.add<int>("log-slow-searches-time-ms", '\0', "When >= 0, searches that take longer than this duration are logged.", false, 30*1000);
+    options.add<int>("cache-num-entries", '\0', "Number of entries to cache.", false, 1000);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");

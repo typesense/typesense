@@ -53,6 +53,7 @@ TEST_F(CollectionOperationsTest, IncrementInt32Value) {
     ASSERT_TRUE(coll->add(doc.dump()).ok());
 
     // increment by 1
+    doc.erase("points");
     doc["id"] = "0";
     doc["$operations"] = R"({"increment": {"points": 1}})"_json;
     ASSERT_TRUE(coll->add(doc.dump(), UPDATE).ok());
@@ -73,6 +74,9 @@ TEST_F(CollectionOperationsTest, IncrementInt32Value) {
     res = coll->search("*", {"title"}, "points:111", {}, {}, {0}, 3, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(3, res["hits"][0]["document"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("Sherlock Holmes", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(111, res["hits"][0]["document"]["points"].get<size_t>());
 
     // decrement by 10 using negative number
     doc["id"] = "0";
@@ -82,12 +86,19 @@ TEST_F(CollectionOperationsTest, IncrementInt32Value) {
     res = coll->search("*", {"title"}, "points:101", {}, {}, {0}, 3, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(3, res["hits"][0]["document"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("Sherlock Holmes", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(101, res["hits"][0]["document"]["points"].get<size_t>());
 
-    // bad field - should not change anything
+    // bad field - should not increment but title field should be updated
     doc["id"] = "0";
+    doc["title"] = "The Sherlock Holmes";
     doc["$operations"] = R"({"increment": {"pointsx": -10}})"_json;
     ASSERT_TRUE(coll->add(doc.dump(), UPDATE).ok());
-    res = coll->search("*", {"title"}, "points:101", {}, {}, {0}, 3, 1, FREQUENCY, {false}).get();
+    res = coll->search("*", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(3, res["hits"][0]["document"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("The Sherlock Holmes", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(101, res["hits"][0]["document"]["points"].get<size_t>());
 }
