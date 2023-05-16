@@ -180,7 +180,7 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
 void filter_result_iterator_t::and_filter_iterators() {
     while (left_it->is_valid && right_it->is_valid) {
         while (left_it->seq_id < right_it->seq_id) {
-            left_it->next();
+            left_it->skip_to(right_it->seq_id);
             if (!left_it->is_valid) {
                 is_valid = false;
                 return;
@@ -188,7 +188,7 @@ void filter_result_iterator_t::and_filter_iterators() {
         }
 
         while (left_it->seq_id > right_it->seq_id) {
-            right_it->next();
+            right_it->skip_to(left_it->seq_id);
             if (!right_it->is_valid) {
                 is_valid = false;
                 return;
