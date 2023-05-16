@@ -150,3 +150,32 @@ size_t ArrayUtils::exclude_scalar(const uint32_t *A, const size_t lenA,
 
   return res_index;
 }
+
+bool ArrayUtils::skip_index_to_id(uint32_t& curr_index, uint32_t const* const array, const uint32_t& array_len,
+                                  const uint32_t& id) {
+    if (curr_index >= array_len) {
+        return false;
+    }
+
+    if (id <= array[curr_index]) {
+        return id == array[curr_index];
+    }
+
+    long start = curr_index, mid, end = array_len - 1;
+
+    while (start <= end) {
+        mid =  start + (end - start) / 2;
+
+        if (array[mid] == id) {
+            curr_index = mid;
+            return true;
+        } else if (array[mid] < id) {
+            start = mid + 1;
+        } else {
+            end = mid - 1;
+        }
+    }
+
+    curr_index = start;
+    return false;
+}

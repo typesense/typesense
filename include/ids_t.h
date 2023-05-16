@@ -39,11 +39,6 @@ struct compact_id_list_t {
 };
 
 class ids_t {
-private:
-
-    static void to_expanded_id_lists(const std::vector<void*>& raw_id_lists, std::vector<id_list_t*>& id_lists,
-                                     std::vector<id_list_t*>& expanded_id_lists);
-
 public:
     static constexpr size_t COMPACT_LIST_THRESHOLD_LENGTH = 64;
     static constexpr size_t MAX_BLOCK_ELEMENTS = 256;
@@ -104,6 +99,9 @@ public:
     static uint32_t* uncompress(void*& obj);
 
     static void uncompress(void*& obj, std::vector<uint32_t>& ids);
+
+    static void to_expanded_id_lists(const std::vector<void*>& raw_id_lists, std::vector<id_list_t*>& id_lists,
+                                     std::vector<id_list_t*>& expanded_id_lists);
 };
 
 template<class T>

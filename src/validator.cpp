@@ -1,4 +1,5 @@
 #include "validator.h"
+#include "field.h"
 
 Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::json& document,
                                        nlohmann::json& doc_ele,
