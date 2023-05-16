@@ -43,30 +43,6 @@ void num_tree_t::range_inclusive_search(int64_t start, int64_t end, uint32_t** i
     *ids = out;
 }
 
-void num_tree_t::range_inclusive_search_iterators(int64_t start,
-                                                  int64_t end,
-                                                  std::vector<id_list_t::iterator_t>& id_list_iterators,
-                                                  std::vector<id_list_t*>& expanded_id_lists) {
-    if (int64map.empty()) {
-        return;
-    }
-
-    auto it_start = int64map.lower_bound(start);  // iter values will be >= start
-
-    std::vector<void*> raw_id_lists;
-    while (it_start != int64map.end() && it_start->first <= end) {
-        raw_id_lists.push_back(it_start->second);
-        it_start++;
-    }
-
-    std::vector<id_list_t*> id_lists;
-    ids_t::to_expanded_id_lists(raw_id_lists, id_lists, expanded_id_lists);
-
-    for (const auto &id_list: id_lists) {
-        id_list_iterators.emplace_back(id_list->new_iterator());
-    }
-}
-
 void num_tree_t::approx_range_inclusive_search_count(int64_t start, int64_t end, uint32_t& ids_len) {
     if (int64map.empty()) {
         return;
@@ -211,60 +187,6 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
     }
 }
 
-void num_tree_t::search_iterators(NUM_COMPARATOR comparator,
-                                  int64_t value,
-                                  std::vector<id_list_t::iterator_t>& id_list_iterators,
-                                  std::vector<id_list_t*>& expanded_id_lists) {
-    if (int64map.empty()) {
-        return ;
-    }
-
-    std::vector<void*> raw_id_lists;
-    if (comparator == EQUALS) {
-        const auto& it = int64map.find(value);
-        if (it != int64map.end()) {
-            raw_id_lists.emplace_back(it->second);
-        }
-    } else if (comparator == GREATER_THAN || comparator == GREATER_THAN_EQUALS) {
-        // iter entries will be >= value, or end() if all entries are before value
-        auto iter_ge_value = int64map.lower_bound(value);
-
-        if(iter_ge_value == int64map.end()) {
-            return ;
-        }
-
-        if(comparator == GREATER_THAN && iter_ge_value->first == value) {
-            iter_ge_value++;
-        }
-
-        while(iter_ge_value != int64map.end()) {
-            raw_id_lists.emplace_back(iter_ge_value->second);
-            iter_ge_value++;
-        }
-    } else if(comparator == LESS_THAN || comparator == LESS_THAN_EQUALS) {
-        // iter entries will be >= value, or end() if all entries are before value
-        auto iter_ge_value = int64map.lower_bound(value);
-
-        auto it = int64map.begin();
-        while(it != iter_ge_value) {
-            raw_id_lists.emplace_back(it->second);
-            it++;
-        }
-
-        // for LESS_THAN_EQUALS, check if last iter entry is equal to value
-        if(it != int64map.end() && comparator == LESS_THAN_EQUALS && it->first == value) {
-            raw_id_lists.emplace_back(it->second);
-        }
-    }
-
-    std::vector<id_list_t*> id_lists;
-    ids_t::to_expanded_id_lists(raw_id_lists, id_lists, expanded_id_lists);
-
-    for (const auto &id_list: id_lists) {
-        id_list_iterators.emplace_back(id_list->new_iterator());
-    }
-}
-
 void num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value, uint32_t& ids_len) {
     if (int64map.empty()) {
         return;
@@ -404,41 +326,4 @@ num_tree_t::~num_tree_t() {
     for(auto& kv: int64map) {
         ids_t::destroy_list(kv.second);
     }
-}
-
-void num_tree_t::merge_id_list_iterators(std::vector<id_list_t::iterator_t>& id_list_iterators,
-                                         const NUM_COMPARATOR &comparator,
-                                         uint32_t*& result_ids,
-                                         uint32_t& result_ids_len) const {
-    struct comp {
-        bool operator()(const id_list_t::iterator_t *lhs, const id_list_t::iterator_t *rhs) const {
-            return lhs->id() > rhs->id();
-        }
-    };
-
-    std::priority_queue<id_list_t::iterator_t*, std::vector<id_list_t::iterator_t*>, comp> iter_queue;
-    for (auto& id_list_iterator: id_list_iterators) {
-        if (id_list_iterator.valid()) {
-            iter_queue.push(&id_list_iterator);
-        }
-    }
-
-    std::vector<uint32_t> consolidated_ids;
-    while (!iter_queue.empty()) {
-        id_list_t::iterator_t* iter = iter_queue.top();
-        iter_queue.pop();
-
-        consolidated_ids.push_back(iter->id());
-        iter->next();
-
-        if (iter->valid()) {
-            iter_queue.push(iter);
-        }
-    }
-
-    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
-
-    result_ids_len = consolidated_ids.size();
-    result_ids = new uint32_t[consolidated_ids.size()];
-    std::copy(consolidated_ids.begin(), consolidated_ids.end(), result_ids);
 }
