@@ -146,6 +146,12 @@ TEST_COPTS = [
     "-DTEST_BUILD"
 ]
 
+ASAN_COPTS = [
+    "-fsanitize=address",
+    "-fno-omit-frame-pointer",
+    "-DASAN_BUILD"
+]
+
 config_setting(
     name = "release_mode",
     define_values = { "mode": "release" }

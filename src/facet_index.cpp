@@ -5,6 +5,12 @@
 
 uint32_t facet_index_t::insert(const std::string& field, const std::string& value, 
     uint32_t id, bool is_string) {
+    
+    const auto facet_field_map_it = facet_field_map.find(field);
+    if(facet_field_map_it == facet_field_map.end()) {
+        facet_field_map.emplace(field, facet_index_counter{});
+    }
+
     auto& facet_index_map = facet_field_map[field].facet_index_map;
     uint32_t index;
     const auto sv = value.substr(0, 100);
@@ -12,8 +18,7 @@ uint32_t facet_index_t::insert(const std::string& field, const std::string& valu
 
     if(it == facet_index_map.end()) {
         index = ++count_index;
-        
-        facet_index_struct fis {};
+        facet_index_struct fis{};
         fis.index = index;
         if(is_string) {
             fis.id_list_ptr = SET_COMPACT_IDS(compact_id_list_t::create(1, {id}));
@@ -38,22 +43,22 @@ uint32_t facet_index_t::insert(const std::string& field, const std::string& valu
         if(counter_list.empty()) {
             counter_list.emplace_back(sv, facet_count);
         } else {
-            auto counter_it = counter_list.begin();
-   
             count_list node(sv, facet_count); 
+            uint32_t ind = 0;
+            for(ind; ind < counter_list.size(); ++ind) {
+                if(counter_list[ind].facet_value == sv) {
+                    counter_list[ind].count = facet_count;
 
-            for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
-                if(counter_it->facet_value == sv) {
-                    counter_it->count = facet_count;
-
-                    auto prev_node = std::prev(counter_it);
-                    if(prev_node->count < counter_it->count) {
-                        std::swap(prev_node, counter_it);
+                    if((ind > 1) &&
+                        (counter_list[ind-1].count < counter_list[ind].count)) {
+                            count_list temp = counter_list[ind-1];
+                            counter_list[ind-1] = counter_list[ind];
+                            counter_list[ind] = temp;
                     }
                     break;
                 }
             }
-            if(counter_it == counter_list.end()) {
+            if(ind == counter_list.size()) {
                 // LOG (INFO) << "inserting at last facet " << node.facet_value 
                 //     << " with count " << node.count;
                 counter_list.emplace_back(node);
@@ -125,6 +130,7 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
                 uint32_t* out = nullptr;
                 count = ArrayUtils::and_scalar(id_list.data(), id_list.size(),
                     result_ids, result_ids_len, &out);
+                delete[] out;
             }
             id_list.clear();
         }

@@ -21,22 +21,22 @@ void num_tree_t::insert(int64_t value, uint32_t id, bool is_facet) {
         if(counter_list.empty()) {
             counter_list.emplace_back(value, facet_count);
         } else {
-            auto counter_it = counter_list.begin();
-          
             count_list node(value, facet_count); 
-    
-            for(counter_it = counter_list.begin(); counter_it != counter_list.end(); ++counter_it) {
-               if(counter_it->facet_value == value) {
-                    counter_it->count = facet_count;
+            uint32_t ind = 0;
+            for(ind; ind < counter_list.size(); ++ind) {
+                if(counter_list[ind].facet_value == value) {
+                    counter_list[ind].count = facet_count;
 
-                    auto prev_node = std::prev(counter_it);
-                    if(prev_node->count < counter_it->count) {
-                        std::swap(prev_node, counter_it);
+                    if((ind > 1) &&
+                        (counter_list[ind-1].count < counter_list[ind].count)) {
+                            count_list temp = counter_list[ind-1];
+                            counter_list[ind-1] = counter_list[ind];
+                            counter_list[ind] = temp;
                     }
                     break;
                 }
             }
-            if(counter_it == counter_list.end()) {
+            if(ind == counter_list.size()) {
                 // LOG (INFO) << "inserting at last facet " << node.facet_value 
                 //     << " with count " << node.count;
                 counter_list.emplace_back(node);
@@ -386,6 +386,7 @@ size_t num_tree_t::intersect(const uint32_t* result_ids, int result_ids_len, int
                 uint32_t* out = nullptr;
                 count = ArrayUtils::and_scalar(id_list.data(), id_list.size(),
                     result_ids, result_ids_len, &out);
+                delete[] out;
             }
             id_list.clear();
         }

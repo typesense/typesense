@@ -23,9 +23,18 @@ private:
     }
 
     struct count_list {
-        count_list(const int64_t& sv, uint32_t facet_count) {
+        count_list() = delete;
+
+        ~count_list () = default;
+        
+        count_list(int64_t sv, uint32_t facet_count) {
             facet_value = sv;
             count = facet_count;
+        }
+
+        count_list& operator=(count_list& obj) {
+            facet_value = obj.facet_value;
+            count = obj.count;
         }
 
         int64_t facet_value;

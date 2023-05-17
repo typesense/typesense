@@ -6,9 +6,18 @@
 class facet_index_t {
 private:
     struct count_list {
+        count_list() = delete;
+
+        ~count_list () = default;
+
         count_list(const std::string& sv, uint32_t facet_count) {
             facet_value = sv;
             count = facet_count;
+        }
+
+        count_list& operator=(count_list& obj) {
+            facet_value = obj.facet_value;
+            count = obj.count;
         }
 
         std::string facet_value;
@@ -18,12 +27,24 @@ private:
     struct facet_index_struct {
         void* id_list_ptr;
         uint32_t index;
+
+        facet_index_struct() {
+            id_list_ptr = nullptr;
+            index = UINT32_MAX;
+        }
+
+        ~facet_index_struct() {};
     };
     
     struct facet_index_counter {
         tsl::htrie_map<char, facet_index_struct> facet_index_map;
         std::vector<count_list> counter_list;
         
+        facet_index_counter() {
+            facet_index_map.clear();
+            counter_list.clear();
+        }
+
         ~facet_index_counter() {
             for(auto it = facet_index_map.begin(); it != facet_index_map.end(); ++it) {
                 ids_t::destroy_list(it.value().id_list_ptr);

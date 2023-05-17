@@ -504,8 +504,6 @@ private:
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                               Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries) const;
 
-    static uint64_t facet_token_hash(const field & a_field, const std::string &token);
-
     static void compute_facet_stats(facet &a_facet, const std::string& raw_value, const std::string & field_type);
 
     static void compute_facet_stats(facet &a_facet, const int64_t raw_value, const std::string & field_type);

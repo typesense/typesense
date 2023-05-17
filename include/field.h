@@ -702,12 +702,10 @@ struct facet_value_t {
 
 struct facet_hash_values_t {
     uint32_t length = 0;
-    //uint32_t* hashes = nullptr;
     std::vector<uint32_t> hashes;
 
     facet_hash_values_t() {
         length = 0;
-        //hashes = nullptr;
     }
 
     facet_hash_values_t(facet_hash_values_t&& hash_values) noexcept {
@@ -715,19 +713,16 @@ struct facet_hash_values_t {
         hashes = hash_values.hashes;
 
         hash_values.length = 0;
-        //hash_values.hashes = nullptr;
         hash_values.hashes.clear();
     }
 
     facet_hash_values_t& operator=(facet_hash_values_t&& other) noexcept {
         if (this != &other) {
-            //delete[] hashes;
             hashes.clear();
 
             hashes = other.hashes;
             length = other.length;
 
-            //other.hashes = nullptr;
             other.hashes.clear();
             other.length = 0;
         }
@@ -736,8 +731,6 @@ struct facet_hash_values_t {
     }
 
     ~facet_hash_values_t() {
-        //delete [] hashes;
-        //hashes = nullptr;
         hashes.clear();
     }
 
@@ -746,7 +739,6 @@ struct facet_hash_values_t {
     }
 
     uint64_t back() const {
-        //return hashes[length - 1];
         return hashes.back();
     }
 };
