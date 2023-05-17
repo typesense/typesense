@@ -1063,14 +1063,6 @@ int filter_result_iterator_t::valid(uint32_t id) {
     if (filter_node->isOperator) {
         auto left_valid = left_it->valid(id), right_valid = right_it->valid(id);
 
-        if (left_it->is_valid && right_it->is_valid) {
-            seq_id = std::min(left_it->seq_id, right_it->seq_id);
-        } else if (left_it->is_valid) {
-            seq_id = left_it->seq_id;
-        } else if (right_it->is_valid) {
-            seq_id = right_it->seq_id;
-        }
-
         if (filter_node->filter_operator == AND) {
             is_valid = left_it->is_valid && right_it->is_valid;
 
