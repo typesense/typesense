@@ -651,9 +651,11 @@ struct facet {
 
     bool sampled = false;
 
+    bool is_wildcard_match = false;
+    
     bool is_intersected = false;
 
-    bool get_range(std::string key, std::pair<int64_t, std::string>& range_pair)
+    bool get_range(std::string key, std::pair<std::string, std::string>& range_pair)
     {
         if(facet_range_map.empty())
         {

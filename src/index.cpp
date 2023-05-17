@@ -2472,7 +2472,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     auto is_wildcard_query = !field_query_tokens.empty() && !field_query_tokens[0].q_include_tokens.empty() &&
                              field_query_tokens[0].q_include_tokens[0].value == "*";
-    bool no_filters_provided = (filter_tree_root == nullptr && filter_result.count == 0);
+    
+    bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator->is_valid);
     
 
     // handle phrase searches
@@ -5328,7 +5329,6 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     if(group_limit != 0) {
         distinct_id = get_distinct_id(group_by_fields, seq_id);
-        groups_processed.emplace(distinct_id);
     }
 
     //LOG(INFO) << "Seq id: " << seq_id << ", match_score: " << match_score;

@@ -4651,17 +4651,23 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             auto pos2 = range.find(",");
             auto pos3 = range.find("]");
 
-            int64_t lower_range, upper_range;
+            std::string lower_range, upper_range;
+            auto lower_range_start = pos1 + 2;
+            auto lower_range_len = pos2 - lower_range_start;
+            auto upper_range_start = pos2 + 1;
+            auto upper_range_len = pos3 - upper_range_start;
 
             if(a_field.is_integer()) {
-                lower_range = std::stoll(range.substr(pos1 + 2, pos2));
-                upper_range = std::stoll(range.substr(pos2 + 1, pos3));
+                lower_range = range.substr(lower_range_start, lower_range_len);
+                StringUtils::trim(lower_range);
+                upper_range = range.substr(upper_range_start, upper_range_len);
+                StringUtils::trim(upper_range);
             } else {
                 float val = std::stof(range.substr(pos1 + 2, pos2));
-                lower_range = Index::float_to_int64_t(val);
+                lower_range = std::to_string(Index::float_to_int64_t(val));
 
                 val = std::stof(range.substr(pos2 + 1, pos3));
-                upper_range = Index::float_to_int64_t(val);
+                upper_range = std::to_string(Index::float_to_int64_t(val));
             }
 
             tupVec.emplace_back(std::make_tuple(lower_range, upper_range, range_val));
