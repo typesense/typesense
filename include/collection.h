@@ -275,6 +275,8 @@ private:
 
     Option<std::string> get_reference_field(const std::string & collection_name) const;
 
+    static void hide_credential(nlohmann::json& json, const std::string& credential_name);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};

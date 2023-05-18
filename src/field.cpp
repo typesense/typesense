@@ -712,15 +712,9 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             }
         }
 
-        if(model_config.count("api_key") != 0) {
-            auto res = TextEmbedder::is_model_valid(model_config[fields::model_name].get<std::string>(), model_config[fields::api_key].get<std::string>(), num_dim);
-            if(!res.ok()) {
-                return Option<bool>(res.code(), res.error());
-            }
-        } else {
-            if(!TextEmbedder::is_model_valid(model_config[fields::model_name].get<std::string>(), num_dim)) {
-                return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::model_name + "` is invalid.");
-            }
+        auto res = TextEmbedder::is_model_valid(model_config, num_dim);
+        if(!res.ok()) {
+            return Option<bool>(res.code(), res.error());
         }
         field_json[fields::num_dim] = num_dim;
     } else {

@@ -2,19 +2,34 @@
 #include "text_embedder_manager.h"
 
 
+Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties) {
+    for(auto& property : properties) {
+        if(model_config.count(property) == 0 || !model_config[property].is_string()) {
+            return Option<bool>(400, "Property `embed.model_config." + property + " is missing or is not a string.");
+        }
+    }
+    return Option<bool>(true);
+}
+
+
 
 OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key) : api_key(api_key), openai_model_path(openai_model_path) {
 
 }
 
 
-Option<bool> OpenAIEmbedder::is_model_valid(const std::string& model_name, const std::string& api_key, unsigned int& num_dims) {
-    if (model_name.empty() || api_key.empty()) {
-        return Option<bool>(400, "Invalid OpenAI model name or API key");
+Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims) {
+    auto validate_properties = validate_string_properties(model_config, {"model_name", "api_key"});
+    
+    if (!validate_properties.ok()) {
+        return validate_properties;
     }
 
+    auto model_name = model_config["model_name"].get<std::string>();
+    auto api_key = model_config["api_key"].get<std::string>();
+
     if(TextEmbedderManager::get_model_namespace(model_name) != "openai") {
-        return Option<bool>(400, "Invalid OpenAI model name");
+        return Option<bool>(400, "Property `embed.model_config.model_name` malformed.");
     }
 
     HttpClient& client = HttpClient::get_instance();
@@ -43,27 +58,24 @@ Option<bool> OpenAIEmbedder::is_model_valid(const std::string& model_name, const
     }
 
     if (!found) {
-        return Option<bool>(400, "OpenAI model not found");
+        return Option<bool>(400, "Property `embed.model_config.model_name` is not a valid OpenAI model.");
     }
+    nlohmann::json req_body;
+    req_body["input"] = "typesense";
+    // remove "openai/" prefix
+    req_body["model"] = model_name_without_namespace;
+    res_code = client.post_response(OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
 
-    // This part is hard coded for now. Because OpenAI API does not provide a way to get the output dimensions of the model.
-    if(model_name.find("-ada-") != std::string::npos) {
-        if(model_name.substr(model_name.length() - 3) == "002") {
-            num_dims = 1536;
-        } else {
-            num_dims = 1024;
+    if (res_code != 200) {
+        nlohmann::json json_res = nlohmann::json::parse(res);
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<bool>(400, "OpenAI API error: " + res);
         }
-    }
-    else if(model_name.find("-davinci-") != std::string::npos) {
-        num_dims = 12288;
-    } else if(model_name.find("-curie-") != std::string::npos) {
-        num_dims = 4096;
-    } else if(model_name.find("-babbage-") != std::string::npos) {
-        num_dims = 2048;
-    } else {
-        num_dims = 768;
+        return Option<bool>(400, "OpenAI API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
     }
 
+    auto embedding = nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>();
+    num_dims = embedding.size();
     return Option<bool>(true);
 }
 
@@ -77,7 +89,7 @@ Option<std::vector<float>> OpenAIEmbedder::Embed(const std::string& text) {
     nlohmann::json req_body;
     req_body["input"] = text;
     // remove "openai/" prefix
-    req_body["model"] = openai_model_path.substr(7);
+    req_body["model"] = TextEmbedderManager::get_model_name_without_namespace(openai_model_path);
     auto res_code = client.post_response(OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
     if (res_code != 200) {
         nlohmann::json json_res = nlohmann::json::parse(res);
@@ -125,17 +137,22 @@ GoogleEmbedder::GoogleEmbedder(const std::string& google_api_key) : google_api_k
 
 }
 
-Option<bool> GoogleEmbedder::is_model_valid(const std::string& model_name, const std::string& api_key, unsigned int& num_dims) {
-    if(model_name.empty() || api_key.empty()) {
-        return Option<bool>(400, "Invalid Google model name or API key");
+Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims) {
+    auto validate_properties = validate_string_properties(model_config, {"model_name", "api_key"});
+    
+    if (!validate_properties.ok()) {
+        return validate_properties;
     }
 
+    auto model_name = model_config["model_name"].get<std::string>();
+    auto api_key = model_config["api_key"].get<std::string>();
+
     if(TextEmbedderManager::get_model_namespace(model_name) != "google") {
-        return Option<bool>(400, "Invalid Google model name");
+        return Option<bool>(400, "Property `embed.model_config.model_name` malformed.");
     }
 
     if(TextEmbedderManager::get_model_name_without_namespace(model_name) != std::string(SUPPORTED_MODEL)) {
-        return Option<bool>(400, "Invalid Google model name");
+        return Option<bool>(400, "Property `embed.model_config.model_name` is not a supported Google model.");
     }
 
     HttpClient& client = HttpClient::get_instance();
@@ -156,7 +173,7 @@ Option<bool> GoogleEmbedder::is_model_valid(const std::string& model_name, const
         return Option<bool>(400, "Google API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
     }
 
-    num_dims = GOOGLE_EMBEDDING_DIM;
+    num_dims = nlohmann::json::parse(res)["embedding"]["value"].get<std::vector<float>>().size();
 
     return Option<bool>(true);
 }
@@ -196,3 +213,197 @@ Option<std::vector<std::vector<float>>> GoogleEmbedder::batch_embed(const std::v
 
     return Option<std::vector<std::vector<float>>>(outputs);
 }
+
+
+GCPEmbedder::GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
+                         const std::string& refresh_token, const std::string& client_id, const std::string& client_secret) : 
+        project_id(project_id), access_token(access_token), refresh_token(refresh_token), client_id(client_id), client_secret(client_secret) {
+    
+    this->model_name = TextEmbedderManager::get_model_name_without_namespace(model_name);
+}
+
+Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims)  {
+    auto validate_properties = validate_string_properties(model_config, {"model_name", "project_id", "access_token", "refresh_token", "client_id", "client_secret"});
+
+    if (!validate_properties.ok()) {
+        return validate_properties;
+    }
+    
+    auto model_name = model_config["model_name"].get<std::string>();
+    auto project_id = model_config["project_id"].get<std::string>();    
+    auto access_token = model_config["access_token"].get<std::string>();
+    auto refresh_token = model_config["refresh_token"].get<std::string>();
+    auto client_id = model_config["client_id"].get<std::string>();
+    auto client_secret = model_config["client_secret"].get<std::string>();
+
+    if(TextEmbedderManager::get_model_namespace(model_name) != "gcp") {
+        return Option<bool>(400, "Invalid GCP model name");
+    }
+
+    auto model_name_without_namespace = TextEmbedderManager::get_model_name_without_namespace(model_name);
+
+    HttpClient& client = HttpClient::get_instance();
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    headers["Content-Type"] = "application/json";
+    headers["Authorization"] = "Bearer " + access_token;
+    std::string res;
+    nlohmann::json req_body;
+    req_body["instances"] = nlohmann::json::array();
+    nlohmann::json instance;
+    instance["content"] = "typesense";
+    req_body["instances"].push_back(instance);
+
+    auto res_code = client.post_response(get_gcp_embedding_url(project_id, model_name_without_namespace), req_body.dump(), res, res_headers, headers);
+
+    if(res_code != 200) {
+        nlohmann::json json_res = nlohmann::json::parse(res);
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<bool>(400, "GCP API error: " + res);
+        }
+        return Option<bool>(400, "GCP API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+    }
+
+    auto res_json = nlohmann::json::parse(res);
+    if(res_json.count("predictions") == 0 || res_json["predictions"].size() == 0 || res_json["predictions"][0].count("embeddings") == 0) {
+        LOG(INFO) << "Invalid response from GCP API: " << res_json.dump();
+        return Option<bool>(400, "GCP API error: Invalid response");
+    }
+
+    auto generate_access_token_res = generate_access_token(refresh_token, client_id, client_secret);
+    if(!generate_access_token_res.ok()) {
+        return Option<bool>(400, "Invalid client_id, client_secret or refresh_token in `embed.model config'.");
+    }
+
+    num_dims = res_json["predictions"][0]["embeddings"]["values"].size();
+
+    return Option<bool>(true);
+}
+
+Option<std::vector<float>> GCPEmbedder::Embed(const std::string& text) {
+    nlohmann::json req_body;
+    req_body["instances"] = nlohmann::json::array();
+    nlohmann::json instance;
+    instance["content"] = text;
+    req_body["instances"].push_back(instance);
+    std::unordered_map<std::string, std::string> headers;
+    headers["Authorization"] = "Bearer " + access_token;
+    headers["Content-Type"] = "application/json";
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    HttpClient& client = HttpClient::get_instance();
+
+    auto res_code = client.post_response(get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+
+    if(res_code != 200) {
+        if(res_code == 401) {
+            auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
+            if(!refresh_op.ok()) {
+                return Option<std::vector<float>>(refresh_op.code(), refresh_op.error());
+            }
+            access_token = refresh_op.get();
+            // retry
+            headers["Authorization"] = "Bearer " + access_token;
+            res_code = client.post_response(get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+        }
+    }
+
+    if(res_code != 200) {
+        nlohmann::json json_res = nlohmann::json::parse(res);
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<std::vector<float>>(400, "GCP API error: " + res);
+        }
+        return Option<std::vector<float>>(400, "GCP API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+    }
+
+    nlohmann::json res_json = nlohmann::json::parse(res);
+    return Option<std::vector<float>>(res_json["predictions"][0]["embeddings"]["values"].get<std::vector<float>>());
+}
+
+
+Option<std::vector<std::vector<float>>> GCPEmbedder::batch_embed(const std::vector<std::string>& inputs) {
+    // GCP API has a limit of 5 instances per request
+    if(inputs.size() > 5) {
+        std::vector<std::vector<float>> res;
+        for(size_t i = 0; i < inputs.size(); i += 5) {
+            auto batch_res = batch_embed(std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 5, inputs.size())));
+            if(!batch_res.ok()) {
+                LOG(INFO) << "Batch embedding failed: " << batch_res.error();
+                return Option<std::vector<std::vector<float>>>(batch_res.code(), batch_res.error());
+            }
+            auto batch = batch_res.get();
+            res.insert(res.end(), batch.begin(), batch.end());  
+        }
+        auto opt =  Option<std::vector<std::vector<float>>>(res);
+        return opt;
+    }
+    nlohmann::json req_body;
+    req_body["instances"] = nlohmann::json::array();
+    for(const auto& input : inputs) {
+        nlohmann::json instance;
+        instance["content"] = input;
+        req_body["instances"].push_back(instance);
+    }
+    std::unordered_map<std::string, std::string> headers;
+    headers["Authorization"] = "Bearer " + access_token;
+    headers["Content-Type"] = "application/json";
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    HttpClient& client = HttpClient::get_instance();
+    auto res_code = client.post_response(get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+    if(res_code != 200) {
+        if(res_code == 401) {
+            auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
+            if(!refresh_op.ok()) {
+                return Option<std::vector<std::vector<float>>>(refresh_op.code(), refresh_op.error());
+            }
+            access_token = refresh_op.get();
+            // retry
+            headers["Authorization"] = "Bearer " + access_token;
+            res_code = client.post_response(get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+        }
+    }
+
+    if(res_code != 200) {
+        nlohmann::json json_res = nlohmann::json::parse(res);
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<std::vector<std::vector<float>>>(400, "GCP API error: " + res);
+        }
+        return Option<std::vector<std::vector<float>>>(400, "GCP API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+    }
+
+    nlohmann::json res_json = nlohmann::json::parse(res);
+    std::vector<std::vector<float>> outputs;
+    for(const auto& prediction : res_json["predictions"]) {
+        outputs.push_back(prediction["embeddings"]["values"].get<std::vector<float>>());
+    }
+
+    return Option<std::vector<std::vector<float>>>(outputs);
+}
+
+Option<std::string> GCPEmbedder::generate_access_token(const std::string& refresh_token, const std::string& client_id, const std::string& client_secret) {
+    HttpClient& client = HttpClient::get_instance();
+    std::unordered_map<std::string, std::string> headers;
+    headers["Content-Type"] = "application/x-www-form-urlencoded";
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    std::string req_body;
+    req_body = "grant_type=refresh_token&client_id=" + client_id + "&client_secret=" + client_secret + "&refresh_token=" + refresh_token;
+
+    auto res_code = client.post_response(GCP_AUTH_TOKEN_URL, req_body, res, res_headers, headers);
+    
+    if(res_code != 200) {
+        nlohmann::json json_res = nlohmann::json::parse(res);
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<std::string>(400, "GCP API error: " + res);
+        }
+        return Option<std::string>(400, "GCP API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+    }
+
+    nlohmann::json res_json = nlohmann::json::parse(res);
+    std::string access_token = res_json["access_token"].get<std::string>();
+
+    return Option<std::string>(access_token);
+}
+
+

@@ -36,15 +36,29 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
     }
 }
 
-TextEmbedder::TextEmbedder(const std::string& model_name, const std::string& api_key) {
+TextEmbedder::TextEmbedder(const nlohmann::json& model_config) {
+    auto model_name = model_config["model_name"].get<std::string>();
     LOG(INFO) << "Loading model from remote: " << model_name;
     auto model_namespace = TextEmbedderManager::get_model_namespace(model_name);
 
-    if (model_namespace == "openai") {
+    if(model_namespace == "openai") {
+        auto api_key = model_config["api_key"].get<std::string>();
+
         remote_embedder_ = std::make_unique<OpenAIEmbedder>(model_name, api_key);
-    } else if (model_namespace == "google") {
+    } else if(model_namespace == "google") {
+        auto api_key = model_config["api_key"].get<std::string>();
+
         remote_embedder_ = std::make_unique<GoogleEmbedder>(api_key);
-    } 
+    } else if(model_namespace == "gcp") {
+        auto project_id = model_config["project_id"].get<std::string>();
+        auto model_name = model_config["model_name"].get<std::string>();
+        auto access_token = model_config["access_token"].get<std::string>();
+        auto refresh_token = model_config["refresh_token"].get<std::string>();
+        auto client_id = model_config["client_id"].get<std::string>();
+        auto client_secret = model_config["client_secret"].get<std::string>();
+
+        remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, access_token, refresh_token, client_id, client_secret);
+    }
 }
 
 
@@ -65,6 +79,8 @@ Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
     if(is_remote()) {
         return remote_embedder_->Embed(text);
     } else {
+        // Cannot run same model in parallel, so lock the mutex
+        std::unique_lock<std::mutex> lock(mutex_);
         auto encoded_input = tokenizer_->Encode(text);
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;
@@ -117,7 +133,11 @@ Option<std::vector<std::vector<float>>> TextEmbedder::batch_embed(const std::vec
             outputs.push_back(Embed(input).get());
         }
     } else {
-        outputs = std::move(remote_embedder_->batch_embed(inputs).get());
+        auto embed_op  = remote_embedder_->batch_embed(inputs);
+        if(!embed_op.ok()) {
+            return Option<std::vector<std::vector<float>>>(embed_op.code(), embed_op.error());
+        }
+        outputs = embed_op.get();
     }
     return Option<std::vector<std::vector<float>>>(outputs);
 }
@@ -125,18 +145,42 @@ Option<std::vector<std::vector<float>>> TextEmbedder::batch_embed(const std::vec
 TextEmbedder::~TextEmbedder() {
 }
 
+Option<bool> TextEmbedder::is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims) {
+    auto model_name = model_config["model_name"].get<std::string>();
 
-bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& num_dims) {
+    if(TextEmbedderManager::is_remote_model(model_name)) {
+        return validate_remote_model(model_config, num_dims);
+    } else {
+        return validate_local_or_public_model(model_config, num_dims);
+    }
+}
+
+Option<bool> TextEmbedder::validate_remote_model(const nlohmann::json& model_config, unsigned int& num_dims) {
+    auto model_name = model_config["model_name"].get<std::string>();
+    auto model_namespace = TextEmbedderManager::get_model_namespace(model_name);
+
+    if(model_namespace == "openai") {
+        return OpenAIEmbedder::is_model_valid(model_config, num_dims);
+    } else if(model_namespace == "google") {
+        return GoogleEmbedder::is_model_valid(model_config, num_dims);
+    } else if(model_namespace == "gcp") {
+        return GCPEmbedder::is_model_valid(model_config, num_dims);
+    }
+
+    return Option<bool>(400, "Invalid model namespace");
+}
+
+Option<bool> TextEmbedder::validate_local_or_public_model(const nlohmann::json& model_config, unsigned int& num_dims) {
+    auto model_name = model_config["model_name"].get<std::string>();
     LOG(INFO) << "Validating model: " << model_name;
 
     if(TextEmbedderManager::get_instance().is_public_model(model_name)) {
        auto res = TextEmbedderManager::get_instance().download_public_model(model_name);
        if(!res.ok()) {
               LOG(ERROR) << res.error();
-              return false;
+              return Option<bool>(400, res.error());
        }
     }
-
 
     Ort::SessionOptions session_options;
     Ort::Env env;
@@ -144,54 +188,54 @@ bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& n
 
     if(!std::filesystem::exists(abs_path)) {
         LOG(ERROR) << "Model file not found: " << abs_path;
-        return false;
+        return Option<bool>(400, "Model file not found");
     }
 
     if(!TextEmbedderManager::get_instance().is_public_model(model_name)) {
         if(!std::filesystem::exists(TextEmbedderManager::get_absolute_config_path(model_name))) {
             LOG(ERROR) << "Config file not found: " << TextEmbedderManager::get_absolute_config_path(model_name);
-            return false;
+            return Option<bool>(400, "Config file not found");
         }
         std::ifstream config_file(TextEmbedderManager::get_absolute_config_path(model_name));
         nlohmann::json config;
         config_file >> config;
         if(config["model_type"].is_null() || config["vocab_file_name"].is_null()) {
             LOG(ERROR) << "Invalid config file: " << TextEmbedderManager::get_absolute_config_path(model_name);
-            return false;
+            return Option<bool>(400, "Invalid config file");
         }
 
         if(!config["model_type"].is_string() || !config["vocab_file_name"].is_string()) {
             LOG(ERROR) << "Invalid config file: " << TextEmbedderManager::get_absolute_config_path(model_name);
-            return false;
+            return Option<bool>(400, "Invalid config file");
         }
 
         if(!std::filesystem::exists(TextEmbedderManager::get_model_subdir(model_name) + "/" + config["vocab_file_name"].get<std::string>())) {
             LOG(ERROR) << "Vocab file not found: " << TextEmbedderManager::get_model_subdir(model_name) + "/" + config["vocab_file_name"].get<std::string>();
-            return false;
+            return Option<bool>(400, "Vocab file not found");
         }
 
         if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert") {
             LOG(ERROR) << "Invalid model type: " << config["model_type"].get<std::string>();
-            return false;
+            return Option<bool>(400, "Invalid model type");
         }
     }
 
     Ort::Session session(env, abs_path.c_str(), session_options);
     if(session.GetInputCount() != 3 && session.GetInputCount() != 2) {
         LOG(ERROR) << "Invalid model: input count is not 3 or 2";
-        return false;
+        return Option<bool>(400, "Invalid model: input count is not 3 or 2");
     }
     Ort::AllocatorWithDefaultOptions allocator;
     auto input_ids_name = session.GetInputNameAllocated(0, allocator);
     if (std::strcmp(input_ids_name.get(), "input_ids") != 0) {
         LOG(ERROR) << "Invalid model: input_ids tensor not found";
-        return false;
+        return Option<bool>(400, "Invalid model: input_ids tensor not found");
     }
 
     auto attention_mask_name = session.GetInputNameAllocated(1, allocator);
     if (std::strcmp(attention_mask_name.get(), "attention_mask") != 0) {
         LOG(ERROR) << "Invalid model: attention_mask tensor not found";
-        return false;
+        return Option<bool>(400, "Invalid model: attention_mask tensor not found");
     }
 
 
@@ -199,7 +243,7 @@ bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& n
         auto token_type_ids_name = session.GetInputNameAllocated(2, allocator);
         if (std::strcmp(token_type_ids_name.get(), "token_type_ids") != 0) {
             LOG(ERROR) << "Invalid model: token_type_ids tensor not found";
-            return false;
+            return Option<bool>(400, "Invalid model: token_type_ids tensor not found");
         }
     }
 
@@ -216,21 +260,8 @@ bool TextEmbedder::is_model_valid(const std::string& model_name, unsigned int& n
 
     if (!found_output_tensor) {
         LOG(ERROR) << "Invalid model: Output tensor not found";
-        return false;
+        return Option<bool>(400, "Invalid model: Output tensor not found");
     }
 
-    return true;
-}
-
-
-Option<bool> TextEmbedder::is_model_valid(const std::string model_name, const std::string api_key, unsigned int& num_dims) {
-    auto model_namespace = TextEmbedderManager::get_model_namespace(model_name);
-
-    if(model_namespace == "openai") {
-        return OpenAIEmbedder::is_model_valid(model_name, api_key, num_dims);
-    } else if(model_namespace == "google") {
-        return GoogleEmbedder::is_model_valid(model_name, api_key, num_dims);
-    } else {
-        return Option<bool>(400, "Invalid model namespace");
-    }
+    return Option<bool>(true);
 }

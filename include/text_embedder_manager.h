@@ -64,6 +64,7 @@ public:
     Option<bool> download_public_model(const std::string& model_name);
 
     const bool is_public_model(const std::string& model_name);
+    static const bool is_remote_model(const std::string& model_name);
 
 private:
     TextEmbedderManager() = default;
@@ -73,7 +74,7 @@ private:
     std::mutex text_embedders_mutex;
 
     
-    Option<std::string> get_namespace(const std::string& model_name);
+    static Option<std::string> get_namespace(const std::string& model_name);
 
 };
 

@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <mutex>
 #include "http_client.h"
 #include "option.h"
 
@@ -9,6 +10,8 @@
 
 
 class RemoteEmbedder {
+    protected:
+        static Option<bool> validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties);
     public:
         virtual Option<std::vector<float>> Embed(const std::string& text) = 0;
         virtual Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) = 0;
@@ -23,7 +26,7 @@ class OpenAIEmbedder : public RemoteEmbedder {
         static constexpr char* OPENAI_CREATE_EMBEDDING = "https://api.openai.com/v1/embeddings";
     public:
         OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key);
-        static Option<bool> is_model_valid(const std::string& model_name, const std::string& api_key, unsigned int& num_dims);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
         Option<std::vector<float>> Embed(const std::string& text) override;
         Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) override;
 };
@@ -38,7 +41,33 @@ class GoogleEmbedder : public RemoteEmbedder {
         std::string google_api_key;
     public:
         GoogleEmbedder(const std::string& google_api_key);
-        static Option<bool> is_model_valid(const std::string& model_name, const std::string& api_key, unsigned int& num_dims);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
+        Option<std::vector<float>> Embed(const std::string& text) override;
+        Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) override;
+};
+
+
+
+class GCPEmbedder : public RemoteEmbedder {
+    private:
+        std::string project_id;
+        std::string access_token;
+        std::string refresh_token;
+        std::string client_id;
+        std::string client_secret;
+        std::string model_name;
+        inline static const std::string GCP_EMBEDDING_URL_PART1 = "https://us-central1-aiplatform.googleapis.com/v1/projects/";
+        inline static const std::string GCP_EMBEDDING_URL_PART2 = "/locations/us-central1/publishers/google/models/";
+        inline static const std::string GCP_EMBEDDING_URL_PART3 = ":predict";
+        inline static const std::string GCP_AUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+        static Option<std::string> generate_access_token(const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
+        static std::string get_gcp_embedding_url(const std::string& project_id, const std::string& model_name) {
+            return GCP_EMBEDDING_URL_PART1 + project_id + GCP_EMBEDDING_URL_PART2 + model_name + GCP_EMBEDDING_URL_PART3;
+        }
+    public: 
+        GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
+                    const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
         Option<std::vector<float>> Embed(const std::string& text) override;
         Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) override;
 };

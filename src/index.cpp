@@ -454,7 +454,12 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 get_doc_changes(index_rec.operation, index_rec.doc, index_rec.old_doc, index_rec.new_doc,
                                 index_rec.del_doc);
                 scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
-                docs_to_embed.push_back(&index_rec.new_doc);
+                for(auto& field: index_rec.doc.items()) {
+                    if(embedding_fields.find(field.key()) != embedding_fields.end()) {
+                        docs_to_embed.push_back(&index_rec.doc);
+                        break;
+                    }
+                }
             } else {
                 docs_to_embed.push_back(&index_rec.doc);
             }
@@ -6370,7 +6375,7 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
         if(!embedder_op.ok()) {
             return Option<bool>(400, embedder_op.error());
         }
-
+        
         auto embedding_op = embedder_op.get()->batch_embed(text_to_embed);
 
         if(!embedding_op.ok()) {
@@ -6378,7 +6383,7 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
         }
 
         auto embeddings = embedding_op.get();
-        for(size_t i = 0; i < documents.size(); i++) {
+        for(size_t i = 0; i < embeddings.size(); i++) {
             (*documents[i])[field.name] = embeddings[i];
         }
     }

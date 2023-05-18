@@ -242,14 +242,13 @@ nlohmann::json Collection::get_summary_json() const {
         if(coll_field.embed.count(fields::from) != 0) {
             field_json[fields::embed] = coll_field.embed;
 
-            if(field_json[fields::embed].count(fields::model_config) != 0 && field_json[fields::embed][fields::model_config].count(fields::api_key) != 0) {
-                // hide api key with * except first 3 chars
-                std::string api_key = field_json[fields::embed][fields::model_config][fields::api_key];
-                if(api_key.size() > 3) {
-                    field_json[fields::embed][fields::model_config][fields::api_key] = api_key.replace(3, api_key.size() - 3, api_key.size() - 3, '*');
-                } else {
-                    field_json[fields::embed][fields::model_config][fields::api_key] = api_key.replace(0, api_key.size(), api_key.size(), '*');
-                }
+            if(field_json[fields::embed].count(fields::model_config) != 0) {
+                hide_credential(field_json[fields::embed][fields::model_config], "api_key");
+                hide_credential(field_json[fields::embed][fields::model_config], "access_token");
+                hide_credential(field_json[fields::embed][fields::model_config], "refresh_token");
+                hide_credential(field_json[fields::embed][fields::model_config], "client_id");
+                hide_credential(field_json[fields::embed][fields::model_config], "client_secret");
+                hide_credential(field_json[fields::embed][fields::model_config], "project_id");
             }
         }
 
@@ -4786,4 +4785,16 @@ void Collection::process_remove_field_for_embedding_fields(const field& the_fiel
 
     }
 
+}
+
+void Collection::hide_credential(nlohmann::json& json, const std::string& credential_name) {
+    if(json.count(credential_name) != 0) {
+        // hide api key with * except first 3 chars
+        std::string credential_name_str = json[credential_name];
+        if(credential_name_str.size() > 3) {
+            json[credential_name] = credential_name_str.replace(3, credential_name_str.size() - 3, credential_name_str.size() - 3, '*');
+        } else {
+            json[credential_name] = credential_name_str.replace(0, credential_name_str.size(), credential_name_str.size(), '*');
+        }
+    }
 }

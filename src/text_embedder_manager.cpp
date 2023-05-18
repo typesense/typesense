@@ -10,7 +10,7 @@ Option<TextEmbedder*>TextEmbedderManager::get_text_embedder(const nlohmann::json
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     const std::string& model_name = model_config.at("model_name");
     if(text_embedders[model_name] == nullptr) {
-        if(model_config.count("api_key") == 0) {
+        if(!is_remote_model(model_name)) {
             if(is_public_model(model_name)) {
                 // download the model if it doesn't exist
                 auto res = download_public_model(model_name);
@@ -20,7 +20,7 @@ Option<TextEmbedder*>TextEmbedderManager::get_text_embedder(const nlohmann::json
             }
             text_embedders[model_name] = std::make_shared<TextEmbedder>(get_model_name_without_namespace(model_name));
         } else {
-            text_embedders[model_name] = std::make_shared<TextEmbedder>(model_name, model_config.at("api_key").get<std::string>());
+            text_embedders[model_name] = std::make_shared<TextEmbedder>(model_config);
         }
     }
     return Option<TextEmbedder*>(text_embedders[model_name].get());
@@ -262,4 +262,9 @@ const std::string TextEmbedderManager::get_model_namespace(const std::string& mo
     } else {
         return "ts";
     }
+}
+
+const bool TextEmbedderManager::is_remote_model(const std::string& model_name) {
+    auto model_namespace = get_namespace(model_name);
+    return model_namespace.ok() && (model_namespace.get() == "openai" || model_namespace.get() == "google" || model_namespace.get() == "gcp");
 }
