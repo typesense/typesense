@@ -1061,7 +1061,7 @@ int filter_result_iterator_t::valid(uint32_t id) {
                     seq_id = std::max(left_it->seq_id, right_it->seq_id);
                 } else if (left_valid == 0) {
                     seq_id = left_it->seq_id;
-                } else if (right_valid == 0) {
+                } else {
                     seq_id = right_it->seq_id;
                 }
 
@@ -1078,9 +1078,16 @@ int filter_result_iterator_t::valid(uint32_t id) {
                     return -1;
                 }
 
-                // id did not match the filter but both of the sub-iterators are still valid.
-                // Next seq_id match would be the minimum of the two.
-                seq_id = std::min(left_it->seq_id, right_it->seq_id);
+                // id did not match the filter; both of the sub-iterators or one of them might be valid.
+                // Updating seq_id to the next match.
+                if (left_valid == 0 && right_valid == 0) {
+                    seq_id = std::min(left_it->seq_id, right_it->seq_id);
+                } else if (left_valid == 0) {
+                    seq_id = left_it->seq_id;
+                } else {
+                    seq_id = right_it->seq_id;
+                }
+
                 return 0;
             }
 
