@@ -526,7 +526,7 @@ private:
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
     static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
-                               nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc);
+                               nlohmann::json& update_doc, const nlohmann::json& old_doc);
 
     static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
                                 nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
