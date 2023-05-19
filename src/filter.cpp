@@ -143,6 +143,142 @@ Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
     return Option<bool>(true);
 }
 
+Option<bool> filter::parse_geopoint_filter_value(string& raw_value, const string& format_err_msg, filter& filter_exp) {
+    // FORMAT:
+    // [ ([48.853, 2.344], radius: 1km, exact_filter_radius: 100km), ([48.8662, 2.3255, 48.8581, 2.3209, 48.8561, 2.3448, 48.8641, 2.3469]) ]
+
+    // Every open parenthesis represent a geo filter value.
+    auto open_parenthesis_count = std::count(raw_value.begin(), raw_value.end(), '(');
+    if (open_parenthesis_count < 1) {
+        return Option<bool>(400, format_err_msg);
+    }
+
+    filter_exp.comparators.push_back(LESS_THAN_EQUALS);
+    bool is_multivalued = raw_value[0] == '[';
+    size_t i = is_multivalued;
+
+    // Adding polygonal values at last since they don't have any parameters associated with them.
+    std::vector<std::string> polygons;
+    for (auto j = 0; j < open_parenthesis_count; j++) {
+        if (is_multivalued) {
+            auto pos = raw_value.find('(', i);
+            if (pos == std::string::npos) {
+                return Option<bool>(400, format_err_msg);
+            }
+            i = pos;
+        }
+
+        i++;
+        if (i >= raw_value.size()) {
+            return Option<bool>(400, format_err_msg);
+        }
+
+        auto value_end_index = raw_value.find(')', i);
+        if (value_end_index == std::string::npos) {
+            return Option<bool>(400, format_err_msg);
+        }
+
+        // [48.853, 2.344], radius: 1km, exact_filter_radius: 100km
+        // [48.8662, 2.3255, 48.8581, 2.3209, 48.8561, 2.3448, 48.8641, 2.3469]
+        std::string value_str = raw_value.substr(i, value_end_index - i);
+        StringUtils::trim(value_str);
+
+        if (value_str.empty() || value_str[0] != '[' || value_str.find(']', 1) == std::string::npos) {
+            return Option<bool>(400, format_err_msg);
+        }
+
+        auto points_str = value_str.substr(1, value_str.find(']', 1) - 1);
+        std::vector<std::string> geo_points;
+        StringUtils::split(points_str, geo_points, ",");
+
+        for (const auto& geo_point: geo_points) {
+            if(!StringUtils::is_float(geo_point)) {
+                return Option<bool>(400, format_err_msg);
+            }
+        }
+
+        bool is_polygon = value_str.back() == ']';
+        if (is_polygon) {
+            polygons.push_back(points_str);
+            continue;
+        }
+
+        // Handle options.
+        // , radius: 1km, exact_filter_radius: 100km
+        i = raw_value.find(']', i);
+        i++;
+
+        std::vector<std::string> options;
+        StringUtils::split(raw_value.substr(i, value_end_index - i), options, ",");
+
+        if (options.empty()) {
+            // Missing radius option
+            return Option<bool>(400, format_err_msg);
+        }
+
+        bool is_radius_present = false;
+        for (auto const& option: options) {
+            if (option.empty()) {
+                continue;
+            }
+
+            std::vector<std::string> key_value;
+            StringUtils::split(option, key_value, ":");
+
+            if (key_value.size() < 2) {
+                continue;
+            }
+
+            if (key_value[0] == GEO_FILTER_RADIUS) {
+                is_radius_present = true;
+                auto& value = key_value[1];
+
+                if(value.size() < 2) {
+                    return Option<bool>(400, "Unit must be either `km` or `mi`.");
+                }
+
+                std::string unit = value.substr(value.size() - 2, 2);
+
+                if(unit != "km" && unit != "mi") {
+                    return Option<bool>(400, "Unit must be either `km` or `mi`.");
+                }
+
+                std::vector<std::string> dist_values;
+                StringUtils::split(value, dist_values, unit);
+
+                if(dist_values.size() != 1) {
+                    return Option<bool>(400, format_err_msg);
+                }
+
+                if(!StringUtils::is_float(dist_values[0])) {
+                    return Option<bool>(400, format_err_msg);
+                }
+
+                filter_exp.values.push_back(points_str + ", " + dist_values[0] + ", " + unit);
+            } else if (key_value[0] == EXACT_GEO_FILTER_RADIUS) {
+                nlohmann::json param;
+                param[EXACT_GEO_FILTER_RADIUS] = key_value[1];
+                filter_exp.params.push_back(param);
+            }
+        }
+
+        if (!is_radius_present) {
+            return Option<bool>(400, format_err_msg);
+        }
+        if (filter_exp.params.empty()) {
+            nlohmann::json param;
+            param[EXACT_GEO_FILTER_RADIUS] = DEFAULT_EXACT_GEO_FILTER_RADIUS;
+            filter_exp.params.push_back(param);
+        }
+    }
+
+    for (auto const& polygon: polygons) {
+        filter_exp.values.push_back(polygon);
+    }
+
+    return Option<bool>(true);
+}
+
 bool isOperator(const std::string& expression) {
     return expression == "&&" || expression == "||";
 }
@@ -383,10 +519,23 @@ Option<bool> toFilter(const std::string expression,
         }
     } else if (_field.is_geopoint()) {
         filter_exp = {field_name, {}, {}};
+        NUM_COMPARATOR num_comparator;
+
+        if ((raw_value[0] == '(' && std::count(raw_value.begin(), raw_value.end(), '[') > 0) ||
+            std::count(raw_value.begin(), raw_value.end(), '[') > 1 ||
+            std::count(raw_value.begin(), raw_value.end(), ':') > 0) {
+
+            const std::string& format_err_msg = "Value of filter field `" + _field.name + "`: must be in the "
+                                                "`([-44.50, 170.29], radius: 0.75 km, exact_filter_radius: 5 km)` or "
+                                                "([56.33, -65.97, 23.82, -127.82]) format.";
+
+            auto parse_op = filter::parse_geopoint_filter_value(raw_value, format_err_msg, filter_exp);
+            return parse_op;
+        }
+
         const std::string& format_err_msg = "Value of filter field `" + _field.name +
                                             "`: must be in the `(-44.50, 170.29, 0.75 km)` or "
                                             "(56.33, -65.97, 23.82, -127.82) format.";
-        NUM_COMPARATOR num_comparator;
         // could be a single value or a list
         if (raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
             std::vector<std::string> filter_values;
