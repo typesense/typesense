@@ -349,6 +349,35 @@ size_t StringUtils::get_num_chars(const std::string& s) {
     return j;
 }
 
+Option<bool> parse_multi_valued_geopoint_filter(const std::string& filter_query, std::string& tokens, size_t& index) {
+    // Multi-valued geopoint filter.
+    // field_name:[ ([points], options), ([points]) ]
+    auto error = Option<bool>(400, "Could not parse the geopoint filter.");
+    if (filter_query[index] != '[') {
+        return error;
+    }
+
+    size_t start_index = index;
+    auto size = filter_query.size();
+
+    // Individual geopoint filters have square brackets inside them.
+    int square_bracket_count = 1;
+    while (++index < size && square_bracket_count > 0) {
+        if (filter_query[index] == '[') {
+            square_bracket_count++;
+        } else if (filter_query[index] == ']') {
+            square_bracket_count--;
+        }
+    }
+
+    if (square_bracket_count != 0) {
+        return error;
+    }
+
+    tokens = filter_query.substr(start_index, index - start_index);
+    return Option<bool>(true);
+}
+
 Option<bool> parse_reference_filter(const std::string& filter_query, std::queue<std::string>& tokens, size_t& index) {
     auto error = Option<bool>(400, "Could not parse the reference filter.");
     if (filter_query[index] != '$') {
@@ -440,6 +469,15 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
                 if (preceding_colon && c == '(') {
                     is_geo_value = true;
                     preceding_colon = false;
+                } else if (preceding_colon && c == '[') {
+                    std::string value;
+                    auto op = parse_multi_valued_geopoint_filter(filter_query, value, i);
+                    if (!op.ok()) {
+                        return op;
+                    }
+
+                    ss << value;
+                    break;
                 } else if (preceding_colon && c != ' ') {
                     preceding_colon = false;
                 }
