@@ -232,7 +232,7 @@ struct index_record {
     }
 };
 
-class VectorFilterFunctor: public hnswlib::FilterFunctor {
+class VectorFilterFunctor: public hnswlib::BaseFilterFunctor {
     const uint32_t* filter_ids = nullptr;
     const uint32_t filter_ids_length = 0;
 
@@ -240,7 +240,7 @@ public:
     explicit VectorFilterFunctor(const uint32_t* filter_ids, const uint32_t filter_ids_length) :
             filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
 
-    bool operator()(unsigned int id) {
+    bool operator()(hnswlib::labeltype id) override {
         if(filter_ids_length == 0) {
             return true;
         }
@@ -251,13 +251,13 @@ public:
 
 struct hnsw_index_t {
     hnswlib::InnerProductSpace* space;
-    hnswlib::HierarchicalNSW<float, VectorFilterFunctor>* vecdex;
+    hnswlib::HierarchicalNSW<float>* vecdex;
     size_t num_dim;
     vector_distance_type_t distance_type;
 
     hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type):
         space(new hnswlib::InnerProductSpace(num_dim)),
-        vecdex(new hnswlib::HierarchicalNSW<float, VectorFilterFunctor>(space, init_size, 16, 200, 100, true)),
+        vecdex(new hnswlib::HierarchicalNSW<float>(space, init_size, 16, 200, 100, true)),
         num_dim(num_dim), distance_type(distance_type) {
 
     }
@@ -414,6 +414,7 @@ private:
                                const std::vector<search_field_t>& the_fields,
                                const uint32_t* filter_ids, size_t filter_ids_length,
                                const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
+                               const std::unordered_set<uint32_t>& excluded_group_ids,
                                const std::vector<sort_by>& sort_fields,
                                std::vector<tok_candidates>& token_candidates_vec,
                                std::vector<std::vector<art_leaf*>>& searched_queries,
@@ -524,8 +525,12 @@ private:
 
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
-    static void get_doc_changes(const index_operation_t op, nlohmann::json &update_doc,
-                                const nlohmann::json &old_doc, nlohmann::json &new_doc, nlohmann::json &del_doc);
+    static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
+                               nlohmann::json& update_doc, const nlohmann::json& old_doc);
+
+    static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
+                                nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
+                                nlohmann::json &del_doc);
 
     bool common_results_exist(std::vector<art_leaf*>& leaves, bool must_match_phrase) const;
 
@@ -735,7 +740,7 @@ public:
                          std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                          const std::vector<std::string>& group_by_fields, const std::set<uint32_t>& curated_ids,
                          const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
-                         size_t exclude_token_ids_size,
+                         size_t exclude_token_ids_size, const std::unordered_set<uint32_t>& excluded_group_ids,
                          uint32_t*& all_result_ids, size_t& all_result_ids_len, const uint32_t* filter_ids,
                          uint32_t filter_ids_length, const size_t concurrency,
                          const int* sort_order,
@@ -782,6 +787,7 @@ public:
                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
                          const std::vector<size_t>& geopoint_indices,
                          const std::vector<uint32_t>& curated_ids_sorted,
+                         const std::unordered_set<uint32_t>& excluded_group_ids,
                          uint32_t*& all_result_ids, size_t& all_result_ids_len,
                          spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed) const;
 
@@ -800,6 +806,7 @@ public:
                            size_t min_len_2typo, const size_t max_candidates, const std::set<uint32_t>& curated_ids,
                            const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
                            size_t exclude_token_ids_size,
+                           const std::unordered_set<uint32_t>& excluded_group_ids,
                            Topster* actual_topster,
                            std::vector<std::vector<token_t>>& q_pos_synonyms,
                            int syn_orig_num_tokens,
@@ -827,6 +834,7 @@ public:
                           spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                           const std::set<uint32_t>& curated_ids,
                           const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
+                          const std::unordered_set<uint32_t>& excluded_group_ids,
                           Topster* curated_topster,
                           const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
                           bool is_wildcard_query,
@@ -840,6 +848,7 @@ public:
                              size_t exclude_token_ids_size,
                              const uint32_t* filter_ids, size_t filter_ids_length,
                              const std::vector<uint32_t>& curated_ids,
+                             const std::unordered_set<uint32_t>& excluded_group_ids,
                              const std::vector<sort_by>& sort_fields,
                              const std::vector<uint32_t>& num_typos,
                              std::vector<std::vector<art_leaf*>>& searched_queries,
@@ -893,6 +902,7 @@ public:
                               const int syn_orig_num_tokens,
                               const uint32_t* exclude_token_ids,
                               size_t exclude_token_ids_size,
+                              const std::unordered_set<uint32_t>& excluded_group_ids,
                               const int* sort_order,
                               std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                               const std::vector<size_t>& geopoint_indices,
@@ -938,11 +948,12 @@ public:
 
     void
     process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
-                        const std::vector<uint32_t>& excluded_ids,
+                        const std::vector<uint32_t>& excluded_ids, const std::vector<std::string>& group_by_fields,
                         const size_t group_limit, const bool filter_curated_hits, const uint32_t* filter_ids,
                         uint32_t filter_ids_length, std::set<uint32_t>& curated_ids,
                         std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                        std::vector<uint32_t>& included_ids_vec) const;
+                        std::vector<uint32_t>& included_ids_vec,
+                        std::unordered_set<uint32_t>& excluded_group_ids) const;
 };
 
 template<class T>

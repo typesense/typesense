@@ -57,6 +57,8 @@ private:
     int disk_used_max_percentage;
     int memory_used_max_percentage;
 
+    uint32_t cache_num_entries = 1000;
+
     std::atomic<bool> skip_writes;
 
     std::atomic<int> log_slow_searches_time_ms;
@@ -78,6 +80,7 @@ protected:
         this->log_slow_requests_time_ms = -1;
         this->num_collections_parallel_load = 0;  // will be set dynamically if not overridden
         this->num_documents_parallel_load = 1000;
+        this->cache_num_entries = 1000;
         this->thread_pool_size = 0; // will be set dynamically if not overridden
         this->ssl_refresh_interval_seconds = 8 * 60 * 60;
         this->enable_access_logging = false;
@@ -276,6 +279,10 @@ public:
         return this->num_documents_parallel_load;
     }
 
+    size_t get_cache_num_entries() const {
+        return this->cache_num_entries;
+    }
+
     size_t get_thread_pool_size() const {
         return this->thread_pool_size;
     }
@@ -397,6 +404,10 @@ public:
 
         if(!get_env("TYPESENSE_NUM_DOCUMENTS_PARALLEL_LOAD").empty()) {
             this->num_documents_parallel_load = std::stoi(get_env("TYPESENSE_NUM_DOCUMENTS_PARALLEL_LOAD"));
+        }
+
+        if(!get_env("TYPESENSE_CACHE_NUM_ENTRIES").empty()) {
+            this->cache_num_entries = std::stoi(get_env("TYPESENSE_CACHE_NUM_ENTRIES"));
         }
 
         if(!get_env("TYPESENSE_THREAD_POOL_SIZE").empty()) {
@@ -553,6 +564,10 @@ public:
             this->num_documents_parallel_load = (int) reader.GetInteger("server", "num-documents-parallel-load", 1000);
         }
 
+        if(reader.Exists("server", "cache-num-entries")) {
+            this->cache_num_entries = (int) reader.GetInteger("server", "cache-num-entries", 1000);
+        }
+
         if(reader.Exists("server", "thread-pool-size")) {
             this->thread_pool_size = (int) reader.GetInteger("server", "thread-pool-size", 0);
         }
@@ -692,6 +707,10 @@ public:
 
         if(options.exist("num-documents-parallel-load")) {
             this->num_documents_parallel_load = options.get<uint32_t>("num-documents-parallel-load");
+        }
+
+        if(options.exist("cache-num-entries")) {
+            this->cache_num_entries = options.get<uint32_t>("cache-num-entries");
         }
 
         if(options.exist("thread-pool-size")) {

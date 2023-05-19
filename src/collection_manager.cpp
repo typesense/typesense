@@ -1320,10 +1320,10 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
         if(collection->get_enable_nested_fields()) {
             std::vector<field> flattened_fields;
-            field::flatten_doc(document, collection->get_nested_fields(), true, flattened_fields);
+            field::flatten_doc(document, collection->get_nested_fields(), {}, true, flattened_fields);
         }
 
-        auto dirty_values = DIRTY_VALUES::DROP;
+        auto dirty_values = DIRTY_VALUES::COERCE_OR_DROP;
 
         num_valid_docs++;
 

@@ -32,10 +32,9 @@ git_repository(
     name = "com_github_brpc_brpc",
     commit = "70d702f1c7c4f663d30cd0ca284bf838a8cf7afb",
     patches = [
-        "//bazel/brpc:butil.patch",
         "//bazel/brpc:brpc.patch",
     ],
-    remote = "https://github.com/apache/incubator-brpc.git",
+    remote = "https://github.com/apache/brpc.git",
 )
 
 
@@ -176,7 +175,7 @@ new_git_repository(
 new_git_repository(
     name = "hnsw",
     build_file = "//bazel:hnsw.BUILD",
-    commit = "21de18ffabea1a9d1e8b16b49afc6045d7707e4c",
+    commit = "b5c2ebae31cd124e3a625f2de789a3496ebb2286",
     remote = "https://github.com/typesense/hnswlib.git",
 )
 

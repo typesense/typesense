@@ -1,4 +1,32 @@
+--- src/bvar/default_variables.cpp
++++ src/bvar/default_variables.cpp
+@@ -447,7 +447,13 @@
+     // in MacOS.
+     memset(s, 0, sizeof(ProcIO));
+     static pid_t pid = getpid();
+-    rusage_info_current rusage;
++
++    #ifdef __arm__
++        rusage_info_v4 rusage;
++    #else
++        rusage_info_current rusage;
++    #endif
++
+     if (proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, (void**)&rusage) != 0) {
+         PLOG(WARNING) << "Fail to proc_pid_rusage";
+         return false;
 
+--- src/butil/third_party/dynamic_annotations/dynamic_annotations.h
++++ src/butil/third_party/dynamic_annotations/dynamic_annotations.h
+@@ -498,7 +498,7 @@
+     const char *file, int line, const volatile void *mem,
+     const char *description) DYNAMIC_ANNOTATIONS_ATTRIBUTE_WEAK;
+ void DYNAMIC_ANNOTATIONS_NAME(AnnotateBenignRaceSized)(
+-    const char *file, int line, const volatile void *mem, long size,
++    const char *file, int line, const volatile void *mem, size_t size,
+     const char *description) DYNAMIC_ANNOTATIONS_ATTRIBUTE_WEAK;
+ void DYNAMIC_ANNOTATIONS_NAME(AnnotateMutexIsUsedAsCondVar)(
+     const char *file, int line,
 
 --- BUILD.bazel
 +++ BUILD.bazel

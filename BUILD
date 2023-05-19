@@ -77,6 +77,12 @@ COPTS = [
     "-g",
 ]
 
+ASAN_COPTS = [
+    "-fsanitize=address",
+    "-fno-omit-frame-pointer",
+    "-DASAN_BUILD"
+]
+
 cc_binary(
     name = "typesense-server",
     srcs = [
@@ -88,12 +94,15 @@ cc_binary(
     ],
     linkopts = select({
         "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc"],
+        "//conditions:default": [],
     }),
     copts = COPTS + select({
         "@platforms//os:linux": ["-DBACKWARD_HAS_DW=1", "-DBACKWARD_HAS_UNWIND=1"],
+        "//conditions:default": [],
     }),
     deps = [":common_deps"] +  select({
         "@platforms//os:linux": [":linux_deps"],
+        "//conditions:default": [],
     }),
 )
 
@@ -131,13 +140,35 @@ filegroup(
     ]),
 )
 
+TEST_COPTS = [
+    "-Wall",
+    "-Wextra",
+    "-Wno-unused-parameter",
+    "-Werror=return-type",
+    "-g",
+]
+
+config_setting(
+    name = "release_mode",
+    define_values = { "mode": "release" }
+)
+
+config_setting(
+    name = "asan_mode",
+    define_values = { "mode": "asan" }
+)
+
 cc_test(
     name = "typesense-test",
     srcs = [
         ":src_files",
         ":test_src_files",
     ],
-    copts = COPTS,
+    copts = TEST_COPTS + select({
+        ":release_mode": ["-O2"],
+        ":asan_mode": ["-O0"] + ASAN_COPTS,
+        "//conditions:default": ["-O0"]
+    }),
     data = [
         ":test_data_files",
         "@libart//:data",
@@ -150,6 +181,10 @@ cc_test(
     defines = [
         "ROOT_DIR="
     ],
+    linkopts = select({
+       ":asan_mode": ["-fsanitize=address"],
+       "//conditions:default": []
+   })
 )
 
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")

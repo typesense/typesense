@@ -4,6 +4,7 @@
 #include "text_embedder_manager.h"
 #include <stack>
 #include <collection_manager.h>
+#include <regex>
 
 Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
                                                  const std::string& format_err_msg,
@@ -818,15 +819,17 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
 bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
                         const field& the_field, const std::string& flat_name,
+                        const std::unordered_map<std::string, field>& dyn_fields,
                         std::unordered_map<std::string, field>& flattened_fields) {
     if(value.is_object()) {
         has_obj_array = has_array;
         for(const auto& kv: value.items()) {
-            flatten_obj(doc, kv.value(), has_array, has_obj_array, the_field, flat_name + "." + kv.key(), flattened_fields);
+            flatten_obj(doc, kv.value(), has_array, has_obj_array, the_field, flat_name + "." + kv.key(),
+                        dyn_fields, flattened_fields);
         }
     } else if(value.is_array()) {
         for(const auto& kv: value.items()) {
-            flatten_obj(doc, kv.value(), true, has_obj_array, the_field, flat_name, flattened_fields);
+            flatten_obj(doc, kv.value(), true, has_obj_array, the_field, flat_name, dyn_fields, flattened_fields);
         }
     } else { // must be a primitive
         if(doc.count(flat_name) != 0 && flattened_fields.find(flat_name) == flattened_fields.end()) {
@@ -834,19 +837,37 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         }
 
         std::string detected_type;
-        if(!field::get_type(value, detected_type)) {
-            return false;
+        bool found_dynamic_field = false;
+
+        for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
+            auto& dynamic_field = dyn_field_it->second;
+
+            if(dynamic_field.is_auto() || dynamic_field.is_string_star()) {
+                continue;
+            }
+
+            if(std::regex_match(flat_name, std::regex(flat_name))) {
+                detected_type = dynamic_field.type;
+                found_dynamic_field = true;
+                break;
+            }
+        }
+
+        if(!found_dynamic_field) {
+            if(!field::get_type(value, detected_type)) {
+                return false;
+            }
+
+            if(std::isalnum(detected_type.back()) && has_array) {
+                // convert singular type to multi valued type
+                detected_type += "[]";
+            }
         }
 
         if(has_array) {
             doc[flat_name].push_back(value);
         } else {
             doc[flat_name] = value;
-        }
-
-        if(std::isalnum(detected_type.back()) && has_array) {
-            // convert singular type to multi valued type
-            detected_type += "[]";
         }
 
         field flattened_field = the_field;
@@ -864,22 +885,42 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
 
 Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                   std::vector<std::string>& path_parts, size_t path_index,
-                                  bool has_array, bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields) {
+                                  bool has_array, bool has_obj_array,
+                                  const std::unordered_map<std::string, field>& dyn_fields,
+                                  std::unordered_map<std::string, field>& flattened_fields) {
     if(path_index == path_parts.size()) {
         // end of path: check if obj matches expected type
         std::string detected_type;
-        if(!field::get_type(obj, detected_type)) {
-            if(obj.is_null() && the_field.optional) {
-                // null values are allowed only if field is optional
-                return Option<bool>(true);
+        bool found_dynamic_field = false;
+
+        for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
+            auto& dynamic_field = dyn_field_it->second;
+
+            if(dynamic_field.is_auto() || dynamic_field.is_string_star()) {
+                continue;
             }
 
-            return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
+            if(std::regex_match(the_field.name, std::regex(dynamic_field.name))) {
+                detected_type = dynamic_field.type;
+                found_dynamic_field = true;
+                break;
+            }
         }
 
-        if(std::isalnum(detected_type.back()) && has_array) {
-            // convert singular type to multi valued type
-            detected_type += "[]";
+        if(!found_dynamic_field) {
+            if(!field::get_type(obj, detected_type)) {
+                if(obj.is_null() && the_field.optional) {
+                    // null values are allowed only if field is optional
+                    return Option<bool>(true);
+                }
+
+                return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
+            }
+
+            if(std::isalnum(detected_type.back()) && has_array) {
+                // convert singular type to multi valued type
+                detected_type += "[]";
+            }
         }
 
         has_obj_array = has_obj_array || ((detected_type == field_types::OBJECT) && has_array);
@@ -899,7 +940,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
         if(detected_type == the_field.type || is_numericaly_valid) {
             if(the_field.is_object()) {
-                flatten_obj(doc, obj, has_array, has_obj_array, the_field, the_field.name, flattened_fields);
+                flatten_obj(doc, obj, has_array, has_obj_array, the_field, the_field.name, dyn_fields, flattened_fields);
             } else {
                 if(doc.count(the_field.name) != 0 && flattened_fields.find(the_field.name) == flattened_fields.end()) {
                     return Option<bool>(true);
@@ -942,14 +983,15 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             for(auto& ele: it.value()) {
                 has_obj_array = has_obj_array || ele.is_object();
                 Option<bool> op = flatten_field(doc, ele, the_field, path_parts, path_index + 1, has_array,
-                                                has_obj_array, flattened_fields);
+                                                has_obj_array, dyn_fields, flattened_fields);
                 if(!op.ok()) {
                     return op;
                 }
             }
             return Option<bool>(true);
         } else {
-            return flatten_field(doc, it.value(), the_field, path_parts, path_index + 1, has_array, has_obj_array, flattened_fields);
+            return flatten_field(doc, it.value(), the_field, path_parts, path_index + 1, has_array, has_obj_array,
+                                 dyn_fields, flattened_fields);
         }
     } {
         return Option<bool>(404, "Field `" + the_field.name + "` not found.");
@@ -958,6 +1000,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
 Option<bool> field::flatten_doc(nlohmann::json& document,
                                 const tsl::htrie_map<char, field>& nested_fields,
+                                const std::unordered_map<std::string, field>& dyn_fields,
                                 bool missing_is_ok, std::vector<field>& flattened_fields) {
 
     std::unordered_map<std::string, field> flattened_fields_map;
@@ -971,7 +1014,8 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
             continue;
         }
 
-        auto op = flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields_map);
+        auto op = flatten_field(document, document, nested_field, field_parts, 0, false, false,
+                                dyn_fields, flattened_fields_map);
         if(op.ok()) {
             continue;
         }

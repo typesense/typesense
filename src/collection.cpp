@@ -656,9 +656,9 @@ void Collection::curate_results(string& actual_query, const string& filter_query
             bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
                                    !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
 
-            bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
+            bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.normalized_query == query) ||
                    (override.rule.match == override_t::MATCH_CONTAINS &&
-                    StringUtils::contains_word(query, override.rule.query));
+                    StringUtils::contains_word(query, override.rule.normalized_query));
 
             if (filter_by_match || query_match) {
                 if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
@@ -690,7 +690,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                     actual_query = override.replace_query;
                 } else if(override.remove_matched_tokens && override.filter_by.empty()) {
                     // don't prematurely remove tokens from query because dynamic filtering will require them
-                    StringUtils::replace_all(query, override.rule.query, "");
+                    StringUtils::replace_all(query, override.rule.normalized_query, "");
                     StringUtils::trim(query);
                     if(query.empty()) {
                         query = "*";
@@ -3044,6 +3044,8 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
     std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
     bool found_first_match = false;
 
+    size_t text_len = Tokenizer::is_ascii_char(text[0]) ? text.size() : StringUtils::get_num_chars(text);
+
     while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
         if(use_word_tokenizer) {
             bool found_token = word_tokenizer.tokenize(raw_token);
@@ -3072,8 +3074,8 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
         // Token might not appear in the best matched window, which is limited to a size of 10.
         // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
         // locate all tokens that appear in the query / query candidates
-        bool raw_token_found = !match_offset_found && (highlight_fully || text.size() < snippet_threshold * 6) &&
-                                                        qtoken_leaves.find(raw_token) != qtoken_leaves.end();
+        bool raw_token_found = !match_offset_found && (highlight_fully || text_len < snippet_threshold * 6) &&
+                                qtoken_leaves.find(raw_token) != qtoken_leaves.end();
 
         if (match_offset_found || raw_token_found) {
             if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
@@ -3530,7 +3532,7 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key,
 
     if(!raw_doc && enable_nested_fields) {
         std::vector<field> flattened_fields;
-        field::flatten_doc(document, nested_fields, true, flattened_fields);
+        field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
     }
 
     return Option<bool>(true);
@@ -3719,7 +3721,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(enable_nested_fields) {
             std::vector<field> flattened_fields;
-            field::flatten_doc(document, nested_fields, true, flattened_fields);
+            field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
         }
 
         index_record record(num_found_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::REJECT);
@@ -3802,6 +3804,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
 Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     std::unique_lock lock(mutex);
+
+    LOG(INFO) << "Collection " << name << " is being prepared for alter...";
 
     // Validate that all stored documents are compatible with the proposed schema changes.
     std::vector<field> del_fields;
@@ -4242,7 +4246,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                            index_operation_t::CREATE,
                                                            false,
                                                            fallback_field_type,
-                                                           DIRTY_VALUES::REJECT);
+                                                           DIRTY_VALUES::COERCE_OR_REJECT);
         if(!validate_op.ok()) {
             std::string err_message = validate_op.error();
 
@@ -4402,13 +4406,6 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                 auto& dynamic_field = dyn_field_it->second;
 
                 if(std::regex_match (kv.key(), std::regex(dynamic_field.name))) {
-                    // unless the field is auto or string*, ignore field name matching regexp pattern
-                    if(kv.key() == dynamic_field.name && !dynamic_field.is_auto() &&
-                       !dynamic_field.is_string_star()) {
-                        skip_field = true;
-                        break;
-                    }
-
                     // to prevent confusion we also disallow dynamic field names that contain ".*"
                     if((kv.key() != ".*" && kv.key().find(".*") != std::string::npos)) {
                         skip_field = true;
@@ -4456,7 +4453,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         }
 
         std::vector<field> flattened_fields;
-        auto flatten_op = field::flatten_doc(document, nested_fields, is_update, flattened_fields);
+        auto flatten_op = field::flatten_doc(document, nested_fields, dyn_fields, is_update, flattened_fields);
         if(!flatten_op.ok()) {
             return flatten_op;
         }
@@ -4561,7 +4558,7 @@ bool Collection::get_enable_nested_fields() {
 
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const{
    const std::regex base_pattern(".+\\(.*\\)");
-   const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\, ([0-9]+)\\]");
+   const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\,\\s*([0-9]+)\\]");
    
    if(facet_field.find(":") != std::string::npos) { //range based facet
         if(!std::regex_match(facet_field, base_pattern)){
@@ -4579,8 +4576,8 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 
         const field& a_field = search_schema.at(field_name);
 
-        if(!a_field.is_int32() && !a_field.is_int64()){
-            std::string error = "Range facet is restricted to only int32 and int64 fields.";
+        if(!a_field.is_integer() && !a_field.is_float()){
+            std::string error = "Range facet is restricted to only integer and float fields.";
             return Option<bool>(400, error);
         }
 
@@ -4647,8 +4644,18 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             auto pos2 = range.find(",");
             auto pos3 = range.find("]");
 
-            int64_t lower_range = std::stoll(range.substr(pos1 + 2, pos2));
-            int64_t upper_range = std::stoll(range.substr(pos2 + 1, pos3));
+            int64_t lower_range, upper_range;
+
+            if(a_field.is_integer()) {
+                lower_range = std::stoll(range.substr(pos1 + 2, pos2));
+                upper_range = std::stoll(range.substr(pos2 + 1, pos3));
+            } else {
+                float val = std::stof(range.substr(pos1 + 2, pos2));
+                lower_range = Index::float_to_int64_t(val);
+
+                val = std::stof(range.substr(pos2 + 1, pos3));
+                upper_range = Index::float_to_int64_t(val);
+            }
 
             tupVec.emplace_back(std::make_tuple(lower_range, upper_range, range_val));
         }

@@ -875,6 +875,79 @@ TEST_F(CollectionOverrideTest, ReplaceQuery) {
     ASSERT_TRUE(op.ok());
 }
 
+TEST_F(CollectionOverrideTest, RuleQueryMustBeCaseInsensitive) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["points"] = 30;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Tennis Ball";
+    doc2["points"] = 50;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Golf Ball";
+    doc3["points"] = 1;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json = R"({
+       "id": "rule-1",
+       "rule": {
+            "query": "GrEat",
+            "match": "contains"
+        },
+        "replace_query": "amazing"
+    })"_json;
+
+    override_t override_rule;
+    auto op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    override_json = R"({
+       "id": "rule-2",
+       "rule": {
+            "query": "BaLL",
+            "match": "contains"
+        },
+        "filter_by": "points: 1"
+    })"_json;
+
+    override_t override_rule2;
+    op = override_t::parse(override_json, "rule-2", override_rule2);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule2);
+
+    auto results = coll1->search("great shoes", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("ball", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionOverrideTest, WindowForRule) {
     Collection *coll1;
 
@@ -1043,6 +1116,105 @@ TEST_F(CollectionOverrideTest, FilterRule) {
     ASSERT_EQ("points: 1", override_json_ser["rule"]["filter_by"]);
     ASSERT_EQ(0, override_json_ser["rule"].count("query"));
     ASSERT_EQ(0, override_json_ser["rule"].count("match"));
+}
+
+TEST_F(CollectionOverrideTest, CurationGroupingNonCuratedHitsShouldNotAppearOutside) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("group_id", field_types::STRING, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 3, fields).get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "1";
+    doc["title"] = "The Harry Potter 1";
+    doc["group_id"] = "hp";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["title"] = "The Harry Potter 2";
+    doc["group_id"] = "hp";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "3";
+    doc["title"] = "Lord of the Rings";
+    doc["group_id"] = "lotr";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    nlohmann::json override_json = R"({
+       "id": "rule-1",
+       "rule": {
+            "query": "*",
+            "match": "exact"
+        },
+        "includes": [{
+            "id": "2",
+            "position": 1
+        }]
+    })"_json;
+
+    override_t override_rule;
+    auto op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    override_json = R"({
+       "id": "rule-2",
+       "rule": {
+            "query": "the",
+            "match": "exact"
+        },
+        "includes": [{
+            "id": "2",
+            "position": 1
+        }]
+    })"_json;
+
+    override_t override_rule2;
+    op = override_t::parse(override_json, "rule-2", override_rule2);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule2);
+
+    auto results = coll1->search("*", {"title"}, "", {}, {}, {0}, 50, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10,
+                                 "", {}, {"group_id"}, 2).get();
+
+    // when only one of the 2 records belonging to a record is used for curation, the other record
+    // should not appear back
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
+
+    ASSERT_EQ("2", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
+
+    // same for keyword search
+    results = coll1->search("the", {"title"}, "", {}, {}, {0}, 50, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10,
+                            "", {}, {"group_id"}, 2).get();
+
+    // when only one of the 2 records belonging to a record is used for curation, the other record
+    // should not appear back
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
+
+    ASSERT_EQ("2", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionOverrideTest, PinnedAndHiddenHits) {
@@ -1386,6 +1558,73 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
 
     ASSERT_STREQ("11", results["grouped_hits"][3]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("16", results["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionOverrideTest, PinnedHitsGroupingNonPinnedHitsShouldNotAppearOutside) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("group_id", field_types::STRING, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 3, fields).get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "1";
+    doc["title"] = "The Harry Potter 1";
+    doc["group_id"] = "hp";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["title"] = "The Harry Potter 2";
+    doc["group_id"] = "hp";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "3";
+    doc["title"] = "Lord of the Rings";
+    doc["group_id"] = "lotr";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto pinned_hits = "2:1";
+
+    auto results = coll1->search("*", {"title"}, "", {}, {}, {0}, 50, 1, FREQUENCY,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
+                                   spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                   "", 10,
+                                   pinned_hits, {}, {"group_id"}, 2).get();
+
+    // when only one of the 2 records belonging to a record is used for curation, the other record
+    // should not appear back
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
+
+    ASSERT_EQ("2", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
+
+    // same for keyword search
+    results = coll1->search("the", {"title"}, "", {}, {}, {0}, 50, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10,
+                            pinned_hits, {}, {"group_id"}, 2).get();
+
+    // when only one of the 2 records belonging to a record is used for curation, the other record
+    // should not appear back
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
+
+    ASSERT_EQ("2", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionOverrideTest, PinnedHitsWithWildCardQuery) {
