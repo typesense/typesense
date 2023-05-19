@@ -462,7 +462,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 }
             } else {
                 handle_doc_ops(search_schema, index_rec.doc, index_rec.old_doc);
-                embed_fields(index_rec.doc, embedding_fields, search_schema);
+                docs_to_embed.push_back(&index_rec.doc);
             }
 
             compute_token_offsets_facets(index_rec, search_schema, token_separators, symbols_to_index);
