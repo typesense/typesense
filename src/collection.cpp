@@ -4227,7 +4227,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                            index_operation_t::CREATE,
                                                            false,
                                                            fallback_field_type,
-                                                           DIRTY_VALUES::REJECT);
+                                                           DIRTY_VALUES::COERCE_OR_REJECT);
         if(!validate_op.ok()) {
             std::string err_message = validate_op.error();
 
