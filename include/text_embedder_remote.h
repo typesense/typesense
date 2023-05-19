@@ -56,13 +56,13 @@ class GCPEmbedder : public RemoteEmbedder {
         std::string client_id;
         std::string client_secret;
         std::string model_name;
-        inline static const std::string GCP_EMBEDDING_URL_PART1 = "https://us-central1-aiplatform.googleapis.com/v1/projects/";
-        inline static const std::string GCP_EMBEDDING_URL_PART2 = "/locations/us-central1/publishers/google/models/";
-        inline static const std::string GCP_EMBEDDING_URL_PART3 = ":predict";
+        inline static const std::string GCP_EMBEDDING_BASE_URL = "https://us-central1-aiplatform.googleapis.com/v1/projects/";
+        inline static const std::string GCP_EMBEDDING_PATH = "/locations/us-central1/publishers/google/models/";
+        inline static const std::string GCP_EMBEDDING_PREDICT = ":predict";
         inline static const std::string GCP_AUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
         static Option<std::string> generate_access_token(const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
         static std::string get_gcp_embedding_url(const std::string& project_id, const std::string& model_name) {
-            return GCP_EMBEDDING_URL_PART1 + project_id + GCP_EMBEDDING_URL_PART2 + model_name + GCP_EMBEDDING_URL_PART3;
+            return GCP_EMBEDDING_BASE_URL + project_id + GCP_EMBEDDING_PATH + model_name + GCP_EMBEDDING_PREDICT;
         }
     public: 
         GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
