@@ -79,8 +79,6 @@ Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
     if(is_remote()) {
         return remote_embedder_->Embed(text);
     } else {
-        // Cannot run same model in parallel, so lock the mutex
-        std::unique_lock<std::mutex> lock(mutex_);
         auto encoded_input = tokenizer_->Encode(text);
         // create input tensor object from data values
         Ort::AllocatorWithDefaultOptions allocator;

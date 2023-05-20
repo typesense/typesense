@@ -34,5 +34,4 @@ class TextEmbedder {
         std::string output_tensor_name;
         static Option<bool> validate_remote_model(const nlohmann::json& model_config, unsigned int& num_dims);
         static Option<bool> validate_local_or_public_model(const nlohmann::json& model_config, unsigned int& num_dims);
-        std::mutex mutex_;
 };
