@@ -807,6 +807,7 @@ void filter_result_iterator_t::init() {
                 S2Point center = S2LatLng::FromDegrees(query_lat, query_lng).ToPoint();
                 query_region = new S2Cap(center, query_radius);
             }
+            std::unique_ptr<S2Region> query_region_guard(query_region);
 
             S2RegionTermIndexer::Options options;
             options.set_index_contains_points_only(true);
@@ -883,8 +884,6 @@ void filter_result_iterator_t::init() {
 
             delete[] filter_result.docs;
             filter_result.docs = out;
-
-            delete query_region;
         }
 
         if (filter_result.count == 0) {
