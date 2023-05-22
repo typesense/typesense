@@ -522,6 +522,7 @@ private:
 
     void initialize_facet_indexes(const field& facet_field);
 
+    void migrate_facet_to_new_index(const std::string& field);
 
 
     static Option<bool> embed_fields(nlohmann::json& document, 

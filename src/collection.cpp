@@ -1937,7 +1937,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 }
             }
         } else if(a_facet.is_intersected) {
-            LOG(INFO) << "used intersection";
+            //LOG(INFO) << "used intersection";
             std::vector<std::pair<std::string, uint32_t>> facet_counts;
 
             for (const auto & kv : a_facet.result_map) {
@@ -1945,10 +1945,18 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             }
             
             auto max_facets = std::min(max_facet_values, facet_counts.size());
-            std::sort(facet_counts.begin(), facet_counts.end(), 
-                [&](const auto& p1, const auto& p2) {
-                    return std::tie(p1.second, p1.first) > std::tie(p2.second, p2.first);
-                });
+            auto nthElement = max_facets == facet_counts.size() ? max_facets - 1 : max_facets;
+
+            std::nth_element(facet_counts.begin(), facet_counts.begin() + nthElement,
+                            facet_counts.end(), [&](const auto& kv1, const auto& kv2) {
+                                size_t a_count = kv1.second;
+                                size_t b_count = kv2.second;
+
+                                size_t a_value_size = UINT64_MAX - kv1.first.size();
+                                size_t b_value_size = UINT64_MAX - kv2.first.size();
+
+                                return std::tie(a_count, a_value_size) > std::tie(b_count, b_value_size);
+                            });
 
             for(int i = 0; i < max_facets; ++i) {
                 const auto& kv = facet_counts[i];
@@ -1956,7 +1964,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 facet_values.emplace_back(facet_value);
             }
         } else {
-            LOG(INFO) << "used hashes";
+            //LOG(INFO) << "used hashes";
             std::vector<std::pair<uint32_t, facet_count_t>> facet_hash_counts;
 
             for (const auto & kv : a_facet.result_map) {

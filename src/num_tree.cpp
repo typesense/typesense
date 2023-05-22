@@ -401,3 +401,28 @@ size_t num_tree_t::intersect(const uint32_t* result_ids, int result_ids_len, int
     
     return found.size();
 }
+
+size_t num_tree_t::get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& facets) {
+
+    //check if facet field   
+    if(counter_list.empty()) {
+        return 0;
+    }
+
+    std::vector<uint32_t> id_list;
+
+    for(auto int64map_it = int64map.begin(); int64map_it != int64map.end(); ++int64map_it) {
+
+        auto ids = int64map_it->second;
+        ids_t::uncompress(ids, id_list);
+
+        //emplacing seq_id=>count_index
+        for(const auto& id : id_list) {
+            facets[id].emplace_back(int64map_it->first);
+        }
+
+        id_list.clear();
+    }
+
+    return facets.size();
+}

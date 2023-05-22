@@ -42,6 +42,7 @@ private:
     };
 
     std::vector<count_list> counter_list;
+    bool is_migrated = false;
 
 public:
 
@@ -80,4 +81,14 @@ public:
         bool is_wildcard_no_filter_query);
     
     size_t counter_list_size() const;
+
+    size_t get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& facets);
+
+    bool get_migrated () const {
+        return is_migrated;
+    }
+
+    void set_migrated(bool val) {
+        is_migrated = true;
+    }
 };
