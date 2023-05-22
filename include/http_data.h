@@ -207,6 +207,7 @@ public:
 
 struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
+    static constexpr const char* USER_HEADER = "x-typesense-user-id";
     static constexpr const char* AGENT_HEADER = "user-agent";
 
     h2o_req_t* _req;

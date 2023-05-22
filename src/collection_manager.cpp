@@ -2,6 +2,8 @@
 #include <vector>
 #include <json.hpp>
 #include <app_metrics.h>
+#include <query_suggestions.h>
+#include <event_manager.h>
 #include "collection_manager.h"
 #include "batched_indexer.h"
 #include "logger.h"
@@ -1060,6 +1062,15 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     nlohmann::json result = result_op.get();
 
+    if(Config::get_instance().get_enable_search_analytics()) {
+        if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
+            std::string processed_query = raw_query;
+            Tokenizer::normalize_ascii(processed_query);
+            QuerySuggestions::get_instance().add_suggestion(collection->get_name(), processed_query,
+                                                            true, req_params["x-typesense-user-id"]);
+        }
+    }
+
     if(exclude_fields.count("search_time_ms") == 0) {
         result["search_time_ms"] = timeMillis;
     }
@@ -1285,6 +1296,17 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
         collection->add_synonym(collection_synonym);
+    }
+
+    // restore query suggestions configs
+    std::vector<std::string> sink_config_jsons;
+    cm.store->scan_fill(QuerySuggestions::EVENT_SINK_CONFIG_PREFIX,
+                        std::string(QuerySuggestions::EVENT_SINK_CONFIG_PREFIX) + "`",
+                        sink_config_jsons);
+
+    for(const auto& sink_config_json: sink_config_jsons) {
+        nlohmann::json sink_config = nlohmann::json::parse(sink_config_json);
+        EventManager::get_instance().create_sink(sink_config, false);
     }
 
     // Fetch records from the store and re-create memory index

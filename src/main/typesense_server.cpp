@@ -68,6 +68,11 @@ void master_server_routes() {
     server->put("/presets/:name", put_upsert_preset);
     server->del("/presets/:name", del_preset);
 
+    // events
+    server->post("/events", post_create_event);
+    server->post("/events/sinks", post_create_event_sink);
+    server->del("/events/sinks/:name", del_event_sink);
+
     // meta
     server->get("/metrics.json", get_metrics_json);
     server->get("/stats.json", get_stats_json);

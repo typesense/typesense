@@ -318,6 +318,30 @@ void num_tree_t::contains(const NUM_COMPARATOR& comparator, const int64_t& value
     result_ids = out;
 }
 
+void num_tree_t::seq_ids_outside_top_k(size_t k, std::vector<uint32_t> &seq_ids) {
+    size_t ids_skipped = 0;
+
+    for (auto iter = int64map.rbegin(); iter != int64map.rend(); ++iter) {
+        auto num_ids = ids_t::num_ids(iter->second);
+        if(ids_skipped > k) {
+            ids_t::uncompress(iter->second, seq_ids);
+        } else if((ids_skipped + num_ids) > k) {
+            // this element hits the limit, so we pick partial IDs to satisfy k
+            std::vector<uint32_t> ids;
+            ids_t::uncompress(iter->second, ids);
+            for(size_t i = 0; i < ids.size(); i++) {
+                auto seq_id = ids[i];
+                if(ids_skipped + i >= k) {
+                    seq_ids.push_back(seq_id);
+                }
+            }
+        }
+
+        ids_skipped += num_ids;
+    }
+}
+
+
 size_t num_tree_t::size() {
     return int64map.size();
 }

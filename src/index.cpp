@@ -6275,6 +6275,18 @@ size_t Index::num_seq_ids() const {
     return seq_ids->num_ids();
 }
 
+Option<bool> Index::seq_ids_outside_top_k(const std::string& field_name, size_t k,
+                                          std::vector<uint32_t>& outside_seq_ids) {
+    auto field_it = numerical_index.find(field_name);
+
+    if(field_it == sort_index.end()) {
+        return Option<bool>(400, "Field not found in numerical index.");
+    }
+
+    field_it->second->seq_ids_outside_top_k(k, outside_seq_ids);
+    return Option<bool>(true);
+}
+
 void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const string& field_name,
                                    std::vector<std::vector<std::string>>& resolved_queries) const {
 

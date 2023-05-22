@@ -13,6 +13,7 @@
 #include "core_api_utils.h"
 #include "lru/lru.hpp"
 #include "ratelimit_manager.h"
+#include "event_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -2032,4 +2033,59 @@ Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string&
     }
 
     return Option<std::pair<std::string,std::string>>(std::make_pair(api_key, ip));
+}
+
+bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    bool success = EventManager::get_instance().add_event(req_json);
+    if(success) {
+        res->set_201(R"({"ok": true)");
+        return true;
+    }
+
+    res->set_400(R"({"ok": false)");
+    return false;
+}
+
+bool post_create_event_sink(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    // connects an event to a sink, which for now, is another collection
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto op = EventManager::get_instance().create_sink(req_json);
+
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+        return false;
+    }
+
+    res->set_201(req_json.dump());
+    return true;
+}
+
+bool del_event_sink(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto op = EventManager::get_instance().remove_sink(req->params["name"]);
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+        return false;
+    }
+
+    res->set_200(R"({"ok": true)");
+    return true;
 }
