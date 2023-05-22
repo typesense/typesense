@@ -1049,7 +1049,7 @@ TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
-TEST_F(CollectionFilteringTest, GeoPointFilteringV1) {
+TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
@@ -1188,111 +1188,6 @@ TEST_F(CollectionFilteringTest, GeoPointFilteringV1) {
     bad_doc["loc"] = {"48.91", "2.33"};
     add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
     ASSERT_TRUE(add_op.ok());
-
-    collectionManager.drop_collection("coll1");
-}
-
-TEST_F(CollectionFilteringTest, GeoPointFilteringV2) {
-    Collection *coll1;
-
-    std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("loc", field_types::GEOPOINT, false),
-                                 field("points", field_types::INT32, false),};
-
-    coll1 = collectionManager.get_collection("coll1").get();
-    if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
-    }
-
-    std::vector<std::vector<std::string>> records = {
-            {"Palais Garnier", "48.872576479306765, 2.332291112241466"},
-            {"Sacre Coeur", "48.888286721920934, 2.342340862419206"},
-            {"Arc de Triomphe", "48.87538726829884, 2.296113163780903"},
-            {"Place de la Concorde", "48.86536119187326, 2.321850747347093"},
-            {"Louvre Musuem", "48.86065813197502, 2.3381285349616725"},
-            {"Les Invalides", "48.856648379569904, 2.3118555692631357"},
-            {"Eiffel Tower", "48.85821022164442, 2.294239067890161"},
-            {"Notre-Dame de Paris", "48.852455825574495, 2.35071182406452"},
-            {"Musee Grevin", "48.872370541246816, 2.3431536410008906"},
-            {"Pantheon", "48.84620987789056, 2.345152755563131"},
-    };
-
-    for(size_t i=0; i<records.size(); i++) {
-        nlohmann::json doc;
-
-        std::vector<std::string> lat_lng;
-        StringUtils::split(records[i][1], lat_lng, ", ");
-
-        double lat = std::stod(lat_lng[0]);
-        double lng = std::stod(lat_lng[1]);
-
-        doc["id"] = std::to_string(i);
-        doc["title"] = records[i][0];
-        doc["loc"] = {lat, lng};
-        doc["points"] = i;
-
-        ASSERT_TRUE(coll1->add(doc.dump()).ok());
-    }
-
-    // pick a location close to only the Sacre Coeur
-    auto results = coll1->search("*",
-                                 {}, "loc: ([48.90615915923891, 2.3435897727061175], radius: 3 km)",
-                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
-
-    ASSERT_EQ(1, results["found"].get<size_t>());
-    ASSERT_EQ(1, results["hits"].size());
-
-    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-
-    results = coll1->search("*", {}, "loc: [([48.90615, 2.34358], radius: 1 km), ([48.8462, 2.34515], radius: 1 km)]",
-                            {}, {}, {0}, 10, 1, FREQUENCY).get();
-
-    ASSERT_EQ(2, results["found"].get<size_t>());
-
-    // pick location close to none of the spots
-    results = coll1->search("*",
-                            {}, "loc: ([48.910544830985785, 2.337218333651177], radius: 2 km)",
-                            {}, {}, {0}, 10, 1, FREQUENCY).get();
-
-    ASSERT_EQ(0, results["found"].get<size_t>());
-
-    // pick a large radius covering all points
-
-    results = coll1->search("*",
-                            {}, "loc: ([48.910544830985785, 2.337218333651177], radius: 20 km)",
-                            {}, {}, {0}, 10, 1, FREQUENCY).get();
-
-    ASSERT_EQ(10, results["found"].get<size_t>());
-
-    // 1 mile radius
-
-    results = coll1->search("*",
-                            {}, "loc: ([48.85825332869331, 2.303816427653377], radius: 1 mi)",
-                            {}, {}, {0}, 10, 1, FREQUENCY).get();
-
-    ASSERT_EQ(3, results["found"].get<size_t>());
-
-    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("5", results["hits"][1]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("3", results["hits"][2]["document"]["id"].get<std::string>().c_str());
-
-    // when geo query had NaN
-    auto gop = coll1->search("*", {}, "loc: ([NaN, nan], radius: 1 mi)",
-                             {}, {}, {0}, 10, 1, FREQUENCY);
-
-    ASSERT_FALSE(gop.ok());
-    ASSERT_EQ("Value of filter field `loc`: must be in the "
-              "`([-44.50, 170.29], radius: 0.75 km, exact_filter_radius: 5 km)` or "
-              "([56.33, -65.97, 23.82, -127.82]) format.", gop.error());
-
-    // when geo query does not send radius key
-    gop = coll1->search("*", {}, "loc: ([48.85825332869331, 2.303816427653377])",
-                             {}, {}, {0}, 10, 1, FREQUENCY);
-
-    ASSERT_FALSE(gop.ok());
-    ASSERT_EQ("Value of filter field `loc`: must be in the "
-              "`([-44.50, 170.29], radius: 0.75 km, exact_filter_radius: 5 km)` or "
-              "([56.33, -65.97, 23.82, -127.82]) format.", gop.error());
 
     collectionManager.drop_collection("coll1");
 }
