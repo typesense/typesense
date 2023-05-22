@@ -1047,14 +1047,6 @@ int filter_result_iterator_t::valid(uint32_t id) {
     if (filter_node->isOperator) {
         auto left_valid = left_it->valid(id), right_valid = right_it->valid(id);
 
-        if (left_it->is_valid && right_it->is_valid) {
-            seq_id = std::min(left_it->seq_id, right_it->seq_id);
-        } else if (left_it->is_valid) {
-            seq_id = left_it->seq_id;
-        } else if (right_it->is_valid) {
-            seq_id = right_it->seq_id;
-        }
-
         if (filter_node->filter_operator == AND) {
             is_valid = left_it->is_valid && right_it->is_valid;
 
@@ -1063,9 +1055,20 @@ int filter_result_iterator_t::valid(uint32_t id) {
                     return -1;
                 }
 
+                // id did not match the filter but both of the sub-iterators are still valid.
+                // Updating seq_id to the next potential match.
+                if (left_valid == 0 && right_valid == 0) {
+                    seq_id = std::max(left_it->seq_id, right_it->seq_id);
+                } else if (left_valid == 0) {
+                    seq_id = left_it->seq_id;
+                } else {
+                    seq_id = right_it->seq_id;
+                }
+
                 return 0;
             }
 
+            seq_id = id;
             return 1;
         } else {
             is_valid = left_it->is_valid || right_it->is_valid;
@@ -1075,9 +1078,20 @@ int filter_result_iterator_t::valid(uint32_t id) {
                     return -1;
                 }
 
+                // id did not match the filter; both of the sub-iterators or one of them might be valid.
+                // Updating seq_id to the next match.
+                if (left_valid == 0 && right_valid == 0) {
+                    seq_id = std::min(left_it->seq_id, right_it->seq_id);
+                } else if (left_valid == 0) {
+                    seq_id = left_it->seq_id;
+                } else {
+                    seq_id = right_it->seq_id;
+                }
+
                 return 0;
             }
 
+            seq_id = id;
             return 1;
         }
     }
