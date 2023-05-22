@@ -25,16 +25,16 @@ struct filter {
     bool apply_not_equals = false;
 
     // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
-    std::string referenced_collection_name = "";
+    std::string referenced_collection_name;
 
     std::vector<nlohmann::json> params;
 
     /// For searching places within a given radius of a given latlong (mi for miles and km for kilometers)
-    static constexpr const char* GEO_FILTER_RADIUS = "radius";
+    static constexpr const char* GEO_FILTER_RADIUS_KEY = "radius";
 
     /// Radius threshold beyond which exact filtering on geo_result_ids will not be done.
-    static constexpr const char* EXACT_GEO_FILTER_RADIUS = "exact_filter_radius";
-    static constexpr const char* DEFAULT_EXACT_GEO_FILTER_RADIUS = "10km";
+    static constexpr const char* EXACT_GEO_FILTER_RADIUS_KEY = "exact_filter_radius";
+    static constexpr double DEFAULT_EXACT_GEO_FILTER_RADIUS_VALUE = 10000;
 
     static const std::string RANGE_OPERATOR() {
         return "..";

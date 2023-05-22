@@ -143,6 +143,33 @@ Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
     return Option<bool>(true);
 }
 
+Option<bool> validate_geofilter_distance(std::string& raw_value, const string& format_err_msg,
+                                         std::string& distance, std::string& unit) {
+    if (raw_value.size() < 2) {
+        return Option<bool>(400, "Unit must be either `km` or `mi`.");
+    }
+
+    unit = raw_value.substr(raw_value.size() - 2, 2);
+
+    if (unit != "km" && unit != "mi") {
+        return Option<bool>(400, "Unit must be either `km` or `mi`.");
+    }
+
+    std::vector<std::string> dist_values;
+    StringUtils::split(raw_value, dist_values, unit);
+
+    if (dist_values.size() != 1) {
+        return Option<bool>(400, format_err_msg);
+    }
+
+    if (!StringUtils::is_float(dist_values[0])) {
+        return Option<bool>(400, format_err_msg);
+    }
+
+    distance = std::string(dist_values[0]);
+    return Option<bool>(true);
+}
+
 Option<bool> filter::parse_geopoint_filter_value(string& raw_value, const string& format_err_msg, filter& filter_exp) {
     // FORMAT:
     // [ ([48.853, 2.344], radius: 1km, exact_filter_radius: 100km), ([48.8662, 2.3255, 48.8581, 2.3209, 48.8561, 2.3448, 48.8641, 2.3469]) ]
@@ -185,19 +212,27 @@ Option<bool> filter::parse_geopoint_filter_value(string& raw_value, const string
 
         if (value_str.empty() || value_str[0] != '[' || value_str.find(']', 1) == std::string::npos) {
             return Option<bool>(400, format_err_msg);
+        } else {
+            std::vector<std::string> filter_values;
+            StringUtils::split(value_str, filter_values, ",");
+
+            if(filter_values.size() < 3) {
+                return Option<bool>(400, format_err_msg);
+            }
         }
 
         auto points_str = value_str.substr(1, value_str.find(']', 1) - 1);
         std::vector<std::string> geo_points;
         StringUtils::split(points_str, geo_points, ",");
 
+        bool is_polygon = value_str.back() == ']';
         for (const auto& geo_point: geo_points) {
-            if(!StringUtils::is_float(geo_point)) {
+            if (!StringUtils::is_float(geo_point) ||
+                (!is_polygon && (geo_point == "nan" || geo_point == "NaN"))) {
                 return Option<bool>(400, format_err_msg);
             }
         }
 
-        bool is_polygon = value_str.back() == ']';
         if (is_polygon) {
             polygons.push_back(points_str);
             continue;
@@ -229,35 +264,34 @@ Option<bool> filter::parse_geopoint_filter_value(string& raw_value, const string
                 continue;
             }
 
-            if (key_value[0] == GEO_FILTER_RADIUS) {
+            if (key_value[0] == GEO_FILTER_RADIUS_KEY) {
                 is_radius_present = true;
-                auto& value = key_value[1];
 
-                if(value.size() < 2) {
-                    return Option<bool>(400, "Unit must be either `km` or `mi`.");
+                std::string distance, unit;
+                auto validate_op = validate_geofilter_distance(key_value[1], format_err_msg, distance, unit);
+                if (!validate_op.ok()) {
+                    return validate_op;
                 }
 
-                std::string unit = value.substr(value.size() - 2, 2);
-
-                if(unit != "km" && unit != "mi") {
-                    return Option<bool>(400, "Unit must be either `km` or `mi`.");
+                filter_exp.values.push_back(points_str + ", " + distance + ", " + unit);
+            } else if (key_value[0] == EXACT_GEO_FILTER_RADIUS_KEY) {
+                std::string distance, unit;
+                auto validate_op = validate_geofilter_distance(key_value[1], format_err_msg, distance, unit);
+                if (!validate_op.ok()) {
+                    return validate_op;
                 }
 
-                std::vector<std::string> dist_values;
-                StringUtils::split(value, dist_values, unit);
+                double exact_under_radius = std::stof(distance);
 
-                if(dist_values.size() != 1) {
-                    return Option<bool>(400, format_err_msg);
+                if (unit == "km") {
+                    exact_under_radius *= 1000;
+                } else {
+                    // assume "mi" (validated upstream)
+                    exact_under_radius *= 1609.34;
                 }
 
-                if(!StringUtils::is_float(dist_values[0])) {
-                    return Option<bool>(400, format_err_msg);
-                }
-
-                filter_exp.values.push_back(points_str + ", " + dist_values[0] + ", " + unit);
-            } else if (key_value[0] == EXACT_GEO_FILTER_RADIUS) {
                 nlohmann::json param;
-                param[EXACT_GEO_FILTER_RADIUS] = key_value[1];
+                param[EXACT_GEO_FILTER_RADIUS_KEY] = exact_under_radius;
                 filter_exp.params.push_back(param);
             }
         }
@@ -265,9 +299,11 @@ Option<bool> filter::parse_geopoint_filter_value(string& raw_value, const string
         if (!is_radius_present) {
             return Option<bool>(400, format_err_msg);
         }
-        if (filter_exp.params.empty()) {
+
+        // EXACT_GEO_FILTER_RADIUS_KEY was not present.
+        if (filter_exp.params.size() < filter_exp.values.size()) {
             nlohmann::json param;
-            param[EXACT_GEO_FILTER_RADIUS] = DEFAULT_EXACT_GEO_FILTER_RADIUS;
+            param[EXACT_GEO_FILTER_RADIUS_KEY] = DEFAULT_EXACT_GEO_FILTER_RADIUS_VALUE;
             filter_exp.params.push_back(param);
         }
     }
