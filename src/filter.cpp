@@ -562,7 +562,7 @@ Option<bool> toFilter(const std::string expression,
 
             const std::string& format_err_msg = "Value of filter field `" + _field.name + "`: must be in the "
                                                 "`([-44.50, 170.29], radius: 0.75 km, exact_filter_radius: 5 km)` or "
-                                                "([56.33, -65.97, 23.82, -127.82]) format.";
+                                                "([56.33, -65.97, 23.82, -127.82], exact_filter_radius: 7 km) format.";
 
             auto parse_op = filter::parse_geopoint_filter_value(raw_value, format_err_msg, filter_exp);
             return parse_op;
