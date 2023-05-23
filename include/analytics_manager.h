@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <shared_mutex>
 
-class QuerySuggestions {
+class AnalyticsManager {
 private:
     mutable std::mutex mutex;
     std::condition_variable cv;
@@ -34,29 +34,28 @@ private:
 
     Store* store = nullptr;
 
-    QuerySuggestions() {}
+    AnalyticsManager() {}
 
-    ~QuerySuggestions();
+    ~AnalyticsManager();
 
 public:
 
-    static constexpr const char* EVENT_SINK_CONFIG_PREFIX = "$ES";
+    static constexpr const char* ANALYTICS_CONFIG_PREFIX = "$AC";
+    static constexpr const char* RESOURCE_TYPE = "popular_queries";
 
-    static constexpr const char* SINK_TYPE = "query_suggestions";
-
-    static QuerySuggestions& get_instance() {
-        static QuerySuggestions instance;
+    static AnalyticsManager& get_instance() {
+        static AnalyticsManager instance;
         return instance;
     }
 
-    QuerySuggestions(QuerySuggestions const&) = delete;
-    void operator=(QuerySuggestions const&) = delete;
+    AnalyticsManager(AnalyticsManager const&) = delete;
+    void operator=(AnalyticsManager const&) = delete;
 
     void init(Store* store);
 
     void run(ReplicationState* raft_server);
 
-    Option<nlohmann::json> create_index(const nlohmann::json& payload, bool write_to_disk = true);
+    Option<bool> create_index(nlohmann::json& payload, bool write_to_disk = true);
 
     Option<bool> remove_suggestion_index(const std::string& name);
 

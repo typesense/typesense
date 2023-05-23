@@ -13,7 +13,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <ifaddrs.h>
-#include <query_suggestions.h>
+#include <analytics_manager.h>
 
 #include "core_api.h"
 #include "ratelimit_manager.h"
@@ -397,7 +397,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
 
-    QuerySuggestions::get_instance().init(&store);
+    AnalyticsManager::get_instance().init(&store);
 
     server = new HttpServer(
         version,
@@ -456,7 +456,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         });
 
         std::thread event_sink_thread([&replication_state]() {
-            QuerySuggestions::get_instance().run(&replication_state);
+            AnalyticsManager::get_instance().run(&replication_state);
         });
 
         std::string path_to_nodes = config.get_nodes();
@@ -476,7 +476,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         batch_indexing_thread.join();
 
         LOG(INFO) << "Shutting down event sink thread...";
-        QuerySuggestions::get_instance().stop();
+        AnalyticsManager::get_instance().stop();
 
         LOG(INFO) << "Waiting for event sink thread to be done...";
         event_sink_thread.join();

@@ -1,18 +1,17 @@
 #include <mutex>
 #include <thread>
-#include "query_suggestions.h"
+#include "analytics_manager.h"
 #include "tokenizer.h"
 #include "http_client.h"
 #include "collection_manager.h"
 
-Option<nlohmann::json> QuerySuggestions::create_index(const nlohmann::json& payload, bool write_to_disk) {
+Option<bool> AnalyticsManager::create_index(nlohmann::json& payload, bool write_to_disk) {
     /*
         Sample payload:
 
         {
             "name": "top_queries",
-            "type": "query_suggestions",
-            "max_suggestions": 1000,
+            "limit": 1000,
             "source": {
                 "collections": ["brands", "products"]
             },
@@ -22,28 +21,37 @@ Option<nlohmann::json> QuerySuggestions::create_index(const nlohmann::json& payl
         }
     */
 
-    // structural payload validation is done upstream, e.g. presence of source and destination is validated
-    // specific validations will be done here
+    if(!payload.contains("name") || !payload["name"].is_string()) {
+        return Option<bool>(400, "Bad or missing name.");
+    }
+
+    if(!payload.contains("source") || !payload["source"].is_object()) {
+        return Option<bool>(400, "Bad or missing source.");
+    }
+
+    if(!payload.contains("destination") || !payload["destination"].is_object()) {
+        return Option<bool>(400, "Bad or missing destination.");
+    }
 
     const std::string& suggestion_config_name = payload["name"].get<std::string>();
 
     size_t max_suggestions = 1000;
 
-    if(payload.contains("max_suggestions") && payload["max_suggestions"].is_number_integer()) {
-        max_suggestions = payload["max_suggestions"].get<size_t>();
+    if(payload.contains("limit") && payload["limit"].is_number_integer()) {
+        max_suggestions = payload["limit"].get<size_t>();
     }
 
     if(suggestion_configs.find(suggestion_config_name) != suggestion_configs.end()) {
-        return Option<nlohmann::json>(400, "There's already another configuration with the name `" +
+        return Option<bool>(400, "There's already another configuration with the name `" +
                                             suggestion_config_name + "`.");
     }
 
     if(!payload["source"].contains("collections") || !payload["source"]["collections"].is_array()) {
-        return Option<nlohmann::json>(400, "Must contain a valid list of source collections.");
+        return Option<bool>(400, "Must contain a valid list of source collections.");
     }
 
     if(!payload["destination"].contains("collection") || !payload["destination"]["collection"].is_string()) {
-        return Option<nlohmann::json>(400, "Must contain a valid destination collection.");
+        return Option<bool>(400, "Must contain a valid destination collection.");
     }
 
     const std::string& suggestion_collection = payload["destination"]["collection"].get<std::string>();
@@ -54,7 +62,7 @@ Option<nlohmann::json> QuerySuggestions::create_index(const nlohmann::json& payl
 
     for(const auto& coll: payload["source"]["collections"]) {
         if(!coll.is_string()) {
-            return Option<nlohmann::json>(400, "Must contain a valid list of source collection names.");
+            return Option<bool>(400, "Must contain a valid list of source collection names.");
         }
 
         const std::string& src_collection = coll.get<std::string>();
@@ -73,17 +81,18 @@ Option<nlohmann::json> QuerySuggestions::create_index(const nlohmann::json& payl
     popular_queries.emplace(suggestion_collection, popularQueries);
 
     if(write_to_disk) {
-        auto suggestion_key = std::string(EVENT_SINK_CONFIG_PREFIX) + "_" + suggestion_config_name;
+        payload["type"] = RESOURCE_TYPE;
+        auto suggestion_key = std::string(ANALYTICS_CONFIG_PREFIX) + "_" + suggestion_config_name;
         bool inserted = store->insert(suggestion_key, payload.dump());
         if(!inserted) {
-            return Option<nlohmann::json>(500, "Error while storing the suggestion config to disk.");
+            return Option<bool>(500, "Error while storing the config to disk.");
         }
     }
 
-    return Option<nlohmann::json>(payload);
+    return Option<bool>(true);
 }
 
-QuerySuggestions::~QuerySuggestions() {
+AnalyticsManager::~AnalyticsManager() {
     std::unique_lock lock(mutex);
 
     for(auto& kv: popular_queries) {
@@ -91,13 +100,13 @@ QuerySuggestions::~QuerySuggestions() {
     }
 }
 
-Option<bool> QuerySuggestions::remove_suggestion_index(const std::string &name) {
+Option<bool> AnalyticsManager::remove_suggestion_index(const std::string &name) {
     std::unique_lock lock(mutex);
 
     auto suggestion_configs_it = suggestion_configs.find(name);
 
     if(suggestion_configs_it == suggestion_configs.end()) {
-        return Option<bool>(404, "Sink not found.");
+        return Option<bool>(404, "Index not found.");
     }
 
     const auto& suggestion_collection = suggestion_configs_it->second.suggestion_collection;
@@ -113,16 +122,16 @@ Option<bool> QuerySuggestions::remove_suggestion_index(const std::string &name) 
 
     suggestion_configs.erase(name);
 
-    auto suggestion_key = std::string(EVENT_SINK_CONFIG_PREFIX) + "_" + name;
+    auto suggestion_key = std::string(ANALYTICS_CONFIG_PREFIX) + "_" + name;
     bool erased = store->remove(suggestion_key);
     if(!erased) {
-        return Option<bool>(500, "Error while removing the sink config from disk.");
+        return Option<bool>(500, "Error while deleting from disk.");
     }
 
     return Option<bool>(true);
 }
 
-void QuerySuggestions::add_suggestion(const std::string &query_collection, std::string &query,
+void AnalyticsManager::add_suggestion(const std::string &query_collection, std::string &query,
                                       const bool live_query, const std::string& user_id) {
     // look up suggestion collections for the query collection
     std::unique_lock lock(mutex);
@@ -138,7 +147,7 @@ void QuerySuggestions::add_suggestion(const std::string &query_collection, std::
     }
 }
 
-void QuerySuggestions::run(ReplicationState* raft_server) {
+void AnalyticsManager::run(ReplicationState* raft_server) {
     uint64_t prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                                     std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -225,12 +234,12 @@ void QuerySuggestions::run(ReplicationState* raft_server) {
     dispose();
 }
 
-void QuerySuggestions::stop() {
+void AnalyticsManager::stop() {
     quit = true;
     cv.notify_all();
 }
 
-void QuerySuggestions::dispose() {
+void AnalyticsManager::dispose() {
     for(auto& kv: popular_queries) {
         delete kv.second;
     }
@@ -238,6 +247,6 @@ void QuerySuggestions::dispose() {
     popular_queries.clear();
 }
 
-void QuerySuggestions::init(Store* store) {
+void AnalyticsManager::init(Store* store) {
     this->store = store;
 }

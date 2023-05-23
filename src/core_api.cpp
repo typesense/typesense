@@ -3,6 +3,7 @@
 #include <cstdlib> 
 #include <app_metrics.h>
 #include <regex>
+#include <analytics_manager.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "string_utils.h"
@@ -2056,8 +2057,7 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
     return false;
 }
 
-bool post_create_event_sink(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    // connects an event to a sink, which for now, is another collection
+bool post_create_analytics_popular_queries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
 
     try {
@@ -2068,7 +2068,7 @@ bool post_create_event_sink(const std::shared_ptr<http_req>& req, const std::sha
         return false;
     }
 
-    auto op = EventManager::get_instance().create_sink(req_json);
+    auto op = AnalyticsManager::get_instance().create_index(req_json);
 
     if(!op.ok()) {
         res->set(op.code(), op.error());
@@ -2079,8 +2079,8 @@ bool post_create_event_sink(const std::shared_ptr<http_req>& req, const std::sha
     return true;
 }
 
-bool del_event_sink(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto op = EventManager::get_instance().remove_sink(req->params["name"]);
+bool del_analytics_popular_queries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto op = AnalyticsManager::get_instance().remove_suggestion_index(req->params["name"]);
     if(!op.ok()) {
         res->set(op.code(), op.error());
         return false;

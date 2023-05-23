@@ -145,9 +145,9 @@ bool del_exceed(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
 bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_create_event_sink(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool post_create_analytics_popular_queries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_event_sink(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool del_analytics_popular_queries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Misc helpers
 

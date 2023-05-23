@@ -21,10 +21,6 @@ public:
     EventManager(EventManager const&) = delete;
     void operator=(EventManager const&) = delete;
 
-    Option<uint32_t> create_sink(const nlohmann::json& sink_config, bool write_to_disk = true);
-
-    Option<bool> remove_sink(const std::string& name);
-
     bool add_event(const nlohmann::json& event);
 
 };
