@@ -87,6 +87,7 @@ TEST_F(GeoFilteringTest, GeoPointFiltering) {
 
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
 
+    // Multiple queries can be clubbed using square brackets [ filterA, filterB, ... ]
     results = coll1->search("*", {}, "loc: [([48.90615, 2.34358], radius: 1 km), ([48.8462, 2.34515], radius: 1 km)]",
                             {}, {}, {0}, 10, 1, FREQUENCY).get();
 
@@ -94,7 +95,7 @@ TEST_F(GeoFilteringTest, GeoPointFiltering) {
 
     // pick location close to none of the spots
     results = coll1->search("*",
-                            {}, "loc: ([48.910544830985785, 2.337218333651177], radius: 2 km)",
+                            {}, "loc: [([48.910544830985785, 2.337218333651177], radius: 2 km)]",
                             {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
