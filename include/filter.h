@@ -34,7 +34,7 @@ struct filter {
 
     /// Radius threshold beyond which exact filtering on geo_result_ids will not be done.
     static constexpr const char* EXACT_GEO_FILTER_RADIUS_KEY = "exact_filter_radius";
-    static constexpr double DEFAULT_EXACT_GEO_FILTER_RADIUS_VALUE = 10000;
+    static constexpr double DEFAULT_EXACT_GEO_FILTER_RADIUS_VALUE = 10000; // meters
 
     static const std::string RANGE_OPERATOR() {
         return "..";
