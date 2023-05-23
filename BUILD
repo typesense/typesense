@@ -143,6 +143,13 @@ TEST_COPTS = [
     "-Wno-unused-parameter",
     "-Werror=return-type",
     "-g",
+    "-DTEST_BUILD"
+]
+
+ASAN_COPTS = [
+    "-fsanitize=address",
+    "-fno-omit-frame-pointer",
+    "-DASAN_BUILD"
 ]
 
 config_setting(

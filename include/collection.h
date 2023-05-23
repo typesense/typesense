@@ -182,8 +182,8 @@ private:
                                           std::vector<field>& new_fields,
                                           bool enable_nested_fields);
 
-    static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
-                                    const std::pair<uint64_t, facet_count_t>& b) {
+    static bool facet_count_compare(const std::pair<uint32_t, facet_count_t>& a,
+                                    const std::pair<uint32_t, facet_count_t>& b) {
         return std::tie(a.second.count, a.first) > std::tie(b.second.count, b.first);
     }
 
@@ -460,7 +460,9 @@ public:
                                   const text_match_type_t match_type = max_score,
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0,
-                                  const size_t page_offset = UINT32_MAX) const;
+                                  const size_t page_offset = UINT32_MAX,
+                                  bool use_facet_intersection = false
+                                  ) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

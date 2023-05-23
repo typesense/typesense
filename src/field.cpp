@@ -147,7 +147,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         if(field_json["type"] == field_types::INT32 || field_json["type"] == field_types::INT64 ||
            field_json["type"] == field_types::FLOAT || field_json["type"] == field_types::BOOL ||
            field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY) {
-            if(field_json.count(fields::num_dim) == 0) {
+            if((field_json.count(fields::num_dim) == 0) || (field_json[fields::facet])) {
                 field_json[fields::sort] = true;
             } else {
                 field_json[fields::sort] = false;
