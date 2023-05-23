@@ -85,7 +85,7 @@ TEST_F(GeoFilteringTest, GeoPointFiltering) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
-    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
 
     results = coll1->search("*", {}, "loc: [([48.90615, 2.34358], radius: 1 km), ([48.8462, 2.34515], radius: 1 km)]",
                             {}, {}, {0}, 10, 1, FREQUENCY).get();
@@ -115,9 +115,9 @@ TEST_F(GeoFilteringTest, GeoPointFiltering) {
 
     ASSERT_EQ(3, results["found"].get<size_t>());
 
-    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("5", results["hits"][1]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("3", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ("6", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["hits"][2]["document"]["id"].get<std::string>());
 
     // when geo query had NaN
     auto gop = coll1->search("*", {}, "loc: ([NaN, nan], radius: 1 mi)",
@@ -206,8 +206,8 @@ TEST_F(GeoFilteringTest, GeoPointArrayFiltering) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
     // Default value of exact_filter_radius is 10km, exact filtering is not performed.
     results = coll1->search("*",
@@ -217,9 +217,9 @@ TEST_F(GeoFilteringTest, GeoPointArrayFiltering) {
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
 
-    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
 
     // pick location close to none of the spots
     results = coll1->search("*",
@@ -244,7 +244,7 @@ TEST_F(GeoFilteringTest, GeoPointArrayFiltering) {
 
     ASSERT_EQ(1, results["found"].get<size_t>());
 
-    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -355,9 +355,9 @@ TEST_F(GeoFilteringTest, GeoPolygonFiltering) {
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
 
-    ASSERT_STREQ("8", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("4", results["hits"][1]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ("8", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("4", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
 
     // should work even if points of polygon are clockwise
 
@@ -389,6 +389,8 @@ TEST_F(GeoFilteringTest, GeoPolygonFilteringSouthAmerica) {
     std::vector<std::vector<std::string>> records = {
             {"North of Equator", "4.48615, -71.38049"},
             {"South of Equator", "-8.48587, -71.02892"},
+            {"North of Equator, outside polygon", "4.13377, -56.00459"},
+            {"South of Equator, outside polygon", "-4.5041, -57.34523"},
     };
 
     for(size_t i=0; i<records.size(); i++) {
@@ -408,8 +410,7 @@ TEST_F(GeoFilteringTest, GeoPolygonFilteringSouthAmerica) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    // pick a polygon that covers both points
-
+    // polygon only covers 2 points but all points are returned since exact filtering is not performed.
     auto results = coll1->search("*",
                                  {}, "loc: ([13.3163, -82.3585, "
                                      "-29.134, -82.3585, "
@@ -417,8 +418,21 @@ TEST_F(GeoFilteringTest, GeoPolygonFilteringSouthAmerica) {
                                      "13.3163, -59.8528])",
                                  {}, {}, {0}, 10, 1, FREQUENCY).get();
 
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "loc: ([13.3163, -82.3585, "
+                                "-29.134, -82.3585, "
+                                "-29.134, -59.8528, "
+                                "13.3163, -59.8528], exact_filter_radius: 2703km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
