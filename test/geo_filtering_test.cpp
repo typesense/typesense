@@ -126,7 +126,7 @@ TEST_F(GeoFilteringTest, GeoPointFiltering) {
     ASSERT_FALSE(gop.ok());
     ASSERT_EQ("Value of filter field `loc`: must be in the "
               "`([-44.50, 170.29], radius: 0.75 km, exact_filter_radius: 5 km)` or "
-              "([56.33, -65.97, 23.82, -127.82]) format.", gop.error());
+              "([56.33, -65.97, 23.82, -127.82], exact_filter_radius: 7 km) format.", gop.error());
 
     // when geo query does not send radius key
     gop = coll1->search("*", {}, "loc: ([48.85825332869331, 2.303816427653377])",
@@ -135,7 +135,7 @@ TEST_F(GeoFilteringTest, GeoPointFiltering) {
     ASSERT_FALSE(gop.ok());
     ASSERT_EQ("Value of filter field `loc`: must be in the "
               "`([-44.50, 170.29], radius: 0.75 km, exact_filter_radius: 5 km)` or "
-              "([56.33, -65.97, 23.82, -127.82]) format.", gop.error());
+              "([56.33, -65.97, 23.82, -127.82], exact_filter_radius: 7 km) format.", gop.error());
 
     collectionManager.drop_collection("coll1");
 }
@@ -370,6 +370,21 @@ TEST_F(GeoFilteringTest, GeoPolygonFiltering) {
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
+
+    // when geo query had NaN
+    auto gop = coll1->search("*", {}, "loc: ([48.87756059389807, 2.3443610121873206, NaN, nan])",
+                             {}, {}, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(gop.ok());
+    ASSERT_EQ("Value of filter field `loc`: must be in the "
+              "`([-44.50, 170.29], radius: 0.75 km, exact_filter_radius: 5 km)` or "
+              "([56.33, -65.97, 23.82, -127.82], exact_filter_radius: 7 km) format.", gop.error());
+
+    gop = coll1->search("*", {}, "loc: ([56.33, -65.97, 23.82, -127.82], exact_filter_radius: 7k)",
+                        {}, {}, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(gop.ok());
+    ASSERT_EQ("Unit must be either `km` or `mi`.", gop.error());
 
     collectionManager.drop_collection("coll1");
 }
