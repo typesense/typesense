@@ -182,7 +182,7 @@ Option<bool> filter::parse_geopoint_filter_value(string& raw_value, const string
     }
 
     filter_exp.comparators.push_back(LESS_THAN_EQUALS);
-    bool is_multivalued = open_parenthesis_count > 1;
+    bool is_multivalued = raw_value[0] == '[';
     size_t i = is_multivalued;
 
     for (auto j = 0; j < open_parenthesis_count; j++) {
