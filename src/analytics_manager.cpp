@@ -204,8 +204,9 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
                                                     "/documents/import?action=emplace";
                 std::string res;
                 std::map<std::string, std::string> res_headers;
+                std::unordered_map<std::string, std::string> headers;
                 long status_code = HttpClient::post_response(resource_url, import_payload,
-                                                             res, res_headers, 10*1000);
+                                                             res, res_headers, headers, 10*1000);
 
                 if(status_code != 200) {
                     LOG(ERROR) << "Error while sending query suggestions events to leader. "
