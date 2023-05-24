@@ -237,6 +237,8 @@ public:
 
     nlohmann::json get_status();
 
+    std::string get_leader_url() const;
+
 private:
 
     friend class ReplicationClosure;

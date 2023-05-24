@@ -542,7 +542,7 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
 
     nlohmann::json doc;
     doc["id"] = "0";
-    doc["title"] = "123";
+    doc["title"] = "Hello";
     doc["timestamp"] = 3433232;
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
@@ -562,7 +562,7 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
               "Existing data for field `title` cannot be coerced into an int32.", alter_op.error());
 
     // existing data should not have been touched
-    auto res = coll1->search("12", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    auto res = coll1->search("he", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
 
@@ -586,7 +586,7 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
     ASSERT_EQ(4, res["facet_counts"][0].size());
     ASSERT_EQ("title", res["facet_counts"][0]["field_name"]);
     ASSERT_EQ(1, res["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("123", res["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("Hello", res["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 
     // migrate int32 to int64
     schema_changes = R"({
@@ -801,7 +801,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldNotExistingInDocuments) {
     ASSERT_TRUE(alter_op.ok());
 }
 
-TEST_F(CollectionSchemaChangeTest, ChangeFieldToCoercableTypeIsNotAllowed) {
+TEST_F(CollectionSchemaChangeTest, ChangeFieldToCoercableTypeIsAllowed) {
     // optional title field
     std::vector<field> fields = {field("title", field_types::STRING, false, true, true, "", 1, 1),
                                  field("points", field_types::INT32, true),};
@@ -823,9 +823,7 @@ TEST_F(CollectionSchemaChangeTest, ChangeFieldToCoercableTypeIsNotAllowed) {
     })"_json;
 
     auto alter_op = coll1->alter(schema_changes);
-    ASSERT_FALSE(alter_op.ok());
-    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
-              "Existing data for field `points` cannot be coerced into a string.", alter_op.error());
+    ASSERT_TRUE(alter_op.ok());
 }
 
 TEST_F(CollectionSchemaChangeTest, ChangeFromPrimitiveToDynamicField) {
@@ -1140,7 +1138,7 @@ TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
 
     nlohmann::json doc;
     doc["id"] = "0";
-    doc["label"] = 1000;
+    doc["label"] = "hello";
     doc["title"] = "Foo";
     auto add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
@@ -1157,7 +1155,7 @@ TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
 
     // add new document with a string label
     doc["id"] = "1";
-    doc["label"] = "abcdef";
+    doc["label"] = 1000;
     doc["title"] = "Bar";
     add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
@@ -1173,7 +1171,7 @@ TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
     alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
     ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
-              "Existing data for field `label` cannot be coerced into a string.", alter_op.error());
+              "Existing data for field `label` cannot be coerced into an int64.", alter_op.error());
 
     // but should allow the problematic field to be dropped
     schema_changes = R"({
@@ -1409,6 +1407,70 @@ TEST_F(CollectionSchemaChangeTest, DropAndReAddNestedObject) {
 
     ASSERT_EQ(4, fields.size());
     ASSERT_EQ(4, schema_map.size());
+}
+
+TEST_F(CollectionSchemaChangeTest, UpdateAfterNestedNullValue) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "lines", "optional": false, "type": "object[]"},
+            {"name": "lines.name", "optional": true, "type": "string[]"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc = R"(
+        {"id": "1", "lines": [{"name": null}]}
+     )"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE, "1", DIRTY_VALUES::DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    // add new field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "title", "type": "string", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+}
+
+TEST_F(CollectionSchemaChangeTest, AlterShouldBeAbleToHandleFieldValueCoercion) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "product", "optional": false, "type": "object"},
+            {"name": "product.price", "type": "int64"},
+            {"name": "title", "type": "string"},
+            {"name": "description", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc = R"(
+        {"id": "0", "product": {"price": 56.45}, "title": "Title 1", "description": "Description 1"}
+     )"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    // drop a field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "description", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
 }
 
 TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {

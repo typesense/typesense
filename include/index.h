@@ -507,7 +507,7 @@ private:
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
     static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
-                               nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc);
+                               nlohmann::json& update_doc, const nlohmann::json& old_doc);
 
     static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
                                 nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
@@ -938,6 +938,9 @@ public:
                              std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
                              std::vector<uint32_t>& included_ids_vec,
                              std::unordered_set<uint32_t>& excluded_group_ids) const;
+
+    Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
+                                       std::vector<uint32_t>& outside_seq_ids);
 
     friend class filter_result_iterator_t;
 };

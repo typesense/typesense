@@ -68,6 +68,11 @@ void master_server_routes() {
     server->put("/presets/:name", put_upsert_preset);
     server->del("/presets/:name", del_preset);
 
+    // analytics
+    server->post("/analytics/popular-queries", post_create_analytics_popular_queries);
+    server->del("/analytics/popular-queries/:name", del_analytics_popular_queries);
+    server->post("/analytics/events", post_create_event);
+
     // meta
     server->get("/metrics.json", get_metrics_json);
     server->get("/stats.json", get_stats_json);
