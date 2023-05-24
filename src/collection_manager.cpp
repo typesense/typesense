@@ -2,6 +2,8 @@
 #include <vector>
 #include <json.hpp>
 #include <app_metrics.h>
+#include <analytics_manager.h>
+#include <event_manager.h>
 #include "collection_manager.h"
 #include "batched_indexer.h"
 #include "logger.h"
@@ -1058,6 +1060,15 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     nlohmann::json result = result_op.get();
 
+    if(Config::get_instance().get_enable_search_analytics()) {
+        if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
+            std::string processed_query = raw_query;
+            Tokenizer::normalize_ascii(processed_query);
+            AnalyticsManager::get_instance().add_suggestion(collection->get_name(), processed_query,
+                                                            true, req_params["x-typesense-user-id"]);
+        }
+    }
+
     if(exclude_fields.count("search_time_ms") == 0) {
         result["search_time_ms"] = timeMillis;
     }
@@ -1283,6 +1294,19 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
         collection->add_synonym(collection_synonym);
+    }
+
+    // restore query suggestions configs
+    std::vector<std::string> analytics_config_jsons;
+    cm.store->scan_fill(AnalyticsManager::ANALYTICS_CONFIG_PREFIX,
+                        std::string(AnalyticsManager::ANALYTICS_CONFIG_PREFIX) + "`",
+                        analytics_config_jsons);
+
+    for(const auto& analytics_config_json: analytics_config_jsons) {
+        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
+        if(analytics_config["type"] == AnalyticsManager::RESOURCE_TYPE) {
+            AnalyticsManager::get_instance().create_index(analytics_config, false);
+        }
     }
 
     // Fetch records from the store and re-create memory index

@@ -13,6 +13,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <ifaddrs.h>
+#include <analytics_manager.h>
 
 #include "core_api.h"
 #include "ratelimit_manager.h"
@@ -93,6 +94,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
 
     options.add<bool>("enable-access-logging", '\0', "Enable access logging.", false, false);
+    options.add<bool>("enable-search-analytics", '\0', "Enable search analytics.", false, false);
     options.add<int>("disk-used-max-percentage", '\0', "Reject writes when used disk space exceeds this percentage. Default: 100 (never reject).", false, 100);
     options.add<int>("memory-used-max-percentage", '\0', "Reject writes when memory usage exceeds this percentage. Default: 100 (never reject).", false, 100);
     options.add<bool>("skip-writes", '\0', "Skip all writes except config changes. Default: false.", false, false);
@@ -100,6 +102,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<int>("log-slow-searches-time-ms", '\0', "When >= 0, searches that take longer than this duration are logged.", false, 30*1000);
     options.add<int>("cache-num-entries", '\0', "Number of entries to cache.", false, 1000);
+    options.add<uint32_t>("analytics-flush-interval", '\0', "Frequency of persisting analytics data to disk (in seconds).", false, 3600);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -393,6 +396,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
 
+    AnalyticsManager::get_instance().init(&store);
+
     server = new HttpServer(
         version,
         config.get_api_address(),
@@ -444,6 +449,10 @@ int run_server(const Config & config, const std::string & version, void (*master
             batch_indexer->run();
         });
 
+        std::thread event_sink_thread([&replication_state]() {
+            AnalyticsManager::get_instance().run(&replication_state);
+        });
+
         std::string path_to_nodes = config.get_nodes();
         start_raft_server(replication_state, state_dir, path_to_nodes,
                           config.get_peering_address(),
@@ -459,6 +468,12 @@ int run_server(const Config & config, const std::string & version, void (*master
 
         LOG(INFO) << "Waiting for batch indexing thread to be done...";
         batch_indexing_thread.join();
+
+        LOG(INFO) << "Shutting down event sink thread...";
+        AnalyticsManager::get_instance().stop();
+
+        LOG(INFO) << "Waiting for event sink thread to be done...";
+        event_sink_thread.join();
 
         LOG(INFO) << "Shutting down server_thread_pool";
 

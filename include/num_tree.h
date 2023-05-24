@@ -48,6 +48,8 @@ public:
 
     size_t size();
 
+    void seq_ids_outside_top_k(size_t k, std::vector<uint32_t>& seq_ids);
+
     void contains(const NUM_COMPARATOR& comparator, const int64_t& value,
                   const uint32_t& context_ids_length,
                   uint32_t* const& context_ids,
