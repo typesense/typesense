@@ -362,6 +362,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             }
 
             // Result found in cache but ttl has lapsed.
+            lock.unlock();
+            std::unique_lock ulock(mutex);
             res_cache.erase(req_hash);
         }
     }
@@ -456,6 +458,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
 
             // Result found in cache but ttl has lapsed.
+            lock.unlock();
+            std::unique_lock ulock(mutex);
             res_cache.erase(req_hash);
         }
     }
