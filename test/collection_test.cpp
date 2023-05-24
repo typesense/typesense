@@ -5107,7 +5107,7 @@ TEST_F(CollectionTest, PrefixSearchDisabledForOpenAI) {
     auto search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
 
     ASSERT_FALSE(search_res_op.ok());
-    ASSERT_EQ("Prefix search is not supported for remote embedders.", search_res_op.error());
+    ASSERT_EQ("Prefix search is not supported for remote embedders. Please set `prefix=false` as an additional search parameter to disable prefix searching.", search_res_op.error());
 
     search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
     ASSERT_TRUE(search_res_op.ok());
