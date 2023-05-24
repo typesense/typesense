@@ -65,6 +65,10 @@ private:
 
     std::atomic<bool> reset_peers_on_error;
 
+    bool enable_search_analytics;
+
+    uint32_t analytics_flush_interval;
+
 protected:
 
     Config() {
@@ -89,6 +93,9 @@ protected:
         this->skip_writes = false;
         this->log_slow_searches_time_ms = 30 * 1000;
         this->reset_peers_on_error = false;
+
+        this->enable_search_analytics = false;
+        this->analytics_flush_interval = 3600;  // in seconds
     }
 
     Config(Config const&) {
@@ -283,6 +290,10 @@ public:
         return this->cache_num_entries;
     }
 
+    size_t get_analytics_flush_interval() const {
+        return this->analytics_flush_interval;
+    }
+
     size_t get_thread_pool_size() const {
         return this->thread_pool_size;
     }
@@ -293,6 +304,10 @@ public:
 
     bool get_enable_access_logging() const {
         return this->enable_access_logging;
+    }
+
+    bool get_enable_search_analytics() const {
+        return this->enable_search_analytics;
     }
 
     int get_disk_used_max_percentage() const {
@@ -410,6 +425,10 @@ public:
             this->cache_num_entries = std::stoi(get_env("TYPESENSE_CACHE_NUM_ENTRIES"));
         }
 
+        if(!get_env("TYPESENSE_ANALYTICS_FLUSH_INTERVAL").empty()) {
+            this->analytics_flush_interval = std::stoi(get_env("TYPESENSE_ANALYTICS_FLUSH_INTERVAL"));
+        }
+
         if(!get_env("TYPESENSE_THREAD_POOL_SIZE").empty()) {
             this->thread_pool_size = std::stoi(get_env("TYPESENSE_THREAD_POOL_SIZE"));
         }
@@ -423,6 +442,7 @@ public:
         }
 
         this->enable_access_logging = ("TRUE" == get_env("TYPESENSE_ENABLE_ACCESS_LOGGING"));
+        this->enable_search_analytics = ("TRUE" == get_env("TYPESENSE_ENABLE_SEARCH_ANALYTICS"));
 
         if(!get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE").empty()) {
             this->disk_used_max_percentage = std::stoi(get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE"));
@@ -568,6 +588,10 @@ public:
             this->cache_num_entries = (int) reader.GetInteger("server", "cache-num-entries", 1000);
         }
 
+        if(reader.Exists("server", "analytics-flush-interval")) {
+            this->analytics_flush_interval = (int) reader.GetInteger("server", "analytics-flush-interval", 3600);
+        }
+
         if(reader.Exists("server", "thread-pool-size")) {
             this->thread_pool_size = (int) reader.GetInteger("server", "thread-pool-size", 0);
         }
@@ -579,6 +603,11 @@ public:
         if(reader.Exists("server", "enable-access-logging")) {
             auto enable_access_logging_str = reader.Get("server", "enable-access-logging", "false");
             this->enable_access_logging = (enable_access_logging_str == "true");
+        }
+
+        if(reader.Exists("server", "enable-search-analytics")) {
+            auto enable_search_analytics_str = reader.Get("server", "enable-search-analytics", "false");
+            this->enable_search_analytics = (enable_search_analytics_str == "true");
         }
 
         if(reader.Exists("server", "disk-used-max-percentage")) {
@@ -713,6 +742,10 @@ public:
             this->cache_num_entries = options.get<uint32_t>("cache-num-entries");
         }
 
+        if(options.exist("analytics-flush-interval")) {
+            this->analytics_flush_interval = options.get<uint32_t>("analytics-flush-interval");
+        }
+
         if(options.exist("thread-pool-size")) {
             this->thread_pool_size = options.get<uint32_t>("thread-pool-size");
         }
@@ -740,6 +773,11 @@ public:
         if(options.exist("reset-peers-on-error")) {
             this->reset_peers_on_error = options.get<bool>("reset-peers-on-error");
         }
+
+        if(options.exist("enable-search-analytics")) {
+            this->enable_search_analytics = options.get<bool>("enable-search-analytics");
+        }
+
     }
 
     void set_cors_domains(std::string& cors_domains_value) {

@@ -407,6 +407,17 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         api_auth_key_sent = query_map[http_req::AUTH_HEADER];
     }
 
+    // extract user id from header, if not already present as GET param
+    ssize_t user_header_cursor = h2o_find_header_by_str(&req->headers, http_req::USER_HEADER, strlen(http_req::USER_HEADER), -1);
+
+    if(user_header_cursor != -1) {
+        h2o_iovec_t & slot = req->headers.entries[user_header_cursor].value;
+        std::string user_id_sent = std::string(slot.base, slot.len);
+        query_map[http_req::USER_HEADER] = user_id_sent;
+    } else if(query_map.count(http_req::USER_HEADER) == 0) {
+        query_map[http_req::USER_HEADER] = client_ip;
+    }
+
     route_path *rpath = nullptr;
     uint64_t route_hash = h2o_handler->http_server->find_route(path_parts, http_method, &rpath);
 
