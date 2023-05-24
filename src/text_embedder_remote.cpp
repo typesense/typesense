@@ -64,17 +64,21 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     req_body["input"] = "typesense";
     // remove "openai/" prefix
     req_body["model"] = model_name_without_namespace;
-    res_code = client.post_response(OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
+
+    std::string embedding_res;
+    headers["Content-Type"] = "application/json";
+    res_code = client.post_response(OPENAI_CREATE_EMBEDDING, req_body.dump(), embedding_res, res_headers, headers);
+
 
     if (res_code != 200) {
-        nlohmann::json json_res = nlohmann::json::parse(res);
+        nlohmann::json json_res = nlohmann::json::parse(embedding_res);
         if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
-            return Option<bool>(400, "OpenAI API error: " + res);
+            return Option<bool>(400, "OpenAI API error: " + embedding_res);
         }
         return Option<bool>(400, "OpenAI API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
     }
 
-    auto embedding = nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>();
+    auto embedding = nlohmann::json::parse(embedding_res)["data"][0]["embedding"].get<std::vector<float>>();
     num_dims = embedding.size();
     return Option<bool>(true);
 }
