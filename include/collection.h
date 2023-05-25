@@ -195,7 +195,7 @@ private:
         size_t a_value_size = UINT64_MAX - a.value.size();
         size_t b_value_size = UINT64_MAX - b.value.size();
 
-        return std::tie(a_count, a_value_size) > std::tie(b_count, b_value_size);
+        return std::tie(a_count, a_value_size, a.value) > std::tie(b_count, b_value_size, b.value);
     }
 
     static Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
