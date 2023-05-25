@@ -4,6 +4,7 @@
 #include <map>
 #include <tsl/htrie_map.h>
 #include <art.h>
+#include <json.hpp>
 #include "store.h"
 
 enum FILTER_OPERATOR {
@@ -24,7 +25,16 @@ struct filter {
     bool apply_not_equals = false;
 
     // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
-    std::string referenced_collection_name = "";
+    std::string referenced_collection_name;
+
+    std::vector<nlohmann::json> params;
+
+    /// For searching places within a given radius of a given latlong (mi for miles and km for kilometers)
+    static constexpr const char* GEO_FILTER_RADIUS_KEY = "radius";
+
+    /// Radius threshold beyond which exact filtering on geo_result_ids will not be done.
+    static constexpr const char* EXACT_GEO_FILTER_RADIUS_KEY = "exact_filter_radius";
+    static constexpr double DEFAULT_EXACT_GEO_FILTER_RADIUS_VALUE = 10000; // meters
 
     static const std::string RANGE_OPERATOR() {
         return "..";
@@ -38,6 +48,10 @@ struct filter {
                                                     const std::string& format_err_msg,
                                                     std::string& processed_filter_val,
                                                     NUM_COMPARATOR& num_comparator);
+
+    static Option<bool> parse_geopoint_filter_value(std::string& raw_value,
+                                                    const std::string& format_err_msg,
+                                                    filter& filter_exp);
 
     static Option<bool> parse_filter_query(const std::string& filter_query,
                                            const tsl::htrie_map<char, field>& search_schema,

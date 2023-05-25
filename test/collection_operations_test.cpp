@@ -102,3 +102,42 @@ TEST_F(CollectionOperationsTest, IncrementInt32Value) {
     ASSERT_EQ("The Sherlock Holmes", res["hits"][0]["document"]["title"].get<std::string>());
     ASSERT_EQ(101, res["hits"][0]["document"]["points"].get<size_t>());
 }
+
+TEST_F(CollectionOperationsTest, IncrementInt32ValueCreationViaOptionalField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32", "optional": true}
+        ]
+    })"_json;
+
+    Collection *coll = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Sherlock Holmes";
+    doc["$operations"] = R"({"increment": {"points": 1}})"_json;
+    ASSERT_TRUE(coll->add(doc.dump(), EMPLACE).ok());
+
+    auto res = coll->search("*", {"title"}, "points:1", {}, {}, {0}, 3, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(3, res["hits"][0]["document"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("Sherlock Holmes", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(1, res["hits"][0]["document"]["points"].get<size_t>());
+
+    // try same with CREATE action
+    doc.clear();
+    doc["id"] = "1";
+    doc["title"] = "Harry Potter";
+    doc["$operations"] = R"({"increment": {"points": 10}})"_json;
+    ASSERT_TRUE(coll->add(doc.dump(), CREATE).ok());
+
+    res = coll->search("*", {"title"}, "points:10", {}, {}, {0}, 3, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(3, res["hits"][0]["document"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("Harry Potter", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(10, res["hits"][0]["document"]["points"].get<size_t>());
+}

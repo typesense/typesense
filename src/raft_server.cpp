@@ -955,6 +955,21 @@ bool ReplicationState::get_ext_snapshot_succeeded() {
     return ext_snapshot_succeeded;
 }
 
+std::string ReplicationState::get_leader_url() const {
+    std::shared_lock lock(node_mutex);
+
+    if(node->leader_id().is_empty()) {
+        LOG(ERROR) << "Could not get leader status, as node does not have a leader!";
+        return "";
+    }
+
+    const std::string & leader_addr = node->leader_id().to_string();
+    lock.unlock();
+
+    const std::string protocol = api_uses_ssl ? "https" : "http";
+    return get_node_url_path(leader_addr, "/", protocol);
+}
+
 void TimedSnapshotClosure::Run() {
     // Auto delete this after Done()
     std::unique_ptr<TimedSnapshotClosure> self_guard(this);

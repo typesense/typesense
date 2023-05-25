@@ -4246,7 +4246,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                            index_operation_t::CREATE,
                                                            false,
                                                            fallback_field_type,
-                                                           DIRTY_VALUES::REJECT);
+                                                           DIRTY_VALUES::COERCE_OR_REJECT);
         if(!validate_op.ok()) {
             std::string err_message = validate_op.error();
 
@@ -4793,4 +4793,22 @@ void Collection::process_remove_field_for_embedding_fields(const field& the_fiel
         }
     }
 
+}
+
+Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k) {
+    std::vector<uint32_t> seq_ids;
+    auto op = index->seq_ids_outside_top_k(field_name, k, seq_ids);
+
+    if(!op.ok()) {
+        return op;
+    }
+
+    for(auto seq_id: seq_ids) {
+        auto remove_op = remove_if_found(seq_id);
+        if(!remove_op.ok()) {
+            LOG(ERROR) << "Error while truncating top k: " << remove_op.error();
+        }
+    }
+
+    return Option<bool>(true);
 }

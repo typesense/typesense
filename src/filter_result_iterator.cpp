@@ -754,7 +754,9 @@ void filter_result_iterator_t::init() {
         is_filter_result_initialized = true;
         return;
     } else if (f.is_geopoint()) {
-        for (const std::string& filter_value : a_filter.values) {
+        for (uint32_t fi = 0; fi < a_filter.values.size(); fi++) {
+            const std::string& filter_value = a_filter.values[fi];
+
             std::vector<uint32_t> geo_result_ids;
 
             std::vector<std::string> filter_value_parts;
@@ -763,6 +765,7 @@ void filter_result_iterator_t::init() {
             bool is_polygon = StringUtils::is_float(filter_value_parts.back());
             S2Region* query_region;
 
+            double query_radius_meters;
             if (is_polygon) {
                 const int num_verts = int(filter_value_parts.size()) / 2;
                 std::vector<S2Point> vertices;
@@ -787,23 +790,26 @@ void filter_result_iterator_t::init() {
                 } else {
                     query_region = loop;
                 }
+
+                query_radius_meters = S2Earth::RadiansToMeters(query_region->GetCapBound().GetRadius().radians());
             } else {
-                double radius = std::stof(filter_value_parts[2]);
+                query_radius_meters = std::stof(filter_value_parts[2]);
                 const auto& unit = filter_value_parts[3];
 
                 if (unit == "km") {
-                    radius *= 1000;
+                    query_radius_meters *= 1000;
                 } else {
                     // assume "mi" (validated upstream)
-                    radius *= 1609.34;
+                    query_radius_meters *= 1609.34;
                 }
 
-                S1Angle query_radius = S1Angle::Radians(S2Earth::MetersToRadians(radius));
+                S1Angle query_radius_radians = S1Angle::Radians(S2Earth::MetersToRadians(query_radius_meters));
                 double query_lat = std::stod(filter_value_parts[0]);
                 double query_lng = std::stod(filter_value_parts[1]);
                 S2Point center = S2LatLng::FromDegrees(query_lat, query_lng).ToPoint();
-                query_region = new S2Cap(center, query_radius);
+                query_region = new S2Cap(center, query_radius_radians);
             }
+            std::unique_ptr<S2Region> query_region_guard(query_region);
 
             S2RegionTermIndexer::Options options;
             options.set_index_contains_points_only(true);
@@ -819,6 +825,18 @@ void filter_result_iterator_t::init() {
 
             gfx::timsort(geo_result_ids.begin(), geo_result_ids.end());
             geo_result_ids.erase(std::unique( geo_result_ids.begin(), geo_result_ids.end() ), geo_result_ids.end());
+
+            // Skip exact filtering step if query radius is greater than the threshold.
+            if (fi < a_filter.params.size() &&
+                query_radius_meters > a_filter.params[fi][filter::EXACT_GEO_FILTER_RADIUS_KEY].get<double>()) {
+                uint32_t* out = nullptr;
+                filter_result.count = ArrayUtils::or_scalar(geo_result_ids.data(), geo_result_ids.size(),
+                                                            filter_result.docs, filter_result.count, &out);
+
+                delete[] filter_result.docs;
+                filter_result.docs = out;
+                continue;
+            }
 
             // `geo_result_ids` will contain all IDs that are within approximately within query radius
             // we still need to do another round of exact filtering on them
@@ -868,8 +886,6 @@ void filter_result_iterator_t::init() {
 
             delete[] filter_result.docs;
             filter_result.docs = out;
-
-            delete query_region;
         }
 
         if (filter_result.count == 0) {
