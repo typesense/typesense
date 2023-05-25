@@ -335,6 +335,9 @@ private:
 
     StringUtils string_utils;
 
+    std::atomic_uint64_t aggragate_docs_count;
+
+    std::set<std::string> facet_migrated;
     // used as sentinels
 
     static spp::sparse_hash_map<uint32_t, int64_t> text_match_sentinel_value;
@@ -754,7 +757,7 @@ public:
                              const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                              const std::vector<std::string>& group_by_fields,
                              size_t max_candidates,
-                             std::vector<facet_info_t>& facet_infos) const;
+                             std::vector<facet_info_t>& facet_infos, bool use_facet_intersection) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
                                 std::vector<std::vector<std::string>>& resolved_queries) const;

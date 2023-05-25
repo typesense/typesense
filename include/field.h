@@ -637,7 +637,7 @@ struct facet {
     const std::string field_name;
     spp::sparse_hash_map<std::string, facet_count_t> result_map;
     // used for facet value query
-    spp::sparse_hash_map<uint32_t, std::vector<std::string>> hash_tokens;
+    spp::sparse_hash_map<std::string, std::vector<std::string>> hash_tokens;
 
     // used for faceting grouped results
     spp::sparse_hash_map<uint32_t, spp::sparse_hash_set<uint32_t>> hash_groups;
@@ -683,7 +683,7 @@ struct facet {
 
 struct facet_info_t {
     // facet hash => resolved tokens
-    std::unordered_map<uint32_t, std::vector<std::string>> hashes;
+    std::unordered_map<std::string, std::vector<std::string>> hashes;
     bool use_facet_query = false;
     bool should_compute_stats = false;
     field facet_field{"", "", false};
