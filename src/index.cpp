@@ -37,7 +37,7 @@
                     search_cutoff = true; \
                     break;\
                 }
-#define FACET_INDEX_THRESHOLD 10
+#define FACET_INDEX_THRESHOLD 250
 
 spp::sparse_hash_map<uint32_t, int64_t> Index::text_match_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
@@ -604,7 +604,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
     return num_indexed;
 }
 
-void Index::migrate_facet_to_new_index(const std::string& field) {
+void Index::create_facet_hash_index(const std::string& field) {
 
     //LOG(INFO) << "migrating facet " << field << " to old index";
 
@@ -723,12 +723,11 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 #ifdef TEST_BUILD
         facet_threshold_count = FACET_INDEX_THRESHOLD + 1;
         is_migrated = true;
-        facet_migrated.emplace(afield.name);
 #endif
         const auto total_num_docs = aggragate_docs_count.load();
         if(!is_migrated && (facet_threshold_count > FACET_INDEX_THRESHOLD)
             && total_num_docs < 1000000) {
-            migrate_facet_to_new_index(afield.name);
+            create_facet_hash_index(afield.name);
 
             if(afield.is_string()) {
                 facet_index_v4->set_migrated(afield.name, true);
@@ -738,7 +737,6 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     numerical_index_it->second->set_migrated(true);
                 }
             }
-            facet_migrated.emplace(afield.name);
         }
 
         for(const auto& record: iter_batch) {
@@ -1318,15 +1316,15 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
         size_t mod_value = 100 / facet_sample_percent;
 
-        auto facet_records = 0;
+        auto num_facet_values = 0;
         
         if(!facet_field.name.empty()) {
             if(facet_field.is_string()) {
-                facet_records = facet_index_v4->get_facet_count(a_facet.field_name);
+                num_facet_values = facet_index_v4->get_facet_count(a_facet.field_name);
             } else {
                 auto numerical_index_it = numerical_index.find(a_facet.field_name);
                 if(numerical_index_it != numerical_index.end()) {
-                    facet_records = numerical_index_it->second->counter_list_size();
+                    num_facet_values = numerical_index_it->second->counter_list_size();
                 } else {
                     LOG(ERROR) << "facet " << a_facet.field_name << " not found in numerical index";
                 }
@@ -1344,10 +1342,14 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         use_facet_intersection = false;
         use_hashes = false;
 #endif
+        const auto& field_facet_mapping_it = facet_index_v3.find(a_facet.field_name);
+        const auto& field_single_val_facet_mapping_it = single_val_facet_index_v3.find(a_facet.field_name);
+        
         bool is_wildcard_no_filter_query = is_wildcard_query && no_filters_provided;
-        bool old_index_exist = facet_migrated.find(facet_field.name) != facet_migrated.end();
+        bool facet_hash_index_exists = ((field_facet_mapping_it != facet_index_v3.end()) 
+                    || (field_single_val_facet_mapping_it != single_val_facet_index_v3.end()));
 
-        if(results_size && facet_records && ((!old_index_exist || is_wildcard_no_filter_query)
+        if(results_size && num_facet_values && ((!facet_hash_index_exists || is_wildcard_no_filter_query)
             && group_limit == 0) && !use_hashes || use_facet_intersection) {
             //LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
@@ -1424,9 +1426,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             single_val_facet_map_t::iterator single_facet_map_it;
             uint32_t fhash = 0;
             size_t facet_hash_count = 1;
-        
-            const auto& field_facet_mapping_it = facet_index_v3.find(a_facet.field_name);
-            const auto& field_single_val_facet_mapping_it = single_val_facet_index_v3.find(a_facet.field_name);
 
             if((field_facet_mapping_it == facet_index_v3.end()) 
                 && (field_single_val_facet_mapping_it == single_val_facet_index_v3.end())) {
@@ -1434,6 +1433,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             }
 
             auto sort_index_it = sort_index.find(a_facet.field_name);
+            const auto facet_field_is_array = facet_field.is_array();
 
             for(size_t i = 0; i < results_size; i++) {
                 // if sampling is enabled, we will skip a portion of the results to speed up things
@@ -1444,7 +1444,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
 
                 uint32_t doc_seq_id = result_ids[i];
-                if(facet_field.is_array()) {
+                if(facet_field_is_array) {
                     const auto& field_facet_mapping = field_facet_mapping_it->second;
                     facet_map_it = field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->find(doc_seq_id);
 
@@ -1470,7 +1470,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
 
                 for(size_t j = 0; j < facet_hash_count; j++) {
-                    if(facet_field.is_array()) {
+                    if(facet_field_is_array) {
                         fhash = facet_map_it->second.hashes[j];
                     }
                     if(should_compute_stats) {
@@ -4571,7 +4571,9 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
         const auto field_facet_mapping_it = facet_index_v3.find(a_facet.field_name);
         const auto field_single_val_facet_mapping_it = single_val_facet_index_v3.find(a_facet.field_name);
-        
+        const auto facet_hash_index_exists = ((field_facet_mapping_it != facet_index_v3.end())
+                            || (field_single_val_facet_mapping_it != single_val_facet_index_v3.end()));
+
         facet_infos[findex].use_facet_query = false;
 
         const field &facet_field = search_schema.at(a_facet.field_name);
@@ -4668,7 +4670,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                     if(!use_facet_intersection) {
 #else
                     //checking if facets is migrated to old index
-                    if(facet_migrated.find(facet_field.name) != facet_migrated.end()) {
+                    if(facet_hash_index_exists) {
 #endif
                         if(facet_field.is_array()) {
                             const auto doc_fvalues_it = field_facet_mapping_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);

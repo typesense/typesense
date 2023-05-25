@@ -337,7 +337,6 @@ private:
 
     std::atomic_uint64_t aggragate_docs_count;
 
-    std::set<std::string> facet_migrated;
     // used as sentinels
 
     static spp::sparse_hash_map<uint32_t, int64_t> text_match_sentinel_value;
@@ -525,7 +524,7 @@ private:
 
     void initialize_facet_indexes(const field& facet_field);
 
-    void migrate_facet_to_new_index(const std::string& field);
+    void create_facet_hash_index(const std::string& field);
 
 
     static Option<bool> embed_fields(nlohmann::json& document, 
