@@ -20,7 +20,14 @@ private:
         std::string name;
         std::string suggestion_collection;
         std::vector<std::string> query_collections;
-        size_t max_suggestions;
+        size_t limit;
+
+        void to_json(nlohmann::json& obj) const {
+            obj["name"] = name;
+            obj["suggestion_collection"] = suggestion_collection;
+            obj["query_collections"] = query_collections;
+            obj["limit"] = limit;
+        }
     };
 
     // config name => config
@@ -38,10 +45,14 @@ private:
 
     ~AnalyticsManager();
 
+    Option<bool> remove_popular_queries_index(const std::string& name);
+
+    Option<bool> create_popular_queries_index(nlohmann::json &payload, bool write_to_disk);
+
 public:
 
-    static constexpr const char* ANALYTICS_CONFIG_PREFIX = "$AC";
-    static constexpr const char* RESOURCE_TYPE = "popular_queries";
+    static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
+    static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -55,9 +66,11 @@ public:
 
     void run(ReplicationState* raft_server);
 
-    Option<bool> create_index(nlohmann::json& payload, bool write_to_disk = true);
+    Option<nlohmann::json> list_rules();
 
-    Option<bool> remove_suggestion_index(const std::string& name);
+    Option<bool> create_rule(nlohmann::json& payload, bool write_to_disk = true);
+
+    Option<bool> remove_rule(const std::string& name);
 
     void add_suggestion(const std::string& query_collection,
                         std::string& query, const bool live_query, const std::string& user_id);

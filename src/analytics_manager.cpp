@@ -5,26 +5,39 @@
 #include "http_client.h"
 #include "collection_manager.h"
 
-Option<bool> AnalyticsManager::create_index(nlohmann::json& payload, bool write_to_disk) {
+Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool write_to_disk) {
     /*
         Sample payload:
 
         {
-            "name": "top_queries",
+            "name": "top_search_queries",
+            "type": "popular_queries",
             "limit": 1000,
             "source": {
                 "collections": ["brands", "products"]
             },
             "destination": {
-                "collection": "top_queries"
+                "collection": "top_search_queries"
             }
         }
     */
+
+    if(!payload.contains("type") || !payload["type"].is_string()) {
+        return Option<bool>(400, "Request payload contains invalid type.");
+    }
 
     if(!payload.contains("name") || !payload["name"].is_string()) {
         return Option<bool>(400, "Bad or missing name.");
     }
 
+    if(payload["type"] == POPULAR_QUERIES_TYPE) {
+        return create_popular_queries_index(payload, write_to_disk);
+    }
+
+    return Option<bool>(400, "Invalid type.");
+}
+
+Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payload, bool write_to_disk) {
     if(!payload.contains("source") || !payload["source"].is_object()) {
         return Option<bool>(400, "Bad or missing source.");
     }
@@ -35,10 +48,10 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json& payload, bool write_
 
     const std::string& suggestion_config_name = payload["name"].get<std::string>();
 
-    size_t max_suggestions = 1000;
+    size_t limit = 1000;
 
     if(payload.contains("limit") && payload["limit"].is_number_integer()) {
-        max_suggestions = payload["limit"].get<size_t>();
+        limit = payload["limit"].get<size_t>();
     }
 
     if(suggestion_configs.find(suggestion_config_name) != suggestion_configs.end()) {
@@ -58,7 +71,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json& payload, bool write_
     suggestion_config_t suggestion_config;
     suggestion_config.name = suggestion_config_name;
     suggestion_config.suggestion_collection = suggestion_collection;
-    suggestion_config.max_suggestions = max_suggestions;
+    suggestion_config.limit = limit;
 
     for(const auto& coll: payload["source"]["collections"]) {
         if(!coll.is_string()) {
@@ -77,12 +90,11 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json& payload, bool write_
         query_collection_mapping[query_coll].push_back(suggestion_collection);
     }
 
-    PopularQueries* popularQueries = new PopularQueries(max_suggestions);
+    PopularQueries* popularQueries = new PopularQueries(limit);
     popular_queries.emplace(suggestion_collection, popularQueries);
 
     if(write_to_disk) {
-        payload["type"] = RESOURCE_TYPE;
-        auto suggestion_key = std::string(ANALYTICS_CONFIG_PREFIX) + "_" + suggestion_config_name;
+        auto suggestion_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + suggestion_config_name;
         bool inserted = store->insert(suggestion_key, payload.dump());
         if(!inserted) {
             return Option<bool>(500, "Error while storing the config to disk.");
@@ -100,13 +112,40 @@ AnalyticsManager::~AnalyticsManager() {
     }
 }
 
-Option<bool> AnalyticsManager::remove_suggestion_index(const std::string &name) {
+Option<nlohmann::json> AnalyticsManager::list_rules() {
+    std::unique_lock lock(mutex);
+
+    nlohmann::json rules = nlohmann::json::object();
+    rules["rules"]= nlohmann::json::array();
+
+    for(const auto& suggestion_config: suggestion_configs) {
+        nlohmann::json rule;
+        suggestion_config.second.to_json(rule);
+        rule["type"] = POPULAR_QUERIES_TYPE;
+        rules["rules"].push_back(rule);
+    }
+
+    return Option<nlohmann::json>(rules);
+}
+
+Option<bool> AnalyticsManager::remove_rule(const string &name) {
+    std::unique_lock lock(mutex);
+
+    auto suggestion_configs_it = suggestion_configs.find(name);
+    if(suggestion_configs_it != suggestion_configs.end()) {
+        return remove_popular_queries_index(name);
+    }
+
+    return Option<bool>(404, "Rule not found.");
+}
+
+Option<bool> AnalyticsManager::remove_popular_queries_index(const std::string &name) {
     std::unique_lock lock(mutex);
 
     auto suggestion_configs_it = suggestion_configs.find(name);
 
     if(suggestion_configs_it == suggestion_configs.end()) {
-        return Option<bool>(404, "Index not found.");
+        return Option<bool>(404, "Rule not found.");
     }
 
     const auto& suggestion_collection = suggestion_configs_it->second.suggestion_collection;
@@ -122,7 +161,7 @@ Option<bool> AnalyticsManager::remove_suggestion_index(const std::string &name) 
 
     suggestion_configs.erase(name);
 
-    auto suggestion_key = std::string(ANALYTICS_CONFIG_PREFIX) + "_" + name;
+    auto suggestion_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
     bool erased = store->remove(suggestion_key);
     if(!erased) {
         return Option<bool>(500, "Error while deleting from disk.");
@@ -250,3 +289,4 @@ void AnalyticsManager::dispose() {
 void AnalyticsManager::init(Store* store) {
     this->store = store;
 }
+
