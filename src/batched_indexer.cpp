@@ -103,11 +103,11 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
     std::string& coll_name = req->params["collection"];
 
     if(coll_name.empty()) {
-        route_path* rpath;
-        server->get_route(req->route_hash, &rpath);
+        route_path* rpath = nullptr;
+        bool route_found = server->get_route(req->route_hash, &rpath);
 
         // ensure that collection creation is sent to the same queue as writes to that collection
-        if(rpath->handler == post_create_collection) {
+        if(route_found && rpath->handler == post_create_collection) {
             nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
 
             if(!obj.is_discarded() && obj.is_object() &&
