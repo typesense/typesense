@@ -604,71 +604,60 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
     return num_indexed;
 }
 
-void Index::create_facet_hash_index(const std::string& field) {
+void Index::create_facet_hash_index(const field& facet_field) {
 
     //LOG(INFO) << "migrating facet " << field << " to old index";
+    if(facet_field.is_array()) {
+        auto& facet_index = facet_index_v3[facet_field.name];
 
-    std::map<uint32_t, std::vector<uint32_t>> facets_indexes;
-    auto& facet_index = facet_index_v3[field];
-    auto& single_facet_index = single_val_facet_index_v3[field];
+        facet_index_v4->get_facet_indexes(facet_field.name, [&] (uint32_t seq_id, uint32_t count_index) {
 
-    //migrate string and int64 facets first
-    if(facet_index_v4->get_facet_indexes(field, facets_indexes)) {
+            auto& facet_dim_index = facet_index[seq_id % ARRAY_FACET_DIM];
+            if(facet_dim_index == nullptr) {
+                LOG(ERROR) << "Error, facet index not initialized for field " << facet_field.name;
+            } else {
+                facet_dim_index->operator[](seq_id).hashes.emplace_back(count_index);
+            }
+        });
 
-        for(const auto& kv : facets_indexes) {
+        auto numerical_index_it = numerical_index.find(facet_field.name);
+        if(numerical_index_it != numerical_index_it) {
+            auto num_tree = numerical_index_it->second;
+            num_tree->get_facet_indexes([&] (uint32_t seq_id, uint32_t count_index) {
 
-            const auto  hash_count = kv.second.size();
-            const auto seq_id = kv.first;
-
-            if(hash_count > 1) {
                 auto& facet_dim_index = facet_index[seq_id % ARRAY_FACET_DIM];
                 if(facet_dim_index == nullptr) {
-                    LOG(ERROR) << "Error, facet index not initialized for field " << field;
+                    LOG(ERROR) << "Error, facet index not initialized for field " << facet_field.name;
                 } else {
-                    facet_hash_values_t fhashvalues;
-                    fhashvalues.hashes = std::move(kv.second);
-                    facet_dim_index->emplace(seq_id, std::move(fhashvalues));
+                   facet_dim_index->operator[](seq_id).hashes.emplace_back(count_index);
                 }
+            });
+        }
+    } else {
+        auto& single_facet_index = single_val_facet_index_v3[facet_field.name];
+
+        facet_index_v4->get_facet_indexes(facet_field.name, [&] (uint32_t seq_id, uint32_t count_index) {
+
+            auto& facet_dim_index = single_facet_index[seq_id % ARRAY_FACET_DIM];
+            if(facet_dim_index == nullptr) {
+                LOG(ERROR) << "Error, facet index not initialized for field " << facet_field.name;
             } else {
+                facet_dim_index->operator[](seq_id) = count_index;
+            }
+        });
+
+        auto numerical_index_it = numerical_index.find(facet_field.name);
+        if(numerical_index_it != numerical_index_it) {
+            auto num_tree = numerical_index_it->second;
+            num_tree->get_facet_indexes([&] (uint32_t seq_id, uint32_t count_index) {
+
                 auto& facet_dim_index = single_facet_index[seq_id % ARRAY_FACET_DIM];
                 if(facet_dim_index == nullptr) {
-                    LOG(ERROR) << "Error, facet index not initialized for field " << field;
+                    LOG(ERROR) << "Error, facet index not initialized for field " << facet_field.name;
                 } else {
-                    facet_dim_index->emplace(seq_id, kv.second[0]);
+                    facet_dim_index->operator[](seq_id) = count_index;
                 }
-            }
-        }
-    }
-
-    //now extract remaining facets from numerical index
-    facets_indexes.clear();
-    auto numerical_index_it = numerical_index.find(field);
-    if(numerical_index_it != numerical_index_it) {
-        auto num_tree = numerical_index_it->second;
-        if(num_tree->get_facet_indexes(facets_indexes)) {
-
-            for(const auto& kv : facets_indexes) {
-                const auto  hash_count = kv.second.size();
-                const auto seq_id = kv.first;
-
-                if(hash_count > 1) {
-                    auto& facet_dim_index = facet_index[seq_id % ARRAY_FACET_DIM];
-                    if(facet_dim_index == nullptr) {
-                        LOG(ERROR) << "Error, facet index not initialized for field " << field;
-                    } else {
-                        facet_hash_values_t fhashvalues;
-                        fhashvalues.hashes = std::move(kv.second);
-                        facet_dim_index->emplace(seq_id, std::move(fhashvalues));
-                    }
-                } else {
-                    auto& facet_dim_index = single_facet_index[seq_id % ARRAY_FACET_DIM];
-                    if(facet_dim_index == nullptr) {
-                        LOG(ERROR) << "Error, facet index not initialized for field " << field;
-                    } else {
-                        facet_dim_index->emplace(seq_id, kv.second[0]);
-                    }
-                }
-            }
+            });
         }
     }
 }
@@ -727,7 +716,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
         const auto total_num_docs = aggragate_docs_count.load();
         if(!is_migrated && (facet_threshold_count > FACET_INDEX_THRESHOLD)
             && total_num_docs < 1000000) {
-            create_facet_hash_index(afield.name);
+            create_facet_hash_index(afield);
 
             if(afield.is_string()) {
                 facet_index_v4->set_migrated(afield.name, true);
@@ -736,6 +725,12 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 if(numerical_index_it != numerical_index.end()) {
                     numerical_index_it->second->set_migrated(true);
                 }
+            }
+
+            auto cardinality_ratio = total_num_docs / facet_threshold_count;
+            if(cardinality_ratio < 5) {
+                facet_index_v4->erase(afield.name);
+                facet_index_v4->set_dropped(afield.name);
             }
         }
 
@@ -1349,8 +1344,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         bool facet_hash_index_exists = ((field_facet_mapping_it != facet_index_v3.end()) 
                     || (field_single_val_facet_mapping_it != single_val_facet_index_v3.end()));
 
-        if(results_size && num_facet_values && ((!facet_hash_index_exists || is_wildcard_no_filter_query)
-            && group_limit == 0) && !use_hashes || use_facet_intersection) {
+        if(results_size && num_facet_values && ((!facet_hash_index_exists || is_wildcard_no_filter_query 
+            || num_facet_values > 50000) && group_limit == 0) && !use_hashes || use_facet_intersection) {
             //LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
 

@@ -524,7 +524,7 @@ private:
 
     void initialize_facet_indexes(const field& facet_field);
 
-    void create_facet_hash_index(const std::string& field);
+    void create_facet_hash_index(const field& facet_field);
 
 
     static Option<bool> embed_fields(nlohmann::json& document, 

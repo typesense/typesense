@@ -426,11 +426,11 @@ size_t num_tree_t::intersect(const uint32_t* result_ids, int result_ids_len, int
     return found.size();
 }
 
-size_t num_tree_t::get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& facets) {
+void num_tree_t::get_facet_indexes(std::function<void(uint32_t seq_id, uint32_t count_index)> functor) {
 
     //check if facet field   
     if(counter_list.empty()) {
-        return 0;
+        return;
     }
 
     std::vector<uint32_t> id_list;
@@ -442,11 +442,11 @@ size_t num_tree_t::get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& 
 
         //emplacing seq_id=>count_index
         for(const auto& id : id_list) {
-            facets[id].emplace_back(int64map_it->first);
+            functor(id, int64map_it->first);
         }
 
         id_list.clear();
     }
 
-    return facets.size();
+    return;
 }
