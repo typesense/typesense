@@ -19,7 +19,6 @@ uint32_t facet_index_t::insert(const std::string& field, const std::string& valu
     uint32_t index = 0;
 
     auto& facet_index_map = facet_field_map[field].facet_index_map;
-    uint32_t index;
     const auto sv = value.substr(0, 100);
     const auto it = facet_index_map.find(sv);
 
