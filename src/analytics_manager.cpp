@@ -30,6 +30,10 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool write_t
         return Option<bool>(400, "Bad or missing name.");
     }
 
+    if(!payload.contains("params") || !payload["params"].is_object()) {
+        return Option<bool>(400, "Bad or missing params.");
+    }
+
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
         return create_popular_queries_index(payload, write_to_disk);
     }
@@ -38,20 +42,23 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool write_t
 }
 
 Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payload, bool write_to_disk) {
-    if(!payload.contains("source") || !payload["source"].is_object()) {
+    // params and name are validated upstream
+    const auto& params = payload["params"];
+    const std::string& suggestion_config_name = payload["name"].get<std::string>();
+
+    if(!params.contains("source") || !params["source"].is_object()) {
         return Option<bool>(400, "Bad or missing source.");
     }
 
-    if(!payload.contains("destination") || !payload["destination"].is_object()) {
+    if(!params.contains("destination") || !params["destination"].is_object()) {
         return Option<bool>(400, "Bad or missing destination.");
     }
 
-    const std::string& suggestion_config_name = payload["name"].get<std::string>();
 
     size_t limit = 1000;
 
-    if(payload.contains("limit") && payload["limit"].is_number_integer()) {
-        limit = payload["limit"].get<size_t>();
+    if(params.contains("limit") && params["limit"].is_number_integer()) {
+        limit = params["limit"].get<size_t>();
     }
 
     if(suggestion_configs.find(suggestion_config_name) != suggestion_configs.end()) {
@@ -59,21 +66,21 @@ Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payl
                                             suggestion_config_name + "`.");
     }
 
-    if(!payload["source"].contains("collections") || !payload["source"]["collections"].is_array()) {
+    if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
         return Option<bool>(400, "Must contain a valid list of source collections.");
     }
 
-    if(!payload["destination"].contains("collection") || !payload["destination"]["collection"].is_string()) {
+    if(!params["destination"].contains("collection") || !params["destination"]["collection"].is_string()) {
         return Option<bool>(400, "Must contain a valid destination collection.");
     }
 
-    const std::string& suggestion_collection = payload["destination"]["collection"].get<std::string>();
+    const std::string& suggestion_collection = params["destination"]["collection"].get<std::string>();
     suggestion_config_t suggestion_config;
     suggestion_config.name = suggestion_config_name;
     suggestion_config.suggestion_collection = suggestion_collection;
     suggestion_config.limit = limit;
 
-    for(const auto& coll: payload["source"]["collections"]) {
+    for(const auto& coll: params["source"]["collections"]) {
         if(!coll.is_string()) {
             return Option<bool>(400, "Must contain a valid list of source collection names.");
         }
