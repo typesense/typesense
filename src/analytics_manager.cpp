@@ -147,8 +147,7 @@ Option<bool> AnalyticsManager::remove_rule(const string &name) {
 }
 
 Option<bool> AnalyticsManager::remove_popular_queries_index(const std::string &name) {
-    std::unique_lock lock(mutex);
-
+    // lock is held by caller
     auto suggestion_configs_it = suggestion_configs.find(name);
 
     if(suggestion_configs_it == suggestion_configs.end()) {
