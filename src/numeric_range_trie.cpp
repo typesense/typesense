@@ -25,7 +25,7 @@ void NumericTrie::search_range(const int32_t& low, const bool& low_inclusive,
 
         uint32_t* negative_ids = nullptr;
         uint32_t negative_ids_length = 0;
-        if (!(low == -1 && !low_inclusive)) { // No need to search for (-1, ...
+        if (negative_trie != nullptr && !(low == -1 && !low_inclusive)) { // No need to search for (-1, ...
             auto abs_low = std::abs(low);
             // Since we store absolute values, search_lesser would yield result for >low from negative_trie.
             negative_trie->search_lesser(low_inclusive ? abs_low : abs_low - 1, negative_ids, negative_ids_length);
@@ -33,7 +33,7 @@ void NumericTrie::search_range(const int32_t& low, const bool& low_inclusive,
 
         uint32_t* positive_ids = nullptr;
         uint32_t positive_ids_length = 0;
-        if (!(high == 0 && !high_inclusive)) { // No need to search for ..., 0)
+        if (positive_trie != nullptr && !(high == 0 && !high_inclusive)) { // No need to search for ..., 0)
             positive_trie->search_lesser(high_inclusive ? high : high - 1, positive_ids, positive_ids_length);
         }
 
@@ -51,14 +51,18 @@ void NumericTrie::search_range(const int32_t& low, const bool& low_inclusive,
 
 void NumericTrie::search_greater(const int32_t& value, const bool& inclusive, uint32_t*& ids, uint32_t& ids_length) {
     if ((value == 0 && inclusive) || (value == -1 && !inclusive)) { // [0, ∞), (-1, ∞)
-        positive_trie->get_all_ids(ids, ids_length);
+        if (positive_trie != nullptr) {
+            positive_trie->get_all_ids(ids, ids_length);
+        }
         return;
     }
 
     if (value >= 0) {
         uint32_t* positive_ids = nullptr;
         uint32_t positive_ids_length = 0;
-        positive_trie->search_greater(inclusive ? value : value + 1, positive_ids, positive_ids_length);
+        if (positive_trie != nullptr) {
+            positive_trie->search_greater(inclusive ? value : value + 1, positive_ids, positive_ids_length);
+        }
 
         ids_length = positive_ids_length;
         ids = positive_ids;
@@ -67,15 +71,61 @@ void NumericTrie::search_greater(const int32_t& value, const bool& inclusive, ui
 
         uint32_t* negative_ids = nullptr;
         uint32_t negative_ids_length = 0;
-        auto abs_low = std::abs(value);
-        // Since we store absolute values, search_lesser would yield result for >low from negative_trie.
-        negative_trie->search_lesser(inclusive ? abs_low : abs_low - 1, negative_ids, negative_ids_length);
+        // Since we store absolute values, search_lesser would yield result for >value from negative_trie.
+        if (negative_trie != nullptr) {
+            auto abs_low = std::abs(value);
+            negative_trie->search_lesser(inclusive ? abs_low : abs_low - 1, negative_ids, negative_ids_length);
+        }
 
         uint32_t* positive_ids = nullptr;
         uint32_t positive_ids_length = 0;
-        positive_trie->get_all_ids(positive_ids, positive_ids_length);
+        if (positive_trie != nullptr) {
+            positive_trie->get_all_ids(positive_ids, positive_ids_length);
+        }
 
         ids_length = ArrayUtils::or_scalar(negative_ids, negative_ids_length, positive_ids, positive_ids_length, &ids);
+
+        delete [] negative_ids;
+        delete [] positive_ids;
+        return;
+    }
+}
+
+void NumericTrie::search_lesser(const int32_t& value, const bool& inclusive, uint32_t*& ids, uint32_t& ids_length) {
+    if ((value == 0 && !inclusive) || (value == -1 && inclusive)) { // (-∞, 0), (-∞, -1]
+        if (negative_trie != nullptr) {
+            negative_trie->get_all_ids(ids, ids_length);
+        }
+        return;
+    }
+
+    if (value < 0) {
+        uint32_t* negative_ids = nullptr;
+        uint32_t negative_ids_length = 0;
+        // Since we store absolute values, search_greater would yield result for <value from negative_trie.
+        if (negative_trie != nullptr) {
+            auto abs_low = std::abs(value);
+            negative_trie->search_greater(inclusive ? abs_low : abs_low + 1, negative_ids, negative_ids_length);
+        }
+
+        ids_length = negative_ids_length;
+        ids = negative_ids;
+    } else {
+        // Have to combine the results of <value from positive_trie and all the ids in negative_trie
+
+        uint32_t* positive_ids = nullptr;
+        uint32_t positive_ids_length = 0;
+        if (positive_trie != nullptr) {
+            positive_trie->search_lesser(inclusive ? value : value - 1, positive_ids, positive_ids_length);
+        }
+
+        uint32_t* negative_ids = nullptr;
+        uint32_t negative_ids_length = 0;
+        if (negative_trie != nullptr) {
+            negative_trie->get_all_ids(negative_ids, negative_ids_length);
+        }
+
+        ids_length = ArrayUtils::or_scalar(positive_ids, positive_ids_length, negative_ids, negative_ids_length, &ids);
 
         delete [] negative_ids;
         delete [] positive_ids;
