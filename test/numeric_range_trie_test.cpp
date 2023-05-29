@@ -188,4 +188,9 @@ TEST_F(NumericRangeTrieTest, SearchGreater) {
     for (uint32_t i = 5, j = 0; i < pairs.size(); i++, j++) {
         ASSERT_EQ(pairs[i].second, ids[j]);
     }
+
+    trie->search_greater(100000, false, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(0, ids_length);
 }
