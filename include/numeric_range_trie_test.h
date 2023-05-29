@@ -13,6 +13,9 @@ class NumericTrieNode {
     void insert(const int32_t& value, const uint32_t& seq_id, char& level);
 
     void search_lesser_helper(const int32_t& value, char& level, std::vector<NumericTrieNode*>& matches);
+
+    void search_greater_helper(const int32_t& value, char& level, std::vector<NumericTrieNode*>& matches);
+
 public:
 
     ~NumericTrieNode() {
@@ -26,6 +29,8 @@ public:
     }
 
     void insert(const int32_t& value, const uint32_t& seq_id);
+
+    void get_all_ids(uint32_t*& ids, uint32_t& ids_length);
 
     void search_range(const int32_t& low,const int32_t& high,
                       uint32_t*& ids, uint32_t& ids_length);
