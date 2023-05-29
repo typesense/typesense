@@ -25,7 +25,7 @@ void NumericTrie::search_range(const int32_t& low, const bool& low_inclusive,
 
         uint32_t* negative_ids = nullptr;
         uint32_t negative_ids_length = 0;
-        if (!(low == -1 && !low_inclusive)) {
+        if (!(low == -1 && !low_inclusive)) { // No need to search for (-1, ...
             auto abs_low = std::abs(low);
             // Since we store absolute values, search_lesser would yield result for >low from negative_trie.
             negative_trie->search_lesser(low_inclusive ? abs_low : abs_low - 1, negative_ids, negative_ids_length);
@@ -33,7 +33,7 @@ void NumericTrie::search_range(const int32_t& low, const bool& low_inclusive,
 
         uint32_t* positive_ids = nullptr;
         uint32_t positive_ids_length = 0;
-        if (!(high == 0 && !high_inclusive)) {
+        if (!(high == 0 && !high_inclusive)) { // No need to search for ..., 0)
             positive_trie->search_lesser(high_inclusive ? high : high - 1, positive_ids, positive_ids_length);
         }
 
@@ -94,23 +94,17 @@ void NumericTrieNode::search_lesser(const int32_t& value, uint32_t*& ids, uint32
 }
 
 void NumericTrieNode::search_lesser_helper(const int32_t& value, char& level, std::vector<NumericTrieNode*>& matches) {
-    if (level > MAX_LEVEL) {
-        return;
-    } else if (level == MAX_LEVEL) {
+    if (level == MAX_LEVEL) {
         matches.push_back(this);
         return;
-    }
-
-    if (children == nullptr) {
+    } else if (level > MAX_LEVEL || children == nullptr) {
         return;
     }
 
     auto index = get_index(value, ++level);
-    if (children[index] == nullptr) {
-        return;
+    if (children[index] != nullptr) {
+        children[index]->search_lesser_helper(value, level, matches);
     }
-
-    children[index]->search_lesser_helper(value, level, matches);
 
     while (--index >= 0) {
         if (children[index] != nullptr) {
