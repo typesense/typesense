@@ -57,7 +57,10 @@ void NumericTrie::search_greater(const int32_t& value, const bool& inclusive, ui
 
     if (value >= 0) {
         uint32_t* positive_ids = nullptr;
-        positive_trie->search_greater(inclusive ? value : value + 1, positive_ids, ids_length);
+        uint32_t positive_ids_length = 0;
+        positive_trie->search_greater(inclusive ? value : value + 1, positive_ids, positive_ids_length);
+
+        ids_length = positive_ids_length;
         ids = positive_ids;
     } else {
         // Have to combine the results of >value from negative_trie and all the ids in positive_trie
