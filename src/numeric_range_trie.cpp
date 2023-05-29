@@ -42,6 +42,41 @@ void NumericTrie::search_range(const int32_t& low, const bool& low_inclusive,
         delete [] negative_ids;
         delete [] positive_ids;
         return;
+    } else if (low >= 0) {
+        // Search only in positive_trie
+    } else {
+        // Search only in negative_trie
+    }
+}
+
+void NumericTrie::search_greater(const int32_t& value, const bool& inclusive, uint32_t*& ids, uint32_t& ids_length) {
+    if ((value == 0 && inclusive) || (value == -1 && !inclusive)) { // [0, ∞), (-1, ∞)
+        positive_trie->get_all_ids(ids, ids_length);
+        return;
+    }
+
+    if (value >= 0) {
+        uint32_t* positive_ids = nullptr;
+        positive_trie->search_greater(inclusive ? value : value + 1, positive_ids, ids_length);
+        ids = positive_ids;
+    } else {
+        // Have to combine the results of >value from negative_trie and all the ids in positive_trie
+
+        uint32_t* negative_ids = nullptr;
+        uint32_t negative_ids_length = 0;
+        auto abs_low = std::abs(value);
+        // Since we store absolute values, search_lesser would yield result for >low from negative_trie.
+        negative_trie->search_lesser(inclusive ? abs_low : abs_low - 1, negative_ids, negative_ids_length);
+
+        uint32_t* positive_ids = nullptr;
+        uint32_t positive_ids_length = 0;
+        positive_trie->get_all_ids(positive_ids, positive_ids_length);
+
+        ids_length = ArrayUtils::or_scalar(negative_ids, negative_ids_length, positive_ids, positive_ids_length, &ids);
+
+        delete [] negative_ids;
+        delete [] positive_ids;
+        return;
     }
 }
 
@@ -51,6 +86,13 @@ void NumericTrieNode::insert(const int32_t& value, const uint32_t& seq_id) {
 }
 
 inline int get_index(const int32_t& value, char& level) {
+    // Values are index considering higher order of the bytes first.
+    // 0x01020408 (16909320) would be indexed in the trie as follows:
+    // Level   Index
+    //   1       1
+    //   2       2
+    //   3       4
+    //   4       8
     return (value >> (8 * (MAX_LEVEL - level))) & 0xFF;
 }
 
@@ -59,6 +101,7 @@ void NumericTrieNode::insert(const int32_t& value, const uint32_t& seq_id, char&
         return;
     }
 
+    // Root node contains all the sequence ids present in the tree.
     if (!seq_ids.contains(seq_id)) {
         seq_ids.append(seq_id);
     }
@@ -75,6 +118,11 @@ void NumericTrieNode::insert(const int32_t& value, const uint32_t& seq_id, char&
 
         return children[index]->insert(value, seq_id, level);
     }
+}
+
+void NumericTrieNode::get_all_ids(uint32_t*& ids, uint32_t& ids_length) {
+    ids = seq_ids.uncompress();
+    ids_length = seq_ids.getLength();
 }
 
 void NumericTrieNode::search_lesser(const int32_t& value, uint32_t*& ids, uint32_t& ids_length) {
@@ -107,6 +155,48 @@ void NumericTrieNode::search_lesser_helper(const int32_t& value, char& level, st
     }
 
     while (--index >= 0) {
+        if (children[index] != nullptr) {
+            matches.push_back(children[index]);
+        }
+    }
+
+    --level;
+}
+
+void NumericTrieNode::search_range(const int32_t& low, const int32_t& high, uint32_t*& ids, uint32_t& ids_length) {
+
+}
+
+void NumericTrieNode::search_greater(const int32_t& value, uint32_t*& ids, uint32_t& ids_length) {
+    char level = 0;
+    std::vector<NumericTrieNode*> matches;
+    search_greater_helper(value, level, matches);
+
+    for (auto const& match: matches) {
+        uint32_t* out = nullptr;
+        auto const& m_seq_ids = match->seq_ids.uncompress();
+        ids_length = ArrayUtils::or_scalar(m_seq_ids, match->seq_ids.getLength(), ids, ids_length, &out);
+
+        delete [] m_seq_ids;
+        delete [] ids;
+        ids = out;
+    }
+}
+
+void NumericTrieNode::search_greater_helper(const int32_t& value, char& level, std::vector<NumericTrieNode*>& matches) {
+    if (level == MAX_LEVEL) {
+        matches.push_back(this);
+        return;
+    } else if (level > MAX_LEVEL || children == nullptr) {
+        return;
+    }
+
+    auto index = get_index(value, ++level);
+    if (children[index] != nullptr) {
+        children[index]->search_greater_helper(value, level, matches);
+    }
+
+    while (++index < EXPANSE) {
         if (children[index] != nullptr) {
             matches.push_back(children[index]);
         }
