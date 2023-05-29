@@ -1783,6 +1783,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             // remove fields from highlight doc that were not highlighted
             if(!hfield_names.empty()) {
                 prune_doc(highlight_res, hfield_names, tsl::htrie_set<char>(), "");
+            } else {
+                highlight_res.clear();
             }
 
             if(enable_highlight_v1) {
@@ -2798,7 +2800,9 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
     highlight_nested_field(highlight_doc, highlight_doc, path_parts, 0, false, -1,
                            [&](nlohmann::json& h_obj, bool is_arr_obj_ele, int array_i) {
-        if(!h_obj.is_string()) {
+        if(h_obj.is_object()) {
+            return ;
+        } else if(!h_obj.is_string()) {
             auto val_back = h_obj;
             h_obj = nlohmann::json::object();
             h_obj["snippet"] = to_string(val_back);

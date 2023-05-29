@@ -2033,6 +2033,31 @@ TEST_F(CollectionSpecificMoreTest, ExhaustiveSearchWithoutExplicitDropTokens) {
     ASSERT_EQ(2, res["hits"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, DoNotHighlightFieldsForSpecialCharacterQuery) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "description", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "alpha beta gamma";
+    doc["description"] = "alpha beta gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("'", {"title", "description"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 1,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(0, res["hits"][0]["highlight"].size());
+    ASSERT_EQ(0, res["hits"][0]["highlights"].size());
+}
+
 TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {
     nlohmann::json schema = R"({
             "name": "coll1",
