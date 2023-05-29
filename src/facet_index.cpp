@@ -6,13 +6,19 @@
 uint32_t facet_index_t::insert(const std::string& field, const std::string& value, 
     uint32_t id, bool is_string) {
     
+    if(dropped_fields.find(field) != dropped_fields.end()) {
+        //field has been dropped 
+        return 0;
+    }
+
     const auto facet_field_map_it = facet_field_map.find(field);
     if(facet_field_map_it == facet_field_map.end()) {
         facet_field_map.emplace(field, facet_index_counter{});
     }
 
+    uint32_t index = 0;
+
     auto& facet_index_map = facet_field_map[field].facet_index_map;
-    uint32_t index;
     const auto sv = value.substr(0, 100);
     const auto it = facet_index_map.find(sv);
 
@@ -151,12 +157,12 @@ facet_index_t::~facet_index_t() {
 }
 
  //used for migrating string and int64 facets
-size_t facet_index_t::get_facet_indexes(const std::string& field, 
-    std::map<uint32_t, std::vector<uint32_t>>& seqid_index_map) {
+void facet_index_t::get_facet_indexes(const std::string& field, 
+    std::function<void(uint32_t seq_id, uint32_t count_index)> functor) {
 
   const auto& facet_field_it = facet_field_map.find(field);
     if(facet_field_it == facet_field_map.end()) {
-        return 0;
+        return;
     }
 
     auto& facet_index_map = facet_field_it->second.facet_index_map;
@@ -171,13 +177,13 @@ size_t facet_index_t::get_facet_indexes(const std::string& field,
 
         //emplacing seq_id=>count_index
         for(const auto& id : id_list) {
-            seqid_index_map[id].emplace_back(facet_index_map_it->index);
+            functor(id, facet_index_map_it->index);
         }
 
         id_list.clear();
     }
 
-    return seqid_index_map.size();
+    return;
 }
 
 
@@ -196,5 +202,12 @@ void facet_index_t::set_migrated(const std::string& field, bool val) {
         it->second.is_migrated = val;
     }
 
+    return;
+}
+
+void facet_index_t::set_dropped(const std::string& field) {
+    
+    dropped_fields.emplace(field);
+    
     return;
 }

@@ -141,6 +141,16 @@ bool del_throttle(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 
 bool del_exceed(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+// Analytics
+
+bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Misc helpers
 
 void get_collections_for_auth(std::map<std::string, std::string>& req_params, const std::string& body,

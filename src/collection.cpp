@@ -1558,12 +1558,12 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         return Option<nlohmann::json>(408, "Request Timeout");
     }
 
-    if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 1) {
+    if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 0) {
         size_t num_buckets = sort_fields_std[match_score_index].text_match_buckets;
         const size_t max_kvs_bucketed = std::min<size_t>(DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
 
         if(max_kvs_bucketed >= num_buckets) {
-            std::vector<int64_t> result_scores(max_kvs_bucketed);
+            spp::sparse_hash_map<uint64_t, int64_t> result_scores;
 
             // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
             size_t block_len = (max_kvs_bucketed / num_buckets);
@@ -1572,7 +1572,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 int64_t anchor_score = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
                 size_t j = 0;
                 while(j < block_len && i+j < max_kvs_bucketed) {
-                    result_scores[i+j] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
+                    result_scores[raw_result_kvs[i+j][0]->key] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
                     raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = anchor_score;
                     j++;
                 }
@@ -1586,7 +1586,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
             // restore original scores
             for(i = 0; i < max_kvs_bucketed; i++) {
-                raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index] = result_scores[i];
+                raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index] =
+                        result_scores[raw_result_kvs[i][0]->key];
             }
         }
     }
@@ -1922,7 +1923,25 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         facet_result["counts"] = nlohmann::json::array();
 
         std::vector<facet_value_t> facet_values;
+        std::vector<std::pair<std::string, facet_count_t>> facet_counts;
+
+        for (const auto & kv : a_facet.result_map) {
+            facet_counts.emplace_back(std::make_pair(kv.first, kv.second));
+        }
         
+        auto max_facets = std::min(max_facet_values, facet_counts.size());
+        auto nthElement = max_facets == facet_counts.size() ? max_facets - 1 : max_facets;
+        std::nth_element(facet_counts.begin(), facet_counts.begin() + nthElement,
+                            facet_counts.end(), [&](const auto& kv1, const auto& kv2) {
+                                size_t a_count = kv1.second.count;
+                                size_t b_count = kv2.second.count;
+
+                                size_t a_value_size = UINT64_MAX - kv1.first.size();
+                                size_t b_value_size = UINT64_MAX - kv2.first.size();
+
+                                return std::tie(a_count, a_value_size) > std::tie(b_count, b_value_size);
+                            });
+
         if(a_facet.is_range_query){
             for(auto kv : a_facet.result_map){
 
@@ -1936,66 +1955,32 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     LOG (ERROR) << "range_id not found in result map.";
                 }
             }
-        } else if(a_facet.is_intersected) {
-            //LOG(INFO) << "used intersection";
-            std::vector<std::pair<std::string, uint32_t>> facet_counts;
-
-            for (const auto & kv : a_facet.result_map) {
-                facet_counts.emplace_back(std::make_pair(kv.first, kv.second.count));
-            }
-            
-            auto max_facets = std::min(max_facet_values, facet_counts.size());
-            auto nthElement = max_facets == facet_counts.size() ? max_facets - 1 : max_facets;
-
-            std::nth_element(facet_counts.begin(), facet_counts.begin() + nthElement,
-                            facet_counts.end(), [&](const auto& kv1, const auto& kv2) {
-                                size_t a_count = kv1.second;
-                                size_t b_count = kv2.second;
-
-                                size_t a_value_size = UINT64_MAX - kv1.first.size();
-                                size_t b_value_size = UINT64_MAX - kv2.first.size();
-
-                                return std::tie(a_count, a_value_size) > std::tie(b_count, b_value_size);
-                            });
-
-            for(int i = 0; i < max_facets; ++i) {
-                const auto& kv = facet_counts[i];
-                facet_value_t facet_value = { kv.first, kv.first, kv.second};
-                facet_values.emplace_back(facet_value);
-            }
         } else {
-            //LOG(INFO) << "used hashes";
-            std::vector<std::pair<uint32_t, facet_count_t>> facet_hash_counts;
-
-            for (const auto & kv : a_facet.result_map) {
-                facet_hash_counts.emplace_back(std::make_pair(std::stoul(kv.first), kv.second));
-            }
-
             auto the_field = search_schema.at(a_facet.field_name);
-            // keep only top K facets
-            auto max_facets = std::min(max_facet_values, facet_hash_counts.size());
-            
-            auto nthElement = max_facets == facet_hash_counts.size() ? max_facets - 1 : max_facets;
-
-            std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + nthElement,
-                            facet_hash_counts.end(), Collection::facet_count_compare);
 
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
-                auto & kv = facet_hash_counts[fi];
+                auto & kv = facet_counts[fi];
                 auto & facet_count = kv.second;
-                // fetch actual facet value from representative doc id
-                const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
-                nlohmann::json document;
-                const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
-                if(!document_op.ok()) {
-                    LOG(ERROR) << "Facet fetch error. " << document_op.error();
-                    continue;
-                }
+
                 std::string value;
-                bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
-                if(!facet_found) {
-                    continue;
+                if(a_facet.is_intersected) {
+                    value = kv.first;
+                    //LOG(INFO) << "used intersection";
+                } else {
+                    // fetch actual facet value from representative doc id
+                    //LOG(INFO) << "used hashes";
+                    const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
+                    nlohmann::json document;
+                    const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
+                    if(!document_op.ok()) {
+                        LOG(ERROR) << "Facet fetch error. " << document_op.error();
+                        continue;
+                    }
+                    bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
+                    if(!facet_found) {
+                        continue;
+                    }
                 }
                 std::unordered_map<std::string, size_t> ftoken_pos;
                 std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
@@ -4262,7 +4247,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                            index_operation_t::CREATE,
                                                            false,
                                                            fallback_field_type,
-                                                           DIRTY_VALUES::REJECT);
+                                                           DIRTY_VALUES::COERCE_OR_REJECT);
         if(!validate_op.ok()) {
             std::string err_message = validate_op.error();
 
@@ -4809,4 +4794,22 @@ void Collection::process_remove_field_for_embedding_fields(const field& the_fiel
         }
     }
 
+}
+
+Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k) {
+    std::vector<uint32_t> seq_ids;
+    auto op = index->seq_ids_outside_top_k(field_name, k, seq_ids);
+
+    if(!op.ok()) {
+        return op;
+    }
+
+    for(auto seq_id: seq_ids) {
+        auto remove_op = remove_if_found(seq_id);
+        if(!remove_op.ok()) {
+            LOG(ERROR) << "Error while truncating top k: " << remove_op.error();
+        }
+    }
+
+    return Option<bool>(true);
 }

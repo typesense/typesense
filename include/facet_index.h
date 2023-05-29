@@ -2,6 +2,7 @@
 
 #include "ids_t.h"
 #include "tsl/htrie_map.h"
+#include <unordered_set>
 
 class facet_index_t {
 private:
@@ -18,6 +19,7 @@ private:
         count_list& operator=(count_list& obj) {
             facet_value = obj.facet_value;
             count = obj.count;
+            return *this;
         }
 
         std::string facet_value;
@@ -59,6 +61,8 @@ private:
 
     std::map<std::string, facet_index_counter> facet_field_map;
     uint32_t count_index = 0;
+    std::unordered_set<std::string> dropped_fields;
+
 public:
 
     facet_index_t() = default;
@@ -74,11 +78,14 @@ public:
     size_t get_facet_count(const std::string& field);
 
     size_t intersect(const std::string& val, const uint32_t* result_ids, int result_id_len,
-        int max_facet_count, std::map<std::string, uint32_t>& found, bool is_wildcard_no_filter_query);    
+        int max_facet_count, std::map<std::string, uint32_t>& found, 
+        bool is_wildcard_no_filter_query);    
     
-    size_t get_facet_indexes(const std::string& field, std::map<uint32_t, std::vector<uint32_t>>& seqid_index_map);
+    void get_facet_indexes(const std::string& field, std::function<void(uint32_t, uint32_t)> functor);
 
     bool get_migrated (const std::string& field) const;
 
     void set_migrated(const std::string& field, bool val);
+
+    void set_dropped(const std::string& field);
 };

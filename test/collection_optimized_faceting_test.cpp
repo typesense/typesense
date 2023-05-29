@@ -208,6 +208,117 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCounts) {
     ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
     ASSERT_STREQ("bronze", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
     ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
+    
+    // facet with facet filter query (allows typo correction!)
+    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, " tags : sliver", 30UL, 4UL, 
+                                        "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {}, 
+                                        4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                        7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                        "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, true).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+
+    // facet with facet filter query matching 2 tokens
+    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, "tags: fxne platim", 30UL, 4UL, 
+                                        "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {}, 
+                                        4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                        7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                        "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, true).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>FINE</mark> <mark>PLATIN</mark>UM", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    // facet with facet filter query matching first token of an array
+    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, "tags: fine", 30UL, 4UL, 
+                                        "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {}, 
+                                        4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                        7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                        "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, true).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+
+    // facet with facet filter query matching second token of an array
+    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, "tags: pltinum", 30UL, 4UL, 
+                                        "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {}, 
+                                        4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                        7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                        "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, true).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+
+    // facet query on an integer field
+    results = coll_array_fields->search("*", query_fields, "", {"age"}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, "age: 2",30UL, 4UL, 
+                                        "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {}, 
+                                        4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                        7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                        "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, true).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("age", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("24", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>2</mark>4", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_STREQ("21", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>2</mark>1", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+
+     // facet query on a float field
+    results = coll_array_fields->search("*", query_fields, "", {"rating"}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, "rating: 7",30UL, 4UL, 
+                                        "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {}, 
+                                        4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                        7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                        "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, true).get();
+    
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("rating", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("7.812", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>7</mark>.812", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(4.880199885368347, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(0.0, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(9.99899959564209, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(24.400999426841736, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(1, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
 
      // facet with wildcard
     results = coll_array_fields->search("Jeremy", query_fields, "", {"ag*"}, sort_fields, {0}, 10, 1, FREQUENCY,
@@ -562,8 +673,8 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCountOnSimilarStrings) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
 
-    ASSERT_STREQ("England in India", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("India in England", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("India in England", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("England in India", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

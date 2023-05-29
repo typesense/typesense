@@ -35,6 +35,7 @@ private:
         count_list& operator=(count_list& obj) {
             facet_value = obj.facet_value;
             count = obj.count;
+            return *this;
         }
 
         int64_t facet_value;
@@ -70,6 +71,8 @@ public:
 
     size_t size();
 
+    void seq_ids_outside_top_k(size_t k, std::vector<uint32_t>& seq_ids);
+
     void contains(const NUM_COMPARATOR& comparator, const int64_t& value,
                   const uint32_t& context_ids_length,
                   uint32_t* const& context_ids,
@@ -82,7 +85,7 @@ public:
     
     size_t counter_list_size() const;
 
-    size_t get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& facets);
+    void get_facet_indexes(std::function<void(uint32_t, uint32_t)> functor);
 
     bool get_migrated () const {
         return is_migrated;

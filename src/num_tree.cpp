@@ -349,6 +349,30 @@ void num_tree_t::contains(const NUM_COMPARATOR& comparator, const int64_t& value
     result_ids = out;
 }
 
+void num_tree_t::seq_ids_outside_top_k(size_t k, std::vector<uint32_t> &seq_ids) {
+    size_t ids_skipped = 0;
+
+    for (auto iter = int64map.rbegin(); iter != int64map.rend(); ++iter) {
+        auto num_ids = ids_t::num_ids(iter->second);
+        if(ids_skipped > k) {
+            ids_t::uncompress(iter->second, seq_ids);
+        } else if((ids_skipped + num_ids) > k) {
+            // this element hits the limit, so we pick partial IDs to satisfy k
+            std::vector<uint32_t> ids;
+            ids_t::uncompress(iter->second, ids);
+            for(size_t i = 0; i < ids.size(); i++) {
+                auto seq_id = ids[i];
+                if(ids_skipped + i >= k) {
+                    seq_ids.push_back(seq_id);
+                }
+            }
+        }
+
+        ids_skipped += num_ids;
+    }
+}
+
+
 size_t num_tree_t::size() {
     return int64map.size();
 }
@@ -402,11 +426,11 @@ size_t num_tree_t::intersect(const uint32_t* result_ids, int result_ids_len, int
     return found.size();
 }
 
-size_t num_tree_t::get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& facets) {
+void num_tree_t::get_facet_indexes(std::function<void(uint32_t seq_id, uint32_t count_index)> functor) {
 
     //check if facet field   
     if(counter_list.empty()) {
-        return 0;
+        return;
     }
 
     std::vector<uint32_t> id_list;
@@ -418,11 +442,11 @@ size_t num_tree_t::get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& 
 
         //emplacing seq_id=>count_index
         for(const auto& id : id_list) {
-            facets[id].emplace_back(int64map_it->first);
+            functor(id, int64map_it->first);
         }
 
         id_list.clear();
     }
 
-    return facets.size();
+    return;
 }

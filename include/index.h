@@ -335,6 +335,8 @@ private:
 
     StringUtils string_utils;
 
+    std::atomic_uint64_t aggragate_docs_count;
+
     // used as sentinels
 
     static spp::sparse_hash_map<uint32_t, int64_t> text_match_sentinel_value;
@@ -509,7 +511,7 @@ private:
     static void compute_facet_stats(facet &a_facet, const int64_t raw_value, const std::string & field_type);
 
     static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
-                               nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc);
+                               nlohmann::json& update_doc, const nlohmann::json& old_doc);
 
     static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
                                 nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
@@ -522,7 +524,7 @@ private:
 
     void initialize_facet_indexes(const field& facet_field);
 
-    void migrate_facet_to_new_index(const std::string& field);
+    void create_facet_hash_index(const field& facet_field);
 
 
     static Option<bool> embed_fields(nlohmann::json& document, 
@@ -754,7 +756,7 @@ public:
                              const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                              const std::vector<std::string>& group_by_fields,
                              size_t max_candidates,
-                             std::vector<facet_info_t>& facet_infos) const;
+                             std::vector<facet_info_t>& facet_infos, bool use_facet_intersection) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
                                 std::vector<std::vector<std::string>>& resolved_queries) const;
@@ -945,6 +947,9 @@ public:
                              std::unordered_set<uint32_t>& excluded_group_ids) const;
     
     int64_t get_doc_val_from_sort_index(sort_index_iterator it, uint32_t doc_seq_id) const;
+
+    Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
+                                       std::vector<uint32_t>& outside_seq_ids);
 
     friend class filter_result_iterator_t;
 };

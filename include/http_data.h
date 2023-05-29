@@ -207,6 +207,7 @@ public:
 
 struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
+    static constexpr const char* USER_HEADER = "x-typesense-user-id";
     static constexpr const char* AGENT_HEADER = "user-agent";
 
     h2o_req_t* _req;
@@ -403,7 +404,7 @@ struct http_req {
 struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
-    bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&);
+    bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&) = nullptr;
     bool async_req;
     bool async_res;
     std::string action;
