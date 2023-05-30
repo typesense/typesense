@@ -2436,6 +2436,10 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             }
 
             for(auto& sub_token: sub_tokens) {
+                if(sub_token.size() > 100) {
+                    sub_token.erase(100);
+                }
+
                 if(exclude_operator_prior) {
                     if(phrase_search_op_prior) {
                         phrase.push_back(sub_token);

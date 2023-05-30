@@ -2058,6 +2058,29 @@ TEST_F(CollectionSpecificMoreTest, DoNotHighlightFieldsForSpecialCharacterQuery)
     ASSERT_EQ(0, res["hits"][0]["highlights"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, SearchForURL) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "url", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["url"] = "https://www.cpf.gov.sg/member/infohub/cpf-clarifies/policy-faqs/"
+                 "why-interest-earned-on-cpf-life-premium-not-paid-to-beneficiaries";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("https://www.cpf.gov.sg/member/infohub/cpf-clarifies/policy-faqs/"
+                             "why-interest-earned-on-cpf-life-premium-not-paid-to-beneficiaries", {"url"}, "",
+                             {}, {}, {2}, 3, 1,
+                             FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+}
+
 TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {
     nlohmann::json schema = R"({
             "name": "coll1",
