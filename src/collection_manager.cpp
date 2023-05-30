@@ -1281,7 +1281,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         override_t override;
         auto parse_op = override_t::parse(collection_override, "", override);
         if(parse_op.ok()) {
-            collection->add_override(override);
+            collection->add_override(override, false);
         } else {
             LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
         }
@@ -1295,7 +1295,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-        collection->add_synonym(collection_synonym);
+        collection->add_synonym(collection_synonym, false);
     }
 
     // restore query suggestions configs

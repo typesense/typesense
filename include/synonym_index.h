@@ -73,7 +73,8 @@ public:
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
-    Option<bool> add_synonym(const std::string & collection_name, const synonym_t& synonym);
+    Option<bool> add_synonym(const std::string & collection_name, const synonym_t& synonym,
+                             bool write_to_store = true);
 
     Option<bool> remove_synonym(const std::string & collection_name, const std::string & id);
 };
