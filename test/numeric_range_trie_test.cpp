@@ -30,8 +30,13 @@ TEST_F(NumericRangeTrieTest, SearchRange) {
     uint32_t* ids = nullptr;
     uint32_t ids_length = 0;
 
-    trie->search_range(-32768, true, 32768, true, ids, ids_length);
+    trie->search_range(32768, true, -32768, true, ids, ids_length);
     std::unique_ptr<uint32_t[]> ids_guard(ids);
+
+    ASSERT_EQ(0, ids_length);
+
+    trie->search_range(-32768, true, 32768, true, ids, ids_length);
+    ids_guard.reset(ids);
 
     ASSERT_EQ(pairs.size(), ids_length);
     for (uint32_t i = 0; i < pairs.size(); i++) {
