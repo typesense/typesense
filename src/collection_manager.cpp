@@ -734,7 +734,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req_params["collection"]);
+    const std::string& orig_coll_name = req_params["collection"];
+    auto collection = collectionManager.get_collection(orig_coll_name);
 
     if(collection == nullptr) {
         return Option<bool>(404, "Not found.");
@@ -1064,9 +1065,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
-            std::string processed_query = raw_query;
-            Tokenizer::normalize_ascii(processed_query);
-            AnalyticsManager::get_instance().add_suggestion(collection->get_name(), processed_query,
+            std::string analytics_query = raw_query;
+            AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query,
                                                             true, req_params["x-typesense-user-id"]);
         }
     }

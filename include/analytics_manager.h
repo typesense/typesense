@@ -79,4 +79,8 @@ public:
     void stop();
 
     void dispose();
+
+    void persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s);
+
+    std::unordered_map<std::string, PopularQueries*> get_popular_queries();
 };
