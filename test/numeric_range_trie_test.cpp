@@ -92,6 +92,14 @@ TEST_F(NumericRangeTrieTest, SearchRange) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
 
+    trie->search_range(-134217728, true, 134217728, true, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(pairs.size(), ids_length);
+    for (uint32_t i = 0; i < pairs.size(); i++) {
+        ASSERT_EQ(pairs[i].second, ids[i]);
+    }
+
     trie->search_range(-1, true, 32768, true, ids, ids_length);
     ids_guard.reset(ids);
 
@@ -113,6 +121,56 @@ TEST_F(NumericRangeTrieTest, SearchRange) {
 
     trie->search_range(-1, false, 0, false, ids, ids_length);
     ASSERT_EQ(0, ids_length);
+
+    trie->search_range(8192, true, 32768, true, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(4, ids_length);
+    for (uint32_t i = 4, j = 0; i < ids_length; i++, j++) {
+        ASSERT_EQ(pairs[i].second, ids[j]);
+    }
+
+    trie->search_range(8192, true, 0x2000000, true, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(4, ids_length);
+    for (uint32_t i = 4, j = 0; i < ids_length; i++, j++) {
+        ASSERT_EQ(pairs[i].second, ids[j]);
+    }
+
+    trie->search_range(16384, true, 16384, true, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(1, ids_length);
+    ASSERT_EQ(56, ids[0]);
+
+    trie->search_range(16384, true, 16384, false, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(0, ids_length);
+
+    trie->search_range(16384, false, 16384, true, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(0, ids_length);
+
+    trie->search_range(16383, true, 16383, true, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(0, ids_length);
+
+    trie->search_range(8193, true, 16383, true, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(0, ids_length);
+
+    trie->search_range(-32768, true, -8192, true, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(4, ids_length);
+    for (uint32_t i = 0; i < ids_length; i++) {
+        ASSERT_EQ(pairs[i].second, ids[i]);
+    }
 }
 
 TEST_F(NumericRangeTrieTest, SearchGreater) {
@@ -194,12 +252,12 @@ TEST_F(NumericRangeTrieTest, SearchGreater) {
         ASSERT_EQ(pairs[i].second, ids[j]);
     }
 
-    trie->search_greater(100000, false, ids, ids_length);
+    trie->search_greater(1000000, false, ids, ids_length);
     ids_guard.reset(ids);
 
     ASSERT_EQ(0, ids_length);
 
-    trie->search_greater(-100000, false, ids, ids_length);
+    trie->search_greater(-1000000, false, ids, ids_length);
     ids_guard.reset(ids);
 
     ASSERT_EQ(8, ids_length);
@@ -285,12 +343,12 @@ TEST_F(NumericRangeTrieTest, SearchLesser) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
 
-    trie->search_lesser(-100000, false, ids, ids_length);
+    trie->search_lesser(-1000000, false, ids, ids_length);
     ids_guard.reset(ids);
 
     ASSERT_EQ(0, ids_length);
 
-    trie->search_lesser(100000, true, ids, ids_length);
+    trie->search_lesser(1000000, true, ids, ids_length);
     ids_guard.reset(ids);
 
     ASSERT_EQ(8, ids_length);
