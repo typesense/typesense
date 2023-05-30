@@ -62,6 +62,22 @@ new_git_repository(
     tag = "v1.2.12",
 )
 
+# new_git_repository(
+#     name = "zip",
+#     build_file = "//bazel:zip.BUILD",
+#     branch = "master",
+#     remote = "https://github.com/kuba--/zip.git",
+# )
+
+new_git_repository(
+    name = "sentencepiece",
+    build_file = "//bazel:sentencepiece.BUILD",
+    tag = "v0.1.98",
+    remote = "https://github.com/google/sentencepiece",
+    patches = ["//bazel:sentencepiece.patch"],
+    patch_args = ["-p1"]
+)
+
 git_repository(
     name = "rules_perl",
     remote = "https://github.com/bazelbuild/rules_perl.git",

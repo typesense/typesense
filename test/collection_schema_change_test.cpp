@@ -1518,7 +1518,6 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
             })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
     
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1527,7 +1526,7 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
 
     nlohmann::json update_schema = R"({
                 "fields": [
-                {"name": "embedding", "type":"float[]", "embed_from": ["names"]}
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["names"], "model_config": {"model_name": "ts/e5-small"}}}
                 ]
             })"_json;
     
@@ -1552,12 +1551,11 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
             "fields": [
             {"name": "names", "type": "string[]"},
             {"name": "category", "type":"string"}, 
-            {"name": "embedding", "type":"float[]", "embed_from": ["names","category"]}
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["names","category"], "model_config": {"model_name": "ts/e5-small"}}}
             ]
         })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1573,14 +1571,14 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
 
 
     auto embedding_fields = coll->get_embedding_fields();
-    ASSERT_EQ(2, embedding_fields["embedding"].embed_from.size());
+    ASSERT_EQ(2, embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>().size());
 
     auto alter_op = coll->alter(schema_changes);
     ASSERT_TRUE(alter_op.ok());
 
     embedding_fields = coll->get_embedding_fields();
-    ASSERT_EQ(1, embedding_fields["embedding"].embed_from.size());
-    ASSERT_EQ("category", embedding_fields["embedding"].embed_from[0]);
+    ASSERT_EQ(1, embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>().size());
+    ASSERT_EQ("category", embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>()[0]);
 
     schema_changes = R"({
         "fields": [
@@ -1601,12 +1599,11 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
                             ]
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1617,8 +1614,8 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
     auto embedding_field_it = embedding_fields_map.find("embedding");
     ASSERT_TRUE(embedding_field_it != embedding_fields_map.end());
     ASSERT_EQ("embedding", embedding_field_it.value().name);
-    ASSERT_EQ(1, embedding_field_it.value().embed_from.size());
-    ASSERT_EQ("name", embedding_field_it.value().embed_from[0]);
+    ASSERT_EQ(1, embedding_field_it.value().embed[fields::from].get<std::vector<std::string>>().size());
+    ASSERT_EQ("name", embedding_field_it.value().embed[fields::from].get<std::vector<std::string>>()[0]);
 
     // drop the embedding field
     nlohmann::json schema_without_embedding = R"({

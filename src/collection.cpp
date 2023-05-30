@@ -52,7 +52,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         index(init_index()) {
 
     for (auto const& field: fields) {
-        if (!field.embed_from.empty()) {
+        if (field.embed.count(fields::from) != 0) {
             embedding_fields.emplace(field.name, field);
         }
     }
@@ -239,15 +239,19 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::sort] = coll_field.sort;
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
-        
-        if(!coll_field.embed_from.empty()) {
-            field_json[fields::embed_from] = coll_field.embed_from;
+        if(coll_field.embed.count(fields::from) != 0) {
+            field_json[fields::embed] = coll_field.embed;
+
+            if(field_json[fields::embed].count(fields::model_config) != 0) {
+                hide_credential(field_json[fields::embed][fields::model_config], "api_key");
+                hide_credential(field_json[fields::embed][fields::model_config], "access_token");
+                hide_credential(field_json[fields::embed][fields::model_config], "refresh_token");
+                hide_credential(field_json[fields::embed][fields::model_config], "client_id");
+                hide_credential(field_json[fields::embed][fields::model_config], "client_secret");
+                hide_credential(field_json[fields::embed][fields::model_config], "project_id");
+            }
         }
 
-        if(coll_field.model_name.size() > 0) {
-            field_json[fields::model_name] = coll_field.model_name;
-        }
-        
         if(coll_field.num_dim > 0) {
             field_json[fields::num_dim] = coll_field.num_dim;
         }
@@ -996,7 +1000,7 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
         bool exact_key_match = (kv.key().size() == field_name.size());
         bool exact_primitive_match = exact_key_match && !kv.value().is_object();
-        bool text_embedding = kv.value().type == field_types::FLOAT_ARRAY && !kv.value().embed_from.empty();
+        bool text_embedding = kv.value().type == field_types::FLOAT_ARRAY && kv.value().embed.count(fields::from) != 0;
 
         if(extract_only_string_fields && !kv.value().is_string() && !text_embedding) {
             if(exact_primitive_match && !is_wildcard) {
@@ -1168,15 +1172,15 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             auto search_field = search_schema.at(expanded_search_field);
 
             if(search_field.num_dim > 0) {
-                if(has_embedding_query) {
+                if(!vector_query.field_name.empty()) {
                     std::string error = "Only one embedding field is allowed in the query.";
                     return Option<nlohmann::json>(400, error);
                 }
 
-                if(TextEmbedderManager::model_dir.empty()) {
-                    std::string error = "Text embedding is not enabled. Please set `model-dir` at startup.";
-                    return Option<nlohmann::json>(400, error);
-                }
+                // if(TextEmbedderManager::model_dir.empty()) {
+                //     std::string error = "Text embedding is not enabled. Please set `model-dir` at startup.";
+                //     return Option<nlohmann::json>(400, error);
+                // }
 
                 if(raw_query == "*") {
                     std::string error = "Wildcard query is not supported for embedding fields.";
@@ -1184,15 +1188,30 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 }
 
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-                auto embedder = embedder_manager.get_text_embedder(search_field.model_name.size() > 0 ? search_field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
+                auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
+                if(!embedder_op.ok()) {
+                    return Option<nlohmann::json>(400, embedder_op.error());
+                }
+                auto embedder = embedder_op.get();
 
-                std::string embed_query = "query: " + raw_query;
+                if(embedder->is_remote()) {
+                    // return error if prefix search is used with openai embedder
+                    if((prefixes.size() == 1 && prefixes[0] == true) || (prefixes.size() > 1 &&  prefixes[i] == true)) {
+                        std::string error = "Prefix search is not supported for remote embedders. Please set `prefix=false` as an additional search parameter to disable prefix searching.";
+                        return Option<nlohmann::json>(400, error);
+                    }
+                }
 
-                std::vector<float> embedding = embedder->Embed(embed_query);
+                std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + raw_query;
+                auto embedding_op = embedder->Embed(embed_query);
+                if(!embedding_op.ok()) {
+                    return Option<nlohmann::json>(400, embedding_op.error());
+                }
+
+                std::vector<float> embedding = embedding_op.get();
                 vector_query._reset();
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;
-                has_embedding_query = true;
                 continue;
             }
 
@@ -1204,7 +1223,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     }
 
     std::string real_raw_query = raw_query;
-    if(has_embedding_query && processed_search_fields.size() == 0) {
+    if(!vector_query.field_name.empty() && processed_search_fields.size() == 0) {
         raw_query = "*";
     }
 
@@ -3768,7 +3787,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             nested_fields.erase(del_field.name);
         }
 
-        if(!del_field.embed_from.empty()) {
+        if(del_field.embed.count(fields::from) != 0) {
             embedding_fields.erase(del_field.name);
         }
 
@@ -4069,7 +4088,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 return Option<bool>(400, "Field `" + field_name + "` is not part of collection schema.");
             }
 
-            if(found_field && !field_it.value().embed_from.empty()) {
+            if(found_field && field_it.value().embed.count(fields::from) != 0) {
                 updated_embedding_fields.erase(field_it.key());
             }
 
@@ -4078,7 +4097,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 updated_search_schema.erase(field_it.key());
                 updated_nested_fields.erase(field_it.key());
                 
-                if(!field_it.value().embed_from.empty()) {
+                if(field_it.value().embed.count(fields::from) != 0) {
                     updated_embedding_fields.erase(field_it.key());
                 }
 
@@ -4092,7 +4111,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                             updated_search_schema.erase(prefix_kv.key());
                             updated_nested_fields.erase(prefix_kv.key());
 
-                            if(!prefix_kv.value().embed_from.empty()) {
+                            if(prefix_kv.value().embed.count(fields::from) != 0) {
                                 updated_embedding_fields.erase(prefix_kv.key());
                             }
                         }
@@ -4145,7 +4164,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     addition_fields.push_back(f);
                 }
 
-                if(!f.embed_from.empty()) {
+                if(f.embed.count(fields::from) != 0) {
                     embedding_fields.emplace(f.name, f);
                 }
 
@@ -4160,7 +4179,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                             updated_search_schema.emplace(prefix_kv.key(), prefix_kv.value());
                             updated_nested_fields.emplace(prefix_kv.key(), prefix_kv.value());
 
-                            if(!prefix_kv.value().embed_from.empty()) {
+                            if(prefix_kv.value().embed.count(fields::from) != 0) {
                                 embedding_fields.emplace(prefix_kv.key(), prefix_kv.value());
                             }
 
@@ -4478,7 +4497,7 @@ Index* Collection::init_index() {
             nested_fields.emplace(field.name, field);
         }
 
-        if(!field.embed_from.empty()) {
+        if(field.embed.count(fields::from) != 0) {
             embedding_fields.emplace(field.name, field);
         }
 
@@ -4765,23 +4784,38 @@ Option<bool> Collection::populate_include_exclude_fields_lk(const spp::sparse_ha
 // Removes the dropped field from embed_from of all embedding fields.
 void Collection::process_remove_field_for_embedding_fields(const field& the_field, std::vector<field>& garbage_fields) {
     for(auto& field : fields) {
-        if(field.embed_from.empty()) {
+        if(field.embed.count(fields::from) == 0) {
             continue;
         }
-        field.embed_from.erase(std::remove_if(field.embed_from.begin(), field.embed_from.end(), [&the_field](std::string field_name) {
+        auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
+        embed_from.erase(std::remove_if(embed_from.begin(), embed_from.end(), [&the_field](std::string field_name) {
             return the_field.name == field_name;
         }));
+        field.embed[fields::from] = std::move(embed_from);
         embedding_fields[field.name] = field;
 
         // mark this embedding field as "garbage" if it has no more embed_from fields
-        if(field.embed_from.empty()) {
+        if(embed_from.empty()) {
             embedding_fields.erase(field.name);
             garbage_fields.push_back(field);
         }
+
+
     }
 
 }
 
+void Collection::hide_credential(nlohmann::json& json, const std::string& credential_name) {
+    if(json.count(credential_name) != 0) {
+        // hide api key with * except first 3 chars
+        std::string credential_name_str = json[credential_name];
+        if(credential_name_str.size() > 3) {
+            json[credential_name] = credential_name_str.replace(3, credential_name_str.size() - 3, credential_name_str.size() - 3, '*');
+        } else {
+            json[credential_name] = credential_name_str.replace(0, credential_name_str.size(), credential_name_str.size(), '*');
+        }
+    }
+}
 Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k) {
     std::vector<uint32_t> seq_ids;
     auto op = index->seq_ids_outside_top_k(field_name, k, seq_ids);
