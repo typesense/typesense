@@ -20,6 +20,10 @@ void NumericTrie::insert(const int32_t& value, const uint32_t& seq_id) {
 void NumericTrie::search_range(const int32_t& low, const bool& low_inclusive,
                                const int32_t& high, const bool& high_inclusive,
                                uint32_t*& ids, uint32_t& ids_length) {
+    if (low >= high) {
+        return;
+    }
+
     if (low < 0 && high >= 0) {
         // Have to combine the results of >low from negative_trie and <high from positive_trie
 
