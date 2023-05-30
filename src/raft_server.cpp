@@ -9,6 +9,7 @@
 #include <http_client.h>
 #include "rocksdb/utilities/checkpoint.h"
 #include "thread_local_vars.h"
+#include "core_api.h"
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -295,7 +296,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             if(path_parts.back().rfind("import", 0) == 0) {
                 // imports are handled asynchronously
                 response->proxied_stream = true;
-                long status = HttpClient::post_response_async(url, request, response, server);
+                long status = HttpClient::post_response_async(url, request, response, server, true);
 
                 if(status == 500) {
                     response->content_type_header = res_headers["content-type"];
@@ -306,23 +307,31 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
                 }
             } else {
                 std::string api_res;
-                long status = HttpClient::post_response(url, request->body, api_res, res_headers);
+                long status = HttpClient::post_response(url, request->body, api_res, res_headers, {}, 4000, true);
                 response->content_type_header = res_headers["content-type"];
                 response->set_body(status, api_res);
             }
         } else if(request->http_method == "PUT") {
             std::string api_res;
-            long status = HttpClient::put_response(url, request->body, api_res, res_headers);
+            long status = HttpClient::put_response(url, request->body, api_res, res_headers, 4000, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else if(request->http_method == "DELETE") {
             std::string api_res;
-            long status = HttpClient::delete_response(url, api_res, res_headers);
+            long status = HttpClient::delete_response(url, api_res, res_headers, 120000, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else if(request->http_method == "PATCH") {
             std::string api_res;
-            long status = HttpClient::patch_response(url, request->body, api_res, res_headers);
+            route_path* rpath = nullptr;
+            bool route_found = server->get_route(request->route_hash, &rpath);
+
+            long timeout_ms = 4 * 1000;
+            if(route_found && rpath->handler == patch_update_collection) {
+                timeout_ms = 300 * 1000;  // 5 minutes for patching a collection which can take some time
+            }
+
+            long status = HttpClient::patch_response(url, request->body, api_res, res_headers, timeout_ms, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else {
@@ -667,7 +676,7 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
 
     std::string api_res;
     std::map<std::string, std::string> res_headers;
-    long status_code = HttpClient::get_response(url, api_res, res_headers);
+    long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 4000, true);
     if(status_code == 200) {
         // compare leader's applied log with local applied to see if we are lagging
         nlohmann::json leader_status = nlohmann::json::parse(api_res);
@@ -760,7 +769,7 @@ void ReplicationState::do_dummy_write() {
 
     std::string api_res;
     std::map<std::string, std::string> res_headers;
-    long status_code = HttpClient::post_response(url, "", api_res, res_headers);
+    long status_code = HttpClient::post_response(url, "", api_res, res_headers, {}, 4000, true);
 
     LOG(INFO) << "Dummy write to " << url << ", status = " << status_code << ", response = " << api_res;
 }
@@ -927,7 +936,7 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
             std::string url = get_node_url_path(peer_addr, "/health", protocol);
             std::string api_res;
             std::map<std::string, std::string> res_headers;
-            long status_code = HttpClient::get_response(url, api_res, res_headers);
+            long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 4000, true);
             bool peer_healthy = (status_code == 200);
 
             //LOG(INFO) << "do_snapshot, status_code: " << status_code;

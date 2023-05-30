@@ -244,34 +244,46 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
             // we will persist aggregation every hour
             continue;
         }
-            // send http request
-            std::string leader_url = raft_server->get_leader_url();
-            if(!leader_url.empty()) {
-                const std::string& resource_url = leader_url + "collections/" + suggestion_coll +
-                                                    "/documents/import?action=emplace";
-                std::string res;
-                std::map<std::string, std::string> res_headers;
-                std::unordered_map<std::string, std::string> headers;
-                long status_code = HttpClient::post_response(resource_url, import_payload,
-                                                             res, res_headers, headers, 10*1000);
 
-                if(status_code != 200) {
-                    LOG(ERROR) << "Error while sending query suggestions events to leader. "
-                               << "Status code: " << status_code << ", response: " << res;
-                } else {
-                    LOG(INFO) << "Sent query suggestions to leader for aggregation.";
-                    popularQueries->reset_local_counts();
+        prev_persistence_s = now_ts_seconds;
 
-                    if(raft_server->is_leader()) {
-                        // try to run top-K compaction of suggestion collection
-                        auto coll = CollectionManager::get_instance().get_collection(suggestion_coll);
-                        if (coll == nullptr) {
-                            LOG(ERROR) << "No collection found for suggestions aggregation: " + suggestion_coll;
-                            continue;
-                        }
+        std::string import_payload;
+        popularQueries->serialize_as_docs(import_payload);
 
-                        coll->truncate_after_top_k("count", popularQueries->get_k());
+        if(import_payload.empty()) {
+            continue;
+        }
 
+        // send http request
+        std::string leader_url = raft_server->get_leader_url();
+        if(!leader_url.empty()) {
+            const std::string& base_url = leader_url + "collections/" + suggestion_coll;
+            std::string res;
+
+            const std::string& update_url = base_url + "/documents/import?action=emplace";
+            std::map<std::string, std::string> res_headers;
+            long status_code = HttpClient::post_response(update_url, import_payload,
+                                                         res, res_headers, {}, 10*1000, true);
+
+            if(status_code != 200) {
+                LOG(ERROR) << "Error while sending query suggestions events to leader. "
+                           << "Status code: " << status_code << ", response: " << res;
+            } else {
+                LOG(INFO) << "Query aggregation for collection: " + suggestion_coll;
+                popularQueries->reset_local_counts();
+
+                if(raft_server->is_leader()) {
+                    // try to run top-K compaction of suggestion collection
+                    const std::string top_k_param = "count:" + std::to_string(popularQueries->get_k());
+                    const std::string& truncate_topk_url = base_url + "/documents?top_k_by=" + top_k_param;
+                    res.clear();
+                    res_headers.clear();
+                    status_code = HttpClient::delete_response(truncate_topk_url, res, res_headers, 10*1000, true);
+                    if(status_code != 200) {
+                        LOG(ERROR) << "Error while running top K for query suggestions collection. "
+                                   << "Status code: " << status_code << ", response: " << res;
+                    } else {
+                        LOG(INFO) << "Top K aggregation for collection: " + suggestion_coll;
                     }
                 }
             }
