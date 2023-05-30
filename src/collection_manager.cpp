@@ -732,7 +732,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req_params["collection"]);
+    const std::string& orig_coll_name = req_params["collection"];
+    auto collection = collectionManager.get_collection(orig_coll_name);
 
     if(collection == nullptr) {
         return Option<bool>(404, "Not found.");
@@ -1062,9 +1063,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
-            std::string processed_query = raw_query;
-            Tokenizer::normalize_ascii(processed_query);
-            AnalyticsManager::get_instance().add_suggestion(collection->get_name(), processed_query,
+            std::string analytics_query = raw_query;
+            AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query,
                                                             true, req_params["x-typesense-user-id"]);
         }
     }
@@ -1279,7 +1279,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         override_t override;
         auto parse_op = override_t::parse(collection_override, "", override);
         if(parse_op.ok()) {
-            collection->add_override(override);
+            collection->add_override(override, false);
         } else {
             LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
         }
@@ -1293,20 +1293,18 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-        collection->add_synonym(collection_synonym);
+        collection->add_synonym(collection_synonym, false);
     }
 
     // restore query suggestions configs
     std::vector<std::string> analytics_config_jsons;
-    cm.store->scan_fill(AnalyticsManager::ANALYTICS_CONFIG_PREFIX,
-                        std::string(AnalyticsManager::ANALYTICS_CONFIG_PREFIX) + "`",
+    cm.store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
+                        std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
                         analytics_config_jsons);
 
     for(const auto& analytics_config_json: analytics_config_jsons) {
         nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
-        if(analytics_config["type"] == AnalyticsManager::RESOURCE_TYPE) {
-            AnalyticsManager::get_instance().create_index(analytics_config, false);
-        }
+        AnalyticsManager::get_instance().create_rule(analytics_config, false);
     }
 
     // Fetch records from the store and re-create memory index

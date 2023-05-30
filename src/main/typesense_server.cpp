@@ -69,8 +69,9 @@ void master_server_routes() {
     server->del("/presets/:name", del_preset);
 
     // analytics
-    server->post("/analytics/popular-queries", post_create_analytics_popular_queries);
-    server->del("/analytics/popular-queries/:name", del_analytics_popular_queries);
+    server->get("/analytics/rules", get_analytics_rules);
+    server->post("/analytics/rules", post_create_analytics_rules);
+    server->del("/analytics/rules/:name", del_analytics_rules);
     server->post("/analytics/events", post_create_event);
 
     // meta
