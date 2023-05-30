@@ -32,7 +32,7 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
         chunk = curl_slist_append(chunk, header_str.c_str());
     }
 
-    return perform_curl(curl, res_headers, chunk);
+    return perform_curl(curl, res_headers, chunk, send_ts_api_header);
 }
 
 
@@ -67,7 +67,7 @@ long HttpClient::put_response(const std::string &url, const std::string &body, s
 
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    return perform_curl(curl, res_headers);
+    return perform_curl(curl, res_headers, nullptr, send_ts_api_header);
 }
 
 long HttpClient::patch_response(const std::string &url, const std::string &body, std::string &response,
@@ -80,7 +80,7 @@ long HttpClient::patch_response(const std::string &url, const std::string &body,
 
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PATCH");
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    return perform_curl(curl, res_headers);
+    return perform_curl(curl, res_headers, nullptr, send_ts_api_header);
 }
 
 long HttpClient::delete_response(const std::string &url, std::string &response,
@@ -112,7 +112,7 @@ long HttpClient::get_response(const std::string &url, std::string &response,
     // follow redirects
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 
-    return perform_curl(curl, res_headers, chunk);
+    return perform_curl(curl, res_headers, chunk, send_ts_api_header);
 }
 
 void HttpClient::init(const std::string &api_key) {
