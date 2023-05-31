@@ -28,11 +28,14 @@ private:
 
     static CURL* init_curl(const std::string& url, std::string& response);
 
-    static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk);
+    static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk,
+                                 bool send_ts_api_header);
 
     static size_t curl_req_send_callback(char* buffer, size_t size, size_t nitems, void *userdata);
 
-    static long perform_curl(CURL *curl, std::map<std::string, std::string>& res_headers, struct curl_slist *chunk = nullptr);
+    static long perform_curl(CURL *curl, std::map<std::string, std::string>& res_headers,
+                             struct curl_slist *chunk = nullptr,
+                             bool send_ts_api_header = false);
 
 public:
     static HttpClient & get_instance() {
@@ -48,23 +51,33 @@ public:
     static long download_file(const std::string& url, const std::string& file_path);
 
     static long get_response(const std::string& url, std::string& response,
-                             std::map<std::string, std::string>& res_headers, const std::unordered_map<std::string, std::string>& headers = {}, long timeout_ms=4000);
+                             std::map<std::string, std::string>& res_headers,
+                             const std::unordered_map<std::string, std::string>& headers = {},
+                             long timeout_ms=4000,
+                             bool send_ts_api_header = false);
 
     static long delete_response(const std::string& url, std::string& response,
-                                std::map<std::string, std::string>& res_headers, long timeout_ms=120000);
+                                std::map<std::string, std::string>& res_headers, long timeout_ms=120000,
+                                bool send_ts_api_header = false);
 
     static long post_response(const std::string & url, const std::string & body, std::string & response,
-                              std::map<std::string, std::string>& res_headers, const std::unordered_map<std::string, std::string>& headers = {}, long timeout_ms=4000);
+                              std::map<std::string, std::string>& res_headers,
+                              const std::unordered_map<std::string, std::string>& headers = {},
+                              long timeout_ms=4000,
+                              bool send_ts_api_header = false);
 
     static long post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
                                     const std::shared_ptr<http_res> response,
-                                    HttpServer* server);
+                                    HttpServer* server,
+                                    bool send_ts_api_header = false);
 
     static long put_response(const std::string & url, const std::string & body, std::string & response,
-                             std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
+                             std::map<std::string, std::string>& res_headers, long timeout_ms=4000,
+                             bool send_ts_api_header = false);
 
     static long patch_response(const std::string & url, const std::string & body, std::string & response,
-                             std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
+                               std::map<std::string, std::string>& res_headers, long timeout_ms=4000,
+                               bool send_ts_api_header = false);
 
     static void extract_response_headers(CURL* curl, std::map<std::string, std::string> &res_headers);
 };

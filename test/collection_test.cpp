@@ -4451,20 +4451,15 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
     spp::sparse_hash_set<std::string> dummy_include_exclude;
     std::string highlight_fields = "user*";
     // user* matches user_name, user.rank and user.phone
-    auto result = coll->search("+91", {"user"}, "", {}, {}, {0},
+    auto result = coll->search("123", {"user"}, "", {}, {}, {0},
                                10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
                                30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
                                true, false, true, highlight_fields).get();
 
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
-
-//    ASSERT_EQ("+<mark>91</mark> 123123123",
-//              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
-//    ASSERT_EQ("100",
-//              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
-    ASSERT_EQ("user_a",
-              result["hits"][0]["highlight"]["user_name"]["snippet"].get<std::string>());
+    ASSERT_EQ(1, result["hits"][0]["highlight"].size());
+    ASSERT_EQ("+91 <mark>123</mark>123123", result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
 
     highlight_fields = "user.*";
     // user.* matches user.rank and user.phone
@@ -4475,11 +4470,9 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
 
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
-
+    ASSERT_EQ(1, result["hits"][0]["highlight"].size());
     ASSERT_EQ("+<mark>91</mark> 123123123",
               result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
-//    ASSERT_EQ("100",
-//              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
 
     highlight_fields = "user*";
     // user* matches user_name, user.rank and user.phone
@@ -4490,11 +4483,7 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
 
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
-
-//    ASSERT_EQ("+91 123123123",
-//              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
-//    ASSERT_EQ("100",
-//              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
+    ASSERT_EQ(1, result["hits"][0]["highlight"].size());
     ASSERT_EQ("<mark>user_a</mark>",
               result["hits"][0]["highlight"]["user_name"]["snippet"].get<std::string>());
 
@@ -4507,11 +4496,7 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
 
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
-
-    ASSERT_EQ("+91 123123123",
-              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
-    ASSERT_EQ("100",
-              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
+    ASSERT_EQ(0, result["hits"][0]["highlight"].size());
 
     highlight_fields = "foo*";
     // No matching field for highlight_fields

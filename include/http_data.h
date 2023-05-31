@@ -404,7 +404,7 @@ struct http_req {
 struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
-    bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&);
+    bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&) = nullptr;
     bool async_req;
     bool async_res;
     std::string action;

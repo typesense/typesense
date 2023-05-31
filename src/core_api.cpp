@@ -362,6 +362,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             }
 
             // Result found in cache but ttl has lapsed.
+            lock.unlock();
+            std::unique_lock ulock(mutex);
             res_cache.erase(req_hash);
         }
     }
@@ -456,6 +458,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
 
             // Result found in cache but ttl has lapsed.
+            lock.unlock();
+            std::unique_lock ulock(mutex);
             res_cache.erase(req_hash);
         }
     }
@@ -1110,6 +1114,37 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
 
     const char *BATCH_SIZE = "batch_size";
     const char *FILTER_BY = "filter_by";
+    const char *TOP_K_BY = "top_k_by";
+
+    if(req->params.count(TOP_K_BY) != 0) {
+        std::vector<std::string> parts;
+        StringUtils::split(req->params[TOP_K_BY], parts, ":");
+
+        if(parts.size() != 2 || !StringUtils::is_uint32_t(parts[1])) {
+            req->last_chunk_aggregate = true;
+            res->final = true;
+            res->set_400("The `top_k_by` parameter is not valid.");
+            stream_response(req, res);
+            return false;
+        }
+
+        const std::string& field_name = parts[0];
+        const size_t k = std::stoull(parts[1]);
+        auto op = collection->truncate_after_top_k(field_name, k);
+
+        req->last_chunk_aggregate = true;
+        res->final = true;
+
+        if(!op.ok()) {
+            res->set_500(op.error());
+            stream_response(req, res);
+            return false;
+        }
+
+        res->set_200(R"({"ok": true})");
+        stream_response(req, res);
+        return true;
+    }
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "1000000000"; // 1 Billion
@@ -2057,7 +2092,19 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
     return false;
 }
 
-bool post_create_analytics_popular_queries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto rules_op = AnalyticsManager::get_instance().list_rules();
+
+    if(rules_op.ok()) {
+        res->set_200(rules_op.get().dump());
+        return true;
+    }
+
+    res->set(rules_op.code(), rules_op.error());
+    return false;
+}
+
+bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
 
     try {
@@ -2068,7 +2115,7 @@ bool post_create_analytics_popular_queries(const std::shared_ptr<http_req>& req,
         return false;
     }
 
-    auto op = AnalyticsManager::get_instance().create_index(req_json);
+    auto op = AnalyticsManager::get_instance().create_rule(req_json);
 
     if(!op.ok()) {
         res->set(op.code(), op.error());
@@ -2079,8 +2126,8 @@ bool post_create_analytics_popular_queries(const std::shared_ptr<http_req>& req,
     return true;
 }
 
-bool del_analytics_popular_queries(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto op = AnalyticsManager::get_instance().remove_suggestion_index(req->params["name"]);
+bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto op = AnalyticsManager::get_instance().remove_rule(req->params["name"]);
     if(!op.ok()) {
         res->set(op.code(), op.error());
         return false;
