@@ -4,13 +4,13 @@
 void NumericTrie::insert(const int32_t& value, const uint32_t& seq_id) {
     if (value < 0) {
         if (negative_trie == nullptr) {
-            negative_trie = new NumericTrieNode();
+            negative_trie = new NumericTrie::Node();
         }
 
         negative_trie->insert(std::abs(value), seq_id);
     } else {
         if (positive_trie == nullptr) {
-            positive_trie = new NumericTrieNode();
+            positive_trie = new NumericTrie::Node();
         }
 
         positive_trie->insert(value, seq_id);
@@ -159,7 +159,7 @@ void NumericTrie::search_lesser(const int32_t& value, const bool& inclusive, uin
     }
 }
 
-void NumericTrieNode::insert(const int32_t& value, const uint32_t& seq_id) {
+void NumericTrie::Node::insert(const int32_t& value, const uint32_t& seq_id) {
     char level = 0;
     return insert_helper(value, seq_id, level);
 }
@@ -175,7 +175,7 @@ inline int get_index(const int32_t& value, char& level) {
     return (value >> (8 * (MAX_LEVEL - level))) & 0xFF;
 }
 
-void NumericTrieNode::insert_helper(const int32_t& value, const uint32_t& seq_id, char& level) {
+void NumericTrie::Node::insert_helper(const int32_t& value, const uint32_t& seq_id, char& level) {
     if (level > MAX_LEVEL) {
         return;
     }
@@ -187,26 +187,26 @@ void NumericTrieNode::insert_helper(const int32_t& value, const uint32_t& seq_id
 
     if (++level <= MAX_LEVEL) {
         if (children == nullptr) {
-            children = new NumericTrieNode* [EXPANSE]{nullptr};
+            children = new NumericTrie::Node* [EXPANSE]{nullptr};
         }
 
         auto index = get_index(value, level);
         if (children[index] == nullptr) {
-            children[index] = new NumericTrieNode();
+            children[index] = new NumericTrie::Node();
         }
 
         return children[index]->insert_helper(value, seq_id, level);
     }
 }
 
-void NumericTrieNode::get_all_ids(uint32_t*& ids, uint32_t& ids_length) {
+void NumericTrie::Node::get_all_ids(uint32_t*& ids, uint32_t& ids_length) {
     ids = seq_ids.uncompress();
     ids_length = seq_ids.getLength();
 }
 
-void NumericTrieNode::search_lesser(const int32_t& value, uint32_t*& ids, uint32_t& ids_length) {
+void NumericTrie::Node::search_lesser(const int32_t& value, uint32_t*& ids, uint32_t& ids_length) {
     char level = 0;
-    std::vector<NumericTrieNode*> matches;
+    std::vector<NumericTrie::Node*> matches;
     search_lesser_helper(value, level, matches);
 
     for (auto const& match: matches) {
@@ -220,7 +220,7 @@ void NumericTrieNode::search_lesser(const int32_t& value, uint32_t*& ids, uint32
     }
 }
 
-void NumericTrieNode::search_lesser_helper(const int32_t& value, char& level, std::vector<NumericTrieNode*>& matches) {
+void NumericTrie::Node::search_lesser_helper(const int32_t& value, char& level, std::vector<NumericTrie::Node*>& matches) {
     if (level == MAX_LEVEL) {
         matches.push_back(this);
         return;
@@ -242,11 +242,11 @@ void NumericTrieNode::search_lesser_helper(const int32_t& value, char& level, st
     --level;
 }
 
-void NumericTrieNode::search_range(const int32_t& low, const int32_t& high, uint32_t*& ids, uint32_t& ids_length) {
+void NumericTrie::Node::search_range(const int32_t& low, const int32_t& high, uint32_t*& ids, uint32_t& ids_length) {
     if (low > high) {
         return;
     }
-    std::vector<NumericTrieNode*> matches;
+    std::vector<NumericTrie::Node*> matches;
     search_range_helper(low, high, matches);
 
     for (auto const& match: matches) {
@@ -260,11 +260,11 @@ void NumericTrieNode::search_range(const int32_t& low, const int32_t& high, uint
     }
 }
 
-void NumericTrieNode::search_range_helper(const int32_t& low, const int32_t& high,
-                                          std::vector<NumericTrieNode*>& matches) {
+void NumericTrie::Node::search_range_helper(const int32_t& low, const int32_t& high,
+                                          std::vector<NumericTrie::Node*>& matches) {
     // Segregating the nodes into matching low, in-between, and matching high.
 
-    NumericTrieNode* root = this;
+    NumericTrie::Node* root = this;
     char level = 1;
     auto low_index = get_index(low, level), high_index = get_index(high, level);
 
@@ -310,9 +310,9 @@ void NumericTrieNode::search_range_helper(const int32_t& low, const int32_t& hig
     }
 }
 
-void NumericTrieNode::search_greater(const int32_t& value, uint32_t*& ids, uint32_t& ids_length) {
+void NumericTrie::Node::search_greater(const int32_t& value, uint32_t*& ids, uint32_t& ids_length) {
     char level = 0;
-    std::vector<NumericTrieNode*> matches;
+    std::vector<NumericTrie::Node*> matches;
     search_greater_helper(value, level, matches);
 
     for (auto const& match: matches) {
@@ -326,7 +326,7 @@ void NumericTrieNode::search_greater(const int32_t& value, uint32_t*& ids, uint3
     }
 }
 
-void NumericTrieNode::search_greater_helper(const int32_t& value, char& level, std::vector<NumericTrieNode*>& matches) {
+void NumericTrie::Node::search_greater_helper(const int32_t& value, char& level, std::vector<NumericTrie::Node*>& matches) {
     if (level == MAX_LEVEL) {
         matches.push_back(this);
         return;
