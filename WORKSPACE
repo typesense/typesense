@@ -1,6 +1,10 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository", "new_git_repository")
 
+load("//bazel:onnxruntime_cuda_defs.bzl", "cuda_home_repository")
+
+cuda_home_repository(name = "cuda_home_repo")
+
 git_repository(
     name = "com_grail_bazel_compdb",
     commit = "58672f5eecd70a2d3ed50016a3abf907701404e0",
@@ -40,7 +44,7 @@ git_repository(
 
 new_git_repository(
     name="onnx_runtime",
-    branch= "rel-1.14.0",
+    branch= "rel-1.14.1",
     build_file = "//bazel:onnxruntime.BUILD",
     remote= "https://github.com/microsoft/onnxruntime",
     patches=["//bazel:onnx.patch"],

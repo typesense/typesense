@@ -6474,7 +6474,7 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
                                        const tsl::htrie_map<char, field>& embedding_fields,
                                        const tsl::htrie_map<char, field> & search_schema) {
     for(const auto& field : embedding_fields) {
-        std::vector<std::string> text_to_embed;
+        std::vector<std::pair<nlohmann::json*, std::string>> texts_to_embed;
         auto indexing_prefix = TextEmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
         for(auto& document : documents) {
             std::string text = indexing_prefix;
@@ -6489,7 +6489,7 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
                     }
                 }
             }
-            text_to_embed.push_back(text);
+            texts_to_embed.push_back(std::make_pair(document, text));
         }
         TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
         auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
@@ -6497,8 +6497,21 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
         if(!embedder_op.ok()) {
             return Option<bool>(400, embedder_op.error());
         }
+
+        // sort texts by length
+        std::sort(texts_to_embed.begin(), texts_to_embed.end(),
+                  [](const std::pair<nlohmann::json*, std::string>& a,
+                     const std::pair<nlohmann::json*, std::string>& b) {
+                      return a.second.size() < b.second.size();
+                  });
         
-        auto embedding_op = embedder_op.get()->batch_embed(text_to_embed);
+        // get vector of texts
+        std::vector<std::string> texts;
+        for(const auto& text_to_embed : texts_to_embed) {
+            texts.push_back(text_to_embed.second);
+        }
+
+        auto embedding_op = embedder_op.get()->batch_embed(texts);
 
         if(!embedding_op.ok()) {
             return Option<bool>(400, embedding_op.error());
@@ -6506,7 +6519,9 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
 
         auto embeddings = embedding_op.get();
         for(size_t i = 0; i < embeddings.size(); i++) {
-            (*documents[i])[field.name] = embeddings[i];
+            auto& embedding = embeddings[i];
+            auto& document = texts_to_embed[i].first;
+            (*document)[field.name] = embedding;
         }
     }
     return Option<bool>(true);
