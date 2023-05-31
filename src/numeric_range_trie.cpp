@@ -159,6 +159,19 @@ void NumericTrie::search_less_than(const int32_t& value, const bool& inclusive, 
     }
 }
 
+void NumericTrie::search_equal_to(const int32_t& value, uint32_t*& ids, uint32_t& ids_length) {
+    uint32_t* match_ids = nullptr;
+    uint32_t match_ids_length = 0;
+    if (value < 0 && negative_trie != nullptr) {
+        negative_trie->search_equal_to(std::abs(value), match_ids, match_ids_length);
+    } else if (value >= 0 && positive_trie != nullptr) {
+        positive_trie->search_equal_to(value, match_ids, match_ids_length);
+    }
+
+    ids = match_ids;
+    ids_length = match_ids_length;
+}
+
 void NumericTrie::Node::insert(const int32_t& value, const uint32_t& seq_id) {
     char level = 0;
     return insert_helper(value, seq_id, level);
@@ -346,4 +359,21 @@ void NumericTrie::Node::search_greater_than_helper(const int32_t& value, char& l
     }
 
     --level;
+}
+
+void NumericTrie::Node::search_equal_to(const int32_t& value, uint32_t*& ids, uint32_t& ids_length) {
+    char level = 1;
+    Node* root = this;
+    auto index = get_index(value, level);
+
+    while (level <= MAX_LEVEL) {
+        if (root->children == nullptr || root->children[index] == nullptr) {
+            return;
+        }
+
+        root = root->children[index];
+        index = get_index(value, ++level);
+    }
+
+    root->get_all_ids(ids, ids_length);
 }

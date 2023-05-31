@@ -41,6 +41,8 @@ class NumericTrie {
         void search_less_than(const int32_t& value, uint32_t*& ids, uint32_t& ids_length);
 
         void search_greater_than(const int32_t& value, uint32_t*& ids, uint32_t& ids_length);
+
+        void search_equal_to(const int32_t& value, uint32_t*& ids, uint32_t& ids_length);
     };
 
     Node* negative_trie = nullptr;
@@ -64,4 +66,6 @@ public:
 
     void search_greater_than(const int32_t& value, const bool& inclusive,
                              uint32_t*& ids, uint32_t& ids_length);
+
+    void search_equal_to(const int32_t& value, uint32_t*& ids, uint32_t& ids_length);
 };
