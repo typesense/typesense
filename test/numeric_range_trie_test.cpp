@@ -173,7 +173,7 @@ TEST_F(NumericRangeTrieTest, SearchRange) {
     }
 }
 
-TEST_F(NumericRangeTrieTest, SearchGreater) {
+TEST_F(NumericRangeTrieTest, SearchGreaterThan) {
     auto trie = new NumericTrie();
     std::unique_ptr<NumericTrie> trie_guard(trie);
     std::vector<std::pair<int32_t, uint32_t>> pairs = {
@@ -266,7 +266,7 @@ TEST_F(NumericRangeTrieTest, SearchGreater) {
     }
 }
 
-TEST_F(NumericRangeTrieTest, SearchLesser) {
+TEST_F(NumericRangeTrieTest, SearchLessThan) {
     auto trie = new NumericTrie();
     std::unique_ptr<NumericTrie> trie_guard(trie);
     std::vector<std::pair<int32_t, uint32_t>> pairs = {
@@ -355,6 +355,52 @@ TEST_F(NumericRangeTrieTest, SearchLesser) {
     for (uint32_t i = 0; i < ids_length; i++) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
+}
+
+TEST_F(NumericRangeTrieTest, SearchEqualTo) {
+    auto trie = new NumericTrie();
+    std::unique_ptr<NumericTrie> trie_guard(trie);
+    std::vector<std::pair<int32_t, uint32_t>> pairs = {
+            {-8192, 8},
+            {-16384, 32},
+            {-24576, 35},
+            {-32769, 41},
+            {-32768, 43},
+            {-32767, 45},
+            {8192, 49},
+            {16384, 56},
+            {24576, 58},
+            {32768, 91}
+    };
+
+    for (auto const& pair: pairs) {
+        trie->insert(pair.first, pair.second);
+    }
+
+    uint32_t* ids = nullptr;
+    uint32_t ids_length = 0;
+
+    trie->search_equal_to(0, ids, ids_length);
+    std::unique_ptr<uint32_t[]> ids_guard(ids);
+
+    ASSERT_EQ(0, ids_length);
+
+    trie->search_equal_to(-32768, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(1, ids_length);
+    ASSERT_EQ(43, ids[0]);
+
+    trie->search_equal_to(24576, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(1, ids_length);
+    ASSERT_EQ(58, ids[0]);
+
+    trie->search_equal_to(0x202020, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(0, ids_length);
 }
 
 TEST_F(NumericRangeTrieTest, MultivalueData) {
@@ -504,6 +550,11 @@ TEST_F(NumericRangeTrieTest, EmptyTrieOperations) {
     ASSERT_EQ(0, ids_length);
 
     trie->search_less_than(15, true, ids, ids_length);
+    ids_guard.reset(ids);
+
+    ASSERT_EQ(0, ids_length);
+
+    trie->search_equal_to(15, ids, ids_length);
     ids_guard.reset(ids);
 
     ASSERT_EQ(0, ids_length);
