@@ -808,6 +808,27 @@ bool posting_list_t::take_id(result_iter_state_t& istate, uint32_t id) {
     return true;
 }
 
+void posting_list_t::get_offsets(iterator_t& iter, std::vector<uint32_t>& positions) {
+    block_t* curr_block = iter.block();
+    uint32_t curr_index = iter.index();
+
+    if(curr_block == nullptr || curr_index == UINT32_MAX) {
+        return;
+    }
+
+    uint32_t* offsets = iter.offsets;
+    uint32_t start_offset = iter.offset_index[curr_index];
+    uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
+                            curr_block->offsets.getLength() :
+                            iter.offset_index[curr_index + 1];
+
+    while(start_offset < end_offset) {
+        int pos = offsets[start_offset];
+        positions.push_back(pos);
+        ++start_offset;
+    }
+}
+
 bool posting_list_t::get_offsets(const std::vector<iterator_t>& its,
                                  std::map<size_t, std::vector<token_positions_t>>& array_token_pos) {
 
@@ -1657,7 +1678,12 @@ void posting_list_t::iterator_t::next() {
 }
 
 uint32_t posting_list_t::iterator_t::last_block_id() const {
-    return ids[curr_block->size() - 1];
+    auto size = curr_block->size();
+    if(size == 0) {
+        return 0;
+    }
+    
+    return ids[size - 1];
 }
 
 uint32_t posting_list_t::iterator_t::id() const {

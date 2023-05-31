@@ -188,6 +188,8 @@ public:
     );
 
     static bool take_id(result_iter_state_t& istate, uint32_t id);
+    
+    static void get_offsets(iterator_t& iter, std::vector<uint32_t>& positions);
 
     static bool get_offsets(
         const std::vector<iterator_t>& its,

@@ -11,19 +11,22 @@ private:
 
         ~count_list () = default;
 
-        count_list(const std::string& sv, uint32_t facet_count) {
+        count_list(const std::string& sv, uint32_t facet_count, uint32_t facet_index) {
             facet_value = sv;
             count = facet_count;
+            index = facet_index;
         }
 
         count_list& operator=(count_list& obj) {
             facet_value = obj.facet_value;
             count = obj.count;
+            index = obj.index;
             return *this;
         }
 
         std::string facet_value;
         uint32_t count;
+        uint32_t index;
     };
 
     struct facet_index_struct {
@@ -61,8 +64,6 @@ private:
 
     std::map<std::string, facet_index_counter> facet_field_map;
     uint32_t count_index = 0;
-    std::unordered_set<std::string> dropped_fields;
-
 public:
 
     facet_index_t() = default;
@@ -73,6 +74,8 @@ public:
 
     void erase(const std::string& field);
 
+    void remove(const std::string& field, const uint32_t seq_id);
+
     bool contains(const std::string& field);
 
     size_t get_facet_count(const std::string& field);
@@ -81,11 +84,8 @@ public:
         int max_facet_count, std::map<std::string, uint32_t>& found, 
         bool is_wildcard_no_filter_query);    
     
-    void get_facet_indexes(const std::string& field, std::function<void(uint32_t, uint32_t)> functor);
-
-    bool get_migrated (const std::string& field) const;
-
-    void set_migrated(const std::string& field, bool val);
-
-    void set_dropped(const std::string& field);
+    size_t get_facet_indexes(const std::string& field, 
+        std::map<uint32_t, std::vector<uint32_t>>& seqid_countIndexes);
+    
+    void initialize(const std::string& field);
 };

@@ -304,13 +304,10 @@ private:
     // geo_array_field => (seq_id => values) used for exact filtering of geo array records
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
 
-    // facet_field => (seq_id => values)
-    spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
-    
-    facet_index_t* facet_index_v4 = nullptr;
+    spp::sparse_hash_map<std::string, posting_list_t*> facet_hash_index;
 
-    // facet_field => (seq_id => hash)
-    spp::sparse_hash_map<std::string, array_mapped_single_val_facet_t> single_val_facet_index_v3;
+    facet_index_t* facet_index_v4 = nullptr;
+  
 
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
