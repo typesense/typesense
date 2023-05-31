@@ -136,8 +136,8 @@ Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
 Option<std::vector<std::vector<float>>> TextEmbedder::batch_embed(const std::vector<std::string>& inputs) {
     std::vector<std::vector<float>> outputs;
     if(!is_remote()) {
-        for(int i = 0; i < inputs.size(); i += 16) {
-            auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 16, static_cast<int>(inputs.size())));
+        for(int i = 0; i < inputs.size(); i += 8) {
+            auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 8, static_cast<int>(inputs.size())));
             auto encoded_inputs = batch_encode(input_batch);
             
             // create input tensor object from data values
