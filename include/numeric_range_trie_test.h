@@ -15,9 +15,9 @@ class NumericTrie {
 
         void search_range_helper(const int32_t& low,const int32_t& high, std::vector<Node*>& matches);
 
-        void search_lesser_helper(const int32_t& value, char& level, std::vector<Node*>& matches);
+        void search_less_than_helper(const int32_t& value, char& level, std::vector<Node*>& matches);
 
-        void search_greater_helper(const int32_t& value, char& level, std::vector<Node*>& matches);
+        void search_greater_than_helper(const int32_t& value, char& level, std::vector<Node*>& matches);
 
     public:
 
@@ -38,9 +38,9 @@ class NumericTrie {
         void search_range(const int32_t& low, const int32_t& high,
                           uint32_t*& ids, uint32_t& ids_length);
 
-        void search_lesser(const int32_t& value, uint32_t*& ids, uint32_t& ids_length);
+        void search_less_than(const int32_t& value, uint32_t*& ids, uint32_t& ids_length);
 
-        void search_greater(const int32_t& value, uint32_t*& ids, uint32_t& ids_length);
+        void search_greater_than(const int32_t& value, uint32_t*& ids, uint32_t& ids_length);
     };
 
     Node* negative_trie = nullptr;
@@ -59,9 +59,9 @@ public:
                       const int32_t& high, const bool& high_inclusive,
                       uint32_t*& ids, uint32_t& ids_length);
 
-    void search_lesser(const int32_t& value, const bool& inclusive,
-                       uint32_t*& ids, uint32_t& ids_length);
+    void search_less_than(const int32_t& value, const bool& inclusive,
+                          uint32_t*& ids, uint32_t& ids_length);
 
-    void search_greater(const int32_t& value, const bool& inclusive,
-                        uint32_t*& ids, uint32_t& ids_length);
+    void search_greater_than(const int32_t& value, const bool& inclusive,
+                             uint32_t*& ids, uint32_t& ids_length);
 };
