@@ -2735,7 +2735,8 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
     tsl::htrie_set<char> matched_tokens;
 
-    bool use_word_tokenizer = search_field.locale == "th" || Tokenizer::is_cyrillic(search_field.locale);
+    bool use_word_tokenizer = search_field.locale == "th" || search_field.locale == "ja" ||
+                                Tokenizer::is_cyrillic(search_field.locale);
     bool normalise = !use_word_tokenizer;
 
     std::vector<std::string> raw_query_tokens;

@@ -168,7 +168,7 @@ new_git_repository(
 new_git_repository(
     name = "kakasi",
     build_file = "//bazel:kakasi.BUILD",
-    commit = "9e0825a02c7ea5605e968f6208f769f7c49d6860",
+    commit = "77f2d1ce0146d15199ae0db1e61e0b699b0b55f6",
     remote = "https://github.com/typesense/kakasi.git",
 )
 
