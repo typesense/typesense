@@ -88,6 +88,11 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         } else {
             num_tree_t* num_tree = new num_tree_t;
             numerical_index.emplace(a_field.name, num_tree);
+
+            if (a_field.range_index) {
+                auto trie = new NumericTrie();
+                range_index.emplace(a_field.name, trie);
+            }
         }
 
         if(a_field.sort) {
@@ -160,6 +165,13 @@ Index::~Index() {
     }
 
     numerical_index.clear();
+
+    for(auto & name_tree: range_index) {
+        delete name_tree.second;
+        name_tree.second = nullptr;
+    }
+
+    range_index.clear();
 
     for(auto & name_map: sort_index) {
         delete name_map.second;
@@ -737,6 +749,15 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
     if(!afield.is_string()) {
         if (afield.type == field_types::INT32) {
+            if (afield.range_index) {
+                auto const& trie = range_index.at(afield.name);
+                iterate_and_index_numerical_field(iter_batch, afield, [&afield, trie]
+                        (const index_record& record, uint32_t seq_id) {
+                    int32_t value = record.doc[afield.name].get<int32_t>();
+                    trie->insert(value, seq_id);
+                });
+            }
+
             auto num_tree = numerical_index.at(afield.name);
             iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
                     (const index_record& record, uint32_t seq_id) {
@@ -899,13 +920,19 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
             // all other numerical arrays
             auto num_tree = numerical_index.at(afield.name);
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+            auto trie = range_index.count(afield.name) > 0 ? range_index.at(afield.name) : nullptr;
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree, trie]
                     (const index_record& record, uint32_t seq_id) {
                 for(size_t arr_i = 0; arr_i < record.doc[afield.name].size(); arr_i++) {
                     const auto& arr_value = record.doc[afield.name][arr_i];
 
                     if(afield.type == field_types::INT32_ARRAY) {
                         const int32_t value = arr_value;
+
+                        if (afield.range_index) {
+                            trie->insert(value, seq_id);
+                        }
+
                         num_tree->insert(value, seq_id);
                     }
 
