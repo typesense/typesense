@@ -1,12 +1,35 @@
 #include <gtest/gtest.h>
+#include <collection_manager.h>
+#include "collection.h"
 #include "numeric_range_trie_test.h"
 
 class NumericRangeTrieTest : public ::testing::Test {
 protected:
+    Store *store;
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
 
-    virtual void SetUp() {}
+    std::vector<std::string> query_fields;
+    std::vector<sort_by> sort_fields;
 
-    virtual void TearDown() {}
+    void setupCollection() {
+        std::string state_dir_path = "/tmp/typesense_test/collection_filtering";
+        LOG(INFO) << "Truncating and creating: " << state_dir_path;
+        system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+
+        store = new Store(state_dir_path);
+        collectionManager.init(store, 1.0, "auth_key", quit);
+        collectionManager.load(8, 1000);
+    }
+
+    virtual void SetUp() {
+        setupCollection();
+    }
+
+    virtual void TearDown() {
+        collectionManager.dispose();
+        delete store;
+    }
 };
 
 void reset(uint32_t*& ids, uint32_t& ids_length) {
@@ -569,4 +592,71 @@ TEST_F(NumericRangeTrieTest, EmptyTrieOperations) {
     ids_guard.reset(ids);
 
     ASSERT_EQ(0, ids_length);
+}
+
+TEST_F(NumericRangeTrieTest, Integration) {
+    Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {
+            field("name", field_types::STRING, false),
+            field("rating", field_types::FLOAT, false),
+            field("age", field_types::INT32, false, false, true, "", -1, -1, false, 0, 0, cosine, "", nlohmann::json(),
+                  true), // Setting range index true.
+            field("years", field_types::INT32_ARRAY, false),
+            field("timestamps", field_types::INT64_ARRAY, false),
+            field("tags", field_types::STRING_ARRAY, true)
+    };
+
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
+    if(coll_array_fields == nullptr) {
+        // ensure that default_sorting_field is a non-array numerical field
+        auto coll_op = collectionManager.create_collection("coll_array_fields", 4, fields, "years");
+        ASSERT_EQ(false, coll_op.ok());
+        ASSERT_STREQ("Default sorting field `years` is not a sortable type.", coll_op.error().c_str());
+
+        // let's try again properly
+        coll_op = collectionManager.create_collection("coll_array_fields", 4, fields, "age");
+        coll_array_fields = coll_op.get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll_array_fields->add(json_line);
+        LOG(INFO) << add_op.error();
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    infile.close();
+
+    // Plain search with no filters - results should be sorted by rank fields
+    query_fields = {"name"};
+    std::vector<std::string> facets;
+    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    std::vector<std::string> ids = {"3", "1", "4", "0", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // Searching on an int32 field
+    results = coll_array_fields->search("Jeremy", query_fields, "age:>24", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"3", "1", "4"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 }
