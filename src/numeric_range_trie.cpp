@@ -27,51 +27,70 @@ void NumericTrie::search_range(const int32_t& low, const bool& low_inclusive,
     if (low < 0 && high >= 0) {
         // Have to combine the results of >low from negative_trie and <high from positive_trie
 
-        uint32_t* negative_ids = nullptr;
-        uint32_t negative_ids_length = 0;
         if (negative_trie != nullptr && !(low == -1 && !low_inclusive)) { // No need to search for (-1, ...
+            uint32_t* negative_ids = nullptr;
+            uint32_t negative_ids_length = 0;
             auto abs_low = std::abs(low);
+
             // Since we store absolute values, search_lesser would yield result for >low from negative_trie.
             negative_trie->search_less_than(low_inclusive ? abs_low : abs_low - 1, negative_ids, negative_ids_length);
+
+            uint32_t* out = nullptr;
+            ids_length = ArrayUtils::or_scalar(negative_ids, negative_ids_length, ids, ids_length, &out);
+
+            delete [] negative_ids;
+            delete [] ids;
+            ids = out;
         }
 
-        uint32_t* positive_ids = nullptr;
-        uint32_t positive_ids_length = 0;
         if (positive_trie != nullptr && !(high == 0 && !high_inclusive)) { // No need to search for ..., 0)
+            uint32_t* positive_ids = nullptr;
+            uint32_t positive_ids_length = 0;
             positive_trie->search_less_than(high_inclusive ? high : high - 1, positive_ids, positive_ids_length);
+
+            uint32_t* out = nullptr;
+            ids_length = ArrayUtils::or_scalar(positive_ids, positive_ids_length, ids, ids_length, &out);
+
+            delete [] positive_ids;
+            delete [] ids;
+            ids = out;
         }
-
-        ids_length = ArrayUtils::or_scalar(negative_ids, negative_ids_length, positive_ids, positive_ids_length, &ids);
-
-        delete [] negative_ids;
-        delete [] positive_ids;
-        return;
     } else if (low >= 0) {
         // Search only in positive_trie
+        if (positive_trie == nullptr) {
+            return;
+        }
 
         uint32_t* positive_ids = nullptr;
         uint32_t positive_ids_length = 0;
-        if (positive_trie != nullptr) {
-            positive_trie->search_range(low_inclusive ? low : low + 1, high_inclusive ? high : high - 1,
-                                        positive_ids, positive_ids_length);
-        }
+        positive_trie->search_range(low_inclusive ? low : low + 1, high_inclusive ? high : high - 1,
+                                    positive_ids, positive_ids_length);
 
-        ids = positive_ids;
-        ids_length = positive_ids_length;
+        uint32_t* out = nullptr;
+        ids_length = ArrayUtils::or_scalar(positive_ids, positive_ids_length, ids, ids_length, &out);
+
+        delete [] positive_ids;
+        delete [] ids;
+        ids = out;
     } else {
         // Search only in negative_trie
+        if (negative_trie == nullptr) {
+            return;
+        }
 
         uint32_t* negative_ids = nullptr;
         uint32_t negative_ids_length = 0;
-        if (negative_trie != nullptr) {
-            // Since we store absolute values, switching low and high would produce the correct result.
-            auto abs_high = std::abs(high), abs_low = std::abs(low);
-            negative_trie->search_range(high_inclusive ? abs_high : abs_high + 1, low_inclusive ? abs_low : abs_low - 1,
-                                        negative_ids, negative_ids_length);
-        }
+        // Since we store absolute values, switching low and high would produce the correct result.
+        auto abs_high = std::abs(high), abs_low = std::abs(low);
+        negative_trie->search_range(high_inclusive ? abs_high : abs_high + 1, low_inclusive ? abs_low : abs_low - 1,
+                                    negative_ids, negative_ids_length);
 
-        ids = negative_ids;
-        ids_length = negative_ids_length;
+        uint32_t* out = nullptr;
+        ids_length = ArrayUtils::or_scalar(negative_ids, negative_ids_length, ids, ids_length, &out);
+
+        delete [] negative_ids;
+        delete [] ids;
+        ids = out;
     }
 }
 
