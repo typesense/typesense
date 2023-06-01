@@ -295,73 +295,74 @@ TEST_F(NumericRangeTrieTest, SearchLessThan) {
     uint32_t ids_length = 0;
 
     trie->search_less_than(0, true, ids, ids_length);
-    std::unique_ptr<uint32_t[]> ids_guard(ids);
 
     ASSERT_EQ(4, ids_length);
     for (uint32_t i = 4, j = 0; i < ids_length; i++, j++) {
         ASSERT_EQ(pairs[i].second, ids[j]);
     }
 
+    reset(ids, ids_length);
     trie->search_less_than(0, false, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(4, ids_length);
     for (uint32_t i = 0; i < ids_length; i++) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
 
+    reset(ids, ids_length);
     trie->search_less_than(-1, true, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(4, ids_length);
     for (uint32_t i = 0; i < ids_length; i++) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
 
+    reset(ids, ids_length);
     trie->search_less_than(-16384, true, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(3, ids_length);
     for (uint32_t i = 0; i < ids_length; i++) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
 
+    reset(ids, ids_length);
     trie->search_less_than(-16384, false, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(2, ids_length);
     for (uint32_t i = 0; i < ids_length; i++) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
 
+    reset(ids, ids_length);
     trie->search_less_than(8192, true, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(5, ids_length);
     for (uint32_t i = 0; i < ids_length; i++) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
 
+    reset(ids, ids_length);
     trie->search_less_than(8192, false, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(4, ids_length);
     for (uint32_t i = 0; i < ids_length; i++) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
 
+    reset(ids, ids_length);
     trie->search_less_than(-1000000, false, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(0, ids_length);
 
+    reset(ids, ids_length);
     trie->search_less_than(1000000, true, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(8, ids_length);
     for (uint32_t i = 0; i < ids_length; i++) {
         ASSERT_EQ(pairs[i].second, ids[i]);
     }
+
+    reset(ids, ids_length);
 }
 
 TEST_F(NumericRangeTrieTest, SearchEqualTo) {
