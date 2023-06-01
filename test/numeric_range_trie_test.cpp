@@ -388,24 +388,23 @@ TEST_F(NumericRangeTrieTest, SearchEqualTo) {
     uint32_t ids_length = 0;
 
     trie->search_equal_to(0, ids, ids_length);
-    std::unique_ptr<uint32_t[]> ids_guard(ids);
 
     ASSERT_EQ(0, ids_length);
 
+    reset(ids, ids_length);
     trie->search_equal_to(-32768, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(1, ids_length);
     ASSERT_EQ(43, ids[0]);
 
+    reset(ids, ids_length);
     trie->search_equal_to(24576, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(1, ids_length);
     ASSERT_EQ(58, ids[0]);
 
+    reset(ids, ids_length);
     trie->search_equal_to(0x202020, ids, ids_length);
-    ids_guard.reset(ids);
 
     ASSERT_EQ(0, ids_length);
 }

@@ -186,16 +186,25 @@ void NumericTrie::search_less_than(const int32_t& value, const bool& inclusive, 
 }
 
 void NumericTrie::search_equal_to(const int32_t& value, uint32_t*& ids, uint32_t& ids_length) {
-    uint32_t* match_ids = nullptr;
-    uint32_t match_ids_length = 0;
-    if (value < 0 && negative_trie != nullptr) {
-        negative_trie->search_equal_to(std::abs(value), match_ids, match_ids_length);
-    } else if (value >= 0 && positive_trie != nullptr) {
-        positive_trie->search_equal_to(value, match_ids, match_ids_length);
+    if ((value < 0 && negative_trie == nullptr) || (value >= 0 && positive_trie == nullptr)) {
+        return;
     }
 
-    ids = match_ids;
-    ids_length = match_ids_length;
+    uint32_t* equal_ids = nullptr;
+    uint32_t equal_ids_length = 0;
+
+    if (value < 0) {
+        negative_trie->search_equal_to(std::abs(value), equal_ids, equal_ids_length);
+    } else {
+        positive_trie->search_equal_to(value, equal_ids, equal_ids_length);
+    }
+
+    uint32_t* out = nullptr;
+    ids_length = ArrayUtils::or_scalar(equal_ids, equal_ids_length, ids, ids_length, &out);
+
+    delete [] equal_ids;
+    delete [] ids;
+    ids = out;
 }
 
 void NumericTrie::Node::insert(const int32_t& value, const uint32_t& seq_id) {
