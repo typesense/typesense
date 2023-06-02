@@ -90,7 +90,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             numerical_index.emplace(a_field.name, num_tree);
 
             if (a_field.range_index) {
-                auto trie = new NumericTrie();
+                auto trie = a_field.is_int32() ? new NumericTrie() : new NumericTrie(64);
                 range_index.emplace(a_field.name, trie);
             }
         }
@@ -767,6 +767,15 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
         }
 
         else if(afield.type == field_types::INT64) {
+            if (afield.range_index) {
+                auto const& trie = range_index.at(afield.name);
+                iterate_and_index_numerical_field(iter_batch, afield, [&afield, trie]
+                        (const index_record& record, uint32_t seq_id) {
+                    int64_t value = record.doc[afield.name].get<int64_t>();
+                    trie->insert(value, seq_id);
+                });
+            }
+
             auto num_tree = numerical_index.at(afield.name);
             iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
                     (const index_record& record, uint32_t seq_id) {
@@ -776,6 +785,16 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
         }
 
         else if(afield.type == field_types::FLOAT) {
+            if (afield.range_index) {
+                auto const& trie = range_index.at(afield.name);
+                iterate_and_index_numerical_field(iter_batch, afield, [&afield, trie]
+                        (const index_record& record, uint32_t seq_id) {
+                    float fvalue = record.doc[afield.name].get<float>();
+                    int64_t value = float_to_int64_t(fvalue);
+                    trie->insert(value, seq_id);
+                });
+            }
+
             auto num_tree = numerical_index.at(afield.name);
             iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
                     (const index_record& record, uint32_t seq_id) {
@@ -928,23 +947,30 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
                     if(afield.type == field_types::INT32_ARRAY) {
                         const int32_t value = arr_value;
+                        num_tree->insert(value, seq_id);
 
                         if (afield.range_index) {
                             trie->insert(value, seq_id);
                         }
-
-                        num_tree->insert(value, seq_id);
                     }
 
                     else if(afield.type == field_types::INT64_ARRAY) {
                         const int64_t value = arr_value;
                         num_tree->insert(value, seq_id);
+
+                        if (afield.range_index) {
+                            trie->insert(value, seq_id);
+                        }
                     }
 
                     else if(afield.type == field_types::FLOAT_ARRAY) {
                         const float fvalue = arr_value;
                         int64_t value = float_to_int64_t(fvalue);
                         num_tree->insert(value, seq_id);
+
+                        if (afield.range_index) {
+                            trie->insert(value, seq_id);
+                        }
                     }
 
                     else if(afield.type == field_types::BOOL_ARRAY) {

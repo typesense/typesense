@@ -604,7 +604,8 @@ TEST_F(NumericRangeTrieTest, Integration) {
             field("age", field_types::INT32, false, false, true, "", -1, -1, false, 0, 0, cosine, "", nlohmann::json(),
                   true), // Setting range index true.
             field("years", field_types::INT32_ARRAY, false),
-            field("timestamps", field_types::INT64_ARRAY, false),
+            field("timestamps", field_types::INT64_ARRAY, false,  false, true, "", -1, -1, false, 0, 0, cosine, "",
+                  nlohmann::json(), true),
             field("tags", field_types::STRING_ARRAY, true)
     };
 
@@ -626,32 +627,18 @@ TEST_F(NumericRangeTrieTest, Integration) {
 
     while (std::getline(infile, json_line)) {
         auto add_op = coll_array_fields->add(json_line);
-        LOG(INFO) << add_op.error();
         ASSERT_TRUE(add_op.ok());
     }
 
     infile.close();
 
-    // Plain search with no filters - results should be sorted by rank fields
     query_fields = {"name"};
     std::vector<std::string> facets;
-    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(5, results["hits"].size());
-
-    std::vector<std::string> ids = {"3", "1", "4", "0", "2"};
-
-    for(size_t i = 0; i < results["hits"].size(); i++) {
-        nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["document"]["id"];
-        std::string id = ids.at(i);
-        ASSERT_STREQ(id.c_str(), result_id.c_str());
-    }
-
     // Searching on an int32 field
-    results = coll_array_fields->search("Jeremy", query_fields, "age:>24", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "age:>24", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
 
-    ids = {"3", "1", "4"};
+    std::vector<std::string> ids = {"3", "1", "4"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -659,4 +646,20 @@ TEST_F(NumericRangeTrieTest, Integration) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // searching on an int64 array field - also ensure that padded space causes no issues
+    results = coll_array_fields->search("Jeremy", query_fields, "timestamps : > 475205222", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"1", "4", "0", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = coll_array_fields->search("Jeremy", query_fields, "rating: [7.812 .. 9.999, 1.05 .. 1.09]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
 }

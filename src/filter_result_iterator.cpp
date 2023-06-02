@@ -646,7 +646,7 @@ void filter_result_iterator_t::init() {
     field f = index->search_schema.at(a_filter.field_name);
 
     if (f.is_integer()) {
-        if (f.is_int32() && f.range_index) {
+        if (f.range_index) {
             auto const& trie = index->range_index.at(a_filter.field_name);
 
             for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
@@ -718,28 +718,64 @@ void filter_result_iterator_t::init() {
         is_filter_result_initialized = true;
         return;
     } else if (f.is_float()) {
-        auto num_tree = index->numerical_index.at(a_filter.field_name);
+        if (f.range_index) {
+            auto const& trie = index->range_index.at(a_filter.field_name);
 
-        for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
-            const std::string& filter_value = a_filter.values[fi];
-            float value = (float)std::atof(filter_value.c_str());
-            int64_t float_int64 = Index::float_to_int64_t(value);
+            for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+                const std::string& filter_value = a_filter.values[fi];
+                float value = (float)std::atof(filter_value.c_str());
+                int64_t float_int64 = Index::float_to_int64_t(value);
 
-            size_t result_size = filter_result.count;
-            if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
-                const std::string& next_filter_value = a_filter.values[fi+1];
-                int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
-                num_tree->range_inclusive_search(float_int64, range_end_value, &filter_result.docs, result_size);
-                fi++;
-            } else if (a_filter.comparators[fi] == NOT_EQUALS) {
-                numeric_not_equals_filter(num_tree, float_int64,
-                                          index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                                          filter_result.docs, result_size);
-            } else {
-                num_tree->search(a_filter.comparators[fi], float_int64, &filter_result.docs, result_size);
+                if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
+                    const std::string& next_filter_value = a_filter.values[fi + 1];
+                    int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
+                    trie->search_range(float_int64, true, range_end_value, true, filter_result.docs, filter_result.count);
+                    fi++;
+                } else if (a_filter.comparators[fi] == EQUALS) {
+                    trie->search_equal_to(float_int64, filter_result.docs, filter_result.count);
+                } else if (a_filter.comparators[fi] == NOT_EQUALS) {
+                    uint32_t* to_exclude_ids = nullptr;
+                    uint32_t to_exclude_ids_len = 0;
+                    trie->search_equal_to(float_int64, to_exclude_ids, to_exclude_ids_len);
+
+                    auto all_ids = index->seq_ids->uncompress();
+                    filter_result.count = ArrayUtils::exclude_scalar(all_ids, index->seq_ids->num_ids(),
+                                                                     to_exclude_ids, to_exclude_ids_len, &filter_result.docs);
+
+                    delete[] all_ids;
+                    delete[] to_exclude_ids;
+                } else if (a_filter.comparators[fi] == GREATER_THAN || a_filter.comparators[fi] == GREATER_THAN_EQUALS) {
+                    trie->search_greater_than(float_int64, a_filter.comparators[fi] == GREATER_THAN_EQUALS,
+                                              filter_result.docs, filter_result.count);
+                } else if (a_filter.comparators[fi] == LESS_THAN || a_filter.comparators[fi] == LESS_THAN_EQUALS) {
+                    trie->search_less_than(float_int64, a_filter.comparators[fi] == LESS_THAN_EQUALS,
+                                           filter_result.docs, filter_result.count);
+                }
             }
+        } else {
+            auto num_tree = index->numerical_index.at(a_filter.field_name);
 
-            filter_result.count = result_size;
+            for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+                const std::string& filter_value = a_filter.values[fi];
+                float value = (float)std::atof(filter_value.c_str());
+                int64_t float_int64 = Index::float_to_int64_t(value);
+
+                size_t result_size = filter_result.count;
+                if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
+                    const std::string& next_filter_value = a_filter.values[fi+1];
+                    int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
+                    num_tree->range_inclusive_search(float_int64, range_end_value, &filter_result.docs, result_size);
+                    fi++;
+                } else if (a_filter.comparators[fi] == NOT_EQUALS) {
+                    numeric_not_equals_filter(num_tree, float_int64,
+                                              index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                              filter_result.docs, result_size);
+                } else {
+                    num_tree->search(a_filter.comparators[fi], float_int64, &filter_result.docs, result_size);
+                }
+
+                filter_result.count = result_size;
+            }
         }
 
         if (a_filter.apply_not_equals) {
