@@ -1,3 +1,4 @@
+#include <timsort.hpp>
 #include "numeric_range_trie_test.h"
 #include "array_utils.h"
 
@@ -302,15 +303,25 @@ void NumericTrie::Node::search_less_than(const int32_t& value, uint32_t*& ids, u
     std::vector<NumericTrie::Node*> matches;
     search_less_than_helper(value, level, matches);
 
+    std::vector<uint32_t> consolidated_ids;
     for (auto const& match: matches) {
-        uint32_t* out = nullptr;
         auto const& m_seq_ids = match->seq_ids.uncompress();
-        ids_length = ArrayUtils::or_scalar(m_seq_ids, match->seq_ids.getLength(), ids, ids_length, &out);
+        for (uint32_t i = 0; i < match->seq_ids.getLength(); i++) {
+            consolidated_ids.push_back(m_seq_ids[i]);
+        }
 
         delete [] m_seq_ids;
-        delete [] ids;
-        ids = out;
     }
+
+    gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
+    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+
+    uint32_t* out = nullptr;
+    ids_length = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
+                                       ids, ids_length, &out);
+
+    delete [] ids;
+    ids = out;
 }
 
 void NumericTrie::Node::search_less_than_helper(const int32_t& value, char& level, std::vector<NumericTrie::Node*>& matches) {
@@ -342,15 +353,25 @@ void NumericTrie::Node::search_range(const int32_t& low, const int32_t& high, ui
     std::vector<NumericTrie::Node*> matches;
     search_range_helper(low, high, matches);
 
+    std::vector<uint32_t> consolidated_ids;
     for (auto const& match: matches) {
-        uint32_t* out = nullptr;
         auto const& m_seq_ids = match->seq_ids.uncompress();
-        ids_length = ArrayUtils::or_scalar(m_seq_ids, match->seq_ids.getLength(), ids, ids_length, &out);
+        for (uint32_t i = 0; i < match->seq_ids.getLength(); i++) {
+            consolidated_ids.push_back(m_seq_ids[i]);
+        }
 
         delete [] m_seq_ids;
-        delete [] ids;
-        ids = out;
     }
+
+    gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
+    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+
+    uint32_t* out = nullptr;
+    ids_length = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
+                                       ids, ids_length, &out);
+
+    delete [] ids;
+    ids = out;
 }
 
 void NumericTrie::Node::search_range_helper(const int32_t& low, const int32_t& high,
@@ -408,15 +429,25 @@ void NumericTrie::Node::search_greater_than(const int32_t& value, uint32_t*& ids
     std::vector<NumericTrie::Node*> matches;
     search_greater_than_helper(value, level, matches);
 
+    std::vector<uint32_t> consolidated_ids;
     for (auto const& match: matches) {
-        uint32_t* out = nullptr;
         auto const& m_seq_ids = match->seq_ids.uncompress();
-        ids_length = ArrayUtils::or_scalar(m_seq_ids, match->seq_ids.getLength(), ids, ids_length, &out);
+        for (uint32_t i = 0; i < match->seq_ids.getLength(); i++) {
+            consolidated_ids.push_back(m_seq_ids[i]);
+        }
 
         delete [] m_seq_ids;
-        delete [] ids;
-        ids = out;
     }
+
+    gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
+    consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
+
+    uint32_t* out = nullptr;
+    ids_length = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
+                                       ids, ids_length, &out);
+
+    delete [] ids;
+    ids = out;
 }
 
 void NumericTrie::Node::search_greater_than_helper(const int32_t& value, char& level, std::vector<NumericTrie::Node*>& matches) {
