@@ -38,6 +38,8 @@ cc_library(
     deps = [
         ":headers",
         ":onnxruntime_lib",
+        "@sentencepiece",
+        "@sentencepiece//:sentencepiece_headers",
         "@com_github_brpc_braft//:braft",
         "@com_github_brpc_brpc//:brpc",
         "@com_github_google_glog//:glog",
@@ -53,8 +55,6 @@ cc_library(
         "@s2geometry",
         "@hnsw",
         # "@zip",
-        "@sentencepiece",
-        "@sentencepiece//:sentencepiece_headers"
     ],
 )
 
