@@ -30,9 +30,9 @@ cmake(
     install = False,
     cache_entries = {
         'SPM_USE_BUILTIN_PROTOBUF': 'OFF',
-        'Protobuf_LIBRARY': '$EXT_BUILD_ROOT/bazel-out/k8-fastbuild/bin/external/com_google_protobuf/libprotobuf.a',
-        'Protobuf_LITE_LIBRARY': '$EXT_BUILD_ROOT/bazel-out/k8-fastbuild/bin/external/com_google_protobuf/libprotobuf-lite.a',
-        'Protobuf_PROTOC_EXECUTABLE': '$EXT_BUILD_ROOT/bazel-out/k8-fastbuild/bin/external/com_google_protobuf/protoc',
+        'Protobuf_LIBRARY': '$INSTALLDIR/../../com_google_protobuf/libprotobuf.a',
+        'Protobuf_LITE_LIBRARY': '$INSTALLDIR/../../com_google_protobuf/libprotobuf-lite.a',
+        'Protobuf_PROTOC_EXECUTABLE': '$INSTALLDIR/../../com_google_protobuf/protoc',
         'Protobuf_INCLUDE_DIR': '$EXT_BUILD_ROOT/external/com_google_protobuf/src',
         'CMAKE_POLICY_DEFAULT_CMP0111':'OLD'
     },

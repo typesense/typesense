@@ -9,6 +9,14 @@
 TextEmbedder::TextEmbedder(const std::string& model_name) {
     // create environment
     Ort::SessionOptions session_options;
+    auto providers = Ort::GetAvailableProviders();
+    for(auto& provider : providers) {
+        if(provider == "CUDAExecutionProvider") {
+            LOG(INFO) << "Using CUDAExecutionProvider";
+            OrtCUDAProviderOptions cuda_options;
+            session_options.AppendExecutionProvider_CUDA(cuda_options);
+        }
+    }
     std::string abs_path = TextEmbedderManager::get_absolute_model_path(model_name);
     LOG(INFO) << "Loading model from disk: " << abs_path;
     session_ = std::make_unique<Ort::Session>(env_, abs_path.c_str(), session_options);
@@ -128,9 +136,83 @@ Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
 Option<std::vector<std::vector<float>>> TextEmbedder::batch_embed(const std::vector<std::string>& inputs) {
     std::vector<std::vector<float>> outputs;
     if(!is_remote()) {
-        // for now only openai is supported for batch embedding
-        for(const auto& input : inputs) {
-            outputs.push_back(Embed(input).get());
+        for(int i = 0; i < inputs.size(); i += 8) {
+            auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 8, static_cast<int>(inputs.size())));
+            auto encoded_inputs = batch_encode(input_batch);
+            
+            // create input tensor object from data values
+            Ort::AllocatorWithDefaultOptions allocator;
+            Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+            std::vector<Ort::Value> input_tensors;
+            std::vector<std::vector<int64_t>> input_shapes;
+            std::vector<const char*> input_node_names = {"input_ids", "attention_mask"};
+            // If model is DistilBERT or sentencepiece, it has 2 inputs, else it has 3 inputs
+            if(session_->GetInputCount() == 3) {
+                input_node_names.push_back("token_type_ids");
+            }
+            input_shapes.push_back({static_cast<int64_t>(encoded_inputs.input_ids.size()), static_cast<int64_t>(encoded_inputs.input_ids[0].size())});
+            input_shapes.push_back({static_cast<int64_t>(encoded_inputs.attention_mask.size()), static_cast<int64_t>(encoded_inputs.attention_mask[0].size())});
+            if(session_->GetInputCount() == 3) {
+                input_shapes.push_back({static_cast<int64_t>(encoded_inputs.token_type_ids.size()), static_cast<int64_t>(encoded_inputs.token_type_ids[0].size())});
+            }
+
+            std::vector<int64_t> input_ids_flatten;
+            std::vector<int64_t> attention_mask_flatten;
+            std::vector<int64_t> token_type_ids_flatten;
+
+            for (int i = 0; i < encoded_inputs.input_ids.size(); i++) {
+                for (int j = 0; j < encoded_inputs.input_ids[i].size(); j++) {
+                    input_ids_flatten.push_back(encoded_inputs.input_ids[i][j]);
+                }
+            }
+
+            for (int i = 0; i < encoded_inputs.attention_mask.size(); i++) {
+                for (int j = 0; j < encoded_inputs.attention_mask[i].size(); j++) {
+                    attention_mask_flatten.push_back(encoded_inputs.attention_mask[i][j]);
+                }
+            }
+
+            if(session_->GetInputCount() == 3) {
+                for (int i = 0; i < encoded_inputs.token_type_ids.size(); i++) {
+                    for (int j = 0; j < encoded_inputs.token_type_ids[i].size(); j++) {
+                        token_type_ids_flatten.push_back(encoded_inputs.token_type_ids[i][j]);
+                    }
+                }
+            }
+
+            input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, input_ids_flatten.data(), input_ids_flatten.size(), input_shapes[0].data(), input_shapes[0].size()));
+            input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask_flatten.data(), attention_mask_flatten.size(), input_shapes[1].data(), input_shapes[1].size()));
+            if(session_->GetInputCount() == 3) {
+                input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, token_type_ids_flatten.data(), token_type_ids_flatten.size(), input_shapes[2].data(), input_shapes[2].size()));
+            }
+
+            //LOG(INFO) << "Running model";
+            // create output tensor object
+            std::vector<const char*> output_node_names = {output_tensor_name.c_str()};
+
+            // if seq length is 0, return empty vector
+            if(input_shapes[0][1] == 0) {
+                for(int i = 0; i < input_batch.size(); i++) {
+                    outputs.push_back(std::vector<float>());
+                }
+                continue;
+            }
+
+            auto output_tensor = session_->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensors.data(), input_tensors.size(), output_node_names.data(), output_node_names.size());
+            float* data = output_tensor[0].GetTensorMutableData<float>();
+            // print output tensor shape
+            auto shape = output_tensor[0].GetTensorTypeAndShapeInfo().GetShape();
+            for (int i = 0; i < shape[0]; i++) {
+                std::vector<std::vector<float>> output;
+                for (int j = 0; j < shape[1]; j++) {
+                    std::vector<float> output_row;
+                    for (int k = 0; k < shape[2]; k++) {
+                        output_row.push_back(data[i * shape[1] * shape[2] + j * shape[2] + k]);
+                    }
+                    output.push_back(output_row);
+                }
+                outputs.push_back(mean_pooling(output));
+            }
         }
     } else {
         auto embed_op  = remote_embedder_->batch_embed(inputs);
@@ -264,4 +346,37 @@ Option<bool> TextEmbedder::validate_local_or_public_model(const nlohmann::json& 
     }
 
     return Option<bool>(true);
+}
+
+
+batch_encoded_input_t TextEmbedder::batch_encode(const std::vector<std::string>& inputs) {
+    batch_encoded_input_t encoded_inputs;
+    for(auto& input : inputs) {
+        auto encoded_input = tokenizer_->Encode(input);
+        encoded_inputs.input_ids.push_back(encoded_input.input_ids);
+        encoded_inputs.attention_mask.push_back(encoded_input.attention_mask);
+        encoded_inputs.token_type_ids.push_back(encoded_input.token_type_ids);
+    }
+
+    // Pad inputs
+    size_t max_input_len = 0;
+    for(auto& input_ids : encoded_inputs.input_ids) {
+        if(input_ids.size() > max_input_len) {
+            max_input_len = input_ids.size();
+        }
+    }
+
+    for(auto& input_ids : encoded_inputs.input_ids) {
+        input_ids.resize(max_input_len, 0);
+    }
+
+    for(auto& attention_mask : encoded_inputs.attention_mask) {
+        attention_mask.resize(max_input_len, 0);
+    }
+
+    for(auto& token_type_ids : encoded_inputs.token_type_ids) {
+        token_type_ids.resize(max_input_len, 0);
+    }
+
+    return encoded_inputs;
 }
