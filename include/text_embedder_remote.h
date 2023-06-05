@@ -1,0 +1,75 @@
+#pragma once
+
+#include <vector>
+#include <string>
+#include <mutex>
+#include "http_client.h"
+#include "option.h"
+
+
+
+
+class RemoteEmbedder {
+    protected:
+        static Option<bool> validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties);
+    public:
+        virtual Option<std::vector<float>> Embed(const std::string& text) = 0;
+        virtual Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) = 0;
+};
+
+
+class OpenAIEmbedder : public RemoteEmbedder {
+    private: 
+        std::string api_key;
+        std::string openai_model_path;
+        static constexpr char* OPENAI_LIST_MODELS = "https://api.openai.com/v1/models";
+        static constexpr char* OPENAI_CREATE_EMBEDDING = "https://api.openai.com/v1/embeddings";
+    public:
+        OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
+        Option<std::vector<float>> Embed(const std::string& text) override;
+        Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) override;
+};
+
+
+class GoogleEmbedder : public RemoteEmbedder {
+    private:
+        // only support this model for now
+        inline static const char* SUPPORTED_MODEL = "embedding-gecko-001";
+        inline static constexpr short GOOGLE_EMBEDDING_DIM = 768;
+        inline static constexpr char* GOOGLE_CREATE_EMBEDDING = "https://generativelanguage.googleapis.com/v1beta2/models/embedding-gecko-001:embedText?key=";
+        std::string google_api_key;
+    public:
+        GoogleEmbedder(const std::string& google_api_key);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
+        Option<std::vector<float>> Embed(const std::string& text) override;
+        Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) override;
+};
+
+
+
+class GCPEmbedder : public RemoteEmbedder {
+    private:
+        std::string project_id;
+        std::string access_token;
+        std::string refresh_token;
+        std::string client_id;
+        std::string client_secret;
+        std::string model_name;
+        inline static const std::string GCP_EMBEDDING_BASE_URL = "https://us-central1-aiplatform.googleapis.com/v1/projects/";
+        inline static const std::string GCP_EMBEDDING_PATH = "/locations/us-central1/publishers/google/models/";
+        inline static const std::string GCP_EMBEDDING_PREDICT = ":predict";
+        inline static const std::string GCP_AUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+        static Option<std::string> generate_access_token(const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
+        static std::string get_gcp_embedding_url(const std::string& project_id, const std::string& model_name) {
+            return GCP_EMBEDDING_BASE_URL + project_id + GCP_EMBEDDING_PATH + model_name + GCP_EMBEDDING_PREDICT;
+        }
+    public: 
+        GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
+                    const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
+        static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
+        Option<std::vector<float>> Embed(const std::string& text) override;
+        Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) override;
+};
+
+

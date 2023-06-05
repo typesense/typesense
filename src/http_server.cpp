@@ -591,7 +591,8 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
                     }
                 }
 
-                if(std::stoll(version_num) < 7710) { // allow >= v7.71.0
+                int major_version = version_num[0] - 48;  // convert ascii char to integer
+                if(major_version <= 7 && std::stoll(version_num) < 7710) { // allow >= v7.71.0
                     std::string message = "{ \"message\": \"HTTP2 is not supported by your curl client. "
                                           "You need to use atleast Curl v7.71.0.\"}";
                     h2o_iovec_t body = h2o_strdup(&request->_req->pool, message.c_str(), SIZE_MAX);

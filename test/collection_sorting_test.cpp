@@ -1636,7 +1636,7 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
     nlohmann::json doc1;
     doc1["id"] = "0";
     doc1["title"] = "Mark Antony";
-    doc1["description"] = "Marriage Counsellor";
+    doc1["description"] = "Counsellor";
     doc1["points"] = 100;
 
     nlohmann::json doc2;
@@ -1653,47 +1653,51 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
         sort_by("points", "DESC"),
     };
 
-    auto results = coll1->search("mark", {"title", "description"},
-                                 "", {}, sort_fields, {2, 2}, 10,
-                                 1, FREQUENCY, {true, true},
+    auto results = coll1->search("mark", {"title"},
+                                 "", {}, sort_fields, {2}, 10,
+                                 1, FREQUENCY, {true},
                                  10, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {3, 1}, 1000, true).get();
+                                 "<mark>", "</mark>", {3}, 1000, true).get();
 
     // when there are more buckets than results, no bucketing will happen
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
-    // bucketing by 1 produces original text match
+    // bucketing by 1 makes the text match score the same
     sort_fields = {
         sort_by("_text_match(buckets: 1)", "DESC"),
         sort_by("points", "DESC"),
     };
 
-    results = coll1->search("mark", {"title", "description"},
-                            "", {}, sort_fields, {2, 2}, 10,
-                            1, FREQUENCY, {true, true},
+    results = coll1->search("mark", {"title"},
+                            "", {}, sort_fields, {2}, 10,
+                            1, FREQUENCY, {true},
                             10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {3, 1}, 1000, true).get();
+                            "<mark>", "</mark>", {3}, 1000, true).get();
 
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
-    // likewise with bucket 0
+    size_t score1 = std::stoul(results["hits"][0]["text_match_info"]["score"].get<std::string>());
+    size_t score2 = std::stoul(results["hits"][1]["text_match_info"]["score"].get<std::string>());
+    ASSERT_TRUE(score1 < score2);
+
+    // bucketing by 0 produces original text match
     sort_fields = {
         sort_by("_text_match(buckets: 0)", "DESC"),
         sort_by("points", "DESC"),
     };
 
-    results = coll1->search("mark", {"title", "description"},
-                            "", {}, sort_fields, {2, 2}, 10,
-                            1, FREQUENCY, {true, true},
+    results = coll1->search("mark", {"title"},
+                            "", {}, sort_fields, {2}, 10,
+                            1, FREQUENCY, {true},
                             10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {3, 1}, 1000, true).get();
+                            "<mark>", "</mark>", {3}, 1000, true).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -1702,46 +1706,46 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
     // don't allow bad parameter name
     sort_fields[0] = sort_by("_text_match(foobar: 0)", "DESC");
 
-    auto res_op = coll1->search("mark", {"title", "description"},
-                            "", {}, sort_fields, {2, 2}, 10,
-                            1, FREQUENCY, {true, true},
+    auto res_op = coll1->search("mark", {"title"},
+                            "", {}, sort_fields, {2}, 10,
+                            1, FREQUENCY, {true},
                             10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {3, 1}, 1000, true);
+                            "<mark>", "</mark>", {3}, 1000, true);
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid sorting parameter passed for _text_match.", res_op.error());
 
     // handle bad syntax
     sort_fields[0] = sort_by("_text_match(foobar:", "DESC");
-    res_op = coll1->search("mark", {"title", "description"},
-                                "", {}, sort_fields, {2, 2}, 10,
-                                1, FREQUENCY, {true, true},
+    res_op = coll1->search("mark", {"title"},
+                                "", {}, sort_fields, {2}, 10,
+                                1, FREQUENCY, {true},
                                 10, spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                                "<mark>", "</mark>", {3, 1}, 1000, true);
+                                "<mark>", "</mark>", {3}, 1000, true);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a field named `_text_match(foobar:` in the schema for sorting.", res_op.error());
 
     // handle bad value
     sort_fields[0] = sort_by("_text_match(buckets: x)", "DESC");
-    res_op = coll1->search("mark", {"title", "description"},
-                           "", {}, sort_fields, {2, 2}, 10,
-                           1, FREQUENCY, {true, true},
+    res_op = coll1->search("mark", {"title"},
+                           "", {}, sort_fields, {2}, 10,
+                           1, FREQUENCY, {true},
                            10, spp::sparse_hash_set<std::string>(),
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                           "<mark>", "</mark>", {3, 1}, 1000, true);
+                           "<mark>", "</mark>", {3}, 1000, true);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid value passed for _text_match `buckets` configuration.", res_op.error());
 
     // handle negative value
     sort_fields[0] = sort_by("_text_match(buckets: -1)", "DESC");
-    res_op = coll1->search("mark", {"title", "description"},
-                           "", {}, sort_fields, {2, 2}, 10,
-                           1, FREQUENCY, {true, true},
+    res_op = coll1->search("mark", {"title"},
+                           "", {}, sort_fields, {2}, 10,
+                           1, FREQUENCY, {true},
                            10, spp::sparse_hash_set<std::string>(),
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                           "<mark>", "</mark>", {3, 1}, 1000, true);
+                           "<mark>", "</mark>", {3}, 1000, true);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid value passed for _text_match `buckets` configuration.", res_op.error());
 

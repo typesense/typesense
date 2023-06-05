@@ -1,6 +1,10 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository", "new_git_repository")
 
+load("//bazel:onnxruntime_cuda_defs.bzl", "cuda_home_repository")
+
+cuda_home_repository(name = "cuda_home_repo")
+
 git_repository(
     name = "com_grail_bazel_compdb",
     commit = "58672f5eecd70a2d3ed50016a3abf907701404e0",
@@ -40,7 +44,7 @@ git_repository(
 
 new_git_repository(
     name="onnx_runtime",
-    branch= "rel-1.14.0",
+    branch= "rel-1.14.1",
     build_file = "//bazel:onnxruntime.BUILD",
     remote= "https://github.com/microsoft/onnxruntime",
     patches=["//bazel:onnx.patch"],
@@ -60,6 +64,22 @@ new_git_repository(
     build_file = "//bazel:zlib.BUILD",
     remote = "https://github.com/madler/zlib.git",
     tag = "v1.2.12",
+)
+
+# new_git_repository(
+#     name = "zip",
+#     build_file = "//bazel:zip.BUILD",
+#     branch = "master",
+#     remote = "https://github.com/kuba--/zip.git",
+# )
+
+new_git_repository(
+    name = "sentencepiece",
+    build_file = "//bazel:sentencepiece.BUILD",
+    tag = "v0.1.98",
+    remote = "https://github.com/google/sentencepiece",
+    patches = ["//bazel:sentencepiece.patch"],
+    patch_args = ["-p1"]
 )
 
 git_repository(
@@ -152,14 +172,14 @@ new_git_repository(
 new_git_repository(
     name = "kakasi",
     build_file = "//bazel:kakasi.BUILD",
-    commit = "9e0825a02c7ea5605e968f6208f769f7c49d6860",
+    commit = "77f2d1ce0146d15199ae0db1e61e0b699b0b55f6",
     remote = "https://github.com/typesense/kakasi.git",
 )
 
 new_git_repository(
     name = "hnsw",
     build_file = "//bazel:hnsw.BUILD",
-    commit = "b5c2ebae31cd124e3a625f2de789a3496ebb2286",
+    commit = "573ab84a7f7645f98778cbb181ba762c5d2f19b5",
     remote = "https://github.com/typesense/hnswlib.git",
 )
 

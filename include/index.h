@@ -519,12 +519,10 @@ private:
                                    const std::string& token, uint32_t seq_id);
 
     void initialize_facet_indexes(const field& facet_field);
-
-
-
-    static Option<bool> embed_fields(nlohmann::json& document, 
-                                            const tsl::htrie_map<char, field>& embedding_fields,
-                                            const tsl::htrie_map<char, field> & search_schema);          
+     
+    static Option<bool> batch_embed_fields(std::vector<nlohmann::json*>& documents, 
+                                       const tsl::htrie_map<char, field>& embedding_fields,
+                                       const tsl::htrie_map<char, field> & search_schema);
     
 public:
     // for limiting number of results on multiple candidates / query rewrites
