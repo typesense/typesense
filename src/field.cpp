@@ -83,7 +83,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
 
         auto const& type = field_json["type"];
-        if (type != field_types::INT32 && type != field_types::INT32_ARRAY &&
+        if (field_json[fields::range_index] &&
+            type != field_types::INT32 && type != field_types::INT32_ARRAY &&
             type != field_types::INT64 && type != field_types::INT64_ARRAY &&
             type != field_types::FLOAT && type != field_types::FLOAT_ARRAY) {
             return Option<bool>(400, std::string("The `range_index` property is only allowed for the numerical fields`"));
