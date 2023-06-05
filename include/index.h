@@ -725,7 +725,7 @@ public:
                          const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
                          size_t exclude_token_ids_size, const std::unordered_set<uint32_t>& excluded_group_ids,
                          uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                         filter_result_iterator_t* const filter_result_iterator, const uint32_t& approx_filter_ids_length,
+                         filter_result_iterator_t* const filter_result_iterator,
                          const size_t concurrency,
                          const int* sort_order,
                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
