@@ -27,6 +27,7 @@ class TextEmbedder {
         std::unique_ptr<Ort::Session> session_;
         Ort::Env env_;
         encoded_input_t Encode(const std::string& text);
+        batch_encoded_input_t batch_encode(const std::vector<std::string>& inputs);
         std::unique_ptr<TextEmbeddingTokenizer> tokenizer_;
         std::unique_ptr<RemoteEmbedder> remote_embedder_;
         std::string vocab_file_name;

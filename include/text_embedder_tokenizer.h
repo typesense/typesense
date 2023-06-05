@@ -18,6 +18,11 @@ struct encoded_input_t {
     std::vector<int64_t> attention_mask;
 };
 
+struct batch_encoded_input_t {
+    std::vector<std::vector<int64_t>> input_ids;
+    std::vector<std::vector<int64_t>> token_type_ids;
+    std::vector<std::vector<int64_t>> attention_mask;
+};
 
 
 // Create a base class for all tokenizers to inherit from
