@@ -1618,7 +1618,9 @@ Option<bool> Index::_approximate_filter_ids(const filter& a_filter,
             value_index++;
         }
     } else if (f.is_geopoint()) {
-        filter_ids_length = 100;
+        // Optimistically setting a value greater than 0. Exact count would be found during initialization of
+        // filter_result_iterator.
+        filter_ids_length = 1;
     } else if (f.is_string()) {
         art_tree* t = search_index.at(a_filter.field_name);
 
@@ -2250,7 +2252,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
-                                                           approx_filter_ids_length);
+                                                               approx_filter_ids_length);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
 
     auto filter_init_op = filter_result_iterator->init_status();
@@ -2369,8 +2371,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         if (no_filters_provided) {
             filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids());
             filter_iterator_guard.reset(filter_result_iterator);
-
-            approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
         }
 
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
@@ -2483,7 +2483,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             curated_ids, curated_ids_sorted,
                             excluded_result_ids, excluded_result_ids_size, excluded_group_ids,
                             all_result_ids, all_result_ids_len,
-                            filter_result_iterator, approx_filter_ids_length, concurrency,
+                            filter_result_iterator, concurrency,
                             sort_order, field_values, geopoint_indices);
             filter_result_iterator->reset();
         }
@@ -4467,12 +4467,13 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
                             const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
                             size_t exclude_token_ids_size, const std::unordered_set<uint32_t>& excluded_group_ids,
                             uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                            filter_result_iterator_t* const filter_result_iterator, const uint32_t& approx_filter_ids_length,
+                            filter_result_iterator_t* const filter_result_iterator,
                             const size_t concurrency,
                             const int* sort_order,
                             std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                             const std::vector<size_t>& geopoint_indices) const {
 
+    auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
     uint32_t token_bits = 0;
     const bool check_for_circuit_break = (approx_filter_ids_length > 1000000);
 

@@ -2281,7 +2281,7 @@ TEST_F(CollectionSpecificMoreTest, ApproxFilterMatchCount) {
     ASSERT_TRUE(filter_op.ok());
 
     coll->_get_index()->_approximate_filter_ids(filter_tree_root->filter_exp, approx_count);
-    ASSERT_EQ(approx_count, 100);
+    ASSERT_EQ(approx_count, 1);
 
     delete filter_tree_root;
     filter_op = filter::parse_filter_query("years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
