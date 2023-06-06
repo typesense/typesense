@@ -205,6 +205,8 @@ struct index_record {
         std::unordered_map<std::string, std::vector<uint32_t>>> field_index;
     int64_t points;
 
+    std::map<std::string, std::vector<uint32_t>> facet_hashes;
+
     Option<bool> indexed;               // indicates if the indexing operation was a success
 
     DIRTY_VALUES dirty_values;
@@ -308,6 +310,10 @@ private:
 
     facet_index_t* facet_index_v4 = nullptr;
   
+     //for string and int64 facets insertions
+    uint32_t count_index;
+
+    std::unordered_map<std::string, uint32_t> count_index_map;
 
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
@@ -608,7 +614,8 @@ public:
     static void compute_token_offsets_facets(index_record& record,
                                              const tsl::htrie_map<char, field>& search_schema,
                                              const std::vector<char>& local_token_separators,
-                                             const std::vector<char>& local_symbols_to_index);
+                                             const std::vector<char>& local_symbols_to_index,
+                                             std::map<std::string, std::vector<uint32_t>>& facet_hashes);
 
     static void scrub_reindex_doc(const tsl::htrie_map<char, field>& search_schema,
                                   nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc);
@@ -674,7 +681,8 @@ public:
                                      const std::vector<char>& symbols_to_index,
                                      const bool do_validation);
 
-    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
+    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch, 
+                                std::map<std::string, std::vector<uint32_t>>& facet_hashes);
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);

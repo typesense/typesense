@@ -43,8 +43,7 @@ private:
     
     struct facet_index_counter {
         tsl::htrie_map<char, facet_index_struct> facet_index_map;
-        std::vector<count_list> counter_list;
-        bool is_migrated = false;
+        std::vector<count_list*> counter_list;
         
         facet_index_counter() {
             facet_index_map.clear();
@@ -57,7 +56,10 @@ private:
             }
     
             facet_index_map.clear();
-
+             
+            for(auto val : counter_list) {
+                delete val;
+            }
             counter_list.clear();
         }
     };
@@ -70,7 +72,8 @@ public:
 
     ~facet_index_t();
 
-    uint32_t insert(const std::string& field, const std::string& value, uint32_t id, bool is_string = false);
+    void insert(const std::string& field, const std::string& value, 
+        const std::vector<uint32_t>& ids, uint32_t index);
 
     void erase(const std::string& field);
 
