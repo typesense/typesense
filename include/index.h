@@ -520,13 +520,11 @@ private:
                                    const std::string& token, uint32_t seq_id);
 
     void initialize_facet_indexes(const field& facet_field);
-
+     
     void create_facet_hash_index(const field& facet_field);
-
-
-    static Option<bool> embed_fields(nlohmann::json& document, 
-                                            const tsl::htrie_map<char, field>& embedding_fields,
-                                            const tsl::htrie_map<char, field> & search_schema);          
+    static Option<bool> batch_embed_fields(std::vector<nlohmann::json*>& documents, 
+                                       const tsl::htrie_map<char, field>& embedding_fields,
+                                       const tsl::htrie_map<char, field> & search_schema);
     
 public:
     // for limiting number of results on multiple candidates / query rewrites
@@ -729,7 +727,7 @@ public:
                          const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
                          size_t exclude_token_ids_size, const std::unordered_set<uint32_t>& excluded_group_ids,
                          uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                         filter_result_iterator_t* const filter_result_iterator, const uint32_t& approx_filter_ids_length,
+                         filter_result_iterator_t* const filter_result_iterator,
                          const size_t concurrency,
                          const int* sort_order,
                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,

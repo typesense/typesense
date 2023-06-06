@@ -59,7 +59,6 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.set_program_name("./typesense-server");
 
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
-    options.add<std::string>("model-dir", '\0', "Directory where text embedding models will be stored.", false, "");
     options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
     options.add<std::string>("search-only-api-key", 's', "[DEPRECATED: use API key management end-point] API key that allows only searches.", false);
 
@@ -432,12 +431,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     if(!rate_limit_manager_init.ok()) {
         LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
     }
-
-    if(config.get_model_dir().size() > 0) {
-        LOG(INFO) << "Loading text embedding models from " << config.get_model_dir();
-        TextEmbedderManager::set_model_dir(config.get_model_dir());
-        TextEmbedderManager::download_default_model();
-    }
+    TextEmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
     // first we start the peering service
 

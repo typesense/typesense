@@ -411,6 +411,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                     const bool do_validation) {
 
     // runs in a partitioned thread
+    std::vector<nlohmann::json*> docs_to_embed;
 
     for(size_t i = 0; i < batch_size; i++) {
         index_record& index_rec = iter_batch[batch_start_index + i];
@@ -446,10 +447,23 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 get_doc_changes(index_rec.operation, search_schema, index_rec.doc, index_rec.old_doc,
                                 index_rec.new_doc, index_rec.del_doc);
                 scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
-                embed_fields(index_rec.new_doc, embedding_fields, search_schema);
+
+                for(auto& field: index_rec.doc.items()) {
+                    for(auto& embedding_field : embedding_fields) {
+                        if(!embedding_field.embed[fields::from].is_null()) {
+                            auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
+                            for(auto& embed_from: embed_from_vector) {
+                                if(embed_from == field.key()) {
+                                    docs_to_embed.push_back(&index_rec.new_doc);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 handle_doc_ops(search_schema, index_rec.doc, index_rec.old_doc);
-                embed_fields(index_rec.doc, embedding_fields, search_schema);
+                docs_to_embed.push_back(&index_rec.doc);
             }
 
             compute_token_offsets_facets(index_rec, search_schema, token_separators, symbols_to_index);
@@ -477,6 +491,14 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
         } catch(const std::exception &e) {
             LOG(INFO) << "Error while validating document: " << e.what();
             index_rec.index_failure(400, e.what());
+        }
+    }
+    
+    auto embed_op = batch_embed_fields(docs_to_embed, embedding_fields, search_schema);
+    if(!embed_op.ok()) {
+        for(size_t i = 0; i < batch_size; i++) {
+            index_record& index_rec = iter_batch[batch_start_index + i];
+            index_rec.index_failure(embed_op.code(), embed_op.error());
         }
     }
 }
@@ -1799,7 +1821,9 @@ Option<bool> Index::_approximate_filter_ids(const filter& a_filter,
             value_index++;
         }
     } else if (f.is_geopoint()) {
-        filter_ids_length = 100;
+        // Optimistically setting a value greater than 0. Exact count would be found during initialization of
+        // filter_result_iterator.
+        filter_ids_length = 1;
     } else if (f.is_string()) {
         art_tree* t = search_index.at(a_filter.field_name);
 
@@ -2432,7 +2456,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
-                                                           approx_filter_ids_length);
+                                                               approx_filter_ids_length);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
 
     auto filter_init_op = filter_result_iterator->init_status();
@@ -2550,8 +2574,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         if (no_filters_provided) {
             filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids());
             filter_iterator_guard.reset(filter_result_iterator);
-
-            approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
         }
 
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
@@ -2664,7 +2686,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             curated_ids, curated_ids_sorted,
                             excluded_result_ids, excluded_result_ids_size, excluded_group_ids,
                             all_result_ids, all_result_ids_len,
-                            filter_result_iterator, approx_filter_ids_length, concurrency,
+                            filter_result_iterator, concurrency,
                             sort_order, field_values, geopoint_indices);
             filter_result_iterator->reset();
         }
@@ -4667,12 +4689,14 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
                             const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
                             size_t exclude_token_ids_size, const std::unordered_set<uint32_t>& excluded_group_ids,
                             uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                            filter_result_iterator_t* const filter_result_iterator, const uint32_t& approx_filter_ids_length,
+                            filter_result_iterator_t* const filter_result_iterator,
                             const size_t concurrency,
                             const int* sort_order,
                             std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                             const std::vector<size_t>& geopoint_indices) const {
 
+    auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
+    uint32_t token_bits = 0;
     const bool check_for_circuit_break = (approx_filter_ids_length > 1000000);
 
     //auto beginF = std::chrono::high_resolution_clock::now();
@@ -6171,27 +6195,61 @@ bool Index::common_results_exist(std::vector<art_leaf*>& leaves, bool must_match
     return phrase_exists;
 }
 
-Option<bool> Index::embed_fields(nlohmann::json& document, 
-                                 const tsl::htrie_map<char, field>& embedding_fields,
-                                 const tsl::htrie_map<char, field> & search_schema) {
+
+Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents, 
+                                       const tsl::htrie_map<char, field>& embedding_fields,
+                                       const tsl::htrie_map<char, field> & search_schema) {
     for(const auto& field : embedding_fields) {
-        std::string text_to_embed = "passage: ";
-        for(const auto& field_name : field.embed_from) {
-            auto field_it = search_schema.find(field_name);
-            if(field_it.value().type == field_types::STRING) {
-                text_to_embed += document[field_name].get<std::string>() + " ";
-            } else if(field_it.value().type == field_types::STRING_ARRAY) {
-                for(const auto& val : document[field_name]) {
-                    text_to_embed += val.get<std::string>() + " ";
+        std::vector<std::pair<nlohmann::json*, std::string>> texts_to_embed;
+        auto indexing_prefix = TextEmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
+        for(auto& document : documents) {
+            std::string text = indexing_prefix;
+            auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
+            for(const auto& field_name : embed_from) {
+                auto field_it = search_schema.find(field_name);
+                if(field_it.value().type == field_types::STRING) {
+                    text += (*document)[field_name].get<std::string>() + " ";
+                } else if(field_it.value().type == field_types::STRING_ARRAY) {
+                    for(const auto& val : (*document)[field_name]) {
+                        text += val.get<std::string>() + " ";
+                    }
                 }
             }
+            texts_to_embed.push_back(std::make_pair(document, text));
         }
         TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-        auto embedder = embedder_manager.get_text_embedder(field.model_name.size() > 0 ? field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
-        std::vector<float> embedding = embedder->Embed(text_to_embed);
-        document[field.name] = embedding;
-    }
+        auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
 
+        if(!embedder_op.ok()) {
+            return Option<bool>(400, embedder_op.error());
+        }
+
+        // sort texts by length
+        std::sort(texts_to_embed.begin(), texts_to_embed.end(),
+                  [](const std::pair<nlohmann::json*, std::string>& a,
+                     const std::pair<nlohmann::json*, std::string>& b) {
+                      return a.second.size() < b.second.size();
+                  });
+        
+        // get vector of texts
+        std::vector<std::string> texts;
+        for(const auto& text_to_embed : texts_to_embed) {
+            texts.push_back(text_to_embed.second);
+        }
+
+        auto embedding_op = embedder_op.get()->batch_embed(texts);
+
+        if(!embedding_op.ok()) {
+            return Option<bool>(400, embedding_op.error());
+        }
+
+        auto embeddings = embedding_op.get();
+        for(size_t i = 0; i < embeddings.size(); i++) {
+            auto& embedding = embeddings[i];
+            auto& document = texts_to_embed[i].first;
+            (*document)[field.name] = embedding;
+        }
+    }
     return Option<bool>(true);
 }
 

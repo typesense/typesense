@@ -223,6 +223,26 @@ TEST(TokenizerTest, ShouldTokenizeChineseText) {
 }
 
 TEST(TokenizerTest, ShouldTokenizeLocaleText) {
+    std::string text = R"("王獣を倒すと入手した折れた角。追放された後、この世に存在すべきではないもの。\n獣域ウルブズの中で帝王と呼ばれていても、魔獣たちの系譜では、その兄たちの万分の一にも満たないだろう。\n「黄
+金」が無数の獣域ウルブズを捨て紙のように圧縮して偶然にできた異形の魔獣。その角には、黒いウルブズを命じて自分のために空間を溶かす権威が秘めている。")";
+
+    Tokenizer tokenizer(text, true, false, "ja", {}, {});
+
+    LOG(INFO) << "text.size: " << text.size();
+
+    std::string raw_token;
+    size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
+
+    // based on `highlight_affix_num_tokens`
+    size_t snippet_start_offset = 0, snippet_end_offset = (text.empty() ? 0 : text.size() - 1);
+
+    // window used to locate the starting offset for snippet on the text
+    while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
+        LOG(INFO) << "tok_start: " << tok_start;
+    }
+
+    return ;
+
     std::vector<std::string> tokens;
 
     tokens.clear();
@@ -282,6 +302,14 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ(2, tokens.size());
     ASSERT_EQ("た", tokens[0]);
     ASSERT_EQ("いくつ", tokens[1]);
+
+    tokens.clear();
+    Tokenizer("魈", true, false, "ja").tokenize(tokens);
+    ASSERT_EQ(0, tokens.size());
+
+    tokens.clear();
+    Tokenizer("「業果材", true, false, "ja").tokenize(tokens);
+    ASSERT_EQ(6, tokens.size());
 
     tokens.clear();
     Tokenizer("ア退屈であ", false, false, "ja").tokenize(tokens);

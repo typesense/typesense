@@ -1114,6 +1114,37 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
 
     const char *BATCH_SIZE = "batch_size";
     const char *FILTER_BY = "filter_by";
+    const char *TOP_K_BY = "top_k_by";
+
+    if(req->params.count(TOP_K_BY) != 0) {
+        std::vector<std::string> parts;
+        StringUtils::split(req->params[TOP_K_BY], parts, ":");
+
+        if(parts.size() != 2 || !StringUtils::is_uint32_t(parts[1])) {
+            req->last_chunk_aggregate = true;
+            res->final = true;
+            res->set_400("The `top_k_by` parameter is not valid.");
+            stream_response(req, res);
+            return false;
+        }
+
+        const std::string& field_name = parts[0];
+        const size_t k = std::stoull(parts[1]);
+        auto op = collection->truncate_after_top_k(field_name, k);
+
+        req->last_chunk_aggregate = true;
+        res->final = true;
+
+        if(!op.ok()) {
+            res->set_500(op.error());
+            stream_response(req, res);
+            return false;
+        }
+
+        res->set_200(R"({"ok": true})");
+        stream_response(req, res);
+        return true;
+    }
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "1000000000"; // 1 Billion

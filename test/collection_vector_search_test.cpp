@@ -683,12 +683,11 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
         "name": "coll1",
         "fields": [
             {"name": "name", "type": "string"},
-            {"name": "vec", "type": "float[]", "embed_from": ["name"]}
+            {"name": "vec", "type": "float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
         ]
     })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
@@ -782,12 +781,11 @@ TEST_F(CollectionVectorTest, EmbeddingFieldVectorIndexTest) {
                 "name": "objects",
                 "fields": [
                 {"name": "name", "type": "string"},
-                {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
                 ]
             })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());

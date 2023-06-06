@@ -105,7 +105,8 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
     synonym_reduction_internal(tokens, tokens.size(), 0, processed_syn_hashes, results);
 }
 
-Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, const synonym_t& synonym) {
+Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, const synonym_t& synonym,
+                                       bool write_to_store) {
     if(synonym_definitions.count(synonym.id) != 0) {
         // first we have to delete existing entries so we can upsert
         Option<bool> rem_op = remove_synonym(collection_name, synonym.id);
@@ -129,9 +130,11 @@ Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, cons
 
     write_lock.unlock();
 
-    bool inserted = store->insert(get_synonym_key(collection_name, synonym.id), synonym.to_view_json().dump());
-    if(!inserted) {
-        return Option<bool>(500, "Error while storing the synonym on disk.");
+    if(write_to_store) {
+        bool inserted = store->insert(get_synonym_key(collection_name, synonym.id), synonym.to_view_json().dump());
+        if(!inserted) {
+            return Option<bool>(500, "Error while storing the synonym on disk.");
+        }
     }
 
     return Option<bool>(true);
