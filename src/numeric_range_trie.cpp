@@ -98,6 +98,47 @@ void NumericTrie::search_range(const int64_t& low, const bool& low_inclusive,
     }
 }
 
+NumericTrie::iterator_t NumericTrie::search_range(const int64_t& low, const bool& low_inclusive,
+                                                  const int64_t& high, const bool& high_inclusive) {
+    std::vector<Node*> matches;
+    if (low > high) {
+        return NumericTrie::iterator_t(matches);
+    }
+
+    if (low < 0 && high >= 0) {
+        // Have to combine the results of >low from negative_trie and <high from positive_trie
+
+        if (negative_trie != nullptr && !(low == -1 && !low_inclusive)) { // No need to search for (-1, ...
+            auto abs_low = std::abs(low);
+            // Since we store absolute values, search_lesser would yield result for >low from negative_trie.
+            negative_trie->search_less_than(low_inclusive ? abs_low : abs_low - 1, max_level, matches);
+        }
+
+        if (positive_trie != nullptr && !(high == 0 && !high_inclusive)) { // No need to search for ..., 0)
+            positive_trie->search_less_than(high_inclusive ? high : high - 1, max_level, matches);
+        }
+    } else if (low >= 0) {
+        // Search only in positive_trie
+        if (positive_trie == nullptr) {
+            return NumericTrie::iterator_t(matches);
+        }
+
+        positive_trie->search_range(low_inclusive ? low : low + 1, high_inclusive ? high : high - 1, max_level, matches);
+    } else {
+        // Search only in negative_trie
+        if (negative_trie == nullptr) {
+            return NumericTrie::iterator_t(matches);
+        }
+
+        auto abs_high = std::abs(high), abs_low = std::abs(low);
+        // Since we store absolute values, switching low and high would produce the correct result.
+        negative_trie->search_range(high_inclusive ? abs_high : abs_high + 1, low_inclusive ? abs_low : abs_low - 1,
+                                    max_level, matches);
+    }
+
+    return NumericTrie::iterator_t(matches);
+}
+
 void NumericTrie::search_greater_than(const int64_t& value, const bool& inclusive, uint32_t*& ids, uint32_t& ids_length) {
     if ((value == 0 && inclusive) || (value == -1 && !inclusive)) { // [0, ∞), (-1, ∞)
         if (positive_trie != nullptr) {
@@ -165,6 +206,35 @@ void NumericTrie::search_greater_than(const int64_t& value, const bool& inclusiv
         delete [] ids;
         ids = out;
     }
+}
+
+NumericTrie::iterator_t NumericTrie::search_greater_than(const int64_t& value, const bool& inclusive) {
+    std::vector<Node*> matches;
+
+    if ((value == 0 && inclusive) || (value == -1 && !inclusive)) { // [0, ∞), (-1, ∞)
+        if (positive_trie != nullptr) {
+            matches.push_back(positive_trie);
+        }
+        return NumericTrie::iterator_t(matches);
+    }
+
+    if (value >= 0) {
+        if (positive_trie != nullptr) {
+            positive_trie->search_greater_than(inclusive ? value : value + 1, max_level, matches);
+        }
+    } else {
+        // Have to combine the results of >value from negative_trie and all the ids in positive_trie
+        if (negative_trie != nullptr) {
+            auto abs_low = std::abs(value);
+            // Since we store absolute values, search_lesser would yield result for >value from negative_trie.
+            negative_trie->search_less_than(inclusive ? abs_low : abs_low - 1, max_level, matches);
+        }
+        if (positive_trie != nullptr) {
+            matches.push_back(positive_trie);
+        }
+    }
+
+    return NumericTrie::iterator_t(matches);
 }
 
 void NumericTrie::search_less_than(const int64_t& value, const bool& inclusive, uint32_t*& ids, uint32_t& ids_length) {
@@ -237,6 +307,35 @@ void NumericTrie::search_less_than(const int64_t& value, const bool& inclusive, 
     }
 }
 
+NumericTrie::iterator_t NumericTrie::search_less_than(const int64_t& value, const bool& inclusive) {
+    std::vector<Node*> matches;
+
+    if ((value == 0 && !inclusive) || (value == -1 && inclusive)) { // (-∞, 0), (-∞, -1]
+        if (negative_trie != nullptr) {
+            matches.push_back(negative_trie);
+        }
+        return NumericTrie::iterator_t(matches);
+    }
+
+    if (value < 0) {
+        if (negative_trie != nullptr) {
+            auto abs_low = std::abs(value);
+            // Since we store absolute values, search_greater would yield result for <value from negative_trie.
+            negative_trie->search_greater_than(inclusive ? abs_low : abs_low + 1, max_level, matches);
+        }
+    } else {
+        // Have to combine the results of <value from positive_trie and all the ids in negative_trie
+        if (positive_trie != nullptr) {
+            positive_trie->search_less_than(inclusive ? value : value - 1, max_level, matches);
+        }
+        if (negative_trie != nullptr) {
+            matches.push_back(negative_trie);
+        }
+    }
+
+    return NumericTrie::iterator_t(matches);
+}
+
 void NumericTrie::search_equal_to(const int64_t& value, uint32_t*& ids, uint32_t& ids_length) {
     if ((value < 0 && negative_trie == nullptr) || (value >= 0 && positive_trie == nullptr)) {
         return;
@@ -257,6 +356,17 @@ void NumericTrie::search_equal_to(const int64_t& value, uint32_t*& ids, uint32_t
     delete [] equal_ids;
     delete [] ids;
     ids = out;
+}
+
+NumericTrie::iterator_t NumericTrie::search_equal_to(const int64_t& value) {
+    std::vector<Node*> matches;
+    if (value < 0 && negative_trie != nullptr) {
+        negative_trie->search_equal_to(std::abs(value), max_level, matches);
+    } else if (value >= 0 && positive_trie != nullptr) {
+        positive_trie->search_equal_to(value, max_level, matches);
+    }
+
+    return NumericTrie::iterator_t(matches);
 }
 
 void NumericTrie::Node::insert(const int64_t& value, const uint32_t& seq_id, const char& max_level) {
@@ -331,6 +441,11 @@ void NumericTrie::Node::search_less_than(const int64_t& value, const char& max_l
     ids = out;
 }
 
+void NumericTrie::Node::search_less_than(const int64_t& value, const char& max_level, std::vector<Node*>& matches) {
+    char level = 0;
+    search_less_than_helper(value, level, max_level, matches);
+}
+
 void NumericTrie::Node::search_less_than_helper(const int64_t& value, char& level, const char& max_level,
                                                 std::vector<Node*>& matches) {
     if (level == max_level) {
@@ -381,6 +496,15 @@ void NumericTrie::Node::search_range(const int64_t& low, const int64_t& high, co
 
     delete [] ids;
     ids = out;
+}
+
+void NumericTrie::Node::search_range(const int64_t& low, const int64_t& high, const char& max_level,
+                                     std::vector<Node*>& matches) {
+    if (low > high) {
+        return;
+    }
+
+    search_range_helper(low, high, max_level, matches);
 }
 
 void NumericTrie::Node::search_range_helper(const int64_t& low,const int64_t& high, const char& max_level,
@@ -460,6 +584,11 @@ void NumericTrie::Node::search_greater_than(const int64_t& value, const char& ma
     ids = out;
 }
 
+void NumericTrie::Node::search_greater_than(const int64_t& value, const char& max_level, std::vector<Node*>& matches) {
+    char level = 0;
+    search_greater_than_helper(value, level, max_level, matches);
+}
+
 void NumericTrie::Node::search_greater_than_helper(const int64_t& value, char& level, const char& max_level,
                                                    std::vector<Node*>& matches) {
     if (level == max_level) {
@@ -500,3 +629,100 @@ void NumericTrie::Node::search_equal_to(const int64_t& value, const char& max_le
 
     root->get_all_ids(ids, ids_length);
 }
+
+void NumericTrie::Node::search_equal_to(const int64_t& value, const char& max_level, std::vector<Node*>& matches) {
+    char level = 1;
+    Node* root = this;
+    auto index = get_index(value, level, max_level);
+
+    while (level <= max_level) {
+        if (root->children == nullptr || root->children[index] == nullptr) {
+            return;
+        }
+
+        root = root->children[index];
+        index = get_index(value, ++level, max_level);
+    }
+
+    matches.push_back(root);
+}
+
+void NumericTrie::iterator_t::reset() {
+    for (auto& match: matches) {
+        match->index = 0;
+    }
+
+    is_valid = true;
+    set_seq_id();
+}
+
+void NumericTrie::iterator_t::skip_to(uint32_t id) {
+    for (auto& match: matches) {
+        ArrayUtils::skip_index_to_id(match->index, match->ids, match->ids_length, id);
+    }
+
+    set_seq_id();
+}
+
+void NumericTrie::iterator_t::next() {
+    // Advance all the matches at seq_id.
+    for (auto& match: matches) {
+        if (match->index < match->ids_length && match->ids[match->index] == seq_id) {
+            match->index++;
+        }
+    }
+
+    set_seq_id();
+}
+
+NumericTrie::iterator_t::iterator_t(std::vector<Node*>& node_matches) {
+    for (auto const& node_match: node_matches) {
+        uint32_t* ids = nullptr;
+        uint32_t ids_length;
+        node_match->get_all_ids(ids, ids_length);
+        if (ids_length > 0) {
+            matches.emplace_back(new match_state(ids, ids_length));
+        }
+    }
+
+    set_seq_id();
+}
+
+void NumericTrie::iterator_t::set_seq_id() {
+    // Find the lowest id of all the matches and update the seq_id.
+    bool one_is_valid = false;
+    uint32_t lowest_id = UINT32_MAX;
+
+    for (auto& match: matches) {
+        if (match->index < match->ids_length) {
+            one_is_valid = true;
+
+            if (match->ids[match->index] < lowest_id) {
+                lowest_id = match->ids[match->index];
+            }
+        }
+    }
+
+    if (one_is_valid) {
+        seq_id = lowest_id;
+    }
+
+    is_valid = one_is_valid;
+}
+
+NumericTrie::iterator_t& NumericTrie::iterator_t::operator=(NumericTrie::iterator_t&& obj) noexcept {
+    if (&obj == this)
+        return *this;
+
+    for (auto& match: matches) {
+        delete match;
+    }
+    matches.clear();
+
+    matches = std::move(obj.matches);
+    seq_id = obj.seq_id;
+    is_valid = obj.is_valid;
+
+    return *this;
+}
+

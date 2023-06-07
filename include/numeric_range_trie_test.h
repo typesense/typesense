@@ -42,11 +42,19 @@ class NumericTrie {
         void search_range(const int64_t& low, const int64_t& high, const char& max_level,
                           uint32_t*& ids, uint32_t& ids_length);
 
+        void search_range(const int64_t& low, const int64_t& high, const char& max_level, std::vector<Node*>& matches);
+
         void search_less_than(const int64_t& value, const char& max_level, uint32_t*& ids, uint32_t& ids_length);
+
+        void search_less_than(const int64_t& value, const char& max_level, std::vector<Node*>& matches);
 
         void search_greater_than(const int64_t& value, const char& max_level, uint32_t*& ids, uint32_t& ids_length);
 
+        void search_greater_than(const int64_t& value, const char& max_level, std::vector<Node*>& matches);
+
         void search_equal_to(const int64_t& value, const char& max_level, uint32_t*& ids, uint32_t& ids_length);
+
+        void search_equal_to(const int64_t& value, const char& max_level, std::vector<Node*>& matches);
     };
 
     Node* negative_trie = nullptr;
@@ -63,17 +71,63 @@ public:
         delete positive_trie;
     }
 
+    class iterator_t {
+        struct match_state {
+            uint32_t* ids = nullptr;
+            uint32_t ids_length = 0;
+            uint32_t index = 0;
+
+            explicit match_state(uint32_t*& ids, uint32_t& ids_length) : ids(ids), ids_length(ids_length) {}
+
+            ~match_state() {
+                delete [] ids;
+            }
+        };
+
+        std::vector<match_state*> matches;
+
+        void set_seq_id();
+
+    public:
+
+        explicit iterator_t(std::vector<Node*>& matches);
+
+        ~iterator_t() {
+            for (auto& match: matches) {
+                delete match;
+            }
+        }
+
+        iterator_t& operator=(iterator_t&& obj) noexcept;
+
+        uint32_t seq_id = 0;
+        bool is_valid = true;
+
+        void next();
+        void skip_to(uint32_t id);
+        void reset();
+    };
+
     void insert(const int64_t& value, const uint32_t& seq_id);
 
     void search_range(const int64_t& low, const bool& low_inclusive,
                       const int64_t& high, const bool& high_inclusive,
                       uint32_t*& ids, uint32_t& ids_length);
 
+    iterator_t search_range(const int64_t& low, const bool& low_inclusive,
+                            const int64_t& high, const bool& high_inclusive);
+
     void search_less_than(const int64_t& value, const bool& inclusive,
                           uint32_t*& ids, uint32_t& ids_length);
+
+    iterator_t search_less_than(const int64_t& value, const bool& inclusive);
 
     void search_greater_than(const int64_t& value, const bool& inclusive,
                              uint32_t*& ids, uint32_t& ids_length);
 
+    iterator_t search_greater_than(const int64_t& value, const bool& inclusive);
+
     void search_equal_to(const int64_t& value, uint32_t*& ids, uint32_t& ids_length);
+
+    iterator_t search_equal_to(const int64_t& value);
 };

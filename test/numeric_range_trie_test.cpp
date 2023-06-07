@@ -436,6 +436,71 @@ TEST_F(NumericRangeTrieTest, SearchEqualTo) {
     ASSERT_EQ(0, ids_length);
 }
 
+TEST_F(NumericRangeTrieTest, IterateSearchEqualTo) {
+    auto trie = new NumericTrie();
+    std::unique_ptr<NumericTrie> trie_guard(trie);
+    std::vector<std::pair<int32_t, uint32_t>> pairs = {
+            {-8192, 8},
+            {-16384, 32},
+            {-24576, 35},
+            {-32769, 41},
+            {-32768, 43},
+            {-32767, 45},
+            {8192, 49},
+            {16384, 56},
+            {24576, 58},
+            {24576, 60},
+            {32768, 91}
+    };
+
+    for (auto const& pair: pairs) {
+        trie->insert(pair.first, pair.second);
+    }
+
+    uint32_t* ids = nullptr;
+    uint32_t ids_length = 0;
+
+    auto iterator = trie->search_equal_to(0);
+    ASSERT_EQ(false, iterator.is_valid);
+
+    iterator = trie->search_equal_to(0x202020);
+    ASSERT_EQ(false, iterator.is_valid);
+
+    iterator = trie->search_equal_to(-32768);
+    ASSERT_EQ(true, iterator.is_valid);
+    ASSERT_EQ(43, iterator.seq_id);
+
+    iterator.next();
+    ASSERT_EQ(false, iterator.is_valid);
+
+    iterator = trie->search_equal_to(24576);
+    ASSERT_EQ(true, iterator.is_valid);
+    ASSERT_EQ(58, iterator.seq_id);
+
+    iterator.next();
+    ASSERT_EQ(true, iterator.is_valid);
+    ASSERT_EQ(60, iterator.seq_id);
+
+    iterator.next();
+    ASSERT_EQ(false, iterator.is_valid);
+
+
+    iterator.reset();
+    ASSERT_EQ(true, iterator.is_valid);
+    ASSERT_EQ(58, iterator.seq_id);
+
+    iterator.skip_to(4);
+    ASSERT_EQ(true, iterator.is_valid);
+    ASSERT_EQ(58, iterator.seq_id);
+
+    iterator.skip_to(59);
+    ASSERT_EQ(true, iterator.is_valid);
+    ASSERT_EQ(60, iterator.seq_id);
+
+    iterator.skip_to(66);
+    ASSERT_EQ(false, iterator.is_valid);
+}
+
 TEST_F(NumericRangeTrieTest, MultivalueData) {
     auto trie = new NumericTrie();
     std::unique_ptr<NumericTrie> trie_guard(trie);
