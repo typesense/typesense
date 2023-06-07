@@ -114,6 +114,33 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnSingleField) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, TypoCorrectionShouldUseMaxCandidates) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    for(size_t i = 0; i < 20; i++) {
+        nlohmann::json doc;
+        doc["title"] = "Independent" + std::to_string(i);
+        doc["points"] = i;
+        coll1->add(doc.dump());
+    }
+
+    size_t max_candidates = 20;
+    auto results = coll1->search("independent", {"title"}, "", {}, {}, {2}, 30, 1, FREQUENCY, {false}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000*1000, 4, 7,
+                                 off, max_candidates).get();
+
+    ASSERT_EQ(20, results["hits"].size());
+}
+
 TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnMultiField) {
     Collection *coll1;
     std::vector<field> fields = {field("location", field_types::STRING, false),
