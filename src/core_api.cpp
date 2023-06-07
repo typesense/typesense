@@ -774,7 +774,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         }
     }
 
-    res->content_type_header = "application/octet-stream";
+    res->content_type_header = "text/plain; charset=utf8";
     res->status_code = 200;
 
     stream_response(req, res);
