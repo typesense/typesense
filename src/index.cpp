@@ -328,7 +328,7 @@ void Index::compute_token_offsets_facets(index_record& record,
                                 offsets);
                 std::string val = document[field_name];
                 if(!val.empty()) {
-                    facet_hashes[val].push_back(record.seq_id);
+                    facet_hashes[val].emplace_back(record.seq_id);
                 }
             } else {
                 tokenize_string_array(document[field_name], is_facet, the_field,
@@ -603,9 +603,12 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
             found_fields.insert(kv.key());
         }
 
-        for(const auto& kv : index_rec.facet_hashes) {
-            std::copy(kv.second.begin(), kv.second.end(), 
-                std::back_inserter(facet_hashes[kv.first]));
+        for(auto& kv : index_rec.facet_hashes) {
+            auto end = facet_hashes[kv.first].end();
+
+            facet_hashes[kv.first].insert(end, std::make_move_iterator(kv.second.begin()),
+                                                std::make_move_iterator(kv.second.end()));            
+            kv.second.clear();
         }
     }
 
@@ -758,7 +761,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 continue;
             }
             
-            std::string value;
+            std::string value="";
             uint32_t fhash = 0;
 
             if(afield.facet) {
@@ -771,19 +774,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         } else if(afield.type == field_types::INT64_ARRAY) {
                             int64_t raw_val = document[afield.name][i].get<int64_t>();
                             value = std::to_string(raw_val);
-                            auto it = count_index_map.find(value);
-                            if(it == count_index_map.end()) {
-                                count_index_map.emplace(value, ++count_index);
-                            }
-                            fhash = count_index_map.at(value); 
+                            fhash = facet_index_v4->insert(afield.name, value, facet_hashes[value]);
                         } else if(afield.type == field_types::STRING_ARRAY) {
                             value = document[afield.name][i];
-                            auto it = count_index_map.find(value);
-                            if(it == count_index_map.end()) {
-                                count_index_map.emplace(value, ++count_index);
-                            }
-                            fhash = count_index_map.at(value); 
-                            facet_index_v4->insert(afield.name, value, facet_hashes[value], fhash);
+                            fhash = facet_index_v4->insert(afield.name, value, facet_hashes[value], true);
                         } else if(afield.type == field_types::FLOAT_ARRAY) {
                             float raw_val = document[afield.name][i].get<float>();
                             fhash = reinterpret_cast<uint32_t&>(raw_val);
@@ -797,9 +791,11 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         }
                     }
 
-                    if(facet_index && facet_threshold_count > FACET_INDEX_THRESHOLD) {
-                        facet_index->upsert(seq_id, std::move(fhashvalues));
-                        fhashvalues.clear();
+                    if(facet_index!=nullptr) {
+                        if (facet_threshold_count > FACET_INDEX_THRESHOLD) {
+                            facet_index->upsert(seq_id, std::move(fhashvalues));
+                            fhashvalues.clear();
+                        }
                     } else {
                         LOG(ERROR) << "facet_index was null while inserting for facet " << afield.name;
                     }
@@ -813,20 +809,11 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     else if(afield.type == field_types::INT64) {
                         int64_t raw_val = document[afield.name].get<int64_t>();
                         value = std::to_string(raw_val);
-                        auto it = count_index_map.find(value);
-                        if(it == count_index_map.end()) {
-                            count_index_map.emplace(value, ++count_index);
-                        }
-                        fhash = count_index_map.at(value); 
+                        fhash = facet_index_v4->insert(afield.name, value, facet_hashes[value]);
                     }
                     else if(afield.type == field_types::STRING) {
                         value = document[afield.name];
-                        auto it = count_index_map.find(value);
-                        if(it == count_index_map.end()) {
-                            count_index_map.emplace(value, ++count_index);
-                        }
-                        fhash = count_index_map.at(value); 
-                        facet_index_v4->insert(afield.name, value, facet_hashes[value], fhash);
+                        fhash = facet_index_v4->insert(afield.name, value, facet_hashes[value], true);
                     }
                     else if(afield.type == field_types::FLOAT) {
                         float raw_val = document[afield.name].get<float>();
@@ -837,8 +824,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         fhash = (uint32_t)raw_val;
                     }
                     
-                    if(facet_index && facet_threshold_count > FACET_INDEX_THRESHOLD) {
-                        facet_index->upsert(seq_id, {fhash});
+                    if(facet_index!=nullptr) {
+                        if (facet_threshold_count > FACET_INDEX_THRESHOLD) {
+                            facet_index->upsert(seq_id, {fhash});
+                        } 
                     } else {
                         LOG(ERROR) << "facet_index was null while inserting for facet " << afield.name;
                     }
@@ -1213,7 +1202,7 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings, bool 
 }
 void Index::initialize_facet_indexes(const field& facet_field) {
     
-    if(facet_field.is_string()) {
+    if(facet_field.is_string() || facet_field.is_int64()) {
         facet_index_v4->initialize(facet_field.name);
     }
     

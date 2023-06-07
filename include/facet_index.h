@@ -32,10 +32,12 @@ private:
     struct facet_index_struct {
         void* id_list_ptr;
         uint32_t index;
+        uint32_t count_list_index;
 
         facet_index_struct() {
             id_list_ptr = nullptr;
             index = UINT32_MAX;
+            count_list_index = UINT32_MAX;
         }
 
         ~facet_index_struct() {};
@@ -72,8 +74,8 @@ public:
 
     ~facet_index_t();
 
-    void insert(const std::string& field, const std::string& value, 
-        const std::vector<uint32_t>& ids, uint32_t index);
+    uint32_t insert(const std::string& field, const std::string& value, 
+        const std::vector<uint32_t>& ids, bool is_string=false);
 
     void erase(const std::string& field);
 

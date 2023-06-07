@@ -310,11 +310,6 @@ private:
 
     facet_index_t* facet_index_v4 = nullptr;
   
-     //for string and int64 facets insertions
-    uint32_t count_index;
-
-    std::unordered_map<std::string, uint32_t> count_index_map;
-
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
     typedef spp::sparse_hash_map<std::string, 
