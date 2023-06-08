@@ -1384,7 +1384,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
-    size_t total_found = 0;
+    size_t total_found = 0, total_groups_found = 0;
 
     std::vector<uint32_t> excluded_ids;
     std::vector<std::pair<uint32_t, uint32_t>> included_ids; // ID -> position
@@ -1557,10 +1557,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
-        total_found = search_params->groups_processed.size() + override_result_kvs.size();
-    } else {
-        total_found = search_params->all_result_ids_len;
-    }
+        total_groups_found = search_params->groups_processed.size() + override_result_kvs.size();
+    } 
+    
+    total_found = search_params->all_result_ids_len;
 
     if(search_cutoff && total_found == 0) {
         // this can happen if other requests stopped this request from being processed
@@ -1683,6 +1683,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     }
 
     nlohmann::json result = nlohmann::json::object();
+    if(group_limit != 0) {
+        result["found_groups"] = total_groups_found;
+    }
     result["found"] = total_found;
 
     if(exclude_fields.count("out_of") == 0) {
