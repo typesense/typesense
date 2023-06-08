@@ -69,8 +69,8 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
                                    "", 10,
                                    {}, {}, {"size"}, 2).get();
 
-    ASSERT_EQ(12, res["found"].get<size_t>());
-    ASSERT_EQ(3, res["found_groups"].get<size_t>());
+    ASSERT_EQ(12, res["found_docs"].get<size_t>());
+    ASSERT_EQ(3, res["found"].get<size_t>());
     ASSERT_EQ(3, res["grouped_hits"].size());
     ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
 
@@ -117,8 +117,8 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
                              {}, {}, {"rating"}, 2).get();
 
     // 7 unique ratings
-    ASSERT_EQ(12, res["found"].get<size_t>());
-    ASSERT_EQ(7, res["found_groups"].get<size_t>());
+    ASSERT_EQ(12, res["found_docs"].get<size_t>());
+    ASSERT_EQ(7, res["found"].get<size_t>());
     ASSERT_EQ(7, res["grouped_hits"].size());
     ASSERT_FLOAT_EQ(4.4, res["grouped_hits"][0]["group_key"][0].get<float>());
 
@@ -169,8 +169,8 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                   "", 10,
                                   {}, {}, {"size", "brand"}, 2).get();
-    ASSERT_EQ(12, res["found"].get<size_t>());
-    ASSERT_EQ(10, res["found_groups"].get<size_t>());
+    ASSERT_EQ(12, res["found_docs"].get<size_t>());
+    ASSERT_EQ(10, res["found"].get<size_t>());
     ASSERT_EQ(10, res["grouped_hits"].size());
 
     ASSERT_EQ(1, res["grouped_hits"][0]["found"].get<int32_t>());
@@ -229,8 +229,8 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
     ASSERT_STREQ("0", res["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     // total count and facet counts should be the same
-    ASSERT_EQ(12, res["found"].get<size_t>());
-    ASSERT_EQ(10, res["found_groups"].get<size_t>());
+    ASSERT_EQ(12, res["found_docs"].get<size_t>());
+    ASSERT_EQ(10, res["found"].get<size_t>());
     ASSERT_EQ(2, res["grouped_hits"].size());
     ASSERT_EQ(10, res["grouped_hits"][0]["group_key"][0].get<size_t>());
     ASSERT_STREQ("Omega", res["grouped_hits"][0]["group_key"][1].get<std::string>().c_str());
@@ -316,8 +316,8 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
                                  "", 10,
                                  {}, {}, {"genre"}, 2).get();
 
-    ASSERT_EQ(7, results["found"].get<size_t>());
-    ASSERT_EQ(3, results["found_groups"].get<size_t>());
+    ASSERT_EQ(7, results["found_docs"].get<size_t>());
+    ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["grouped_hits"].size());
 
     ASSERT_EQ(3, results["grouped_hits"][0]["found"].get<int32_t>());
@@ -349,8 +349,8 @@ TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
                                   "", 10,
                                   {}, {}, {"brand"}, 1).get();
 
-    ASSERT_EQ(12, res["found"].get<size_t>());
-    ASSERT_EQ(5, res["found_groups"].get<size_t>());
+    ASSERT_EQ(12, res["found_docs"].get<size_t>());
+    ASSERT_EQ(5, res["found"].get<size_t>());
     ASSERT_EQ(5, res["grouped_hits"].size());
 
     // all hits array must be of size 1
@@ -435,8 +435,8 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
                                   "", 10,
                                   {}, {}, {"colors"}, 2).get();
 
-    ASSERT_EQ(9, res["found"].get<size_t>());
-    ASSERT_EQ(4, res["found_groups"].get<size_t>());
+    ASSERT_EQ(9, res["found_docs"].get<size_t>());
+    ASSERT_EQ(4, res["found"].get<size_t>());
     ASSERT_EQ(4, res["grouped_hits"].size());
 
     ASSERT_EQ(1, res["grouped_hits"][0]["group_key"][0].size());
@@ -617,8 +617,8 @@ TEST_F(CollectionGroupingTest, SortingOnGroupCount) {
                                    "", 10,
                                    {}, {}, {"size"}, 2).get();
 
-    ASSERT_EQ(12, res["found"].get<size_t>());
-    ASSERT_EQ(3, res["found_groups"].get<size_t>());
+    ASSERT_EQ(12, res["found_docs"].get<size_t>());
+    ASSERT_EQ(3, res["found"].get<size_t>());
     ASSERT_EQ(3, res["grouped_hits"].size());
 
     ASSERT_EQ(10, res["grouped_hits"][0]["group_key"][0].get<size_t>());
@@ -642,8 +642,8 @@ TEST_F(CollectionGroupingTest, SortingOnGroupCount) {
                                    "", 10,
                                    {}, {}, {"size"}, 2).get();
 
-    ASSERT_EQ(12, res2["found"].get<size_t>());
-    ASSERT_EQ(3, res2["found_groups"].get<size_t>());
+    ASSERT_EQ(12, res2["found_docs"].get<size_t>());
+    ASSERT_EQ(3, res2["found"].get<size_t>());
     ASSERT_EQ(3, res2["grouped_hits"].size());
 
     ASSERT_EQ(11, res2["grouped_hits"][0]["group_key"][0].get<size_t>());
@@ -723,8 +723,8 @@ TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
                                    "", 10,
                                    {}, {}, {"size"}, 2).get();
 
-    ASSERT_EQ(1000, res["found"].get<size_t>());
-    ASSERT_EQ(300, res["found_groups"].get<size_t>());
+    ASSERT_EQ(1000, res["found_docs"].get<size_t>());
+    ASSERT_EQ(300, res["found"].get<size_t>());
     ASSERT_EQ(100, res["grouped_hits"].size());
 
     ASSERT_EQ(4, res["grouped_hits"][4]["found"].get<int32_t>());
@@ -743,8 +743,8 @@ TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
                                    "", 10,
                                    {}, {}, {"size"}, 2).get();
 
-    ASSERT_EQ(1000, res["found"].get<size_t>());
-    ASSERT_EQ(300, res["found_groups"].get<size_t>());
+    ASSERT_EQ(1000, res["found_docs"].get<size_t>());
+    ASSERT_EQ(300, res["found"].get<size_t>());
     ASSERT_EQ(100, res["grouped_hits"].size());
 
     ASSERT_EQ(3, res["grouped_hits"][4]["found"].get<int32_t>());
@@ -767,8 +767,8 @@ TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
                                    "", 10,
                                    {}, {}, {"size"}, 2).get();
 
-    ASSERT_EQ(1000, res2["found"].get<size_t>());
-    ASSERT_EQ(300, res2["found_groups"].get<size_t>());
+    ASSERT_EQ(1000, res2["found_docs"].get<size_t>());
+    ASSERT_EQ(300, res2["found"].get<size_t>());
     ASSERT_EQ(100, res2["grouped_hits"].size());
 
     ASSERT_EQ(2, res2["grouped_hits"][0]["found"].get<int32_t>());
@@ -786,8 +786,8 @@ TEST_F(CollectionGroupingTest, SortingMoreThanMaxTopsterSize) {
                                    "", 10,
                                    {}, {}, {"size"}, 2).get();
 
-    ASSERT_EQ(1000, res2["found"].get<size_t>());
-    ASSERT_EQ(300, res2["found_groups"].get<size_t>());
+    ASSERT_EQ(1000, res2["found_docs"].get<size_t>());
+    ASSERT_EQ(300, res2["found"].get<size_t>());
     ASSERT_EQ(100, res2["grouped_hits"].size());
 
     ASSERT_EQ(3, res2["grouped_hits"][0]["found"].get<int32_t>());
