@@ -1384,7 +1384,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
-    size_t total_found = 0;
+    size_t total = 0;
 
     std::vector<uint32_t> excluded_ids;
     std::vector<std::pair<uint32_t, uint32_t>> included_ids; // ID -> position
@@ -1557,12 +1557,13 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
-        total_found = search_params->groups_processed.size() + override_result_kvs.size();
+        total = search_params->groups_processed.size() + override_result_kvs.size();
     } else {
-        total_found = search_params->all_result_ids_len;
+        total = search_params->all_result_ids_len;
     }
+    
 
-    if(search_cutoff && total_found == 0) {
+    if(search_cutoff && total == 0) {
         // this can happen if other requests stopped this request from being processed
         // we should return an error so that request can be retried by client
         return Option<nlohmann::json>(408, "Request Timeout");
@@ -1683,7 +1684,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     }
 
     nlohmann::json result = nlohmann::json::object();
-    result["found"] = total_found;
+    result["found"] = total;
+    if(group_limit != 0) {
+        result["found_docs"] = search_params->all_result_ids_len;
+    }
 
     if(exclude_fields.count("out_of") == 0) {
         result["out_of"] = num_documents.load();
