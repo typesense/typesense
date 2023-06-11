@@ -418,7 +418,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                     const bool do_validation) {
 
     // runs in a partitioned thread
-    std::vector<nlohmann::json*> docs_to_embed;
+    //std::vector<nlohmann::json*> docs_to_embed;
 
     for(size_t i = 0; i < batch_size; i++) {
         index_record& index_rec = iter_batch[batch_start_index + i];
@@ -455,22 +455,22 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                 index_rec.new_doc, index_rec.del_doc);
                 scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
 
-                for(auto& field: index_rec.doc.items()) {
-                    for(auto& embedding_field : embedding_fields) {
-                        if(!embedding_field.embed[fields::from].is_null()) {
-                            auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
-                            for(auto& embed_from: embed_from_vector) {
-                                if(embed_from == field.key()) {
-                                    docs_to_embed.push_back(&index_rec.new_doc);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
+            //     for(auto& field: index_rec.doc.items()) {
+            //         for(auto& embedding_field : embedding_fields) {
+            //             if(!embedding_field.embed[fields::from].is_null()) {
+            //                 auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
+            //                 for(auto& embed_from: embed_from_vector) {
+            //                     if(embed_from == field.key()) {
+            //                         docs_to_embed.push_back(&index_rec.new_doc);
+            //                         break;
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //     }
+            // } else {
                 handle_doc_ops(search_schema, index_rec.doc, index_rec.old_doc);
-                docs_to_embed.push_back(&index_rec.doc);
+                // docs_to_embed.push_back(&index_rec.doc);
             }
 
             compute_token_offsets_facets(index_rec, search_schema, token_separators, symbols_to_index);
@@ -495,19 +495,24 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
 
             index_rec.points = points;
             index_rec.index_success();
+
+            if(!index_rec.embed_fields_op.ok()) {
+                index_rec.index_failure(index_rec.embed_fields_op.code(), index_rec.embed_fields_op.error());
+            }
+
         } catch(const std::exception &e) {
             LOG(INFO) << "Error while validating document: " << e.what();
             index_rec.index_failure(400, e.what());
         }
     }
     
-    auto embed_op = batch_embed_fields(docs_to_embed, embedding_fields, search_schema);
-    if(!embed_op.ok()) {
-        for(size_t i = 0; i < batch_size; i++) {
-            index_record& index_rec = iter_batch[batch_start_index + i];
-            index_rec.index_failure(embed_op.code(), embed_op.error());
-        }
-    }
+    // auto embed_op = batch_embed_fields(docs_to_embed, embedding_fields, search_schema);
+    // if(!embed_op.ok()) {
+    //     for(size_t i = 0; i < batch_size; i++) {
+    //         index_record& index_rec = iter_batch[batch_start_index + i];
+    //         index_rec.index_failure(embed_op.code(), embed_op.error());
+    //     }
+    // }
 }
 
 size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_batch,

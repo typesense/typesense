@@ -219,6 +219,18 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         return write_to_leader(request, response);
     }
 
+
+    embed_fields(request);
+    
+
+
+    // const std::string collection_name = req_json["params"]["collection_name"].get<std::string>();
+    // auto collection = CollectionManager::get_instance().get_collection(collection_name).get();
+    // if(collection) {
+    //     auto search_schema = collection->get_schema();
+    //     auto embedding_fields = search_schema->get_embedding_fields();
+    // }
+
     // Serialize request to replicated WAL so that all the nodes in the group receive it as well.
     // NOTE: actual write must be done only on the `on_apply` method to maintain consistency.
 
@@ -1027,4 +1039,491 @@ void OnDemandSnapshotClosure::Run() {
 
     // wait for response to be sent
     res->wait();
+}
+
+void ReplicationState::embed_fields(const std::shared_ptr<http_req>& request) {
+    nlohmann::json req_json;
+    try{
+        req_json = nlohmann::json::parse(request->to_json());
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Error parsing request JSON: " << e.what();
+        return;
+    }
+
+    auto collection = CollectionManager::get_instance().get_collection(request->params["collection"]);
+    if(collection == nullptr) {
+        LOG(ERROR) << "Collection " << request->params["collection"] << " not found.";
+        return;
+    }
+
+    if(collection->get_embedding_fields().empty()) {
+        return;
+    }
+    
+    
+    route_path* rpath = nullptr;
+    // get route by hash
+    bool found = server->get_route(request->route_hash, &rpath);
+    if(!found) {
+        return;
+    }
+    const char* ACTION = "action";
+    const char* DIRTY_VALUES = "dirty_values";
+
+    if(request->params.count(DIRTY_VALUES) == 0) {
+        request->params[DIRTY_VALUES] = "";
+    }
+
+    const auto& dirty_values = collection->parse_dirty_values_option(request->params[DIRTY_VALUES]);
+    bool is_action_update = request->params.count(ACTION) && request->params[ACTION] == "update";
+
+    if(request->params.count(ACTION) == 0) {
+        request->params[ACTION] = "create";
+    }
+
+    if(rpath->handler == patch_update_document || (rpath->handler == post_add_document && is_action_update)) {
+        nlohmann::json doc;
+        auto seq_id_op = collection->to_doc(request->body, doc, index_operation_t::UPDATE, dirty_values, request->params["id"]);
+        if(!seq_id_op.ok()) {
+            LOG(ERROR) << "Error parsing request JSON: " << seq_id_op.error();
+            return;
+        }
+
+        auto embedding_fields = collection->get_embedding_fields();
+        auto validate_op = validator_t::validate_embed_fields(doc, embedding_fields, collection->get_schema(), false);
+        if(!validate_op.ok()) {
+            LOG(ERROR) << "Error validating embed fields: " << validate_op.error();
+            return;
+        }
+
+
+        nlohmann::json old_doc, full_doc, del_doc;
+        collection->get_document_from_store(collection->get_seq_id_key(seq_id_op.get().seq_id), old_doc);
+        Index::get_doc_changes(index_operation_t::UPDATE, collection->get_schema(), doc, old_doc, full_doc, del_doc);
+
+
+        bool embeddings_changed = false;
+        // check if any of the fields being updated are embedding fields
+        for(auto& field: doc.items()) {
+            for(auto& embedding_field : embedding_fields) {
+                LOG(INFO) << "embedding_field: " << embedding_field.name;
+                if(!embedding_field.embed[fields::from].is_null()) {
+                    auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
+                    for(auto& embed_from: embed_from_vector) {
+                        if(embed_from == field.key()) {
+                            embeddings_changed = true;
+                            std::vector<nlohmann::json*> docs_ptr = {&full_doc};
+                            auto embed_res = Index::batch_embed_fields(docs_ptr, embedding_fields, collection->get_schema());
+                            if(!embed_res.ok()) {
+                                request->embed_fields_response = Option<bool>(embed_res.code(), embed_res.error());
+                                return;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if(!embeddings_changed) {
+            return;
+        }
+
+        for(auto& item : full_doc.items()) {
+            if(embedding_fields.find(item.key()) != embedding_fields.end()) {
+                doc[item.key()] = item.value();
+            }
+        }
+    
+        request->body = doc.dump();
+
+
+    } else if(rpath->handler == post_add_document) {
+        nlohmann::json doc;
+        const index_operation_t op = get_index_operation(request->params[ACTION]);
+        auto seq_id_op = collection->to_doc(request->body, doc, op, dirty_values, "");
+        if(!seq_id_op.ok()) {
+            return;
+        }
+        auto validate_op = validator_t::validate_embed_fields(doc, collection->get_embedding_fields(), collection->get_schema(), true);
+        if(!validate_op.ok()) {
+            return;
+        }
+        std::vector<nlohmann::json*> docs_ptr = {&doc};
+        auto embed_res = Index::batch_embed_fields(docs_ptr, collection->get_embedding_fields(), collection->get_schema());
+        if(!embed_res.ok()) {
+            request->embed_fields_response = Option<bool>(embed_res.code(), embed_res.error());
+            return;
+        }
+        request->body = doc.dump();
+    } else if(rpath->handler == post_import_documents && is_action_update) {
+
+        const index_operation_t op = get_index_operation(request->params[ACTION]);
+
+        std::vector<std::string> json_lines;
+        static std::string partial_doc;
+        std::string next_partial_doc;
+        StringUtils::split(request->body, json_lines, "\n", false, false);
+        if(json_lines.empty()) {
+            return;
+        }
+        // check if request->body had complete last record
+        bool complete_document;
+
+        try {
+            nlohmann::json document = nlohmann::json::parse(json_lines.back());
+            complete_document = document.is_object();
+        } catch(const std::exception& e) {
+            complete_document = false;
+        }
+
+        if(!complete_document) {
+            next_partial_doc = json_lines.back();
+            json_lines.pop_back();
+        }
+
+        if(json_lines.empty()) {
+            return;
+        }
+        
+        std::vector<std::pair<std::string, size_t>> failed_docs;
+        std::vector<nlohmann::json> docs, full_docs;
+        std::vector<nlohmann::json*> docs_ptr;
+        size_t i = 0;
+        for(auto& json_line : json_lines) {
+            nlohmann::json doc;
+            std::string line = json_line;
+            if(!partial_doc.empty()) {
+                line = partial_doc + line;
+                partial_doc.clear();
+            }
+            auto seq_id_op = collection->to_doc(line, doc, op, dirty_values, "");
+            if(!seq_id_op.ok()) {
+                failed_docs.push_back(std::make_pair(line, i));
+                i++;
+                continue;
+            }
+            auto validate_op = validator_t::validate_embed_fields(doc, collection->get_embedding_fields(), collection->get_schema(), false);
+            if(!validate_op.ok()) {
+                failed_docs.push_back(std::make_pair(line, i));
+                i++;
+                continue;
+            }
+
+            // check if any of the fields to be embedded are updated in this doc
+            bool embeddings_changed = false;
+            for(auto& field: doc.items()) {
+                for(auto& embedding_field : collection->get_embedding_fields()) {
+                    if(!embedding_field.embed[fields::from].is_null()) {
+                        auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
+                        for(auto& embed_from: embed_from_vector) {
+                            if(embed_from == field.key()) {
+                                embeddings_changed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if(!embeddings_changed) {
+                LOG(INFO) << "Skipping embedding for doc: " << line;
+                failed_docs.push_back(std::make_pair(line, i));
+                i++;
+                continue;
+            }
+            
+            nlohmann::json old_doc;
+
+            collection->get_document_from_store(collection->get_seq_id_key(seq_id_op.get().seq_id), old_doc);
+            nlohmann::json full_doc, del_doc;
+            Index::get_doc_changes(index_operation_t::UPDATE, collection->get_schema(), doc, old_doc, full_doc, del_doc);
+
+
+            full_docs.push_back(full_doc);
+            docs.push_back(doc);
+            docs_ptr.push_back(&full_docs.back());
+            i++;
+        }
+
+        // call batch_embed_fields 1000 docs at a time
+        for(size_t i = 0; i < docs_ptr.size(); i += 1000) {
+            // move 1000 docs to a new vector
+            auto  batch_vec = std::vector<nlohmann::json*>(docs_ptr.begin() + i, docs_ptr.begin() + std::min(i + 1000, docs_ptr.size()));
+            auto embed_res = Index::batch_embed_fields(batch_vec, collection->get_embedding_fields(), collection->get_schema());
+            if(!embed_res.ok()) {
+                request->embed_fields_response = Option<bool>(embed_res.code(), embed_res.error());
+                return;
+            }
+        }
+
+        for(int i = 0; i < full_docs.size(); i++) {
+            for(auto& item : full_docs[i].items()) {
+                if(collection->get_embedding_fields().find(item.key()) != collection->get_embedding_fields().end()) {
+                    docs[i][item.key()] = item.value();
+                }
+            }
+        }
+
+        std::vector<std::string> docs_str;
+        for(auto& doc : docs) {
+            docs_str.push_back(doc.dump());
+        }
+
+        for(auto& failed_doc : failed_docs) {
+            docs_str.insert(docs_str.begin() + failed_doc.second, failed_doc.first);
+        }
+
+        partial_doc = next_partial_doc;
+
+        if(request->last_chunk_aggregate) {
+            // add the partial doc to the end of the last chunk
+            docs_str.push_back(partial_doc);
+            partial_doc.clear();
+        }
+
+        std::string body_str;
+        for(auto& doc_str : docs_str) {
+            body_str += doc_str + "\n";
+        }
+
+        // remove the last newline
+        body_str.pop_back();
+        request->body = body_str;
+
+    } else if(rpath->handler == post_import_documents) {
+
+        const index_operation_t op = get_index_operation(request->params[ACTION]);
+
+        std::vector<std::string> json_lines;
+        static std::string partial_doc;
+        std::string next_partial_doc;
+        StringUtils::split(request->body, json_lines, "\n", false, false);
+        if(!json_lines.empty()) {
+            // check if request->body had complete last record
+            bool complete_document;
+
+            try {
+                nlohmann::json document = nlohmann::json::parse(json_lines.back());
+                complete_document = document.is_object();
+            } catch(const std::exception& e) {
+                complete_document = false;
+            }
+
+            if(!complete_document) {
+                next_partial_doc = json_lines.back();
+                json_lines.pop_back();
+            }
+
+            if(json_lines.empty()) {
+                return;
+            }
+
+            
+            std::vector<std::pair<std::string, size_t>> failed_docs;
+            std::vector<nlohmann::json> docs;
+            std::vector<nlohmann::json*> docs_ptr;
+            size_t i = 0;
+            for(auto& json_line : json_lines) {
+                nlohmann::json doc;
+                std::string line = json_line;
+                if(!partial_doc.empty()) {
+                    line = partial_doc + line;
+                    partial_doc.clear();
+                }
+                auto seq_id_op = collection->to_doc(line, doc, op, dirty_values, "");
+                if(!seq_id_op.ok()) {
+                    failed_docs.push_back(std::make_pair(line, i));
+                    i++;
+                    continue;
+                }
+                auto validate_op = validator_t::validate_embed_fields(doc, collection->get_embedding_fields(), collection->get_schema(), true);
+                if(!validate_op.ok()) {
+                    failed_docs.push_back(std::make_pair(line, i));
+                    i++;
+                    continue;
+                }
+                docs.emplace_back(std::move(doc));
+                i++;
+            }
+
+            for(auto& doc : docs) {
+                docs_ptr.push_back(&doc);
+            }
+
+            // call batch_embed_fields 1000 docs at a time
+            for(size_t i = 0; i < docs_ptr.size(); i += 1000) {
+                // move 1000 docs to a new vector
+                auto  batch_vec = std::vector<nlohmann::json*>(docs_ptr.begin() + i, docs_ptr.begin() + std::min(i + 1000, docs_ptr.size()));
+                auto embed_res = Index::batch_embed_fields(batch_vec, collection->get_embedding_fields(), collection->get_schema());
+                if(!embed_res.ok()) {
+                    request->embed_fields_response = Option<bool>(embed_res.code(), embed_res.error());
+                    return;
+                }
+            }
+
+            std::vector<std::string> docs_str;
+            for(auto& doc : docs) {
+                docs_str.push_back(doc.dump());
+            }
+
+            for(auto& failed_doc : failed_docs) {
+                docs_str.insert(docs_str.begin() + failed_doc.second, failed_doc.first);
+            }
+
+            partial_doc = next_partial_doc;
+
+            std::string body_str;
+            for(auto& doc_str : docs_str) {
+                body_str += doc_str + "\n";
+            }
+
+            // remove the last newline
+            body_str.pop_back();
+            request->body = body_str;
+        }
+    } else if(rpath->handler == patch_update_documents) {
+        if(request->params.count("filter_by") == 0) {
+            return;
+        }
+
+        nlohmann::json update_doc;
+        try {
+            update_doc = nlohmann::json::parse(request->body);
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "Error parsing request body: " << e.what();
+            return;
+        }
+
+        // check if any of the fields to be embedded are updated in this update_doc
+        bool embeddings_changed = false;
+        for(auto& field: update_doc.items()) {
+            for(auto& embedding_field : collection->get_embedding_fields()) {
+                if(!embedding_field.embed[fields::from].is_null()) {
+                    auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
+                    for(auto& embed_from: embed_from_vector) {
+                        if(embed_from == field.key()) {
+                            embeddings_changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if(!embeddings_changed) {
+            return;
+        }
+
+        std::vector<nlohmann::json>  full_docs;
+
+        auto filter_by = request->params["filter_by"];
+
+        if (filter_by == "*") {
+            // Get an iterator from rocksdb and iterate over all the documents present in the collection.
+            std::string iter_upper_bound_key = collection->get_seq_id_collection_prefix() + "`";
+            auto iter_upper_bound = new rocksdb::Slice(iter_upper_bound_key);
+            CollectionManager & collectionManager = CollectionManager::get_instance();
+            const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+            rocksdb::Iterator* it = collectionManager.get_store()->scan(seq_id_prefix, iter_upper_bound);
+
+            while(it->Valid()) {
+                // Generate a batch of documents to be ingested by add_many.
+                auto json_doc_str = it->value().ToString();
+                it->Next();
+                nlohmann::json existing_document;
+                try {
+                    existing_document = nlohmann::json::parse(json_doc_str);
+                } catch(...) {
+                    continue; // Don't add into buffer.
+                }
+
+                update_doc["id"] = existing_document["id"].get<std::string>();
+                nlohmann::json full_doc, del_doc;
+                Index::get_doc_changes(index_operation_t::UPDATE, collection->get_schema(), update_doc, existing_document, full_doc, del_doc);
+                auto validate_res = validator_t::validate_embed_fields(full_doc, collection->get_embedding_fields(), collection->get_schema(), false);
+
+                if(!validate_res.ok()) {
+                    continue;
+                }
+
+                full_docs.push_back(full_doc);
+            }
+            delete iter_upper_bound;
+            delete it;
+        } else {
+            filter_result_t filter_result;
+            auto filter_ids_op = collection->get_filter_ids(filter_by, filter_result);
+            if(!filter_ids_op.ok()) {
+                return;
+            }
+
+            for (size_t i = 0; i < filter_result.count;) {
+                uint32_t seq_id = filter_result.docs[i++];
+                nlohmann::json existing_document;
+
+                auto get_doc_op = collection->get_document_from_store(collection->get_seq_id_key(seq_id), existing_document);
+                if (!get_doc_op.ok()) {
+                    continue;
+                }
+
+                update_doc["id"] = existing_document["id"].get<std::string>();
+                nlohmann::json full_doc, del_doc;
+                Index::get_doc_changes(index_operation_t::UPDATE, collection->get_schema(), update_doc, existing_document, full_doc, del_doc);
+                for(auto& item : full_doc.items()) {
+                    LOG(INFO) << item.key();
+                }
+                auto validate_res = validator_t::validate_embed_fields(full_doc, collection->get_embedding_fields(), collection->get_schema(), false);
+
+                if(!validate_res.ok()) {
+                    continue;
+                }
+                
+                full_docs.push_back(full_doc);
+            }
+        }
+
+        std::vector<nlohmann::json*> docs_ptr;
+
+        for(auto& full_doc : full_docs) {
+            docs_ptr.push_back(&full_doc);
+        }
+
+        auto embed_res = Index::batch_embed_fields(docs_ptr, collection->get_embedding_fields(), collection->get_schema());
+
+        if(!embed_res.ok()) {
+            request->embed_fields_response = Option<bool>(embed_res.code(), embed_res.error());
+            return;
+        }
+
+        // drop all fields except id and embedding fields from every full_doc
+        for(auto& full_doc : full_docs) {
+            for(auto& item : full_doc.items()) {
+                if(collection->get_embedding_fields().find(item.key()) == collection->get_embedding_fields().end() && item.key() != "id") {
+                    full_doc.erase(item.key());
+                }
+            }
+        }
+
+        std::string leader_url = get_leader_url();
+        const std::string& base_url = leader_url + "collections/" + request->params["collection"] + "/documents/import?action=update";
+
+        std::vector<std::string> docs_str;
+        for(auto& doc : full_docs) {
+            docs_str.push_back(doc.dump());
+        }
+
+
+        std::string import_body = StringUtils::join(docs_str, "\n");
+        import_body.pop_back(); // remove the last newline
+        std::map<std::string, std::string> res_headers;
+        std::string res;
+        auto status_code = HttpClient::post_response(base_url, import_body, res, res_headers, {}, 4000, true);
+        if(status_code != 200) {
+            LOG(ERROR) << "Error while importing documents: " << res;
+            request->embed_fields_response = Option<bool>(status_code, res);
+        } else {
+            request->embed_fields_response = Option<bool>(true);
+        }
+    }
 }

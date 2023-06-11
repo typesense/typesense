@@ -209,13 +209,14 @@ struct index_record {
     int64_t points;
 
     Option<bool> indexed;               // indicates if the indexing operation was a success
+    Option<bool> embed_fields_op;       // indicates if the embed_fields operation was a success
 
     DIRTY_VALUES dirty_values;
 
     index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc, index_operation_t operation,
                  const DIRTY_VALUES& dirty_values):
             position(record_pos), seq_id(seq_id), doc(doc), operation(operation), is_update(false),
-            indexed(false), dirty_values(dirty_values) {
+            indexed(false), dirty_values(dirty_values), embed_fields_op(false) {
 
     }
 
@@ -528,9 +529,7 @@ private:
     static void handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
                                nlohmann::json& update_doc, const nlohmann::json& old_doc);
 
-    static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
-                                nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
-                                nlohmann::json &del_doc);
+
 
     bool common_results_exist(std::vector<art_leaf*>& leaves, bool must_match_phrase) const;
 
@@ -539,9 +538,6 @@ private:
 
     void initialize_facet_indexes(const field& facet_field);
      
-    static Option<bool> batch_embed_fields(std::vector<nlohmann::json*>& documents, 
-                                       const tsl::htrie_map<char, field>& embedding_fields,
-                                       const tsl::htrie_map<char, field> & search_schema);
     
 public:
     // for limiting number of results on multiple candidates / query rewrites
@@ -635,6 +631,9 @@ public:
                                       const std::string& locale,
                                       const std::vector<char>& symbols_to_index,
                                       const std::vector<char>& token_separators);
+    static void get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
+                            nlohmann::json &update_doc, const nlohmann::json &old_doc, nlohmann::json &new_doc,
+                            nlohmann::json &del_doc);
 
     // Public operations
 
@@ -957,6 +956,9 @@ public:
 
     Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                        std::vector<uint32_t>& outside_seq_ids);
+    static Option<bool> batch_embed_fields(std::vector<nlohmann::json*>& documents, 
+                                           const tsl::htrie_map<char, field>& embedding_fields,
+                                           const tsl::htrie_map<char, field> & search_schema);
 };
 
 template<class T>

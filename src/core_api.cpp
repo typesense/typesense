@@ -900,6 +900,9 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         }
     }
 
+    LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req->body_index: " << req->body_index;
+    LOG(INFO) << "req body: " << req->body;
+
     //LOG(INFO) << "json_lines.size after: " << json_lines.size() << ", stream_proceed: " << stream_proceed;
     //LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req->res_state: " << req->res_state;
 
@@ -918,7 +921,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         const bool& return_doc = req->params[RETURN_DOC] == "true";
         const bool& return_id = req->params[RETURN_ID] == "true";
         nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
-                                                       dirty_values, return_doc, return_id);
+                                                       dirty_values, return_doc, return_id, req->embed_fields_response);
         //const std::string& import_summary_json = json_res->dump();
         //response_stream << import_summary_json << "\n";
 
@@ -973,7 +976,7 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
     const index_operation_t operation = get_index_operation(req->params[ACTION]);
     const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES_PARAM]);
 
-    Option<nlohmann::json> inserted_doc_op = collection->add(req->body, operation, "", dirty_values);
+    Option<nlohmann::json> inserted_doc_op = collection->add(req->body, operation, "", dirty_values, req->embed_fields_response);
 
     if(!inserted_doc_op.ok()) {
         res->set(inserted_doc_op.code(), inserted_doc_op.error());
@@ -1002,7 +1005,7 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
     }
 
     const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES_PARAM]);
-    Option<nlohmann::json> upserted_doc_op = collection->add(req->body, index_operation_t::UPDATE, doc_id, dirty_values);
+    Option<nlohmann::json> upserted_doc_op = collection->add(req->body, index_operation_t::UPDATE, doc_id, dirty_values, req->embed_fields_response);
 
     if(!upserted_doc_op.ok()) {
         res->set(upserted_doc_op.code(), upserted_doc_op.error());

@@ -292,6 +292,8 @@ private:
         LOG(INFO) << "Node stops following " << ctx;
     }
 
+    void embed_fields(const std::shared_ptr<http_req>& request);
+
     void write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
 
     void do_dummy_write();

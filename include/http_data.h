@@ -12,6 +12,7 @@
 #include "logger.h"
 #include "app_metrics.h"
 #include "tsconfig.h"
+#include "option.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -248,10 +249,12 @@ struct http_req {
     std::atomic<bool> is_diposed;
     std::string client_ip = "0.0.0.0";
 
+    Option<bool> embed_fields_response;
+
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
                 chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0),
-                is_diposed(false) {
+                is_diposed(false), embed_fields_response(false) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -267,7 +270,7 @@ struct http_req {
             params(params), embedded_params_vec(embedded_params_vec), api_auth_key(api_auth_key),
             first_chunk_aggregate(true), last_chunk_aggregate(false),
             chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
-            log_index(0), is_diposed(false), client_ip(client_ip) {
+            log_index(0), is_diposed(false), client_ip(client_ip), embed_fields_response(false) {
 
         if(_req != nullptr) {
             const auto& tv = _req->processed_at.at;

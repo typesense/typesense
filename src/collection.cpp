@@ -271,10 +271,10 @@ nlohmann::json Collection::get_summary_json() const {
 
 Option<nlohmann::json> Collection::add(const std::string & json_str,
                                        const index_operation_t& operation, const std::string& id,
-                                       const DIRTY_VALUES& dirty_values) {
+                                       const DIRTY_VALUES& dirty_values, const Option<bool> embed_fields_res) {
     nlohmann::json document;
     std::vector<std::string> json_lines = {json_str};
-    const nlohmann::json& res = add_many(json_lines, document, operation, id, dirty_values, false, false);
+    const nlohmann::json& res = add_many(json_lines, document, operation, id, dirty_values, false, false, embed_fields_res);
 
     if(!res["success"].get<bool>()) {
         nlohmann::json res_doc;
@@ -294,7 +294,7 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
 
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                                     const index_operation_t& operation, const std::string& id,
-                                    const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id) {
+                                    const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id, const Option<bool> embed_fields_res) {
     //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
     std::vector<index_record> index_records;
 
@@ -377,6 +377,8 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 }
             }
         }
+
+        record.embed_fields_op = embed_fields_res;
 
         index_records.emplace_back(std::move(record));
 

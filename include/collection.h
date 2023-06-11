@@ -140,7 +140,6 @@ private:
 
     std::string get_doc_id_key(const std::string & doc_id) const;
 
-    std::string get_seq_id_key(uint32_t seq_id) const;
 
     void highlight_result(const std::string& h_obj,
                           const field &search_field,
@@ -401,12 +400,12 @@ public:
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
-                               const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT);
+                               const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT, const Option<bool> embed_fields_res = Option<bool>(true));
 
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                             const index_operation_t& operation=CREATE, const std::string& id="",
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
-                            const bool& return_doc=false, const bool& return_id=false);
+                            const bool& return_doc=false, const bool& return_id=false, const Option<bool> embed_fields_res = Option<bool>(true));
 
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
@@ -557,6 +556,8 @@ public:
                                  std::vector<std::string>& reordered_search_fields) const;
 
     Option<bool> truncate_after_top_k(const std::string& field_name, size_t k);
+
+    std::string get_seq_id_key(uint32_t seq_id) const;
 };
 
 template<class T>

@@ -3,6 +3,7 @@
 #include "http_server.h"
 #include "auth_manager.h"
 #include "ratelimit_manager.h"
+#include "validator.h"
 
 bool handle_authentication(std::map<std::string, std::string>& req_params,
                            std::vector<nlohmann::json>& embedded_params_vec,
@@ -167,3 +168,5 @@ bool is_doc_del_route(uint64_t route_hash);
 Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata);
 
 void init_api(uint32_t cache_num_entries);
+
+index_operation_t get_index_operation(const std::string& action);
