@@ -900,9 +900,6 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         }
     }
 
-    LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req->body_index: " << req->body_index;
-    LOG(INFO) << "req body: " << req->body;
-
     //LOG(INFO) << "json_lines.size after: " << json_lines.size() << ", stream_proceed: " << stream_proceed;
     //LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req->res_state: " << req->res_state;
 
