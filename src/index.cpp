@@ -187,23 +187,11 @@ Index::~Index() {
 
     str_sort_index.clear();
 
-    for(auto& field_name_facet_map_array: facet_index_v3) {
-       for(auto& facet_map: field_name_facet_map_array.second) {
-           delete facet_map;
-           facet_map = nullptr;
-       }
+    for(const auto& facet_hash_index_it : facet_hash_index) {
+        delete facet_hash_index_it.second;
     }
+    facet_hash_index.clear();
 
-    facet_index_v3.clear();
-
-    for(auto& field_name_facet_map_array: single_val_facet_index_v3) {
-       for(auto& facet_map: field_name_facet_map_array.second) {
-           delete facet_map;
-           facet_map = nullptr;
-       }
-    }
-
-    single_val_facet_index_v3.clear();
     delete facet_index_v4;
     
     delete seq_ids;
@@ -258,7 +246,8 @@ float Index::int64_t_to_float(int64_t n) {
 void Index::compute_token_offsets_facets(index_record& record,
                                          const tsl::htrie_map<char, field>& search_schema,
                                          const std::vector<char>& local_token_separators,
-                                         const std::vector<char>& local_symbols_to_index) {
+                                         const std::vector<char>& local_symbols_to_index,
+                                         std::map<std::string, std::vector<uint32_t>>& facet_hashes) {
 
     const auto& document = record.doc;
 
@@ -279,19 +268,27 @@ void Index::compute_token_offsets_facets(index_record& record,
 
                 if(the_field.type == field_types::INT32_ARRAY) {
                     for(int32_t value: document[field_name]){
-                        strings.push_back(std::to_string(value));
+                        auto str = std::to_string(value);
+                        facet_hashes[str].emplace_back(record.seq_id);
+                        strings.emplace_back(std::move(str));
                     }
                 } else if(the_field.type == field_types::INT64_ARRAY) {
                     for(int64_t value: document[field_name]){
-                        strings.push_back(std::to_string(value));
+                        auto str = std::to_string(value);
+                        facet_hashes[str].emplace_back(record.seq_id);
+                        strings.emplace_back(std::move(str));
                     }
                 } else if(the_field.type == field_types::FLOAT_ARRAY) {
                     for(float value: document[field_name]){
-                        strings.push_back(StringUtils::float_to_str(value));
+                        auto str = StringUtils::float_to_str(value);
+                        facet_hashes[str].emplace_back(record.seq_id);
+                        strings.emplace_back(std::move(str));
                     }
                 } else if(the_field.type == field_types::BOOL_ARRAY) {
                     for(bool value: document[field_name]){
-                        strings.push_back(std::to_string(value));
+                        auto str = std::to_string(value);
+                        facet_hashes[str].emplace_back(record.seq_id);
+                        strings.emplace_back(std::move(str));
                     }
                 }
 
@@ -302,15 +299,21 @@ void Index::compute_token_offsets_facets(index_record& record,
                 std::string text;
 
                 if(the_field.type == field_types::INT32) {
-                    text = std::to_string(document[field_name].get<int32_t>());
+                    auto val = document[field_name].get<int32_t>();
+                    text = std::to_string(val);
                 } else if(the_field.type == field_types::INT64) {
-                    text = std::to_string(document[field_name].get<int64_t>());
+                    auto val = document[field_name].get<int64_t>();
+                    text = std::to_string(val);
                 } else if(the_field.type == field_types::FLOAT) {
-                    text = StringUtils::float_to_str(document[field_name].get<float>());
+                    auto val = document[field_name].get<float>();
+                    text = StringUtils::float_to_str(val);
                 } else if(the_field.type == field_types::BOOL) {
-                    text = std::to_string(document[field_name].get<bool>());
+                    auto val = document[field_name].get<bool>();
+                    text = std::to_string(val);
                 }
 
+                facet_hashes[text].emplace_back(record.seq_id);
+                
                 tokenize_string(text, is_facet, the_field,
                                 local_symbols_to_index, local_token_separators,
                                 offsets);
@@ -323,10 +326,20 @@ void Index::compute_token_offsets_facets(index_record& record,
                 tokenize_string(document[field_name], is_facet, the_field,
                                 local_symbols_to_index, local_token_separators,
                                 offsets);
+                std::string val = document[field_name];
+                if(!val.empty()) {
+                    facet_hashes[val].emplace_back(record.seq_id);
+                }
             } else {
                 tokenize_string_array(document[field_name], is_facet, the_field,
                                       local_symbols_to_index, local_token_separators,
                                       offsets);
+                
+                for(std::string val : document[field_name]) {
+                    if(!val.empty()) {
+                        facet_hashes[val].emplace_back(record.seq_id);
+                    }
+                }
             }
         }
 
@@ -423,9 +436,11 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                     const bool do_validation) {
 
     // runs in a partitioned thread
+    std::vector<nlohmann::json*> docs_to_embed;
 
     for(size_t i = 0; i < batch_size; i++) {
         index_record& index_rec = iter_batch[batch_start_index + i];
+        auto& facet_hashes = index_rec.facet_hashes;
 
         try {
             if(!index_rec.indexed.ok()) {
@@ -458,13 +473,26 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 get_doc_changes(index_rec.operation, search_schema, index_rec.doc, index_rec.old_doc,
                                 index_rec.new_doc, index_rec.del_doc);
                 scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
-                embed_fields(index_rec.new_doc, embedding_fields, search_schema);
+
+                for(auto& field: index_rec.doc.items()) {
+                    for(auto& embedding_field : embedding_fields) {
+                        if(!embedding_field.embed[fields::from].is_null()) {
+                            auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
+                            for(auto& embed_from: embed_from_vector) {
+                                if(embed_from == field.key()) {
+                                    docs_to_embed.push_back(&index_rec.new_doc);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 handle_doc_ops(search_schema, index_rec.doc, index_rec.old_doc);
-                embed_fields(index_rec.doc, embedding_fields, search_schema);
+                docs_to_embed.push_back(&index_rec.doc);
             }
 
-            compute_token_offsets_facets(index_rec, search_schema, token_separators, symbols_to_index);
+            compute_token_offsets_facets(index_rec, search_schema, token_separators, symbols_to_index, facet_hashes);
 
             int64_t points = 0;
 
@@ -489,6 +517,14 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
         } catch(const std::exception &e) {
             LOG(INFO) << "Error while validating document: " << e.what();
             index_rec.index_failure(400, e.what());
+        }
+    }
+    
+    auto embed_op = batch_embed_fields(docs_to_embed, embedding_fields, search_schema);
+    if(!embed_op.ok()) {
+        for(size_t i = 0; i < batch_size; i++) {
+            index_record& index_rec = iter_batch[batch_start_index + i];
+            index_rec.index_failure(embed_op.code(), embed_op.error());
         }
     }
 }
@@ -534,6 +570,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
+
             cv_process.notify_one();
         });
 
@@ -546,6 +583,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
     }
 
     std::unordered_set<std::string> found_fields;
+    std::map<std::string, std::vector<uint32_t>> facet_hashes;
 
     for(size_t i = 0; i < iter_batch.size(); i++) {
         auto& index_rec = iter_batch[i];
@@ -563,6 +601,14 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
 
         for(const auto& kv: index_rec.doc.items()) {
             found_fields.insert(kv.key());
+        }
+
+        for(auto& kv : index_rec.facet_hashes) {
+            auto end = facet_hashes[kv.first].end();
+
+            facet_hashes[kv.first].insert(end, std::make_move_iterator(kv.second.begin()),
+                                                std::make_move_iterator(kv.second.end()));            
+            kv.second.clear();
         }
     }
 
@@ -582,7 +628,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
             const field& f = (field_name == "id") ?
                              field("id", field_types::STRING, false) : search_schema.at(field_name);
             try {
-                index->index_field_in_memory(f, iter_batch);
+                index->index_field_in_memory(f, iter_batch, facet_hashes);
             } catch(std::exception& e) {
                 LOG(ERROR) << "Unhandled Typesense error: " << e.what();
                 for(auto& record: iter_batch) {
@@ -607,62 +653,30 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
 void Index::create_facet_hash_index(const field& facet_field) {
 
     //LOG(INFO) << "migrating facet " << field << " to old index";
-    if(facet_field.is_array()) {
-        auto& facet_index = facet_index_v3[facet_field.name];
+    std::map<uint32_t, std::vector<uint32_t>> seqid_index_map;
+    auto facet_index = facet_hash_index[facet_field.name];
 
-        facet_index_v4->get_facet_indexes(facet_field.name, [&] (uint32_t seq_id, uint32_t count_index) {
-
-            auto& facet_dim_index = facet_index[seq_id % ARRAY_FACET_DIM];
-            if(facet_dim_index == nullptr) {
-                LOG(ERROR) << "Error, facet index not initialized for field " << facet_field.name;
-            } else {
-                facet_dim_index->operator[](seq_id).hashes.emplace_back(count_index);
-            }
-        });
-
-        auto numerical_index_it = numerical_index.find(facet_field.name);
-        if(numerical_index_it != numerical_index_it) {
-            auto num_tree = numerical_index_it->second;
-            num_tree->get_facet_indexes([&] (uint32_t seq_id, uint32_t count_index) {
-
-                auto& facet_dim_index = facet_index[seq_id % ARRAY_FACET_DIM];
-                if(facet_dim_index == nullptr) {
-                    LOG(ERROR) << "Error, facet index not initialized for field " << facet_field.name;
-                } else {
-                   facet_dim_index->operator[](seq_id).hashes.emplace_back(count_index);
-                }
-            });
-        }
-    } else {
-        auto& single_facet_index = single_val_facet_index_v3[facet_field.name];
-
-        facet_index_v4->get_facet_indexes(facet_field.name, [&] (uint32_t seq_id, uint32_t count_index) {
-
-            auto& facet_dim_index = single_facet_index[seq_id % ARRAY_FACET_DIM];
-            if(facet_dim_index == nullptr) {
-                LOG(ERROR) << "Error, facet index not initialized for field " << facet_field.name;
-            } else {
-                facet_dim_index->operator[](seq_id) = count_index;
-            }
-        });
-
-        auto numerical_index_it = numerical_index.find(facet_field.name);
-        if(numerical_index_it != numerical_index_it) {
-            auto num_tree = numerical_index_it->second;
-            num_tree->get_facet_indexes([&] (uint32_t seq_id, uint32_t count_index) {
-
-                auto& facet_dim_index = single_facet_index[seq_id % ARRAY_FACET_DIM];
-                if(facet_dim_index == nullptr) {
-                    LOG(ERROR) << "Error, facet index not initialized for field " << facet_field.name;
-                } else {
-                    facet_dim_index->operator[](seq_id) = count_index;
-                }
-            });
+    if(facet_index_v4->get_facet_indexes(facet_field.name, seqid_index_map)) {
+        for(const auto& kv : seqid_index_map) {
+            facet_index->upsert(kv.first, std::move(kv.second));
         }
     }
+
+    seqid_index_map.clear();
+
+    auto numerical_index_it = numerical_index.find(facet_field.name);
+    if(numerical_index_it != numerical_index_it) {
+       auto num_tree = numerical_index_it->second;
+       if(num_tree->get_facet_indexes(seqid_index_map)) {    
+            for(const auto& kv : seqid_index_map) {
+                facet_index->upsert(kv.first, std::move(kv.second));
+            }
+       }
+   }
 }
 
-void Index::index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch) {
+void Index::index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch,
+                                    std::map<std::string, std::vector<uint32_t>>& facet_hashes) {
     // indexes a given field of all documents in the batch
 
     if(afield.name == "id") {
@@ -697,42 +711,37 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
 
         auto facet_threshold_count = 0;
-        bool is_migrated = false;
         if(afield.is_string()) {
             facet_threshold_count = facet_index_v4->get_facet_count(afield.name);
-            is_migrated = facet_index_v4->get_migrated(afield.name);
         } else {
             auto numerical_index_it = numerical_index.find(afield.name);
             if(numerical_index_it != numerical_index.end()) {
                 facet_threshold_count = numerical_index_it->second->counter_list_size();
-                is_migrated = numerical_index_it->second->get_migrated();
             }
         }
 
 #ifdef TEST_BUILD
         facet_threshold_count = FACET_INDEX_THRESHOLD + 1;
-        is_migrated = true;
 #endif
         const auto total_num_docs = aggragate_docs_count.load();
-        if(!is_migrated && (facet_threshold_count > FACET_INDEX_THRESHOLD)
+        bool facet_hash_index_exist = facet_hash_index.find(afield.name) != facet_hash_index.end();
+        
+        if(!facet_hash_index_exist && (facet_threshold_count > FACET_INDEX_THRESHOLD)
             && total_num_docs < 1000000) {
             create_facet_hash_index(afield);
 
-            if(afield.is_string()) {
-                facet_index_v4->set_migrated(afield.name, true);
-            } else {
-                auto numerical_index_it = numerical_index.find(afield.name);
-                if(numerical_index_it != numerical_index.end()) {
-                    numerical_index_it->second->set_migrated(true);
-                }
-            }
-
             auto cardinality_ratio = total_num_docs / facet_threshold_count;
             if(cardinality_ratio < 5) {
+                //drop the field
                 facet_index_v4->erase(afield.name);
-                facet_index_v4->set_dropped(afield.name);
             }
         }
+
+        posting_list_t* facet_index = nullptr;
+        auto facet_index_it = facet_hash_index.find(afield.name);
+        if(facet_index_it != facet_hash_index.end()) {
+            facet_index = facet_index_it->second;
+        } 
 
         for(const auto& record: iter_batch) {
             if(!record.indexed.ok()) {
@@ -752,12 +761,12 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 continue;
             }
             
-            std::string value;
+            std::string value="";
             uint32_t fhash = 0;
 
             if(afield.facet) {
                 if(afield.is_array()) {
-                    facet_hash_values_t fhashvalues;
+                    std::vector<uint32_t> fhashvalues;
                     for(size_t i = 0; i < document[afield.name].size(); ++i) {
                         if(afield.type == field_types::INT32_ARRAY) {
                             int32_t raw_val = document[afield.name][i].get<int32_t>();
@@ -765,10 +774,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         } else if(afield.type == field_types::INT64_ARRAY) {
                             int64_t raw_val = document[afield.name][i].get<int64_t>();
                             value = std::to_string(raw_val);
-                            fhash = facet_index_v4->insert(afield.name, value, seq_id);
+                            fhash = facet_index_v4->insert(afield.name, value, facet_hashes[value]);
                         } else if(afield.type == field_types::STRING_ARRAY) {
                             value = document[afield.name][i];
-                            fhash = facet_index_v4->insert(afield.name, value, seq_id, true);
+                            fhash = facet_index_v4->insert(afield.name, value, facet_hashes[value], true);
                         } else if(afield.type == field_types::FLOAT_ARRAY) {
                             float raw_val = document[afield.name][i].get<float>();
                             fhash = reinterpret_cast<uint32_t&>(raw_val);
@@ -778,19 +787,17 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         }
 
                         if(facet_threshold_count > FACET_INDEX_THRESHOLD) {
-                            fhashvalues.hashes.emplace_back(fhash);
+                            fhashvalues.emplace_back(fhash);
                         }
                     }
 
-                    if(facet_threshold_count > FACET_INDEX_THRESHOLD) {
-                        fhashvalues.length = fhashvalues.hashes.size();
-
-                        auto& facet_dim_index = facet_index_v3[afield.name][seq_id % ARRAY_FACET_DIM];
-                        if(facet_dim_index == nullptr) {
-                            LOG(ERROR) << "Error, facet index not initialized for field " << afield.name;
-                        } else {
-                            facet_dim_index->emplace(seq_id, std::move(fhashvalues));
+                    if(facet_index!=nullptr) {
+                        if (facet_threshold_count > FACET_INDEX_THRESHOLD) {
+                            facet_index->upsert(seq_id, std::move(fhashvalues));
+                            fhashvalues.clear();
                         }
+                    } else {
+                        LOG(ERROR) << "facet_index was null while inserting for facet " << afield.name;
                     }
                 } else {
                    uint32_t fhash;
@@ -802,11 +809,11 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     else if(afield.type == field_types::INT64) {
                         int64_t raw_val = document[afield.name].get<int64_t>();
                         value = std::to_string(raw_val);
-                        fhash = facet_index_v4->insert(afield.name, value, seq_id);
+                        fhash = facet_index_v4->insert(afield.name, value, facet_hashes[value]);
                     }
                     else if(afield.type == field_types::STRING) {
                         value = document[afield.name];
-                        fhash = facet_index_v4->insert(afield.name, value, seq_id, true);
+                        fhash = facet_index_v4->insert(afield.name, value, facet_hashes[value], true);
                     }
                     else if(afield.type == field_types::FLOAT) {
                         float raw_val = document[afield.name].get<float>();
@@ -817,15 +824,14 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         fhash = (uint32_t)raw_val;
                     }
                     
-                    if(facet_threshold_count > FACET_INDEX_THRESHOLD) {
-
-                        auto& facet_dim_index = single_val_facet_index_v3[afield.name][seq_id % ARRAY_FACET_DIM];
-                        if(facet_dim_index == nullptr) {
-                            LOG(ERROR) << "Error, facet index not initialized for field " << afield.name;
-                        } else {
-                            facet_dim_index->emplace(seq_id, std::move(fhash));
-                        }
+                    if(facet_index!=nullptr) {
+                        if (facet_threshold_count > FACET_INDEX_THRESHOLD) {
+                            facet_index->upsert(seq_id, {fhash});
+                        } 
+                    } else {
+                        LOG(ERROR) << "facet_index was null while inserting for facet " << afield.name;
                     }
+
                 }
             }
 
@@ -1195,18 +1201,14 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings, bool 
     }
 }
 void Index::initialize_facet_indexes(const field& facet_field) {
-    if(facet_field.is_array()) {
-        array_mapped_facet_t facet_array;
-        for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
-            facet_array[i] = new facet_map_t();
-        }
-        facet_index_v3.emplace(facet_field.name, facet_array);
-    } else {
-        array_mapped_single_val_facet_t facet_array;
-        for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
-            facet_array[i] = new single_val_facet_map_t();
-        }
-        single_val_facet_index_v3.emplace(facet_field.name, facet_array);
+    
+    if(facet_field.is_string() || facet_field.is_int64()) {
+        facet_index_v4->initialize(facet_field.name);
+    }
+    
+    //LOG(INFO) << "emplacing facet " << facet_field.name;
+    if(facet_hash_index.find(facet_field.name) == facet_hash_index.end()) {
+        facet_hash_index.emplace(facet_field.name, new posting_list_t(256));
     }
 }
 
@@ -1337,12 +1339,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         use_facet_intersection = false;
         use_hashes = false;
 #endif
-        const auto& field_facet_mapping_it = facet_index_v3.find(a_facet.field_name);
-        const auto& field_single_val_facet_mapping_it = single_val_facet_index_v3.find(a_facet.field_name);
-        
+        const auto& facet_hash_index_it = facet_hash_index.find(a_facet.field_name);
+
         bool is_wildcard_no_filter_query = is_wildcard_query && no_filters_provided;
-        bool facet_hash_index_exists = ((field_facet_mapping_it != facet_index_v3.end()) 
-                    || (field_single_val_facet_mapping_it != single_val_facet_index_v3.end()));
+        bool facet_hash_index_exists = facet_hash_index_it != facet_hash_index.end();
 
         if(results_size && num_facet_values && ((!facet_hash_index_exists || is_wildcard_no_filter_query 
             || num_facet_values > 50000) && group_limit == 0) && !use_hashes || use_facet_intersection) {
@@ -1419,16 +1419,17 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         } else {
             facet_map_t::iterator facet_map_it;
             single_val_facet_map_t::iterator single_facet_map_it;
-            uint32_t fhash = 0;
-            size_t facet_hash_count = 1;
 
-            if((field_facet_mapping_it == facet_index_v3.end()) 
-                && (field_single_val_facet_mapping_it == single_val_facet_index_v3.end())) {
+            if(!facet_hash_index_exists) {
                     continue;
             }
 
             auto sort_index_it = sort_index.find(a_facet.field_name);
             const auto facet_field_is_array = facet_field.is_array();
+
+            const auto& facet_index = facet_hash_index_it->second;
+            std::vector<uint32_t> facet_hashes;
+            posting_list_t::iterator_t facet_index_it = facet_index->new_iterator();
 
             for(size_t i = 0; i < results_size; i++) {
                 // if sampling is enabled, we will skip a portion of the results to speed up things
@@ -1439,64 +1440,58 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
 
                 uint32_t doc_seq_id = result_ids[i];
-                if(facet_field_is_array) {
-                    const auto& field_facet_mapping = field_facet_mapping_it->second;
-                    facet_map_it = field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->find(doc_seq_id);
+                if(!facet_index->contains(doc_seq_id)) {
+                    continue;
+                }
 
-                    if(facet_map_it == field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->end()) {
-                        continue;
+                facet_index_it.skip_to(doc_seq_id);
+
+                if(facet_index_it.valid()) {
+                    facet_hashes.clear();
+                    posting_list_t::get_offsets(facet_index_it, facet_hashes);
+
+                    const uint64_t distinct_id = group_limit ? get_distinct_id(group_by_fields, doc_seq_id) : 0;
+                    //LOG(INFO) << "facet_hash_count " << facet_hash_count;
+                    if(((i + 1) % 16384) == 0) {
+                        RETURN_CIRCUIT_BREAKER
                     }
-                    facet_hash_count = facet_map_it->second.size();
+    
+                    for(size_t j = 0; j < facet_hashes.size(); j++) {
+                        
+                        const auto& fhash = facet_hashes[j];
+                        
+                        if(should_compute_stats) {
+                            compute_facet_stats(a_facet, fhash, facet_field.type);
+                        }
+    
+                        std::string fhash_str = std::to_string(fhash);
+                        if(a_facet.is_range_query) {
+                            int64_t doc_val = get_doc_val_from_sort_index(sort_index_it, doc_seq_id); 
+                                
+                            std::pair<std::string, std::string> range_pair {};
+                            if(a_facet.get_range(std::to_string(doc_val), range_pair)) {
+                                const auto& range_id = range_pair.first;
+                                facet_count_t& facet_count = a_facet.result_map[range_id];
+                                facet_count.count += 1;
+                            }
+                        } else if(!use_facet_query || fquery_hashes.find(fhash_str) != fquery_hashes.end()) {
+                            facet_count_t& facet_count = a_facet.result_map[fhash_str];
+                            //LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id << ", hash: " <<  fhash;
+                            facet_count.doc_id = doc_seq_id;
+                            facet_count.array_pos = j;
+                            if(group_limit) {
+                                a_facet.hash_groups[fhash].emplace(distinct_id);
+                            } else {
+                                facet_count.count += 1;
+                            }
+                            if(use_facet_query) {
+                                //LOG (INFO) << "adding hash tokens for hash " << fhash;
+                                a_facet.hash_tokens[fhash_str] = fquery_hashes.at(fhash_str);
+                            }
+                        }
+                    }
                 } else {
-                    const auto& field_facet_mapping = field_single_val_facet_mapping_it->second;
-                    single_facet_map_it = field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->find(doc_seq_id);
-
-                    if(single_facet_map_it == field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->end()) {
-                        continue;
-                    }
-                    facet_hash_count = 1;
-                    fhash = single_facet_map_it->second;
-                }
-
-                const uint64_t distinct_id = group_limit ? get_distinct_id(group_by_fields, doc_seq_id) : 0;
-                //LOG(INFO) << "facet_hash_count " << facet_hash_count;
-                if(((i + 1) % 16384) == 0) {
-                    RETURN_CIRCUIT_BREAKER
-                }
-
-                for(size_t j = 0; j < facet_hash_count; j++) {
-                    if(facet_field_is_array) {
-                        fhash = facet_map_it->second.hashes[j];
-                    }
-                    if(should_compute_stats) {
-                        compute_facet_stats(a_facet, fhash, facet_field.type);
-                    }
-
-                    std::string fhash_str = std::to_string(fhash);
-                    if(a_facet.is_range_query) {
-                        int64_t doc_val = get_doc_val_from_sort_index(sort_index_it, doc_seq_id); 
-                            
-                        std::pair<std::string, std::string> range_pair {};
-                        if(a_facet.get_range(std::to_string(doc_val), range_pair)) {
-                            const auto& range_id = range_pair.first;
-                            facet_count_t& facet_count = a_facet.result_map[range_id];
-                            facet_count.count += 1;
-                        }
-                    } else if(!use_facet_query || fquery_hashes.find(fhash_str) != fquery_hashes.end()) {
-                        facet_count_t& facet_count = a_facet.result_map[fhash_str];
-                        //LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id << ", hash: " <<  fhash;
-                        facet_count.doc_id = doc_seq_id;
-                        facet_count.array_pos = j;
-                        if(group_limit) {
-                            a_facet.hash_groups[fhash].emplace(distinct_id);
-                        } else {
-                            facet_count.count += 1;
-                        }
-                        if(use_facet_query) {
-                            //LOG (INFO) << "adding hash tokens for hash " << fhash;
-                            a_facet.hash_tokens[fhash_str] = fquery_hashes.at(fhash_str);
-                        }
-                    }
+                    break;
                 }
             }
         }
@@ -1874,7 +1869,9 @@ Option<bool> Index::_approximate_filter_ids(const filter& a_filter,
             value_index++;
         }
     } else if (f.is_geopoint()) {
-        filter_ids_length = 100;
+        // Optimistically setting a value greater than 0. Exact count would be found during initialization of
+        // filter_result_iterator.
+        filter_ids_length = 1;
     } else if (f.is_string()) {
         art_tree* t = search_index.at(a_filter.field_name);
 
@@ -2507,7 +2504,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
-                                                           approx_filter_ids_length);
+                                                               approx_filter_ids_length);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
 
     auto filter_init_op = filter_result_iterator->init_status();
@@ -2625,8 +2622,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         if (no_filters_provided) {
             filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids());
             filter_iterator_guard.reset(filter_result_iterator);
-
-            approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
         }
 
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
@@ -2739,7 +2734,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             curated_ids, curated_ids_sorted,
                             excluded_result_ids, excluded_result_ids_size, excluded_group_ids,
                             all_result_ids, all_result_ids_len,
-                            filter_result_iterator, approx_filter_ids_length, concurrency,
+                            filter_result_iterator, concurrency,
                             sort_order, field_values, geopoint_indices);
             filter_result_iterator->reset();
         }
@@ -4564,10 +4559,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
     for(size_t findex=0; findex < facets.size(); findex++) {
         const auto& a_facet = facets[findex];
 
-        const auto field_facet_mapping_it = facet_index_v3.find(a_facet.field_name);
-        const auto field_single_val_facet_mapping_it = single_val_facet_index_v3.find(a_facet.field_name);
-        const auto facet_hash_index_exists = ((field_facet_mapping_it != facet_index_v3.end())
-                            || (field_single_val_facet_mapping_it != single_val_facet_index_v3.end()));
+        bool facet_hash_index_exist = facet_hash_index.find(a_facet.field_name) != facet_hash_index.end();
 
         facet_infos[findex].use_facet_query = false;
 
@@ -4665,40 +4657,40 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                     if(!use_facet_intersection) {
 #else
                     //checking if facets is migrated to old index
-                    if(facet_hash_index_exists) {
-#endif
-                        if(facet_field.is_array()) {
-                            const auto doc_fvalues_it = field_facet_mapping_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
-                            if(doc_fvalues_it == field_facet_mapping_it->second[seq_id % ARRAY_FACET_DIM]->end()) {
-                                continue;
-                            }
+                    if(facet_hash_index_exist) {
+#endif                  
+                        std::vector<uint32_t> facet_hashes;
 
-                            std::vector<size_t> array_indices;
-                            posting_t::get_matching_array_indices(posting_lists, seq_id, array_indices);
+                        auto facet_index = facet_hash_index.at(a_facet.field_name);
+                        posting_list_t::iterator_t facet_index_it = facet_index->new_iterator();
+                        facet_index_it.skip_to(seq_id);
+                        
+                        if(facet_index_it.valid()) {
+                            posting_list_t::get_offsets(facet_index_it, facet_hashes);
 
-                            for(size_t array_index: array_indices) {
-                                if(array_index < doc_fvalues_it->second.length) {
-                                    std::string hash = std::to_string(doc_fvalues_it->second.hashes[array_index]);
+                            if(facet_field.is_array()) {
+                                std::vector<size_t> array_indices;
+                                posting_t::get_matching_array_indices(posting_lists, seq_id, array_indices);
 
-                                    /*LOG(INFO) << "seq_id: " << seq_id << ", hash: " << hash << ", array index: "
-                                              << array_index;*/
+                                for(size_t array_index: array_indices) {
+                                    if(array_index < facet_hashes.size()) {
+                                        std::string hash = std::to_string(facet_hashes[array_index]);
 
-                                    if(facet_infos[findex].hashes.count(hash) == 0) {
-                                        //LOG(INFO) << "adding searched_tokens for hash " << hash;
-                                        facet_infos[findex].hashes.emplace(hash, searched_tokens);
+                                        /*LOG(INFO) << "seq_id: " << seq_id << ", hash: " << hash << ", array index: "
+                                                  << array_index;*/
+
+                                        if(facet_infos[findex].hashes.count(hash) == 0) {
+                                            //LOG(INFO) << "adding searched_tokens for hash " << hash;
+                                            facet_infos[findex].hashes.emplace(hash, searched_tokens);
+                                        }
                                     }
                                 }
-                            }
-                        } else {
-                            const auto doc_single_fvalues_it = field_single_val_facet_mapping_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
-                            if(doc_single_fvalues_it == field_single_val_facet_mapping_it->second[seq_id % ARRAY_FACET_DIM]->end()) {
-                                continue;
-                            }
-
-                            std::string hash = std::to_string(doc_single_fvalues_it->second);
-                            if(facet_infos[findex].hashes.count(hash) == 0) {
-                                //LOG(INFO) << "adding searched_tokens for hash " << hash;
-                                facet_infos[findex].hashes.emplace(hash, searched_tokens);
+                            } else {
+                                std::string hash = std::to_string(facet_hashes[0]);
+                                if(facet_infos[findex].hashes.count(hash) == 0) {
+                                    //LOG(INFO) << "adding searched_tokens for hash " << hash;
+                                    facet_infos[findex].hashes.emplace(hash, searched_tokens);
+                                }
                             }
                         }
                     } else { //for new index adding search tokens
@@ -4745,12 +4737,14 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
                             const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
                             size_t exclude_token_ids_size, const std::unordered_set<uint32_t>& excluded_group_ids,
                             uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                            filter_result_iterator_t* const filter_result_iterator, const uint32_t& approx_filter_ids_length,
+                            filter_result_iterator_t* const filter_result_iterator,
                             const size_t concurrency,
                             const int* sort_order,
                             std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                             const std::vector<size_t>& geopoint_indices) const {
 
+    auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
+    uint32_t token_bits = 0;
     const bool check_for_circuit_break = (approx_filter_ids_length > 1000000);
 
     //auto beginF = std::chrono::high_resolution_clock::now();
@@ -5433,37 +5427,29 @@ uint64_t Index::get_distinct_id(const std::vector<std::string>& group_by_fields,
     uint32_t distinct_id = 1; // some constant initial value
     // calculate hash from group_by_fields
     for(const auto& field: group_by_fields) {
-        const auto& field_facet_mapping_it = facet_index_v3.find(field);
-        const auto& field_single_val_facet_mapping_it = single_val_facet_index_v3.find(field);
-        if((field_facet_mapping_it == facet_index_v3.end()) 
-            && (field_single_val_facet_mapping_it == single_val_facet_index_v3.end())) {
+        const auto& facet_hash_index_it = facet_hash_index.find(field);
+        if(facet_hash_index_it == facet_hash_index.end()) {
             continue;
         }
-     
-        if(search_schema.at(field).is_array()) {
-            const auto& field_facet_mapping = field_facet_mapping_it->second;
-            const auto& facet_hashes_it = field_facet_mapping[seq_id % ARRAY_FACET_DIM]->find(seq_id);
 
-            if(facet_hashes_it == field_facet_mapping[seq_id % ARRAY_FACET_DIM]->end()) {
-                continue;
+        auto facet_index = facet_hash_index_it->second;
+        std::vector<uint32_t> facet_hashes;
+        posting_list_t::iterator_t facet_index_it = facet_index->new_iterator();
+        facet_index_it.skip_to(seq_id);
+
+        if(facet_index_it.valid()) {
+            posting_list_t::get_offsets(facet_index_it, facet_hashes);
+
+            if(search_schema.at(field).is_array()) {
+                //LOG(INFO) << "combining hashes for facet array ";
+                for(size_t i = 0; i < facet_hashes.size(); i++) {
+                    distinct_id = StringUtils::hash_combine(distinct_id, facet_hashes[i]);
+                }
+            } else {
+                const auto& facet_hash = facet_hashes[0];
+                //LOG(INFO) << "combining hashes for facet ";
+                distinct_id = StringUtils::hash_combine(distinct_id, facet_hash);
             }
-
-            const auto& facet_hashes = facet_hashes_it->second;
-            //LOG(INFO) << "combining hashes for facet array ";
-            for(size_t i = 0; i < facet_hashes.size(); i++) {
-                distinct_id = StringUtils::hash_combine(distinct_id, facet_hashes.hashes[i]);
-            }
-        } else {
-            const auto& field_facet_mapping = field_single_val_facet_mapping_it->second;
-            const auto& facet_hashes_it = field_facet_mapping[seq_id % ARRAY_FACET_DIM]->find(seq_id);
-
-            if(facet_hashes_it == field_facet_mapping[seq_id % ARRAY_FACET_DIM]->end()) {
-                continue;
-            }
-
-            const auto& facet_hash = facet_hashes_it->second;
-            //LOG(INFO) << "combining hashes for facet ";
-            distinct_id = StringUtils::hash_combine(distinct_id, facet_hash);
         }
     }
     //LOG(INFO) << "distinct id " << distinct_id;
@@ -5700,23 +5686,16 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
     }
 
     // remove facets
-    const auto& field_facets_it = facet_index_v3.find(field_name);
-    if(field_facets_it != facet_index_v3.end()) {
-        const auto& fvalues_it = field_facets_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
-        if(fvalues_it != field_facets_it->second[seq_id % ARRAY_FACET_DIM]->end()) {
-            field_facets_it->second[seq_id % ARRAY_FACET_DIM]->erase(fvalues_it);
+    const auto& facet_hash_index_it = facet_hash_index.find(field_name);
+    if(facet_hash_index_it != facet_hash_index.end()) {
+        auto facet_index = facet_hash_index_it->second;
+        if(facet_index) {
+            facet_index->erase(seq_id);
         }
     }
 
-    const auto& field_single_val_facets_it = single_val_facet_index_v3.find(field_name);
-    if(field_single_val_facets_it != single_val_facet_index_v3.end()) {
-        const auto& fvalues_it = field_single_val_facets_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
-        if(fvalues_it != field_single_val_facets_it->second[seq_id % ARRAY_FACET_DIM]->end()) {
-            field_single_val_facets_it->second[seq_id % ARRAY_FACET_DIM]->erase(fvalues_it);
-        }
-    }
 
-    facet_index_v4->erase(field_name);
+    facet_index_v4->remove(field_name, seq_id);
 
     // remove sort field
     if(sort_index.count(field_name) != 0) {
@@ -5918,21 +5897,9 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
         }
 
         if(del_field.is_facet()) {
-            if(del_field.is_array()) {
-                auto& arr = facet_index_v3[del_field.name];
-                for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
-                    delete arr[i];
-                }
-                
-                facet_index_v3.erase(del_field.name);
-            } else {
-                auto& arr = single_val_facet_index_v3[del_field.name];
-                for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
-                    delete arr[i];
-                }
+            delete facet_hash_index.at(del_field.name);
+            facet_hash_index.erase(del_field.name);
 
-                single_val_facet_index_v3.erase(del_field.name);
-            }
             facet_index_v4->erase(del_field.name);
 
             if(!del_field.is_string()) {
@@ -6276,27 +6243,61 @@ bool Index::common_results_exist(std::vector<art_leaf*>& leaves, bool must_match
     return phrase_exists;
 }
 
-Option<bool> Index::embed_fields(nlohmann::json& document, 
-                                 const tsl::htrie_map<char, field>& embedding_fields,
-                                 const tsl::htrie_map<char, field> & search_schema) {
+
+Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents, 
+                                       const tsl::htrie_map<char, field>& embedding_fields,
+                                       const tsl::htrie_map<char, field> & search_schema) {
     for(const auto& field : embedding_fields) {
-        std::string text_to_embed = "passage: ";
-        for(const auto& field_name : field.embed_from) {
-            auto field_it = search_schema.find(field_name);
-            if(field_it.value().type == field_types::STRING) {
-                text_to_embed += document[field_name].get<std::string>() + " ";
-            } else if(field_it.value().type == field_types::STRING_ARRAY) {
-                for(const auto& val : document[field_name]) {
-                    text_to_embed += val.get<std::string>() + " ";
+        std::vector<std::pair<nlohmann::json*, std::string>> texts_to_embed;
+        auto indexing_prefix = TextEmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
+        for(auto& document : documents) {
+            std::string text = indexing_prefix;
+            auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
+            for(const auto& field_name : embed_from) {
+                auto field_it = search_schema.find(field_name);
+                if(field_it.value().type == field_types::STRING) {
+                    text += (*document)[field_name].get<std::string>() + " ";
+                } else if(field_it.value().type == field_types::STRING_ARRAY) {
+                    for(const auto& val : (*document)[field_name]) {
+                        text += val.get<std::string>() + " ";
+                    }
                 }
             }
+            texts_to_embed.push_back(std::make_pair(document, text));
         }
         TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-        auto embedder = embedder_manager.get_text_embedder(field.model_name.size() > 0 ? field.model_name : TextEmbedderManager::DEFAULT_MODEL_NAME);
-        std::vector<float> embedding = embedder->Embed(text_to_embed);
-        document[field.name] = embedding;
-    }
+        auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
 
+        if(!embedder_op.ok()) {
+            return Option<bool>(400, embedder_op.error());
+        }
+
+        // sort texts by length
+        std::sort(texts_to_embed.begin(), texts_to_embed.end(),
+                  [](const std::pair<nlohmann::json*, std::string>& a,
+                     const std::pair<nlohmann::json*, std::string>& b) {
+                      return a.second.size() < b.second.size();
+                  });
+        
+        // get vector of texts
+        std::vector<std::string> texts;
+        for(const auto& text_to_embed : texts_to_embed) {
+            texts.push_back(text_to_embed.second);
+        }
+
+        auto embedding_op = embedder_op.get()->batch_embed(texts);
+
+        if(!embedding_op.ok()) {
+            return Option<bool>(400, embedding_op.error());
+        }
+
+        auto embeddings = embedding_op.get();
+        for(size_t i = 0; i < embeddings.size(); i++) {
+            auto& embedding = embeddings[i];
+            auto& document = texts_to_embed[i].first;
+            (*document)[field.name] = embedding;
+        }
+    }
     return Option<bool>(true);
 }
 

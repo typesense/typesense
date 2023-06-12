@@ -12,12 +12,14 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool write_t
         {
             "name": "top_search_queries",
             "type": "popular_queries",
-            "limit": 1000,
-            "source": {
-                "collections": ["brands", "products"]
-            },
-            "destination": {
-                "collection": "top_search_queries"
+            "params": {
+                "limit": 1000,
+                "source": {
+                    "collections": ["brands", "products"]
+                },
+                "destination": {
+                    "collection": "top_search_queries"
+                }
             }
         }
     */
@@ -30,6 +32,10 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool write_t
         return Option<bool>(400, "Bad or missing name.");
     }
 
+    if(!payload.contains("params") || !payload["params"].is_object()) {
+        return Option<bool>(400, "Bad or missing params.");
+    }
+
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
         return create_popular_queries_index(payload, write_to_disk);
     }
@@ -38,20 +44,23 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool write_t
 }
 
 Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payload, bool write_to_disk) {
-    if(!payload.contains("source") || !payload["source"].is_object()) {
+    // params and name are validated upstream
+    const auto& params = payload["params"];
+    const std::string& suggestion_config_name = payload["name"].get<std::string>();
+
+    if(!params.contains("source") || !params["source"].is_object()) {
         return Option<bool>(400, "Bad or missing source.");
     }
 
-    if(!payload.contains("destination") || !payload["destination"].is_object()) {
+    if(!params.contains("destination") || !params["destination"].is_object()) {
         return Option<bool>(400, "Bad or missing destination.");
     }
 
-    const std::string& suggestion_config_name = payload["name"].get<std::string>();
 
     size_t limit = 1000;
 
-    if(payload.contains("limit") && payload["limit"].is_number_integer()) {
-        limit = payload["limit"].get<size_t>();
+    if(params.contains("limit") && params["limit"].is_number_integer()) {
+        limit = params["limit"].get<size_t>();
     }
 
     if(suggestion_configs.find(suggestion_config_name) != suggestion_configs.end()) {
@@ -59,21 +68,21 @@ Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payl
                                             suggestion_config_name + "`.");
     }
 
-    if(!payload["source"].contains("collections") || !payload["source"]["collections"].is_array()) {
+    if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
         return Option<bool>(400, "Must contain a valid list of source collections.");
     }
 
-    if(!payload["destination"].contains("collection") || !payload["destination"]["collection"].is_string()) {
+    if(!params["destination"].contains("collection") || !params["destination"]["collection"].is_string()) {
         return Option<bool>(400, "Must contain a valid destination collection.");
     }
 
-    const std::string& suggestion_collection = payload["destination"]["collection"].get<std::string>();
+    const std::string& suggestion_collection = params["destination"]["collection"].get<std::string>();
     suggestion_config_t suggestion_config;
     suggestion_config.name = suggestion_config_name;
     suggestion_config.suggestion_collection = suggestion_collection;
     suggestion_config.limit = limit;
 
-    for(const auto& coll: payload["source"]["collections"]) {
+    for(const auto& coll: params["source"]["collections"]) {
         if(!coll.is_string()) {
             return Option<bool>(400, "Must contain a valid list of source collection names.");
         }
@@ -140,8 +149,7 @@ Option<bool> AnalyticsManager::remove_rule(const string &name) {
 }
 
 Option<bool> AnalyticsManager::remove_popular_queries_index(const std::string &name) {
-    std::unique_lock lock(mutex);
-
+    // lock is held by caller
     auto suggestion_configs_it = suggestion_configs.find(name);
 
     if(suggestion_configs_it == suggestion_configs.end()) {
@@ -201,76 +209,86 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
             break;
         }
 
-        for(const auto& suggestion_config: suggestion_configs) {
-            const std::string& sink_name = suggestion_config.first;
-            const std::string& suggestion_coll = suggestion_config.second.suggestion_collection;
-
-            auto popular_queries_it = popular_queries.find(suggestion_coll);
-            if(popular_queries_it == popular_queries.end()) {
-                continue;
-            }
-
-            // need to prepare the counts as JSON docs for import into the suggestion collection
-            // {"id": "432432", "q": "foo", "$operations": {"increment": {"count": 100}}}
-
-            PopularQueries* popularQueries = popular_queries_it->second;
-
-            // aggregate prefix queries to their final form
-            auto now = std::chrono::system_clock::now().time_since_epoch();
-            auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
-            popularQueries->compact_user_queries(now_ts_us);
-
-            auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(now).count();
-
-            if(now_ts_seconds - prev_persistence_s < Config::get_instance().get_analytics_flush_interval()) {
-                // we will persist aggregation every hour
-                continue;
-            }
-
-            prev_persistence_s = now_ts_seconds;
-
-            std::string import_payload;
-            popularQueries->serialize_as_docs(import_payload);
-
-            if(import_payload.empty()) {
-                continue;
-            }
-
-            // send http request
-            std::string leader_url = raft_server->get_leader_url();
-            if(!leader_url.empty()) {
-                const std::string& resource_url = leader_url + "collections/" + suggestion_coll +
-                                                    "/documents/import?action=emplace";
-                std::string res;
-                std::map<std::string, std::string> res_headers;
-                long status_code = HttpClient::post_response(resource_url, import_payload,
-                                                             res, res_headers, 10*1000);
-
-                if(status_code != 200) {
-                    LOG(ERROR) << "Error while sending query suggestions events to leader. "
-                               << "Status code: " << status_code << ", response: " << res;
-                } else {
-                    LOG(INFO) << "Sent query suggestions to leader for aggregation.";
-                    popularQueries->reset_local_counts();
-
-                    if(raft_server->is_leader()) {
-                        // try to run top-K compaction of suggestion collection
-                        auto coll = CollectionManager::get_instance().get_collection(suggestion_coll);
-                        if (coll == nullptr) {
-                            LOG(ERROR) << "No collection found for suggestions aggregation: " + suggestion_coll;
-                            continue;
-                        }
-
-                        coll->truncate_after_top_k("count", popularQueries->get_k());
-                    }
-                }
-            }
-        }
+        persist_suggestions(raft_server, prev_persistence_s);
 
         lk.unlock();
     }
 
     dispose();
+}
+
+void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+    // lock is held by caller
+    for(const auto& suggestion_config: suggestion_configs) {
+        const std::string& sink_name = suggestion_config.first;
+        const std::string& suggestion_coll = suggestion_config.second.suggestion_collection;
+
+        auto popular_queries_it = popular_queries.find(suggestion_coll);
+        if(popular_queries_it == popular_queries.end()) {
+            continue;
+        }
+
+        // need to prepare the counts as JSON docs for import into the suggestion collection
+        // {"id": "432432", "q": "foo", "$operations": {"increment": {"count": 100}}}
+
+        PopularQueries* popularQueries = popular_queries_it->second;
+
+        // aggregate prefix queries to their final form
+        auto now = std::chrono::system_clock::now().time_since_epoch();
+        auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+        popularQueries->compact_user_queries(now_ts_us);
+
+        auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(now).count();
+
+        if(now_ts_seconds - prev_persistence_s < Config::get_instance().get_analytics_flush_interval()) {
+            // we will persist aggregation every hour
+            continue;
+        }
+
+        prev_persistence_s = now_ts_seconds;
+
+        std::string import_payload;
+        popularQueries->serialize_as_docs(import_payload);
+
+        if(import_payload.empty()) {
+            continue;
+        }
+
+        // send http request
+        std::string leader_url = raft_server->get_leader_url();
+        if(!leader_url.empty()) {
+            const std::string& base_url = leader_url + "collections/" + suggestion_coll;
+            std::string res;
+
+            const std::string& update_url = base_url + "/documents/import?action=emplace";
+            std::map<std::string, std::string> res_headers;
+            long status_code = HttpClient::post_response(update_url, import_payload,
+                                                         res, res_headers, {}, 10*1000, true);
+
+            if(status_code != 200) {
+                LOG(ERROR) << "Error while sending query suggestions events to leader. "
+                           << "Status code: " << status_code << ", response: " << res;
+            } else {
+                LOG(INFO) << "Query aggregation for collection: " + suggestion_coll;
+                popularQueries->reset_local_counts();
+
+                if(raft_server->is_leader()) {
+                    // try to run top-K compaction of suggestion collection
+                    const std::string top_k_param = "count:" + std::to_string(popularQueries->get_k());
+                    const std::string& truncate_topk_url = base_url + "/documents?top_k_by=" + top_k_param;
+                    res.clear();
+                    res_headers.clear();
+                    status_code = HttpClient::delete_response(truncate_topk_url, res, res_headers, 10*1000, true);
+                    if(status_code != 200) {
+                        LOG(ERROR) << "Error while running top K for query suggestions collection. "
+                                   << "Status code: " << status_code << ", response: " << res;
+                    } else {
+                        LOG(INFO) << "Top K aggregation for collection: " + suggestion_coll;
+                    }
+                }
+            }
+        }
+    }
 }
 
 void AnalyticsManager::stop() {
@@ -279,6 +297,8 @@ void AnalyticsManager::stop() {
 }
 
 void AnalyticsManager::dispose() {
+    std::unique_lock lk(mutex);
+
     for(auto& kv: popular_queries) {
         delete kv.second;
     }
@@ -290,3 +310,7 @@ void AnalyticsManager::init(Store* store) {
     this->store = store;
 }
 
+std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_queries() {
+    std::unique_lock lk(mutex);
+    return popular_queries;
+}

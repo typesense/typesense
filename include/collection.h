@@ -275,6 +275,8 @@ private:
 
     Option<std::string> get_reference_field(const std::string & collection_name) const;
 
+    static void hide_credential(nlohmann::json& json, const std::string& credential_name);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -496,7 +498,7 @@ public:
 
     // Override operations
 
-    Option<uint32_t> add_override(const override_t & override);
+    Option<uint32_t> add_override(const override_t & override, bool write_to_store = true);
 
     Option<uint32_t> remove_override(const std::string & id);
 
@@ -511,7 +513,7 @@ public:
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
-    Option<bool> add_synonym(const nlohmann::json& syn_json);
+    Option<bool> add_synonym(const nlohmann::json& syn_json, bool write_to_store = true);
 
     Option<bool> remove_synonym(const std::string & id);
 

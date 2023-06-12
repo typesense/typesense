@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <filesystem>
+#include <cstdlib>
 #include <collection_manager.h>
 #include <validator.h>
 #include "collection.h"
@@ -4451,20 +4452,15 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
     spp::sparse_hash_set<std::string> dummy_include_exclude;
     std::string highlight_fields = "user*";
     // user* matches user_name, user.rank and user.phone
-    auto result = coll->search("+91", {"user"}, "", {}, {}, {0},
+    auto result = coll->search("123", {"user"}, "", {}, {}, {0},
                                10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
                                30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
                                true, false, true, highlight_fields).get();
 
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
-
-//    ASSERT_EQ("+<mark>91</mark> 123123123",
-//              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
-//    ASSERT_EQ("100",
-//              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
-    ASSERT_EQ("user_a",
-              result["hits"][0]["highlight"]["user_name"]["snippet"].get<std::string>());
+    ASSERT_EQ(1, result["hits"][0]["highlight"].size());
+    ASSERT_EQ("+91 <mark>123</mark>123123", result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
 
     highlight_fields = "user.*";
     // user.* matches user.rank and user.phone
@@ -4475,11 +4471,9 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
 
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
-
+    ASSERT_EQ(1, result["hits"][0]["highlight"].size());
     ASSERT_EQ("+<mark>91</mark> 123123123",
               result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
-//    ASSERT_EQ("100",
-//              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
 
     highlight_fields = "user*";
     // user* matches user_name, user.rank and user.phone
@@ -4490,11 +4484,7 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
 
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
-
-//    ASSERT_EQ("+91 123123123",
-//              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
-//    ASSERT_EQ("100",
-//              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
+    ASSERT_EQ(1, result["hits"][0]["highlight"].size());
     ASSERT_EQ("<mark>user_a</mark>",
               result["hits"][0]["highlight"]["user_name"]["snippet"].get<std::string>());
 
@@ -4507,11 +4497,7 @@ TEST_F(CollectionTest, WildcardHighlightFields) {
 
     ASSERT_EQ(1, result["found"].get<size_t>());
     ASSERT_EQ(1, result["hits"].size());
-
-    ASSERT_EQ("+91 123123123",
-              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
-    ASSERT_EQ("100",
-              result["hits"][0]["highlight"]["user"]["rank"]["snippet"].get<std::string>());
+    ASSERT_EQ(0, result["hits"][0]["highlight"].size());
 
     highlight_fields = "foo*";
     // No matching field for highlight_fields
@@ -4617,12 +4603,11 @@ TEST_F(CollectionTest, SemanticSearchTest) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
                             ]
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4652,12 +4637,11 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
                             ]
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     LOG(INFO) << "op.error(): " << op.error();
@@ -4682,12 +4666,11 @@ TEST_F(CollectionTest, HybridSearch) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
                             ]
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4716,12 +4699,12 @@ TEST_F(CollectionTest, HybridSearch) {
 //                             "name": "objects",
 //                             "fields": [
 //                             {"name": "name", "type": "string"},
-//                             {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+//                             {"name": "embedding", "type":"float[]", "embed":{"from": ["name"]}
 //                             ]
 //                         })"_json;
     
 //     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-//     TextEmbedderManager::download_default_model();
+//
 
 //     auto op = collectionManager.create_collection(schema);
 //     ASSERT_TRUE(op.ok());
@@ -4744,12 +4727,11 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
-                            {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
                             ]
                         })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4818,12 +4800,11 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
                         "name": "objects",
                         "fields": [
                         {"name": "name", "type": "string"},
-                        {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
                         ]
                     })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4852,12 +4833,11 @@ TEST_F(CollectionTest, EmbedStringArrayField) {
                     "name": "objects",
                     "fields": [
                     {"name": "names", "type": "string[]"},
-                    {"name": "embedding", "type":"float[]", "embed_from": ["names"]}
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["names"], "model_config": {"model_name": "ts/e5-small"}}}
                     ]
                 })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4878,12 +4858,11 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
                     "fields": [
                     {"name": "names", "type": "string[]"},
                     {"name": "category", "type": "string", "optional": true},
-                    {"name": "embedding", "type":"float[]", "embed_from": ["names", "category"]}
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["names", "category"], "model_config": {"model_name": "ts/e5-small"}}}
                     ]
                 })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4899,18 +4878,32 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
     ASSERT_EQ("Field `category` is needed to create embedding.", add_op.error());
 }
 
+TEST_F(CollectionTest, WrongTypeInEmbedFrom) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+            {"name": "category", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": [1122], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Property `embed.from` must contain only field names as strings.", op.error());
+}
 
 TEST_F(CollectionTest, WrongTypeForEmbedding) {
     nlohmann::json schema = R"({
                 "name": "objects",
                 "fields": [
                 {"name": "category", "type": "string"},
-                {"name": "embedding", "type":"float[]", "embed_from": ["category"]}
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["category"], "model_config": {"model_name": "ts/e5-small"}}}
                 ]
             })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4929,12 +4922,11 @@ TEST_F(CollectionTest, WrongTypeOfElementForEmbeddingInStringArray) {
             "name": "objects",
             "fields": [
             {"name": "category", "type": "string[]"},
-            {"name": "embedding", "type":"float[]", "embed_from": ["category"]}
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["category"], "model_config": {"model_name": "ts/e5-small"}}}
             ]
         })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4953,12 +4945,11 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
                     "name": "objects",
                     "fields": [
                     {"name": "name", "type": "string"},
-                    {"name": "embedding", "type":"float[]", "embed_from": ["name"]}
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
                     ]
                 })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    TextEmbedderManager::download_default_model();
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4994,3 +4985,152 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
     // check if the embedding field is updated
     ASSERT_NE(embedding_field, updated_embedding_field);
 }
+
+TEST_F(CollectionTest, CreateCollectionWithOpenAI) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+                ]
+            })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+}
+
+
+TEST_F(CollectionTest, CreateOpenAIEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+                ]
+            })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto summary = op.get()->get_summary_json();
+    ASSERT_EQ("openai/text-embedding-ada-002", summary["fields"][1]["embed"]["model_config"]["model_name"]);
+    ASSERT_EQ(1536, summary["fields"][1]["num_dim"]);
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+
+    auto add_op = op.get()->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    ASSERT_EQ(1536, add_op.get()["embedding"].size());    
+}
+
+TEST_F(CollectionTest, HideOpenAIApiKey) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+                ]
+            })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto summary = op.get()->get_summary_json();
+    // hide api key with * after first 3 characters
+    ASSERT_EQ(summary["fields"][1]["embed"]["model_config"]["api_key"].get<std::string>(), api_key.replace(3, api_key.size() - 3, api_key.size() - 3, '*'));
+}
+
+TEST_F(CollectionTest, PrefixSearchDisabledForOpenAI) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+                ]
+            })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+
+    auto add_op = op.get()->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    auto search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+
+    ASSERT_FALSE(search_res_op.ok());
+    ASSERT_EQ("Prefix search is not supported for remote embedders. Please set `prefix=false` as an additional search parameter to disable prefix searching.", search_res_op.error());
+
+    search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+    ASSERT_TRUE(search_res_op.ok());
+}
+
+
+TEST_F(CollectionTest, MoreThanOneEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "name2", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}},
+                {"name": "embedding2", "type":"float[]", "embed":{"from": ["name2"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto coll = op.get();
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+    doc["name2"] = "butterball";
+    
+    auto add_op = validator_t::validate_embed_fields(doc, op.get()->get_embedding_fields(), op.get()->get_schema(), true);
+
+    ASSERT_TRUE(add_op.ok());
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+
+    auto search_res_op = coll->search("butter", {"name", "embedding", "embedding2"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+
+    ASSERT_FALSE(search_res_op.ok());
+
+    ASSERT_EQ("Only one embedding field is allowed in the query.", search_res_op.error());
+}
+

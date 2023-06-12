@@ -205,6 +205,8 @@ struct index_record {
         std::unordered_map<std::string, std::vector<uint32_t>>> field_index;
     int64_t points;
 
+    std::map<std::string, std::vector<uint32_t>> facet_hashes;
+
     Option<bool> indexed;               // indicates if the indexing operation was a success
 
     DIRTY_VALUES dirty_values;
@@ -304,14 +306,10 @@ private:
     // geo_array_field => (seq_id => values) used for exact filtering of geo array records
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
 
-    // facet_field => (seq_id => values)
-    spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
-    
+    spp::sparse_hash_map<std::string, posting_list_t*> facet_hash_index;
+
     facet_index_t* facet_index_v4 = nullptr;
-
-    // facet_field => (seq_id => hash)
-    spp::sparse_hash_map<std::string, array_mapped_single_val_facet_t> single_val_facet_index_v3;
-
+  
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
     typedef spp::sparse_hash_map<std::string, 
@@ -523,13 +521,11 @@ private:
                                    const std::string& token, uint32_t seq_id);
 
     void initialize_facet_indexes(const field& facet_field);
-
+     
     void create_facet_hash_index(const field& facet_field);
-
-
-    static Option<bool> embed_fields(nlohmann::json& document, 
-                                            const tsl::htrie_map<char, field>& embedding_fields,
-                                            const tsl::htrie_map<char, field> & search_schema);          
+    static Option<bool> batch_embed_fields(std::vector<nlohmann::json*>& documents, 
+                                       const tsl::htrie_map<char, field>& embedding_fields,
+                                       const tsl::htrie_map<char, field> & search_schema);
     
 public:
     // for limiting number of results on multiple candidates / query rewrites
@@ -613,7 +609,8 @@ public:
     static void compute_token_offsets_facets(index_record& record,
                                              const tsl::htrie_map<char, field>& search_schema,
                                              const std::vector<char>& local_token_separators,
-                                             const std::vector<char>& local_symbols_to_index);
+                                             const std::vector<char>& local_symbols_to_index,
+                                             std::map<std::string, std::vector<uint32_t>>& facet_hashes);
 
     static void scrub_reindex_doc(const tsl::htrie_map<char, field>& search_schema,
                                   nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc);
@@ -679,7 +676,8 @@ public:
                                      const std::vector<char>& symbols_to_index,
                                      const bool do_validation);
 
-    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
+    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch, 
+                                std::map<std::string, std::vector<uint32_t>>& facet_hashes);
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);
@@ -732,7 +730,7 @@ public:
                          const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
                          size_t exclude_token_ids_size, const std::unordered_set<uint32_t>& excluded_group_ids,
                          uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                         filter_result_iterator_t* const filter_result_iterator, const uint32_t& approx_filter_ids_length,
+                         filter_result_iterator_t* const filter_result_iterator,
                          const size_t concurrency,
                          const int* sort_order,
                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,

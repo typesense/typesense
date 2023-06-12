@@ -24,9 +24,10 @@ private:
 
         void to_json(nlohmann::json& obj) const {
             obj["name"] = name;
-            obj["suggestion_collection"] = suggestion_collection;
-            obj["query_collections"] = query_collections;
-            obj["limit"] = limit;
+            obj["params"] = nlohmann::json::object();
+            obj["params"]["suggestion_collection"] = suggestion_collection;
+            obj["params"]["query_collections"] = query_collections;
+            obj["params"]["limit"] = limit;
         }
     };
 
@@ -78,4 +79,8 @@ public:
     void stop();
 
     void dispose();
+
+    void persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s);
+
+    std::unordered_map<std::string, PopularQueries*> get_popular_queries();
 };

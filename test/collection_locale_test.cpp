@@ -774,6 +774,27 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicLargeText) {
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 }
 
+TEST_F(CollectionLocaleTest, SearchOnJapaneseLargeText) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, "ja"),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "王獣を倒すと入手した折れた角。追放された後、この世に存在すべきではないもの。\n獣域ウルブズの中で帝王と呼ばれていても、"
+                   "魔獣たちの系譜では、その兄たちの万分の一にも満たないだろう。\n「黄"
+                   "金」が無数の獣域ウルブズを捨て紙のように圧縮して偶然にできた異形の魔獣。その角には、黒いウルブズを命じて自分のため"
+                   "に空間を溶かす権威が秘めている。";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("王獣を", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_STREQ("<mark>王</mark><mark>獣</mark><mark>を</mark><mark>倒す</mark>と入手した折",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    results = coll1->search("業果材", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_STREQ("に空間を溶かす<mark>権威</mark><mark>が</mark><mark>秘</mark>めている。",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+}
+
 TEST_F(CollectionLocaleTest, SearchOnArabicText) {
     std::vector<field> fields = {field("title", field_types::STRING, true, false, true, ""),};
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();

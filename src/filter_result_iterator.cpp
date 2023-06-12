@@ -571,8 +571,10 @@ void filter_result_iterator_t::init() {
     if (filter_node->isOperator) {
         if (filter_node->filter_operator == AND) {
             and_filter_iterators();
+            approx_filter_ids_length = std::min(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
         } else {
             or_filter_iterators();
+            approx_filter_ids_length = std::max(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
         }
 
         return;
@@ -612,6 +614,7 @@ void filter_result_iterator_t::init() {
         }
 
         is_filter_result_initialized = true;
+        approx_filter_ids_length = filter_result.count;
         return;
     }
 
@@ -635,6 +638,7 @@ void filter_result_iterator_t::init() {
 
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        approx_filter_ids_length = filter_result.count;
         return;
     }
 
@@ -681,6 +685,7 @@ void filter_result_iterator_t::init() {
 
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_float()) {
         auto num_tree = index->numerical_index.at(a_filter.field_name);
@@ -719,6 +724,7 @@ void filter_result_iterator_t::init() {
 
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_bool()) {
         auto num_tree = index->numerical_index.at(a_filter.field_name);
@@ -752,6 +758,7 @@ void filter_result_iterator_t::init() {
 
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_geopoint()) {
         for (uint32_t fi = 0; fi < a_filter.values.size(); fi++) {
@@ -895,6 +902,7 @@ void filter_result_iterator_t::init() {
 
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
+        approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_string()) {
         art_tree* t = index->search_index.at(a_filter.field_name);

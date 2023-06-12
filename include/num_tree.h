@@ -43,7 +43,6 @@ private:
     };
 
     std::vector<count_list> counter_list;
-    bool is_migrated = false;
 
 public:
 
@@ -85,13 +84,5 @@ public:
     
     size_t counter_list_size() const;
 
-    void get_facet_indexes(std::function<void(uint32_t, uint32_t)> functor);
-
-    bool get_migrated () const {
-        return is_migrated;
-    }
-
-    void set_migrated(bool val) {
-        is_migrated = true;
-    }
+    size_t get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& seqid_countIndexes);
 };

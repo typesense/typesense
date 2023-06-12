@@ -60,14 +60,13 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::reference] = "";
         }
 
-        if(field_obj.count(fields::embed_from) == 0) {
-            field_obj[fields::embed_from] = std::vector<std::string>();
+        if(field_obj.count(fields::embed) == 0) {
+            field_obj[fields::embed] = nlohmann::json::object();
         }
 
-        if(field_obj.count(fields::model_name) == 0) {
-            field_obj[fields::model_name] = "";
+        if(field_obj.count(fields::model_config) == 0) {
+            field_obj[fields::model_config] = nlohmann::json::object();
         }
-
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
         if(field_obj.count(fields::vec_dist) != 0) {
@@ -80,8 +79,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed_from],
-                field_obj[fields::model_name]);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -734,7 +732,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req_params["collection"]);
+    const std::string& orig_coll_name = req_params["collection"];
+    auto collection = collectionManager.get_collection(orig_coll_name);
 
     if(collection == nullptr) {
         return Option<bool>(404, "Not found.");
@@ -1064,9 +1063,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
-            std::string processed_query = raw_query;
-            Tokenizer::normalize_ascii(processed_query);
-            AnalyticsManager::get_instance().add_suggestion(collection->get_name(), processed_query,
+            std::string analytics_query = raw_query;
+            AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query,
                                                             true, req_params["x-typesense-user-id"]);
         }
     }
@@ -1281,7 +1279,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         override_t override;
         auto parse_op = override_t::parse(collection_override, "", override);
         if(parse_op.ok()) {
-            collection->add_override(override);
+            collection->add_override(override, false);
         } else {
             LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
         }
@@ -1295,7 +1293,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-        collection->add_synonym(collection_synonym);
+        collection->add_synonym(collection_synonym, false);
     }
 
     // restore query suggestions configs

@@ -22,16 +22,21 @@ void num_tree_t::insert(int64_t value, uint32_t id, bool is_facet) {
             counter_list.emplace_back(value, facet_count);
         } else {
             count_list node(value, facet_count); 
-            uint32_t ind = 0;
-            for(ind; ind < counter_list.size(); ++ind) {
+            
+            auto ind = 0;
+            
+            for(; ind < counter_list.size(); ++ind) {
                 if(counter_list[ind].facet_value == value) {
                     counter_list[ind].count = facet_count;
 
-                    if((ind > 1) &&
-                        (counter_list[ind-1].count < counter_list[ind].count)) {
-                            count_list temp = counter_list[ind-1];
-                            counter_list[ind-1] = counter_list[ind];
-                            counter_list[ind] = temp;
+                    if(ind > 1) {
+                        auto curr = ind;
+                        while (curr && (counter_list[curr-1].count < counter_list[curr].count)) {
+                            count_list temp = counter_list[curr-1];
+                            counter_list[curr-1] = counter_list[curr];
+                            counter_list[curr] = temp;
+                            --curr;
+                        }
                     }
                     break;
                 }
@@ -426,11 +431,11 @@ size_t num_tree_t::intersect(const uint32_t* result_ids, int result_ids_len, int
     return found.size();
 }
 
-void num_tree_t::get_facet_indexes(std::function<void(uint32_t seq_id, uint32_t count_index)> functor) {
+size_t num_tree_t::get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& seqid_countIndexes) {
 
     //check if facet field   
     if(counter_list.empty()) {
-        return;
+        return 0;
     }
 
     std::vector<uint32_t> id_list;
@@ -442,11 +447,11 @@ void num_tree_t::get_facet_indexes(std::function<void(uint32_t seq_id, uint32_t 
 
         //emplacing seq_id=>count_index
         for(const auto& id : id_list) {
-            functor(id, int64map_it->first);
+            seqid_countIndexes[id].emplace_back(int64map_it->first);
         }
 
         id_list.clear();
     }
 
-    return;
+    return seqid_countIndexes.size();
 }
