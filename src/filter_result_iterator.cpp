@@ -892,13 +892,21 @@ void filter_result_iterator_t::init() {
             S2RegionTermIndexer::Options options;
             options.set_index_contains_points_only(true);
             S2RegionTermIndexer indexer(options);
+            auto const& geo_range_index = index->geo_range_index.at(a_filter.field_name);
 
             for (const auto& term : indexer.GetQueryTerms(*query_region, "")) {
-                auto geo_index = index->geopoint_index.at(a_filter.field_name);
-                const auto& ids_it = geo_index->find(term);
-                if(ids_it != geo_index->end()) {
-                    geo_result_ids.insert(geo_result_ids.end(), ids_it->second.begin(), ids_it->second.end());
+                auto cell = S2CellId::FromToken(term);
+                uint32_t* geo_ids = nullptr;
+                uint32_t geo_ids_length = 0;
+
+                geo_range_index->search_geopoint(cell.id(), geo_ids, geo_ids_length);
+
+                geo_result_ids.reserve(geo_result_ids.size() + geo_ids_length);
+                for (uint32_t i = 0; i < geo_ids_length; i++) {
+                    geo_result_ids.push_back(geo_ids[i]);
                 }
+
+                delete [] geo_ids;
             }
 
             gfx::timsort(geo_result_ids.begin(), geo_result_ids.end());
