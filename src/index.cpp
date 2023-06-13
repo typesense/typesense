@@ -78,8 +78,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             art_tree_init(t);
             search_index.emplace(a_field.name, t);
         } else if(a_field.is_geopoint()) {
-            auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
-            geopoint_index.emplace(a_field.name, field_geo_index);
+            geo_range_index.emplace(a_field.name, new NumericTrie(64));
 
             if(!a_field.is_single_geopoint()) {
                 spp::sparse_hash_map<uint32_t, int64_t*> * doc_to_geos = new spp::sparse_hash_map<uint32_t, int64_t*>();
@@ -141,12 +140,12 @@ Index::~Index() {
 
     search_index.clear();
 
-    for(auto & name_index: geopoint_index) {
+    for(auto & name_index: geo_range_index) {
         delete name_index.second;
         name_index.second = nullptr;
     }
 
-    geopoint_index.clear();
+    geo_range_index.clear();
 
     for(auto& name_index: geo_array_index) {
         for(auto& kv: *name_index.second) {
@@ -811,10 +810,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 num_tree->insert(value, seq_id);
             });
         } else if(afield.type == field_types::GEOPOINT || afield.type == field_types::GEOPOINT_ARRAY) {
-            auto geo_index = geopoint_index.at(afield.name);
+            auto geopoint_range_index = geo_range_index.at(afield.name);
 
             iterate_and_index_numerical_field(iter_batch, afield,
-            [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
+            [&afield, &geo_array_index=geo_array_index, geopoint_range_index](const index_record& record, uint32_t seq_id) {
                 // nested geopoint value inside an array of object will be a simple array so must be treated as geopoint
                 bool nested_obj_arr_geopoint = (afield.nested && afield.type == field_types::GEOPOINT_ARRAY &&
                                     !record.doc[afield.name].empty() && record.doc[afield.name][0].is_number());
@@ -828,9 +827,8 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         S2RegionTermIndexer indexer(options);
                         S2Point point = S2LatLng::FromDegrees(latlongs[li], latlongs[li+1]).ToPoint();
 
-                        for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                            (*geo_index)[term].push_back(seq_id);
-                        }
+                        auto cell = S2CellId(point);
+                        geopoint_range_index->insert_geopoint(cell.id(), seq_id);
                     }
 
                     if(nested_obj_arr_geopoint) {
@@ -858,9 +856,9 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     for(size_t li = 0; li < latlongs.size(); li++) {
                         auto& latlong = latlongs[li];
                         S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-                        for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                            (*geo_index)[term].push_back(seq_id);
-                        }
+
+                        auto cell = S2CellId(point);
+                        geopoint_range_index->insert_geopoint(cell.id(), seq_id);
 
                         int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
                         packed_latlongs[li + 1] = packed_latlong;
@@ -1590,7 +1588,7 @@ void Index::numeric_not_equals_filter(num_tree_t* const num_tree,
 bool Index::field_is_indexed(const std::string& field_name) const {
     return search_index.count(field_name) != 0 ||
     numerical_index.count(field_name) != 0 ||
-    geopoint_index.count(field_name) != 0;
+    geo_range_index.count(field_name) != 0;
 }
 
 void Index::aproximate_numerical_match(num_tree_t* const num_tree,
@@ -5468,7 +5466,7 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
             }
         }
     } else if(search_field.is_geopoint()) {
-        auto geo_index = geopoint_index[field_name];
+        auto geopoint_range_index = geo_range_index[field_name];
         S2RegionTermIndexer::Options options;
         options.set_index_contains_points_only(true);
         S2RegionTermIndexer indexer(options);
@@ -5479,17 +5477,8 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
 
         for(const std::vector<double>& latlong: latlongs) {
             S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-            for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                auto term_it = geo_index->find(term);
-                if(term_it == geo_index->end()) {
-                    continue;
-                }
-                std::vector<uint32_t>& ids = term_it->second;
-                ids.erase(std::remove(ids.begin(), ids.end(), seq_id), ids.end());
-                if(ids.empty()) {
-                    geo_index->erase(term);
-                }
-            }
+            auto cell = S2CellId(point);
+            geopoint_range_index->delete_geopoint(cell.id(), seq_id);
         }
 
         if(!search_field.is_single_geopoint()) {
@@ -5641,8 +5630,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
                 art_tree_init(t);
                 search_index.emplace(new_field.name, t);
             } else if(new_field.is_geopoint()) {
-                auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
-                geopoint_index.emplace(new_field.name, field_geo_index);
+                geo_range_index.emplace(new_field.name, new NumericTrie(64));
                 if(!new_field.is_single_geopoint()) {
                     auto geo_array_map = new spp::sparse_hash_map<uint32_t, int64_t*>();
                     geo_array_index.emplace(new_field.name, geo_array_map);
@@ -5692,8 +5680,8 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
             delete search_index[del_field.name];
             search_index.erase(del_field.name);
         } else if(del_field.is_geopoint()) {
-            delete geopoint_index[del_field.name];
-            geopoint_index.erase(del_field.name);
+            delete geo_range_index[del_field.name];
+            geo_range_index.erase(del_field.name);
 
             if(!del_field.is_single_geopoint()) {
                 spp::sparse_hash_map<uint32_t, int64_t*>* geo_array_map = geo_array_index[del_field.name];
