@@ -188,6 +188,11 @@ struct search_args {
     };
 };
 
+struct offsets_facet_hashes_t {
+    // token to offsets
+    std::unordered_map<std::string, std::vector<uint32_t>> offsets;
+};
+
 struct index_record {
     size_t position;                    // position of record in the original request
     uint32_t seq_id;
@@ -201,11 +206,8 @@ struct index_record {
     bool is_update;
 
     // pre-processed data primed for indexing
-    std::unordered_map<std::string, 
-        std::unordered_map<std::string, std::vector<uint32_t>>> field_index;
+    std::unordered_map<std::string, offsets_facet_hashes_t> field_index;
     int64_t points;
-
-    std::map<std::string, std::vector<uint32_t>> facet_hashes;
 
     Option<bool> indexed;               // indicates if the indexing operation was a success
 
@@ -306,8 +308,6 @@ private:
     // geo_array_field => (seq_id => values) used for exact filtering of geo array records
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
 
-    spp::sparse_hash_map<std::string, posting_list_t*> facet_hash_index;
-
     facet_index_t* facet_index_v4 = nullptr;
   
     // sort_field => (seq_id => value)
@@ -332,8 +332,6 @@ private:
     std::vector<char> token_separators;
 
     StringUtils string_utils;
-
-    std::atomic_uint64_t aggragate_docs_count;
 
     // used as sentinels
 
@@ -489,12 +487,13 @@ private:
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
-    static void tokenize_string(const std::string& text, bool is_facet, const field& a_field,
+    static void tokenize_string(const std::string& text,
+                                const field& a_field,
                                 const std::vector<char>& symbols_to_index,
                                 const std::vector<char>& token_separators,
                                 std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets);
 
-    static void tokenize_string_array(const std::vector<std::string>& strings, bool is_facet,
+    static void tokenize_string_array(const std::vector<std::string>& strings,
                                       const field& a_field,
                                       const std::vector<char>& symbols_to_index,
                                       const std::vector<char>& token_separators,
@@ -522,8 +521,7 @@ private:
 
     void initialize_facet_indexes(const field& facet_field);
      
-    void create_facet_hash_index(const field& facet_field);
-    static Option<bool> batch_embed_fields(std::vector<nlohmann::json*>& documents, 
+    static Option<bool> batch_embed_fields(std::vector<nlohmann::json*>& documents,
                                        const tsl::htrie_map<char, field>& embedding_fields,
                                        const tsl::htrie_map<char, field> & search_schema);
     
@@ -609,8 +607,7 @@ public:
     static void compute_token_offsets_facets(index_record& record,
                                              const tsl::htrie_map<char, field>& search_schema,
                                              const std::vector<char>& local_token_separators,
-                                             const std::vector<char>& local_symbols_to_index,
-                                             std::map<std::string, std::vector<uint32_t>>& facet_hashes);
+                                             const std::vector<char>& local_symbols_to_index);
 
     static void scrub_reindex_doc(const tsl::htrie_map<char, field>& search_schema,
                                   nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc);
@@ -676,8 +673,7 @@ public:
                                      const std::vector<char>& symbols_to_index,
                                      const bool do_validation);
 
-    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch, 
-                                std::map<std::string, std::vector<uint32_t>>& facet_hashes);
+    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
 
     template<class T>
     void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);

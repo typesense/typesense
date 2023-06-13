@@ -78,9 +78,9 @@ public:
                   size_t& result_ids_len,
                   uint32_t*& result_ids) const;
     
-    size_t intersect(const uint32_t* result_ids, int result_id_len,
-        int max_facet_count, std::map<int64_t, uint32_t>& found, 
-        bool is_wildcard_no_filter_query);
+    size_t intersect(const uint32_t* result_ids, size_t result_id_len,
+                     size_t max_facet_count, std::map<int64_t, uint32_t>& found,
+                     bool is_wildcard_no_filter_query);
     
     size_t counter_list_size() const;
 

@@ -24,7 +24,7 @@ void num_tree_t::insert(int64_t value, uint32_t id, bool is_facet) {
             count_list node(value, facet_count); 
             
             auto ind = 0;
-            
+            // FIXME
             for(; ind < counter_list.size(); ++ind) {
                 if(counter_list[ind].facet_value == value) {
                     counter_list[ind].count = facet_count;
@@ -392,12 +392,12 @@ num_tree_t::~num_tree_t() {
     }
 }
 
-size_t num_tree_t::intersect(const uint32_t* result_ids, int result_ids_len, int max_facet_count, 
-        std::map<int64_t, uint32_t>& found, bool is_wildcard_no_filter_query) {
+size_t num_tree_t::intersect(const uint32_t* result_ids, size_t result_ids_len, size_t max_facet_count,
+                             std::map<int64_t, uint32_t>& found, bool is_wildcard_no_filter_query) {
     //LOG (INFO) << "intersecting field " << field;
    
     // LOG (INFO) << "int64map size " << int64map.size() 
-    //     << " , counter_list size " << counter_list.size();
+    //     << " , counts size " << counts.size();
     
     std::vector<uint32_t> id_list;
     for(const auto& counter_list_it : counter_list) {
@@ -411,7 +411,7 @@ size_t num_tree_t::intersect(const uint32_t* result_ids, int result_ids_len, int
             auto ids = int64map.at(counter_list_it.facet_value);
             ids_t::uncompress(ids, id_list);
             const auto ids_len = id_list.size();
-            for(int i = 0; i < result_ids_len; ++i) {
+            for(size_t i = 0; i < result_ids_len; ++i) {
                 uint32_t* out = nullptr;
                 count = ArrayUtils::and_scalar(id_list.data(), id_list.size(),
                     result_ids, result_ids_len, &out);
@@ -445,7 +445,7 @@ size_t num_tree_t::get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& 
         auto ids = int64map_it->second;
         ids_t::uncompress(ids, id_list);
 
-        //emplacing seq_id=>count_index
+        // emplacing seq_id => facet_id
         for(const auto& id : id_list) {
             seqid_countIndexes[id].emplace_back(int64map_it->first);
         }
