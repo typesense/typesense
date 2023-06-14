@@ -169,4 +169,4 @@ Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string&
 void init_api(uint32_t cache_num_entries);
 
 
-bool proxy_embedding(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

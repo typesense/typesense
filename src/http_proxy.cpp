@@ -10,13 +10,12 @@ HttpProxy::HttpProxy() : cache(30s){
 
 http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& method, const std::string& body, const std::unordered_map<std::string, std::string>& headers) {
     // check if url is in cache
-    std::string key;
-    key += url;
-    key += method;
-    key += body;
+    uint64_t key = StringUtils::hash_wy(url.c_str(), url.size());
+    key = StringUtils::hash_combine(key, StringUtils::hash_wy(method.c_str(), method.size()));
+    key = StringUtils::hash_combine(key, StringUtils::hash_wy(body.c_str(), body.size()));
     for (auto& header : headers) {
-        key += header.first;
-        key += header.second;
+        key = StringUtils::hash_combine(key, StringUtils::hash_wy(header.first.c_str(), header.first.size()));
+        key = StringUtils::hash_combine(key, StringUtils::hash_wy(header.second.c_str(), header.second.size()));
     }
     if (cache.contains(key)) {
         return cache[key];
@@ -24,6 +23,10 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
     // if not, make http request
     HttpClient& client = HttpClient::get_instance();
     http_proxy_res_t res;
+
+    for (auto& header : headers) {
+        LOG(INFO) << header.first << ": " << header.second;
+    }
 
     if(method == "GET") {
         res.status_code = client.get_response(url, res.body, res.headers, headers);

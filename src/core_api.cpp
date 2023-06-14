@@ -2139,7 +2139,7 @@ bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared
 }
 
 
-bool proxy_embedding(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     HttpProxy& proxy = HttpProxy::get_instance();
 
     nlohmann::json req_json;
@@ -2159,9 +2159,7 @@ bool proxy_embedding(const std::shared_ptr<http_req>& req, const std::shared_ptr
         body = req_json["body"].get<std::string>();
         url = req_json["url"].get<std::string>();
         method = req_json["method"].get<std::string>();
-        for(auto& header: req_json["headers"].items()) {
-            headers[header.key()] = header.value().get<std::string>();
-        }
+        headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
@@ -2171,7 +2169,8 @@ bool proxy_embedding(const std::shared_ptr<http_req>& req, const std::shared_ptr
     auto response = proxy.send(url, method, body, headers);
     
     if(response.status_code != 200) {
-        res->set(response.status_code, response.body);
+        int code = response.status_code;
+        res->set_body(code, response.body);
         return false;
     }
 

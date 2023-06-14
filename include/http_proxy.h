@@ -39,5 +39,5 @@ class HttpProxy {
 
 
         // lru cache for http requests
-        LRU::TimedCache<std::string, http_proxy_res_t> cache;
+        LRU::TimedCache<uint64_t, http_proxy_res_t> cache;
 };

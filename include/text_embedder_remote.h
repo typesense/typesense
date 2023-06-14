@@ -18,7 +18,7 @@ class RemoteEmbedder {
     public:
         virtual Option<std::vector<float>> Embed(const std::string& text) = 0;
         virtual Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) = 0;
-        static void set_raft_server(ReplicationState* rs) {
+        static void init(ReplicationState* rs) {
             raft_server = rs;
         }
 

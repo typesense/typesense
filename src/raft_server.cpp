@@ -219,15 +219,6 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         return write_to_leader(request, response);
     }
 
-    route_path* rpath;
-    bool found = server->get_route(request->route_hash, &rpath);
-    found = found && rpath->handler == proxy_embedding;
-    if(found && !node->is_leader()) {
-        response->set_500("Proxy embedding is only supported on leader.");
-        auto req_res = new async_req_res_t(request, response, true);
-        return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
-    }
-
     // Serialize request to replicated WAL so that all the nodes in the group receive it as well.
     // NOTE: actual write must be done only on the `on_apply` method to maintain consistency.
 

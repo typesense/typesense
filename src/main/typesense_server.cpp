@@ -100,7 +100,7 @@ void master_server_routes() {
     server->post("/config", post_config, false, false);
 
     // for proxying remote embedders
-    server->post("/proxy", proxy_embedding);
+    server->post("/proxy", post_proxy);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;

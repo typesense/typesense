@@ -19,10 +19,7 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
     req_body["method"] = method;
     req_body["url"] = url;
     req_body["body"] = body;
-    req_body["headers"] = nlohmann::json::object();
-    for(auto& header : req_headers) {
-        req_body["headers"][header.first] = header.second;
-    }
+    req_body["headers"] = req_headers;
     return HttpClient::get_instance().post_response(leader_url, req_body.dump(), res_body, headers, {}, 10000, true);
 }
 
