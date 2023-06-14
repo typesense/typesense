@@ -78,7 +78,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             art_tree_init(t);
             search_index.emplace(a_field.name, t);
         } else if(a_field.is_geopoint()) {
-            geo_range_index.emplace(a_field.name, new NumericTrie(64));
+            geo_range_index.emplace(a_field.name, new NumericTrie());
 
             if(!a_field.is_single_geopoint()) {
                 spp::sparse_hash_map<uint32_t, int64_t*> * doc_to_geos = new spp::sparse_hash_map<uint32_t, int64_t*>();
@@ -5633,7 +5633,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
                 art_tree_init(t);
                 search_index.emplace(new_field.name, t);
             } else if(new_field.is_geopoint()) {
-                geo_range_index.emplace(new_field.name, new NumericTrie(64));
+                geo_range_index.emplace(new_field.name, new NumericTrie());
                 if(!new_field.is_single_geopoint()) {
                     auto geo_array_map = new spp::sparse_hash_map<uint32_t, int64_t*>();
                     geo_array_index.emplace(new_field.name, geo_array_map);
