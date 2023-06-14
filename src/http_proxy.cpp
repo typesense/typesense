@@ -24,10 +24,6 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
     HttpClient& client = HttpClient::get_instance();
     http_proxy_res_t res;
 
-    for (auto& header : headers) {
-        LOG(INFO) << header.first << ": " << header.second;
-    }
-
     if(method == "GET") {
         res.status_code = client.get_response(url, res.body, res.headers, headers);
     } else if(method == "POST") {
