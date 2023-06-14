@@ -415,8 +415,9 @@ inline int get_index(const int64_t& value, const char& level, const char& max_le
     return (value >> (8 * (max_level - level))) & 0xFF;
 }
 
-inline int get_geopoint_index(const uint64_t& cell_id, const char& level, const char& max_level) {
-    return (cell_id >> (8 * (max_level - level))) & 0xFF;
+inline int get_geopoint_index(const uint64_t& cell_id, const char& level) {
+    // Doing 8-level since cell_id is a 64 bit number.
+    return (cell_id >> (8 * (8 - level))) & 0xFF;
 }
 
 void NumericTrie::Node::insert_helper(const int64_t& value, const uint32_t& seq_id, char& level, const char& max_level) {
@@ -459,7 +460,7 @@ void NumericTrie::Node::insert_geopoint_helper(const uint64_t& cell_id, const ui
             children = new NumericTrie::Node* [EXPANSE]{nullptr};
         }
 
-        auto index = get_geopoint_index(cell_id, level, max_level);
+        auto index = get_geopoint_index(cell_id, level);
         if (children[index] == nullptr) {
             children[index] = new NumericTrie::Node();
         }
@@ -472,7 +473,7 @@ char get_max_search_level(const uint64_t& cell_id, const char& max_level) {
     // For cell id 0x47E66C3000000000, we only have to prefix match the top four bytes since rest of the bytes are 0.
     // So the max search level would be 4 in this case.
 
-    uint64_t mask = 0xff;
+    auto mask = (uint64_t) 0xFF << (8 * (8 - max_level)); // We're only indexing top 8-max_level bytes.
     char i = max_level;
     while (((cell_id & mask) == 0) && --i > 0) {
         mask <<= 8;
@@ -485,7 +486,7 @@ void NumericTrie::Node::search_geopoints_helper(const uint64_t& cell_id, const c
                                                 std::set<Node*>& matches) {
     char level = 1;
     Node* root = this;
-    auto index = get_geopoint_index(cell_id, level, max_index_level);
+    auto index = get_geopoint_index(cell_id, level);
     auto max_search_level = get_max_search_level(cell_id, max_index_level);
 
     while (level < max_search_level) {
@@ -494,7 +495,7 @@ void NumericTrie::Node::search_geopoints_helper(const uint64_t& cell_id, const c
         }
 
         root = root->children[index];
-        index = get_geopoint_index(cell_id, ++level, max_index_level);
+        index = get_geopoint_index(cell_id, ++level);
     }
 
     matches.insert(root);
@@ -523,7 +524,7 @@ void NumericTrie::Node::search_geopoints(const std::vector<uint64_t>& cell_ids, 
 void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, const char& max_level) {
     char level = 1;
     Node* root = this;
-    auto index = get_geopoint_index(cell_id, level, max_level);
+    auto index = get_geopoint_index(cell_id, level);
 
     while (level < max_level) {
         root->seq_ids.remove_value(id);
@@ -533,9 +534,10 @@ void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, co
         }
 
         root = root->children[index];
-        index = get_geopoint_index(cell_id, ++level, max_level);
+        index = get_geopoint_index(cell_id, ++level);
     }
 
+    root->seq_ids.remove_value(id);
     if (root->children != nullptr || root->children[index] != nullptr) {
         delete root->children[index];
         root->children[index] = nullptr;

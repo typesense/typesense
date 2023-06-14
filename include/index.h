@@ -307,8 +307,6 @@ private:
 
     spp::sparse_hash_map<std::string, NumericTrie*> geo_range_index;
 
-//    spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, std::vector<uint32_t>>*> geopoint_index;
-
     // geo_array_field => (seq_id => values) used for exact filtering of geo array records
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
 
