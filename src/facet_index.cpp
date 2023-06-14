@@ -55,30 +55,26 @@ void facet_index_t::insert(const std::string& field_name, bool is_string,
                 if(facet_index.has_value_index) {
                     count_list.emplace_back(fvalue.facet_value, seq_ids.size(), facet_id);
                     fis.facet_count_it = std::prev(count_list.end());
-                    if(is_string) {
-                        fis.seq_ids = SET_COMPACT_IDS(compact_id_list_t::create(seq_ids.size(), seq_ids));
-                    }
+                    fis.seq_ids = SET_COMPACT_IDS(compact_id_list_t::create(seq_ids.size(), seq_ids));
                 }
 
                 fvalue_index.emplace(fvalue.facet_value, fis);
             } else if(facet_index.has_value_index) {
-                if(is_string) {
-                    for(const auto id : seq_ids) {
-                        ids_t::upsert(fvalue_index_it->seq_ids, id);
-                    }
+                for(const auto id : seq_ids) {
+                    ids_t::upsert(fvalue_index_it->seq_ids, id);
+                }
 
-                    auto facet_count_it = fvalue_index_it->facet_count_it;
+                auto facet_count_it = fvalue_index_it->facet_count_it;
 
-                    if(facet_count_it->facet_id == facet_id) {
-                        facet_count_it->count = ids_t::num_ids(fvalue_index_it->seq_ids);
-                        auto curr = facet_count_it;
-                        while (curr != count_list.begin() && std::prev(curr)->count < curr->count) {
-                            count_list.splice(curr, count_list, std::prev(curr));  // swaps list nodes
-                            curr--;
-                        }
-                    } else {
-                        LOG(ERROR) << "Wrong reference stored for facet " << fvalue.facet_value << " with facet_id " << facet_id;
+                if(facet_count_it->facet_id == facet_id) {
+                    facet_count_it->count = ids_t::num_ids(fvalue_index_it->seq_ids);
+                    auto curr = facet_count_it;
+                    while (curr != count_list.begin() && std::prev(curr)->count < curr->count) {
+                        count_list.splice(curr, count_list, std::prev(curr));  // swaps list nodes
+                        curr--;
                     }
+                } else {
+                    LOG(ERROR) << "Wrong reference stored for facet " << fvalue.facet_value << " with facet_id " << facet_id;
                 }
             }
 
@@ -162,27 +158,28 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
     const auto& facet_index_map = facet_field_it->second.fvalue_seq_ids;
     const auto& counter_list = facet_field_it->second.counts;
 
-    // LOG (INFO) << "fvalue_seq_ids size " << fvalue_seq_ids.size()
-    //     << " , counts size " << counts.size();
-    
+     //LOG(INFO) << "fvalue_seq_ids size " << facet_index_map.size() << " , counts size " << counter_list.size();
+
     size_t max_facets = std::min((size_t)2 * max_facet_count, counter_list.size());
     std::vector<uint32_t> id_list;
     for(const auto& facet_count : counter_list) {
-        // LOG (INFO) << "checking ids in facet_value " << counter_list_it.facet_value 
-        //   << " having total count " << counter_list_it.count;
+         //LOG(INFO) << "checking ids in facet_value " << facet_count.facet_value << " having total count "
+         //           << facet_count.count << ", is_wildcard_no_filter_query: " << is_wildcard_no_filter_query;
         uint32_t count = 0;
 
         if(is_wildcard_no_filter_query) {
             count = facet_count.count;
         } else {
             auto ids = facet_index_map.at(facet_count.facet_value).seq_ids;
-            ids_t::uncompress(ids, id_list);
-            for(size_t i = 0; i < result_ids_len; ++i) {
-                uint32_t* out = nullptr;
-                count = ArrayUtils::and_scalar(id_list.data(), id_list.size(),
-                    result_ids, result_ids_len, &out);
-                delete[] out;
+            if(!ids) {
+                continue;
             }
+
+            ids_t::uncompress(ids, id_list);
+            uint32_t* out = nullptr;
+            count = ArrayUtils::and_scalar(id_list.data(), id_list.size(), result_ids, result_ids_len, &out);
+            delete[] out;
+
             id_list.clear();
         }
 
@@ -230,8 +227,7 @@ size_t facet_index_t::get_facet_indexes(const std::string& field_name,
 }
 
 void facet_index_t::handle_index_change(const std::string& field_name, size_t total_num_docs,
-                                        size_t facet_index_threshold, size_t facet_count,
-                                        spp::sparse_hash_map<std::string, num_tree_t*>& numerical_index) {
+                                        size_t facet_index_threshold, size_t facet_count) {
 
     // Low cardinality fields will have only value based facet index. Once a field becomes a high cardinality
     // field (exceeding FACET_INDEX_THRESHOLD), we will create a hash based index and populate it.
@@ -251,16 +247,6 @@ void facet_index_t::handle_index_change(const std::string& field_name, size_t to
         }
 
         seq_id_index_map.clear();
-
-        auto numerical_index_it = numerical_index.find(field_name);
-        if(numerical_index_it != numerical_index.end()) {
-            auto num_tree = numerical_index_it->second;
-            if(num_tree->get_facet_indexes(seq_id_index_map)) {
-                for(const auto& kv : seq_id_index_map) {
-                    fhash_index->upsert(kv.first, kv.second);
-                }
-            }
-        }
 
         facet_index.has_hash_index = true;
 

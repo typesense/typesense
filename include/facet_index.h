@@ -132,8 +132,8 @@ public:
     
     void initialize(const std::string& field);
 
-    void handle_index_change(const std::string& field_name, size_t total_num_docs, size_t facet_index_threshold,
-                             size_t facet_count, spp::sparse_hash_map<std::string, num_tree_t*>& numerical_index);
+    void handle_index_change(const std::string& field_name, size_t total_num_docs,
+                             size_t facet_index_threshold, size_t facet_count);
 
     bool has_hash_index(const std::string& field_name);
 

@@ -636,24 +636,16 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
     // b) `afield` value could be empty
 
     // non-geo faceted field should be indexed as faceted string field as well
-    bool non_string_facet_field = (afield.facet && !afield.is_geopoint());
+    bool is_facet_field = (afield.facet && !afield.is_geopoint());
 
-    if(afield.is_string() || non_string_facet_field) {
+    if(afield.is_string() || is_facet_field) {
         std::unordered_map<std::string, std::vector<art_document>> token_to_doc_offsets;
         int64_t max_score = INT64_MIN;
 
         std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash> fvalue_to_seq_ids;
         std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
 
-        auto facet_count = 0;
-        if(afield.is_string()) {
-            facet_count = facet_index_v4->get_facet_count(afield.name);
-        } else {
-            auto numerical_index_it = numerical_index.find(afield.name);
-            if(numerical_index_it != numerical_index.end()) {
-                facet_count = numerical_index_it->second->counter_list_size();
-            }
-        }
+        auto facet_count = facet_index_v4->get_facet_count(afield.name);
 
 #ifdef TEST_BUILD
         facet_count = FACET_INDEX_THRESHOLD + 1;
@@ -661,8 +653,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
         if(afield.facet) {
             size_t total_num_docs = seq_ids->num_ids();
-            facet_index_v4->handle_index_change(afield.name, total_num_docs, FACET_INDEX_THRESHOLD, facet_count,
-                                                numerical_index);
+            facet_index_v4->handle_index_change(afield.name, total_num_docs, FACET_INDEX_THRESHOLD, facet_count);
         }
 
         for(const auto& record: iter_batch) {
@@ -706,13 +697,14 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         } else if(afield.type == field_types::FLOAT_ARRAY) {
                             float raw_val = field_values[i].get<float>();
                             auto fhash = reinterpret_cast<uint32_t&>(raw_val);
-                            facet_value_id_t facet_value_id(std::to_string(raw_val), fhash);
+                            facet_value_id_t facet_value_id(StringUtils::float_to_str(raw_val), fhash);
                             fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
                             seq_id_to_fvalues[seq_id].push_back(facet_value_id);
                         } else if(afield.type == field_types::BOOL_ARRAY) {
                             bool raw_val = field_values[i].get<bool>();
                             auto fhash = (uint32_t)raw_val;
-                            facet_value_id_t facet_value_id(std::to_string(raw_val), fhash);
+                            auto str_val = (raw_val == 1) ? "true" : "false";
+                            facet_value_id_t facet_value_id(str_val, fhash);
                             fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
                             seq_id_to_fvalues[seq_id].push_back(facet_value_id);
                         }
@@ -740,14 +732,15 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     else if(afield.type == field_types::FLOAT) {
                         float raw_val = document[afield.name].get<float>();
                         auto fhash = reinterpret_cast<uint32_t&>(raw_val);
-                        facet_value_id_t facet_value_id(std::to_string(raw_val), fhash);
+                        facet_value_id_t facet_value_id(StringUtils::float_to_str(raw_val), fhash);
                         fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
                         seq_id_to_fvalues[seq_id].push_back(facet_value_id);
                     }
                     else if(afield.type == field_types::BOOL) {
                         bool raw_val = document[afield.name].get<bool>();
                         auto fhash = (uint32_t)raw_val;
-                        facet_value_id_t facet_value_id(std::to_string(raw_val), fhash);
+                        auto str_val = (raw_val == 1) ? "true" : "false";
+                        facet_value_id_t facet_value_id(str_val, fhash);
                         fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
                         seq_id_to_fvalues[seq_id].push_back(facet_value_id);
                     }
@@ -1228,18 +1221,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
         size_t mod_value = 100 / facet_sample_percent;
 
-        auto num_facet_values = 0;
-        
-        if(facet_field.is_string()) {
-            num_facet_values = facet_index_v4->get_facet_count(a_facet.field_name);
-        } else {
-            auto numerical_index_it = numerical_index.find(a_facet.field_name);
-            if(numerical_index_it != numerical_index.end()) {
-                num_facet_values = numerical_index_it->second->counter_list_size();
-            } else {
-                LOG(ERROR) << "facet " << a_facet.field_name << " not found in numerical index";
-            }
-        }
+        auto num_facet_values = facet_index_v4->get_facet_count(facet_field.name);
 
         bool use_hashes = false;
 
@@ -1253,36 +1235,17 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         use_hashes = false;
 #endif
         bool is_wildcard_no_filter_query = is_wildcard_query && no_filters_provided;
-        bool facet_hash_index_exists = facet_index_v4->has_hash_index(a_facet.field_name);
+        bool facet_hash_index_exists = facet_index_v4->has_hash_index(facet_field.name);
 
         if((num_facet_values && ((!facet_hash_index_exists || is_wildcard_no_filter_query
             || num_facet_values > 50000) && group_limit == 0) && !use_hashes) || use_facet_intersection) {
-            //LOG(INFO) << "Using intersection to find facets";
+            // LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
 
             std::map<std::string, uint32_t> facet_results;
 
-            if(facet_field.is_string()) {
-                facet_index_v4->intersect(a_facet.field_name, result_ids,
-                                          results_size, max_facet_count, facet_results, is_wildcard_no_filter_query);
-            } else {
-                std::map<int64_t, uint32_t> facet_counts;
-                numerical_index.at(a_facet.field_name)->intersect(result_ids, results_size, max_facet_count,
-                                                                  facet_counts, is_wildcard_no_filter_query);
-
-                for(const auto& kv : facet_counts) {
-                    std::string val;
-                    if(facet_field.is_float()) {
-                        val = StringUtils::float_to_str(int64_t_to_float(kv.first));
-                    } else if(facet_field.is_bool()) {
-                        val = kv.first == 1 ? "true" : "false";
-                    } else {
-                        val = std::to_string(kv.first);
-                    }
-
-                    facet_results[val] = kv.second;
-                }
-            }
+            facet_index_v4->intersect(facet_field.name, result_ids,
+                                      results_size, max_facet_count, facet_results, is_wildcard_no_filter_query);
 
             for(const auto& kv : facet_results) {
                 //range facet processing

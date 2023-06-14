@@ -382,76 +382,8 @@ size_t num_tree_t::size() {
     return int64map.size();
 }
 
-size_t num_tree_t::counter_list_size() const {
-    return counter_list.size();
-}
-
 num_tree_t::~num_tree_t() {
     for(auto& kv: int64map) {
         ids_t::destroy_list(kv.second);
     }
-}
-
-size_t num_tree_t::intersect(const uint32_t* result_ids, size_t result_ids_len, size_t max_facet_count,
-                             std::map<int64_t, uint32_t>& found, bool is_wildcard_no_filter_query) {
-    //LOG (INFO) << "intersecting field " << field;
-   
-    // LOG (INFO) << "int64map size " << int64map.size() 
-    //     << " , counts size " << counts.size();
-    
-    std::vector<uint32_t> id_list;
-    for(const auto& counter_list_it : counter_list) {
-        // LOG (INFO) << "checking ids in facet_value " << counter_list_it.facet_value 
-        //   << " having total count " << counter_list_it.count;
-        uint32_t count = 0;
-
-        if(is_wildcard_no_filter_query) {
-            count = counter_list_it.count;
-        } else {
-            auto ids = int64map.at(counter_list_it.facet_value);
-            ids_t::uncompress(ids, id_list);
-            const auto ids_len = id_list.size();
-            for(size_t i = 0; i < result_ids_len; ++i) {
-                uint32_t* out = nullptr;
-                count = ArrayUtils::and_scalar(id_list.data(), id_list.size(),
-                    result_ids, result_ids_len, &out);
-                delete[] out;
-            }
-            id_list.clear();
-        }
-
-        if(count) {
-            found[counter_list_it.facet_value] = count;
-            if(found.size() == max_facet_count) {
-                break;
-            }
-        }
-    }
-    
-    return found.size();
-}
-
-size_t num_tree_t::get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& seqid_countIndexes) {
-
-    //check if facet field   
-    if(counter_list.empty()) {
-        return 0;
-    }
-
-    std::vector<uint32_t> id_list;
-
-    for(auto int64map_it = int64map.begin(); int64map_it != int64map.end(); ++int64map_it) {
-
-        auto ids = int64map_it->second;
-        ids_t::uncompress(ids, id_list);
-
-        // emplacing seq_id => facet_id
-        for(const auto& id : id_list) {
-            seqid_countIndexes[id].emplace_back(int64map_it->first);
-        }
-
-        id_list.clear();
-    }
-
-    return seqid_countIndexes.size();
 }

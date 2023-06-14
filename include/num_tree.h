@@ -77,12 +77,5 @@ public:
                   uint32_t* const& context_ids,
                   size_t& result_ids_len,
                   uint32_t*& result_ids) const;
-    
-    size_t intersect(const uint32_t* result_ids, size_t result_id_len,
-                     size_t max_facet_count, std::map<int64_t, uint32_t>& found,
-                     bool is_wildcard_no_filter_query);
-    
-    size_t counter_list_size() const;
 
-    size_t get_facet_indexes(std::map<uint32_t, std::vector<uint32_t>>& seqid_countIndexes);
 };
