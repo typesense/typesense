@@ -16,6 +16,8 @@ class NumericTrie {
 
         void insert_geopoint_helper(const uint64_t& cell_id, const uint32_t& seq_id, char& level, const char& max_level);
 
+        void search_geopoints_helper(const uint64_t& cell_id, const char& max_index_level, std::set<Node*>& matches);
+
         void search_range_helper(const int64_t& low,const int64_t& high, const char& max_level,
                                  std::vector<Node*>& matches);
 
@@ -41,7 +43,8 @@ class NumericTrie {
 
         void insert_geopoint(const uint64_t& cell_id, const uint32_t& seq_id, const char& max_level);
 
-        void search_geopoint(const uint64_t& cell_id, const char& max_index_level, uint32_t*& ids, uint32_t& ids_length);
+        void search_geopoints(const std::vector<uint64_t>& cell_ids, const char& max_index_level,
+                              std::vector<uint32_t>& geo_result_ids);
 
         void delete_geopoint(const uint64_t& cell_id, uint32_t id, const char& max_level);
 
@@ -120,7 +123,7 @@ public:
 
     void insert_geopoint(const uint64_t& cell_id, const uint32_t& seq_id);
 
-    void search_geopoint(const uint64_t& cell_id, uint32_t*& ids, uint32_t& ids_length);
+    void search_geopoints(const std::vector<uint64_t>& cell_ids, std::vector<uint32_t>& geo_result_ids);
 
     void delete_geopoint(const uint64_t& cell_id, uint32_t id);
 
