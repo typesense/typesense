@@ -894,23 +894,13 @@ void filter_result_iterator_t::init() {
             S2RegionTermIndexer indexer(options);
             auto const& geo_range_index = index->geo_range_index.at(a_filter.field_name);
 
+            std::vector<uint64_t> cell_ids;
             for (const auto& term : indexer.GetQueryTerms(*query_region, "")) {
                 auto cell = S2CellId::FromToken(term);
-                uint32_t* geo_ids = nullptr;
-                uint32_t geo_ids_length = 0;
-
-                geo_range_index->search_geopoint(cell.id(), geo_ids, geo_ids_length);
-
-                geo_result_ids.reserve(geo_result_ids.size() + geo_ids_length);
-                for (uint32_t i = 0; i < geo_ids_length; i++) {
-                    geo_result_ids.push_back(geo_ids[i]);
-                }
-
-                delete [] geo_ids;
+                cell_ids.push_back(cell.id());
             }
 
-            gfx::timsort(geo_result_ids.begin(), geo_result_ids.end());
-            geo_result_ids.erase(std::unique( geo_result_ids.begin(), geo_result_ids.end() ), geo_result_ids.end());
+            geo_range_index->search_geopoints(cell_ids, geo_result_ids);
 
             // Skip exact filtering step if query radius is greater than the threshold.
             if (fi < a_filter.params.size() &&

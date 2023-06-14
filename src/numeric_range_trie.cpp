@@ -1,4 +1,5 @@
 #include <timsort.hpp>
+#include <set>
 #include "numeric_range_trie_test.h"
 #include "array_utils.h"
 
@@ -26,12 +27,12 @@ void NumericTrie::insert_geopoint(const uint64_t& cell_id, const uint32_t& seq_i
     positive_trie->insert_geopoint(cell_id, seq_id, max_level);
 }
 
-void NumericTrie::search_geopoint(const uint64_t& cell_id, uint32_t*& ids, uint32_t& ids_length) {
+void NumericTrie::search_geopoints(const std::vector<uint64_t>& cell_ids, std::vector<uint32_t>& geo_result_ids) {
     if (positive_trie == nullptr) {
         return;
     }
 
-    positive_trie->search_geopoint(cell_id, max_level, ids, ids_length);
+    positive_trie->search_geopoints(cell_ids, max_level, geo_result_ids);
 }
 
 void NumericTrie::delete_geopoint(const uint64_t& cell_id, uint32_t id) {
@@ -480,8 +481,8 @@ char get_max_search_level(const uint64_t& cell_id, const char& max_level) {
     return i;
 }
 
-void NumericTrie::Node::search_geopoint(const uint64_t& cell_id, const char& max_index_level,
-                                        uint32_t*& ids, uint32_t& ids_length) {
+void NumericTrie::Node::search_geopoints_helper(const uint64_t& cell_id, const char& max_index_level,
+                                                std::set<Node*>& matches) {
     char level = 1;
     Node* root = this;
     auto index = get_geopoint_index(cell_id, level, max_index_level);
@@ -496,7 +497,27 @@ void NumericTrie::Node::search_geopoint(const uint64_t& cell_id, const char& max
         index = get_geopoint_index(cell_id, ++level, max_index_level);
     }
 
-    root->get_all_ids(ids, ids_length);
+    matches.insert(root);
+}
+
+void NumericTrie::Node::search_geopoints(const std::vector<uint64_t>& cell_ids, const char& max_index_level,
+                                         std::vector<uint32_t>& geo_result_ids) {
+    std::set<Node*> matches;
+    for (const auto &cell_id: cell_ids) {
+        search_geopoints_helper(cell_id, max_index_level, matches);
+    }
+
+    for (auto const& match: matches) {
+        auto const& m_seq_ids = match->seq_ids.uncompress();
+        for (uint32_t i = 0; i < match->seq_ids.getLength(); i++) {
+            geo_result_ids.push_back(m_seq_ids[i]);
+        }
+
+        delete [] m_seq_ids;
+    }
+
+    gfx::timsort(geo_result_ids.begin(), geo_result_ids.end());
+    geo_result_ids.erase(unique(geo_result_ids.begin(), geo_result_ids.end()), geo_result_ids.end());
 }
 
 void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, const char& max_level) {
