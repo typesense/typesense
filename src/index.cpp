@@ -4549,6 +4549,7 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
                             std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                             const std::vector<size_t>& geopoint_indices) const {
 
+    filter_result_iterator->compute_result();
     auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
 
     uint32_t token_bits = 0;

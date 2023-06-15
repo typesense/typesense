@@ -1528,3 +1528,131 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& filter_
     root_iterator->seq_id = left_it->seq_id;
     filter_result_iterator = root_iterator;
 }
+
+void filter_result_iterator_t::compute_result() {
+    if (filter_node->isOperator) {
+        left_it->compute_result();
+        right_it->compute_result();
+
+        if (filter_node->filter_operator == AND) {
+            filter_result_t::and_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+        } else {
+            filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
+        }
+
+        seq_id = filter_result.docs[result_index];
+        is_filter_result_initialized = true;
+        approx_filter_ids_length = filter_result.count;
+        return;
+    }
+
+    // Only string field filter needs to be evaluated.
+    if (is_filter_result_initialized || index->search_index.count(filter_node->filter_exp.field_name) == 0) {
+        return;
+    }
+
+    auto const& a_filter = filter_node->filter_exp;
+    auto const& f = index->search_schema.at(a_filter.field_name);
+    art_tree* t = index->search_index.at(a_filter.field_name);
+
+    uint32_t* or_ids = nullptr;
+    size_t or_ids_size = 0;
+
+    // aggregates IDs across array of filter values and reduces excessive ORing
+    std::vector<uint32_t> f_id_buff;
+
+    for (const std::string& filter_value : a_filter.values) {
+        std::vector<void*> posting_lists;
+
+        // there could be multiple tokens in a filter value, which we have to treat as ANDs
+        // e.g. country: South Africa
+        Tokenizer tokenizer(filter_value, true, false, f.locale, index->symbols_to_index, index->token_separators);
+
+        std::string str_token;
+        size_t token_index = 0;
+        std::vector<std::string> str_tokens;
+
+        while (tokenizer.next(str_token, token_index)) {
+            str_tokens.push_back(str_token);
+
+            art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
+                                                     str_token.length()+1);
+            if (leaf == nullptr) {
+                continue;
+            }
+
+            posting_lists.push_back(leaf->values);
+        }
+
+        if (posting_lists.size() != str_tokens.size()) {
+            continue;
+        }
+
+        if(a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
+            // needs intersection + exact matching (unlike CONTAINS)
+            std::vector<uint32_t> result_id_vec;
+            posting_t::intersect(posting_lists, result_id_vec);
+
+            if (result_id_vec.empty()) {
+                continue;
+            }
+
+            // need to do exact match
+            uint32_t* exact_str_ids = new uint32_t[result_id_vec.size()];
+            size_t exact_str_ids_size = 0;
+            std::unique_ptr<uint32_t[]> exact_str_ids_guard(exact_str_ids);
+
+            posting_t::get_exact_matches(posting_lists, f.is_array(), result_id_vec.data(), result_id_vec.size(),
+                                         exact_str_ids, exact_str_ids_size);
+
+            if (exact_str_ids_size == 0) {
+                continue;
+            }
+
+            for (size_t ei = 0; ei < exact_str_ids_size; ei++) {
+                f_id_buff.push_back(exact_str_ids[ei]);
+            }
+        } else {
+            // CONTAINS
+            size_t before_size = f_id_buff.size();
+            posting_t::intersect(posting_lists, f_id_buff);
+            if (f_id_buff.size() == before_size) {
+                continue;
+            }
+        }
+
+        if (f_id_buff.size() > 100000 || a_filter.values.size() == 1) {
+            gfx::timsort(f_id_buff.begin(), f_id_buff.end());
+            f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+
+            uint32_t* out = nullptr;
+            or_ids_size = ArrayUtils::or_scalar(or_ids, or_ids_size, f_id_buff.data(), f_id_buff.size(), &out);
+            delete[] or_ids;
+            or_ids = out;
+            std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
+        }
+    }
+
+    if (!f_id_buff.empty()) {
+        gfx::timsort(f_id_buff.begin(), f_id_buff.end());
+        f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+
+        uint32_t* out = nullptr;
+        or_ids_size = ArrayUtils::or_scalar(or_ids, or_ids_size, f_id_buff.data(), f_id_buff.size(), &out);
+        delete[] or_ids;
+        or_ids = out;
+        std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
+    }
+
+    filter_result.docs = or_ids;
+    filter_result.count = or_ids_size;
+
+    if (a_filter.apply_not_equals) {
+        apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(), filter_result.docs, filter_result.count);
+    }
+
+    result_index = 0;
+    seq_id = filter_result.docs[result_index];
+    is_filter_result_initialized = true;
+    approx_filter_ids_length = filter_result.count;
+}
