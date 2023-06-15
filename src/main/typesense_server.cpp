@@ -98,6 +98,9 @@ void master_server_routes() {
     server->del("/limits/active/:id", del_throttle);
     server->del("/limits/exceeds/:id", del_exceed);
     server->post("/config", post_config, false, false);
+
+    // for proxying remote embedders
+    server->post("/proxy", post_proxy);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;

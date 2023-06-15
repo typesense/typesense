@@ -15,6 +15,7 @@
 #include "lru/lru.hpp"
 #include "ratelimit_manager.h"
 #include "event_manager.h"
+#include "http_proxy.h"
 
 using namespace std::chrono_literals;
 
@@ -2090,5 +2091,67 @@ bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared
     }
 
     res->set_200(R"({"ok": true)");
+    return true;
+}
+
+
+bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    HttpProxy& proxy = HttpProxy::get_instance();
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    std::string body, url, method;
+    std::unordered_map<std::string, std::string> headers;
+
+    if(req_json.count("url") == 0 || req_json.count("method") == 0) {
+        res->set_400("Missing required fields.");
+        return false;
+    }
+
+    if(!req_json["url"].is_string() || !req_json["method"].is_string() || req_json["url"].get<std::string>().empty() || req_json["method"].get<std::string>().empty()) {
+        res->set_400("URL and method must be non-empty strings.");
+        return false;
+    }
+
+    try {        
+        if(req_json.count("body") != 0 && !req_json["body"].is_string()) {
+            res->set_400("Body must be a string.");
+            return false;
+        }
+        if(req_json.count("headers") != 0 && !req_json["headers"].is_object()) {
+            res->set_400("Headers must be a JSON object.");
+            return false;
+        }
+        if(req_json.count("body")) {
+            body = req_json["body"].get<std::string>();
+        }
+        url = req_json["url"].get<std::string>();
+        method = req_json["method"].get<std::string>();
+        if(req_json.count("headers")) {
+            headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
+        }
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto response = proxy.send(url, method, body, headers);
+    
+    if(response.status_code != 200) {
+        int code = response.status_code;
+        res->set_body(code, response.body);
+        return false;
+    }
+
+    res->set_200(response.body);
     return true;
 }

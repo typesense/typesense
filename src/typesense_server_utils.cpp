@@ -453,6 +453,8 @@ int run_server(const Config & config, const std::string & version, void (*master
             AnalyticsManager::get_instance().run(&replication_state);
         });
 
+        RemoteEmbedder::init(&replication_state);
+
         std::string path_to_nodes = config.get_nodes();
         start_raft_server(replication_state, state_dir, path_to_nodes,
                           config.get_peering_address(),
