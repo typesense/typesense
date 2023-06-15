@@ -2155,11 +2155,33 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     std::string body, url, method;
     std::unordered_map<std::string, std::string> headers;
 
-    try {
-        body = req_json["body"].get<std::string>();
+    if(req_json.count("url") == 0 || req_json.count("method") == 0) {
+        res->set_400("Missing required fields.");
+        return false;
+    }
+
+    if(!req_json["url"].is_string() || !req_json["method"].is_string() || req_json["url"].get<std::string>().empty() || req_json["method"].get<std::string>().empty()) {
+        res->set_400("URL and method must be non-empty strings.");
+        return false;
+    }
+
+    try {        
+        if(req_json.count("body") != 0 && !req_json["body"].is_string()) {
+            res->set_400("Body must be a string.");
+            return false;
+        }
+        if(req_json.count("headers") != 0 && !req_json["headers"].is_object()) {
+            res->set_400("Headers must be a JSON object.");
+            return false;
+        }
+        if(req_json.count("body")) {
+            body = req_json["body"].get<std::string>();
+        }
         url = req_json["url"].get<std::string>();
         method = req_json["method"].get<std::string>();
-        headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
+        if(req_json.count("headers")) {
+            headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
+        }
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");

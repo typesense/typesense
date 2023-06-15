@@ -34,7 +34,9 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
         res.status_code = client.delete_response(url, res.body, res.headers);
     } else {
         res.status_code = 400;
-        res.body = "Invalid method: " + method;
+        nlohmann::json j;
+        j["message"] = "Parameter `method` must be one of GET, POST, PUT, DELETE.";
+        res.body =  j.dump();
     }
 
     // add to cache

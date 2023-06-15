@@ -13,6 +13,15 @@ Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& mo
 
 long RemoteEmbedder::call_remote_api(const std::string& method, const std::string& url, const std::string& body, std::string& res_body, 
                             std::map<std::string, std::string>& headers, const std::unordered_map<std::string, std::string>& req_headers) {
+    if(raft_server == nullptr) {
+        if(method == "GET") {
+            return HttpClient::get_instance().get_response(url, res_body, headers, req_headers, 10000, true);
+        } else if(method == "POST") {
+            return HttpClient::get_instance().post_response(url, body, res_body, headers, req_headers, 10000, true);
+        } else {
+            return 400;
+        }
+    }
     auto leader_url = raft_server->get_leader_url();
     leader_url += "proxy";
     nlohmann::json req_body;
