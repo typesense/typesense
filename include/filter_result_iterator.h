@@ -160,6 +160,9 @@ public:
     /// Returns the status of the initialization of iterator tree.
     Option<bool> init_status();
 
+    /// Recursively computes the result of each node and stores the final result in root node.
+    void compute_result();
+
     /// Returns a tri-state:
     ///     0: id is not valid
     ///     1: id is valid
