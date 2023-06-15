@@ -5423,6 +5423,11 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
                                              std::vector<int32_t>{document[field_name].get<int32_t>()} :
                                              document[field_name].get<std::vector<int32_t>>();
         for(int32_t value: values) {
+            if (search_field.range_index) {
+                auto const& trie = range_index.at(search_field.name);
+                trie->remove(value, seq_id);
+            }
+
             num_tree_t* num_tree = numerical_index.at(field_name);
             num_tree->remove(value, seq_id);
             if(search_field.facet) {
@@ -5434,6 +5439,11 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
                                              std::vector<int64_t>{document[field_name].get<int64_t>()} :
                                              document[field_name].get<std::vector<int64_t>>();
         for(int64_t value: values) {
+            if (search_field.range_index) {
+                auto const& trie = range_index.at(search_field.name);
+                trie->remove(value, seq_id);
+            }
+
             num_tree_t* num_tree = numerical_index.at(field_name);
             num_tree->remove(value, seq_id);
             if(search_field.facet) {
@@ -5448,8 +5458,14 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
                                            document[field_name].get<std::vector<float>>();
 
         for(float value: values) {
-            num_tree_t* num_tree = numerical_index.at(field_name);
             int64_t fintval = float_to_int64_t(value);
+
+            if (search_field.range_index) {
+                auto const& trie = range_index.at(search_field.name);
+                trie->remove(fintval, seq_id);
+            }
+
+            num_tree_t* num_tree = numerical_index.at(field_name);
             num_tree->remove(fintval, seq_id);
             if(search_field.facet) {
                 remove_facet_token(search_field, search_index, StringUtils::float_to_str(value), seq_id);
@@ -5641,6 +5657,10 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
             } else {
                 num_tree_t* num_tree = new num_tree_t;
                 numerical_index.emplace(new_field.name, num_tree);
+
+                if (new_field.range_index) {
+                    range_index.emplace(new_field.name, new NumericTrie(new_field.is_int32() ? 32 : 64));
+                }
             }
         }
 
@@ -5697,6 +5717,11 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
         } else {
             delete numerical_index[del_field.name];
             numerical_index.erase(del_field.name);
+
+            if (del_field.range_index) {
+                delete range_index[del_field.name];
+                range_index.erase(del_field.name);
+            }
         }
 
         if(del_field.is_sortable()) {

@@ -601,6 +601,75 @@ TEST_F(NumericRangeTrieTest, MultivalueData) {
     reset(ids, ids_length);
 }
 
+TEST_F(NumericRangeTrieTest, Remove) {
+    auto trie = new NumericTrie();
+    std::unique_ptr<NumericTrie> trie_guard(trie);
+    std::vector<std::pair<int32_t, uint32_t>> pairs = {
+            {-0x202020, 32},
+            {-32768, 5},
+            {-32768, 8},
+            {-24576, 32},
+            {-16384, 35},
+            {-8192, 43},
+            {0, 2},
+            {0, 49},
+            {1, 8},
+            {256, 91},
+            {8192, 49},
+            {16384, 56},
+            {24576, 58},
+            {32768, 91},
+            {0x202020, 35},
+    };
+
+    for (auto const& pair: pairs) {
+        trie->insert(pair.first, pair.second);
+    }
+
+    uint32_t* ids = nullptr;
+    uint32_t ids_length = 0;
+
+    trie->search_less_than(0, false, ids, ids_length);
+
+    std::vector<uint32_t> expected = {5, 8, 32, 35, 43};
+
+    ASSERT_EQ(5, ids_length);
+    for (uint32_t i = 0; i < ids_length; i++) {
+        ASSERT_EQ(expected[i], ids[i]);
+    }
+
+    trie->remove(-24576, 32);
+    trie->remove(-0x202020, 32);
+
+    reset(ids, ids_length);
+    trie->search_less_than(0, false, ids, ids_length);
+
+    expected = {5, 8, 35, 43};
+    ASSERT_EQ(4, ids_length);
+    for (uint32_t i = 0; i < ids_length; i++) {
+        ASSERT_EQ(expected[i], ids[i]);
+    }
+
+    reset(ids, ids_length);
+    trie->search_equal_to(0, ids, ids_length);
+
+    expected = {2, 49};
+    ASSERT_EQ(2, ids_length);
+    for (uint32_t i = 0; i < ids_length; i++) {
+        ASSERT_EQ(expected[i], ids[i]);
+    }
+
+    trie->remove(0, 2);
+
+    reset(ids, ids_length);
+    trie->search_equal_to(0, ids, ids_length);
+
+    ASSERT_EQ(1, ids_length);
+    ASSERT_EQ(49, ids[0]);
+
+    reset(ids, ids_length);
+}
+
 TEST_F(NumericRangeTrieTest, EmptyTrieOperations) {
     auto trie = new NumericTrie();
     std::unique_ptr<NumericTrie> trie_guard(trie);
@@ -657,6 +726,9 @@ TEST_F(NumericRangeTrieTest, EmptyTrieOperations) {
     ids_guard.reset(ids);
 
     ASSERT_EQ(0, ids_length);
+
+    trie->remove(15, 0);
+    trie->remove(-15, 0);
 }
 
 TEST_F(NumericRangeTrieTest, Integration) {
