@@ -41,9 +41,11 @@ class NumericTrie {
 
         void insert(const int64_t& cell_id, const uint32_t& seq_id, const char& max_level);
 
+        void remove(const int64_t& cell_id, const uint32_t& seq_id, const char& max_level);
+
         void insert_geopoint(const uint64_t& cell_id, const uint32_t& seq_id, const char& max_level);
 
-        void search_geopoints(const std::vector<uint64_t>& cell_ids, const char& max_index_level,
+        void search_geopoints(const std::vector<uint64_t>& cell_ids, const char& max_level,
                               std::vector<uint32_t>& geo_result_ids);
 
         void delete_geopoint(const uint64_t& cell_id, uint32_t id, const char& max_level);
@@ -120,6 +122,8 @@ public:
     };
 
     void insert(const int64_t& value, const uint32_t& seq_id);
+
+    void remove(const int64_t& value, const uint32_t& seq_id);
 
     void insert_geopoint(const uint64_t& cell_id, const uint32_t& seq_id);
 

@@ -19,6 +19,18 @@ void NumericTrie::insert(const int64_t& value, const uint32_t& seq_id) {
     }
 }
 
+void NumericTrie::remove(const int64_t& value, const uint32_t& seq_id) {
+    if ((value < 0 && negative_trie == nullptr) || (value >= 0 && positive_trie == nullptr)) {
+        return;
+    }
+
+    if (value < 0) {
+        negative_trie->remove(std::abs(value), seq_id, max_level);
+    } else {
+        positive_trie->remove(value, seq_id, max_level);
+    }
+}
+
 void NumericTrie::insert_geopoint(const uint64_t& cell_id, const uint32_t& seq_id) {
     if (positive_trie == nullptr) {
         positive_trie = new NumericTrie::Node();
@@ -420,6 +432,34 @@ inline int get_geopoint_index(const uint64_t& cell_id, const char& level) {
     return (cell_id >> (8 * (8 - level))) & 0xFF;
 }
 
+void NumericTrie::Node::remove(const int64_t& value, const uint32_t& id, const char& max_level) {
+    char level = 1;
+    Node* root = this;
+    auto index = get_index(value, level, max_level);
+
+    while (level < max_level) {
+        root->seq_ids.remove_value(id);
+
+        if (root->children == nullptr || root->children[index] == nullptr) {
+            return;
+        }
+
+        root = root->children[index];
+        index = get_index(value, ++level, max_level);
+    }
+
+    root->seq_ids.remove_value(id);
+    if (root->children != nullptr && root->children[index] != nullptr) {
+        auto& child = root->children[index];
+
+        child->seq_ids.remove_value(id);
+        if (child->seq_ids.getLength() == 0) {
+            delete child;
+            child = nullptr;
+        }
+    }
+}
+
 void NumericTrie::Node::insert_helper(const int64_t& value, const uint32_t& seq_id, char& level, const char& max_level) {
     if (level > max_level) {
         return;
@@ -501,11 +541,11 @@ void NumericTrie::Node::search_geopoints_helper(const uint64_t& cell_id, const c
     matches.insert(root);
 }
 
-void NumericTrie::Node::search_geopoints(const std::vector<uint64_t>& cell_ids, const char& max_index_level,
+void NumericTrie::Node::search_geopoints(const std::vector<uint64_t>& cell_ids, const char& max_level,
                                          std::vector<uint32_t>& geo_result_ids) {
     std::set<Node*> matches;
     for (const auto &cell_id: cell_ids) {
-        search_geopoints_helper(cell_id, max_index_level, matches);
+        search_geopoints_helper(cell_id, max_level, matches);
     }
 
     for (auto const& match: matches) {
@@ -538,9 +578,14 @@ void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, co
     }
 
     root->seq_ids.remove_value(id);
-    if (root->children != nullptr || root->children[index] != nullptr) {
-        delete root->children[index];
-        root->children[index] = nullptr;
+    if (root->children != nullptr && root->children[index] != nullptr) {
+        auto& child = root->children[index];
+
+        child->seq_ids.remove_value(id);
+        if (child->seq_ids.getLength() == 0) {
+            delete child;
+            child = nullptr;
+        }
     }
 }
 
