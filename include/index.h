@@ -188,6 +188,12 @@ struct search_args {
     };
 };
 
+enum facet_index_type_t {
+    HASH,
+    VALUE,
+    DETECT,
+};
+
 struct offsets_facet_hashes_t {
     // token to offsets
     std::unordered_map<std::string, std::vector<uint32_t>> offsets;
@@ -364,7 +370,7 @@ private:
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
                    const uint32_t* result_ids, size_t results_size,
                    int max_facet_count, bool is_wildcard_query, bool no_filters_provided,
-                   bool use_facet_intersection = false
+                   facet_index_type_t facet_index_type
                    ) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
@@ -621,7 +627,7 @@ public:
     // Public operations
 
     Option<bool> run_search(search_args* search_params, const std::string& collection_name,
-                            bool use_facet_intersection);
+                            facet_index_type_t facet_index_type);
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
@@ -646,7 +652,7 @@ public:
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, enable_t split_join_tokens,
                 const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
-                const std::string& collection_name, bool use_facet_intersection = false) const;
+                const std::string& collection_name, facet_index_type_t facet_index_type = DETECT) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name);
 
@@ -750,7 +756,7 @@ public:
                              const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                              const std::vector<std::string>& group_by_fields,
                              size_t max_candidates,
-                             std::vector<facet_info_t>& facet_infos, bool use_facet_intersection) const;
+                             std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
                                 std::vector<std::vector<std::string>>& resolved_queries) const;

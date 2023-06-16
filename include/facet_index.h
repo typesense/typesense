@@ -137,5 +137,7 @@ public:
 
     bool has_hash_index(const std::string& field_name);
 
+    bool has_value_index(const std::string& field_name);
+
     posting_list_t* get_facet_hash_index(const std::string& field_name);
 };

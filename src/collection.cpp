@@ -1078,7 +1078,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold,
                                   const size_t page_offset,
-                                  bool use_facet_intersection) const {
+                                  facet_index_type_t facet_index_type) const {
 
     std::shared_lock lock(mutex);
 
@@ -1543,7 +1543,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
-    auto search_op = index->run_search(search_params, name, use_facet_intersection);
+    auto search_op = index->run_search(search_params, name, facet_index_type);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();
