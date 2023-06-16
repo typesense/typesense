@@ -33,12 +33,6 @@ jobs:
           sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
           sudo update-alternatives --set c++ /usr/bin/g++
 
-      - name: Install cuda
-        uses: Jimver/cuda-toolkit@v0.2.10
-        id: cuda-toolkit
-        with:
-          cuda: '11.8.0'
-
       - name: Set up Bazel
         uses: bazelbuild/setup-bazelisk@v2
 
