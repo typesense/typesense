@@ -12,20 +12,20 @@ jobs:
 
       - name: Install dependencies
         run: |
-          add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          apt-get update
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
           
-          apt install -y g++-10 make git zlib1g-dev m4
+          sudo apt install -y g++-10 make git zlib1g-dev m4
           
           # Define the compiler
-          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
-          update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
           
-          update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
-          update-alternatives --set cc /usr/bin/gcc
+          sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
+          sudo update-alternatives --set cc /usr/bin/gcc
           
-          update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
-          update-alternatives --set c++ /usr/bin/g++
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
+          sudo update-alternatives --set c++ /usr/bin/g++
                     
           # Install CUDA
           
@@ -42,9 +42,9 @@ jobs:
           rm -rf cudnn*
           
           # Copy these to ~/.profile
-          export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/cuda/lib64"
-          export CUDA_HOME=/usr/local/cuda
-          export PATH="/usr/local/cuda/bin:$PATH"
+          echo "LD_LIBRARY_PATH=$(echo $LD_LIBRARY_PATH:/usr/local/cuda/lib64)" >> $GITHUB_ENV
+          echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV 
+          echo "PATH=$(echo /usr/local/cuda/bin:$PATH) >> $GITHUB_ENV
 
       - name: Set up Bazel
         uses: bazelbuild/setup-bazelisk@v2
