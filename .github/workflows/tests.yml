@@ -3,12 +3,48 @@ name: tests
 on: [push, pull_request]
 
 jobs:
-  build:
+  build_and_test:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          apt-get update
+          
+          apt install -y g++-10 make git zlib1g-dev m4
+          
+          # Define the compiler
+          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
+          update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
+          
+          update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
+          update-alternatives --set cc /usr/bin/gcc
+          
+          update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
+          update-alternatives --set c++ /usr/bin/g++
+                    
+          # Install CUDA
+          
+          wget https://developer.download.nvidia.com/compute/cuda/11.8.0/local_installers/cuda_11.8.0_520.61.05_linux.run
+          sh cuda_11.8.0_520.61.05_linux.run
+          rm cuda_11.8.0_520.61.05_linux.run
+          
+          # Install cudnn
+          tar -xf cudnn-linux-x86_64-8.9.2.26_cuda11-archive.tar.xz
+          mv cudnn-linux-x86_64-8.9.2.26_cuda11-archive cudnn
+          cp cudnn/include/cudnn*.h /usr/local/cuda/include
+          cp cudnn/lib/libcudnn* /usr/local/cuda/lib64
+          chmod a+r /usr/local/cuda/include/cudnn*.h /usr/local/cuda/lib64/libcudnn*
+          rm -rf cudnn*
+          
+          # Copy these to ~/.profile
+          export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/cuda/lib64"
+          export CUDA_HOME=/usr/local/cuda
+          export PATH="/usr/local/cuda/bin:$PATH"
 
       - name: Set up Bazel
         uses: bazelbuild/setup-bazelisk@v2
@@ -22,35 +58,11 @@ jobs:
       - name: Build
         run: bazel build //:typesense-server
 
+      - name: Run tests
+        run: bazel test //:typesense-test
+
       - name: Save build artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: build-artifacts
-          path: bazel-bin
-
-  test:
-    runs-on: ubuntu-latest
-
-    needs: build
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Bazel
-        uses: bazelbuild/setup-bazelisk@v2
-
-      - name: Mount bazel cache
-        uses: actions/cache@v3
-        with:
-          path: "~/.cache/bazel"
-          key: bazel
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: build-artifacts
-          path: bazel-bin
-
-      - name: Run tests
-        run: bazel test //:typesense-test
+          name: typesense-server
+          path: bazel-bin/typesense-server
