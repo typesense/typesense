@@ -27,6 +27,7 @@ This is a selection of sites and apps using Typesense.
 | [Grafikart](https://www.grafikart.fr/) | Learning resources library |
 | [Granthappura](https://gpura.org/) | A free-licensed digitized artifacts archive related to Kerala from multiple languages. [Github Link](https://github.com/indic-archive/omeka-typesense-search) |
 | [Have A Class](https://haveaclass.com/) | Find the perfect teacher online |
+| [Hem.com](https://hem.com) | A premium furniture brand for the auction houses of tomorrow |
 | [Iconduck](https://iconduck.com) | Site to search for open source icons |
 | [Instatus](https://instatus.com) | System Status Pages Platform |
 | [Job Ads Now](https://www.jobadsnow.com) | Job Ads Now is a jobs search engine focusing on the best candidate experience. Blazing fast search and filters by salary, location, bonus and more. You can also read the job highlights (TL;DR) for each job identified from the origina job post using AI | 
