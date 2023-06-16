@@ -676,6 +676,24 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCountOnSimilarStrings) {
     ASSERT_STREQ("India in England", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("England in India", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
 
+    // facet query
+    results = coll1->search("*", {"categories"}, "points:[25, 50]", facets, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "categories:india eng", 30UL, 4UL,
+                            "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {},
+                            4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                            7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                            "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_STREQ("India in England", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>India</mark> in <mark>Eng</mark>land", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_STREQ("England in India", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Eng</mark>land in <mark>India</mark>", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+
     collectionManager.drop_collection("coll1");
 }
 

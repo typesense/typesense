@@ -1225,7 +1225,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         }
 
         bool is_wildcard_no_filter_query = is_wildcard_query && no_filters_provided;
-        bool facet_hash_index_exists = facet_index_v4->has_hash_index(facet_field.name);
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
 
 #ifdef TEST_BUILD
@@ -1258,9 +1257,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                             const auto& searched_tokens = fquery_hashes_it->second;
                             auto facet_str = kv.first;
                             transform(facet_str.begin(), facet_str.end(), facet_str.begin(), ::tolower);
-                            
-                            for(const auto& val : searched_tokens)
-                            {
+
+                            for(const auto& val : searched_tokens) {
                                 if(facet_str.find(val) != std::string::npos) {
                                     facet_count_t& facet_count = a_facet.result_map[kv.first];
                                     facet_count.count = kv.second;       
@@ -1284,14 +1282,11 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 } 
             }                 
         } else {
-            facet_map_t::iterator facet_map_it;
-            single_val_facet_map_t::iterator single_facet_map_it;
-
+            bool facet_hash_index_exists = facet_index_v4->has_hash_index(facet_field.name);
             if(!facet_hash_index_exists) {
                 continue;
             }
 
-            auto sort_index_it = sort_index.find(a_facet.field_name);
             const auto facet_field_is_array = facet_field.is_array();
 
             const auto& facet_index = facet_index_v4->get_facet_hash_index(facet_field.name);
@@ -1307,13 +1302,13 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
 
                 uint32_t doc_seq_id = result_ids[i];
-                if(!facet_index->contains(doc_seq_id)) {
-                    continue;
-                }
-
                 facet_index_it.skip_to(doc_seq_id);
 
                 if(facet_index_it.valid()) {
+                    if(facet_index_it.id() != doc_seq_id) {
+                        continue;
+                    }
+
                     facet_hashes.clear();
                     posting_list_t::get_offsets(facet_index_it, facet_hashes);
 
