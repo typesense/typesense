@@ -1231,6 +1231,16 @@ TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    results = coll1->search("*",
+                            {}, "id: != 123",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("129", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
     // single ID with backtick
 
     results = coll1->search("*",
@@ -1283,6 +1293,14 @@ TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
     ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
+    results = coll1->search("*",
+                           {}, "id:!= [123,125] && num_employees: <300",
+                           {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("127", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
     // empty id list not allowed
     auto res_op = coll1->search("*", {}, "id:=", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
     ASSERT_FALSE(res_op.ok());
@@ -1295,13 +1313,6 @@ TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
     res_op = coll1->search("*", {}, "id: ", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Error with filter field `id`: Filter value cannot be empty.", res_op.error());
-
-    // not equals is not supported yet
-    res_op = coll1->search("*",
-                            {}, "id:!= [123,125] && num_employees: <300",
-                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Not equals filtering is not supported on the `id` field.", res_op.error());
 
     // when no IDs exist
     results = coll1->search("*",
@@ -1397,9 +1408,10 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithArray) {
 TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("artist", field_types::STRING, false),
-                                 field("points", field_types::INT32, false),};
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("artist", field_types::STRING, false),
+            field("points", field_types::INT32, false),};
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
