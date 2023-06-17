@@ -160,7 +160,7 @@ public:
     /// Returns the status of the initialization of iterator tree.
     Option<bool> init_status();
 
-    /// Recursively computes the result of each node and stores the final result in root node.
+    /// Recursively computes the result of each node and stores the final result in the root node.
     void compute_result();
 
     /// Returns a tri-state:

@@ -401,6 +401,22 @@ void filter_result_iterator_t::next() {
         return;
     }
 
+    // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
+    if (is_filter_result_initialized) {
+        if (++result_index >= filter_result.count) {
+            is_valid = false;
+            return;
+        }
+
+        seq_id = filter_result.docs[result_index];
+        reference.clear();
+        for (auto const& item: filter_result.reference_filter_results) {
+            reference[item.first] = item.second[result_index];
+        }
+
+        return;
+    }
+
     if (filter_node->isOperator) {
         // Advance the subtrees and then apply operators to arrive at the next valid doc.
         if (filter_node->filter_operator == AND) {
@@ -418,21 +434,6 @@ void filter_result_iterator_t::next() {
             }
 
             or_filter_iterators();
-        }
-
-        return;
-    }
-
-    if (is_filter_result_initialized) {
-        if (++result_index >= filter_result.count) {
-            is_valid = false;
-            return;
-        }
-
-        seq_id = filter_result.docs[result_index];
-        reference.clear();
-        for (auto const& item: filter_result.reference_filter_results) {
-            reference[item.first] = item.second[result_index];
         }
 
         return;
@@ -1024,20 +1025,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
         return;
     }
 
-    if (filter_node->isOperator) {
-        // Skip the subtrees to id and then apply operators to arrive at the next valid doc.
-        left_it->skip_to(id);
-        right_it->skip_to(id);
-
-        if (filter_node->filter_operator == AND) {
-            and_filter_iterators();
-        } else {
-            or_filter_iterators();
-        }
-
-        return;
-    }
-
+    // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
     if (is_filter_result_initialized) {
         ArrayUtils::skip_index_to_id(result_index, filter_result.docs, filter_result.count, id);
 
@@ -1050,6 +1038,20 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
         reference.clear();
         for (auto const& item: filter_result.reference_filter_results) {
             reference[item.first] = item.second[result_index];
+        }
+
+        return;
+    }
+
+    if (filter_node->isOperator) {
+        // Skip the subtrees to id and then apply operators to arrive at the next valid doc.
+        left_it->skip_to(id);
+        right_it->skip_to(id);
+
+        if (filter_node->filter_operator == AND) {
+            and_filter_iterators();
+        } else {
+            or_filter_iterators();
         }
 
         return;
@@ -1135,6 +1137,12 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 int filter_result_iterator_t::valid(uint32_t id) {
     if (!is_valid) {
         return -1;
+    }
+
+    // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
+    if (is_filter_result_initialized) {
+        skip_to(id);
+        return is_valid ? (seq_id == id ? 1 : 0) : -1;
     }
 
     if (filter_node->isOperator) {
@@ -1250,21 +1258,7 @@ void filter_result_iterator_t::reset() {
         return;
     }
 
-    if (filter_node->isOperator) {
-        // Reset the subtrees then apply operators to arrive at the first valid doc.
-        left_it->reset();
-        right_it->reset();
-        is_valid = true;
-
-        if (filter_node->filter_operator == AND) {
-            and_filter_iterators();
-        } else {
-            or_filter_iterators();
-        }
-
-        return;
-    }
-
+    // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
     if (is_filter_result_initialized) {
         if (filter_result.count == 0) {
             is_valid = false;
@@ -1280,6 +1274,21 @@ void filter_result_iterator_t::reset() {
         }
 
         is_valid = true;
+        return;
+    }
+
+    if (filter_node->isOperator) {
+        // Reset the subtrees then apply operators to arrive at the first valid doc.
+        left_it->reset();
+        right_it->reset();
+        is_valid = true;
+
+        if (filter_node->filter_operator == AND) {
+            and_filter_iterators();
+        } else {
+            or_filter_iterators();
+        }
+
         return;
     }
 
