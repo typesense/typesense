@@ -620,11 +620,6 @@ void filter_result_iterator_t::init() {
     }
 
     if (a_filter.field_name == "id") {
-        if (a_filter.values.empty()) {
-            is_valid = false;
-            return;
-        }
-
         // we handle `ids` separately
         std::vector<uint32_t> result_ids;
         for (const auto& id_str : a_filter.values) {
@@ -636,6 +631,16 @@ void filter_result_iterator_t::init() {
         filter_result.count = result_ids.size();
         filter_result.docs = new uint32_t[result_ids.size()];
         std::copy(result_ids.begin(), result_ids.end(), filter_result.docs);
+
+        if (a_filter.apply_not_equals) {
+            apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                             filter_result.docs, filter_result.count);
+        }
+
+        if (filter_result.count == 0) {
+            is_valid = false;
+            return;
+        }
 
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
@@ -1658,6 +1663,11 @@ void filter_result_iterator_t::compute_result() {
 
     if (a_filter.apply_not_equals) {
         apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(), filter_result.docs, filter_result.count);
+    }
+
+    if (filter_result.count == 0) {
+        is_valid = false;
+        return;
     }
 
     result_index = 0;

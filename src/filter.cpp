@@ -422,7 +422,10 @@ Option<bool> toFilter(const std::string expression,
             id_comparator = EQUALS;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         } else if (raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
-            return Option<bool>(400, "Not equals filtering is not supported on the `id` field.");
+            id_comparator = NOT_EQUALS;
+            filter_exp.apply_not_equals = true;
+            filter_value_index++;
+            while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         }
         if (filter_value_index != 0) {
             raw_value = raw_value.substr(filter_value_index);

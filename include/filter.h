@@ -19,7 +19,7 @@ struct filter {
     std::string field_name;
     std::vector<std::string> values;
     std::vector<NUM_COMPARATOR> comparators;
-    // Would be set when `field: != ...` is encountered with a string field or `field: != [ ... ]` is encountered in the
+    // Would be set when `field: != ...` is encountered with id/string field or `field: != [ ... ]` is encountered in the
     // case of int and float fields. During filtering, all the results of matching the field against the values are
     // aggregated and then this flag is checked if negation on the aggregated result is required.
     bool apply_not_equals = false;
