@@ -48,8 +48,8 @@ jobs:
       - name: Run tests
         run: bazel test //:typesense-test
 
-      - name: Save build artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: typesense-server
-          path: bazel-bin/typesense-server
+#      - name: Save build artifacts
+#        uses: actions/upload-artifact@v3
+#        with:
+#          name: typesense-server
+#          path: bazel-bin/typesense-server
