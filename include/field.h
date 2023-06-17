@@ -736,7 +736,7 @@ struct sort_by {
     };
 
     struct eval_t {
-        filter_node_t* filter_tree_root;
+        filter_node_t* filter_tree_root = nullptr;
         uint32_t* ids = nullptr;
         uint32_t  size = 0;
     };
