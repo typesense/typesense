@@ -48,11 +48,10 @@ jobs:
       - name: Run tests
         run: bazel test //:typesense-test
 
-      - name: List dir
-        run: ls -al /home/runner/work/typesense/typesense/
-
+      # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
+      - run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
       - name: Save build artifacts
         uses: actions/upload-artifact@v3
         with:
           name: typesense-server
-          path: bazel-bin/typesense-server
+          path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
