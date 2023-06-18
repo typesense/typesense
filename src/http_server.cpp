@@ -632,6 +632,9 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
 
         if(request->first_chunk_aggregate) {
             request->first_chunk_aggregate = false;
+
+            // ensures that the first response need not wait for previous chunk to be done sending
+            response->notify();
         }
 
         // default value for last_chunk_aggregate is false
@@ -802,6 +805,13 @@ void HttpServer::stream_response(stream_response_state_t& state) {
     // Check `async_req_res_t` constructor for overlapping writes.
 
     h2o_req_t* req = state.get_req();
+
+    if(state.is_res_start) {
+        h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
+                       state.res_content_type.base, state.res_content_type.len);
+        req->res.status = state.status;
+        req->res.reason = state.reason;
+    }
 
     if(state.is_req_early_exit) {
         // premature termination of async request: handle this explicitly as otherwise, request is not being closed

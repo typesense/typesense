@@ -58,10 +58,8 @@ void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr
         return ;
     }
 
-    if(req->_req->res.status != 0) {
-        // not the first response chunk, so wait for previous chunk to finish
-        res->wait();
-    }
+    // wait for previous chunk to finish (if any)
+    res->wait();
 
     auto req_res = new async_req_res_t(req, res, true);
     server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
