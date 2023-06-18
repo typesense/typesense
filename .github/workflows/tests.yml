@@ -48,6 +48,9 @@ jobs:
       - name: Run tests
         run: bazel test //:typesense-test
 
+      - name: List dir
+        run: ls -al /home/runner/work/typesense/typesense/
+
       - name: Save build artifacts
         uses: actions/upload-artifact@v3
         with:
