@@ -12,42 +12,6 @@ void num_tree_t::insert(int64_t value, uint32_t id, bool is_facet) {
             int64map[value] = ids;
         }
     }
-
-    if(is_facet) {
-
-        const auto facet_count = ids_t::num_ids(int64map.at(value));
-        //LOG(INFO) << "Facet count in facet " << value << " : " << facet_count;
-    
-        if(counter_list.empty()) {
-            counter_list.emplace_back(value, facet_count);
-        } else {
-            count_list node(value, facet_count); 
-            
-            auto ind = 0;
-            // FIXME
-            for(; ind < counter_list.size(); ++ind) {
-                if(counter_list[ind].facet_value == value) {
-                    counter_list[ind].count = facet_count;
-
-                    if(ind > 1) {
-                        auto curr = ind;
-                        while (curr && (counter_list[curr-1].count < counter_list[curr].count)) {
-                            count_list temp = counter_list[curr-1];
-                            counter_list[curr-1] = counter_list[curr];
-                            counter_list[curr] = temp;
-                            --curr;
-                        }
-                    }
-                    break;
-                }
-            }
-            if(ind == counter_list.size()) {
-                // LOG (INFO) << "inserting at last facet " << node.facet_value 
-                //     << " with count " << node.count;
-                counter_list.emplace_back(node);
-            }
-        }    
-    }
 }
 
 void num_tree_t::range_inclusive_search(int64_t start, int64_t end, uint32_t** ids, size_t& ids_len) {
