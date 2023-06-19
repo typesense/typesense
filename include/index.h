@@ -31,6 +31,7 @@
 #include "hnswlib/hnswlib.h"
 #include "filter.h"
 #include "facet_index.h"
+#include "numeric_range_trie_test.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
@@ -309,7 +310,9 @@ private:
 
     spp::sparse_hash_map<std::string, num_tree_t*> numerical_index;
 
-    spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, std::vector<uint32_t>>*> geopoint_index;
+    spp::sparse_hash_map<std::string, NumericTrie*> range_index;
+
+    spp::sparse_hash_map<std::string, NumericTrie*> geo_range_index;
 
     // geo_array_field => (seq_id => values) used for exact filtering of geo array records
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;

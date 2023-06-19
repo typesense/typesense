@@ -75,6 +75,24 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         field_json[fields::reference] = "";
     }
 
+    if (field_json.count(fields::range_index) != 0) {
+        if (!field_json.at(fields::range_index).is_boolean()) {
+            return Option<bool>(400, std::string("The `range_index` property of the field `") +
+                                     field_json[fields::name].get<std::string>() +
+                                     std::string("` should be a boolean."));
+        }
+
+        auto const& type = field_json["type"];
+        if (field_json[fields::range_index] &&
+            type != field_types::INT32 && type != field_types::INT32_ARRAY &&
+            type != field_types::INT64 && type != field_types::INT64_ARRAY &&
+            type != field_types::FLOAT && type != field_types::FLOAT_ARRAY) {
+            return Option<bool>(400, std::string("The `range_index` property is only allowed for the numerical fields`"));
+        }
+    } else {
+        field_json[fields::range_index] = false;
+    }
+
     if(field_json["name"] == ".*") {
         if(field_json.count(fields::facet) == 0) {
             field_json[fields::facet] = false;
@@ -297,7 +315,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
-                  field_json[fields::reference], field_json[fields::embed])
+                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {

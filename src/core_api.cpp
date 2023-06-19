@@ -15,6 +15,7 @@
 #include "lru/lru.hpp"
 #include "ratelimit_manager.h"
 #include "event_manager.h"
+#include "http_proxy.h"
 
 using namespace std::chrono_literals;
 
@@ -57,10 +58,8 @@ void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr
         return ;
     }
 
-    if(req->_req->res.status != 0) {
-        // not the first response chunk, so wait for previous chunk to finish
-        res->wait();
-    }
+    // wait for previous chunk to finish (if any)
+    res->wait();
 
     auto req_res = new async_req_res_t(req, res, true);
     server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
@@ -368,29 +367,6 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         }
     }
 
-    const auto preset_it = req->params.find("preset");
-
-    if(preset_it != req->params.end()) {
-        nlohmann::json preset;
-        const auto& preset_op = CollectionManager::get_instance().get_preset(preset_it->second, preset);
-
-        if(preset_op.ok()) {
-            if(!preset.is_object()) {
-                res->set_400("Search preset is not an object.");
-                return false;
-            }
-
-            for(const auto& search_item: preset.items()) {
-                // overwrite = false since req params will contain embedded params and so has higher priority
-                bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
-                if(!populated) {
-                    res->set_400("One or more search parameters are malformed.");
-                    return false;
-                }
-            }
-        }
-    }
-
     if(req->embedded_params_vec.empty()) {
         res->set_500("Embedded params is empty.");
         return false;
@@ -566,27 +542,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             if(!populated) {
                 res->set_400("One or more search parameters are malformed.");
                 return false;
-            }
-        }
-
-        if(search_params.count("preset") != 0) {
-            nlohmann::json preset;
-            auto preset_op = CollectionManager::get_instance().get_preset(search_params["preset"].get<std::string>(),
-                                                                          preset);
-            if(preset_op.ok()) {
-                if(!search_params.is_object()) {
-                    res->set_400("Search preset is not an object.");
-                    return false;
-                }
-
-                for(const auto& search_item: preset.items()) {
-                    // overwrite = false since req params will contain embedded params and so has higher priority
-                    bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
-                    if(!populated) {
-                        res->set_400("One or more search parameters are malformed.");
-                        return false;
-                    }
-                }
             }
         }
 
@@ -774,7 +729,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         }
     }
 
-    res->content_type_header = "application/octet-stream";
+    res->content_type_header = "text/plain; charset=utf8";
     res->status_code = 200;
 
     stream_response(req, res);
@@ -2134,5 +2089,67 @@ bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared
     }
 
     res->set_200(R"({"ok": true)");
+    return true;
+}
+
+
+bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    HttpProxy& proxy = HttpProxy::get_instance();
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    std::string body, url, method;
+    std::unordered_map<std::string, std::string> headers;
+
+    if(req_json.count("url") == 0 || req_json.count("method") == 0) {
+        res->set_400("Missing required fields.");
+        return false;
+    }
+
+    if(!req_json["url"].is_string() || !req_json["method"].is_string() || req_json["url"].get<std::string>().empty() || req_json["method"].get<std::string>().empty()) {
+        res->set_400("URL and method must be non-empty strings.");
+        return false;
+    }
+
+    try {        
+        if(req_json.count("body") != 0 && !req_json["body"].is_string()) {
+            res->set_400("Body must be a string.");
+            return false;
+        }
+        if(req_json.count("headers") != 0 && !req_json["headers"].is_object()) {
+            res->set_400("Headers must be a JSON object.");
+            return false;
+        }
+        if(req_json.count("body")) {
+            body = req_json["body"].get<std::string>();
+        }
+        url = req_json["url"].get<std::string>();
+        method = req_json["method"].get<std::string>();
+        if(req_json.count("headers")) {
+            headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
+        }
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto response = proxy.send(url, method, body, headers);
+    
+    if(response.status_code != 200) {
+        int code = response.status_code;
+        res->set_body(code, response.body);
+        return false;
+    }
+
+    res->set_200(response.body);
     return true;
 }

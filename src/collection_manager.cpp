@@ -731,6 +731,27 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         AuthManager::add_item_to_params(req_params, item, true);
     }
 
+    const auto preset_it = req_params.find("preset");
+
+    if(preset_it != req_params.end()) {
+        nlohmann::json preset;
+        const auto& preset_op = CollectionManager::get_instance().get_preset(preset_it->second, preset);
+
+        if(preset_op.ok()) {
+            if(!preset.is_object()) {
+                return Option<bool>(400, "Search preset is not an object.");
+            }
+
+            for(const auto& search_item: preset.items()) {
+                // overwrite = false since req params will contain embedded params and so has higher priority
+                bool populated = AuthManager::add_item_to_params(req_params, search_item, false);
+                if(!populated) {
+                    return Option<bool>(400, "One or more search parameters are malformed.");
+                }
+            }
+        }
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     const std::string& orig_coll_name = req_params["collection"];
     auto collection = collectionManager.get_collection(orig_coll_name);

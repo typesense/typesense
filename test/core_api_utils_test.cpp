@@ -253,6 +253,40 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
 
 }
 
+TEST_F(CoreAPIUtilsTest, SearchEmbeddedPresetKey) {
+    nlohmann::json preset_value = R"(
+        {"per_page": 100}
+    )"_json;
+
+    Option<bool> success_op = collectionManager.upsert_preset("apple", preset_value);
+    ASSERT_TRUE(success_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json embedded_params;
+    embedded_params["preset"] = "apple";
+    req->embedded_params_vec.push_back(embedded_params);
+    req->params["collection"] = "foo";
+
+    get_search(req, res);
+    ASSERT_EQ("100", req->params["per_page"]);
+
+    // with multi search
+
+    req->params.clear();
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "users";
+    search["filter_by"] = "age: > 100";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    ASSERT_EQ("100", req->params["per_page"]);
+}
+
 TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
     std::map<std::string, std::string> req_params;
     std::string body = R"(
@@ -955,4 +989,131 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFieldsWithFilter) {
     ASSERT_EQ(1, doc["name"].count("first"));
 
     collectionManager.drop_collection("coll1");
+}
+
+
+
+TEST_F(CoreAPIUtilsTest, TestProxy) {
+    std::string res;
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+
+    std::string url = "https://typesense.org";
+
+    long expected_status_code = HttpClient::get_instance().get_response(url, res, res_headers, headers);
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json body;
+    body["url"] = url;
+    body["method"] = "GET";
+    body["headers"] = headers;
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(expected_status_code, resp->status_code);
+    ASSERT_EQ(res, resp->body);
+}
+
+
+TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
+    nlohmann::json body;
+    
+
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    // test with url as empty string
+    body["url"] = "";
+    body["method"] = "GET";
+    body["headers"] = nlohmann::json::object();
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("URL and method must be non-empty strings.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with url as integer
+    body["url"] = 123;
+    body["method"] = "GET";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("URL and method must be non-empty strings.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with no url parameter
+    body.erase("url");
+    body["method"] = "GET";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Missing required fields.", nlohmann::json::parse(resp->body)["message"]);
+
+
+    // test with invalid method
+    body["url"] = "https://typesense.org";
+    body["method"] = "INVALID";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Parameter `method` must be one of GET, POST, PUT, DELETE.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with method as integer
+    body["method"] = 123;
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("URL and method must be non-empty strings.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with no method parameter
+    body.erase("method");
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Missing required fields.", nlohmann::json::parse(resp->body)["message"]);
+
+
+    // test with body as integer
+    body["method"] = "POST";
+    body["body"] = 123;
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Body must be a string.", nlohmann::json::parse(resp->body)["message"]);
+
+
+    // test with headers as integer
+    body["body"] = "";
+    body["headers"] = 123;
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
 }
