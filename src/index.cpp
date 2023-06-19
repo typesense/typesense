@@ -512,7 +512,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
             index_rec.index_failure(400, e.what());
         }
     }
-    
+
     auto embed_op = batch_embed_fields(docs_to_embed, embedding_fields, search_schema);
     if(!embed_op.ok()) {
         for(size_t i = 0; i < batch_size; i++) {
@@ -6110,8 +6110,15 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
                     }
                 }
             }
-            texts_to_embed.push_back(std::make_pair(document, text));
+            if(!text.empty()) {
+                texts_to_embed.push_back(std::make_pair(document, text));
+            }
         }
+
+        if(texts_to_embed.empty()) {
+            continue;
+        }
+        
         TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
         auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
 
@@ -6133,7 +6140,6 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
         }
 
         auto embedding_op = embedder_op.get()->batch_embed(texts);
-
         if(!embedding_op.ok()) {
             return Option<bool>(400, embedding_op.error());
         }

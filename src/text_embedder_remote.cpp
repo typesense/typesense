@@ -11,6 +11,27 @@ Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& mo
     return Option<bool>(true);
 }
 
+long RemoteEmbedder::call_remote_api(const std::string& method, const std::string& url, const std::string& body, std::string& res_body, 
+                            std::map<std::string, std::string>& headers, const std::unordered_map<std::string, std::string>& req_headers) {
+    if(raft_server == nullptr) {
+        if(method == "GET") {
+            return HttpClient::get_instance().get_response(url, res_body, headers, req_headers, 10000, true);
+        } else if(method == "POST") {
+            return HttpClient::get_instance().post_response(url, body, res_body, headers, req_headers, 10000, true);
+        } else {
+            return 400;
+        }
+    }
+    auto leader_url = raft_server->get_leader_url();
+    leader_url += "proxy";
+    nlohmann::json req_body;
+    req_body["method"] = method;
+    req_body["url"] = url;
+    req_body["body"] = body;
+    req_body["headers"] = req_headers;
+    return HttpClient::get_instance().post_response(leader_url, req_body.dump(), res_body, headers, {}, 10000, true);
+}
+
 
 
 OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key) : api_key(api_key), openai_model_path(openai_model_path) {
@@ -32,12 +53,11 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
         return Option<bool>(400, "Property `embed.model_config.model_name` malformed.");
     }
 
-    HttpClient& client = HttpClient::get_instance();
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Authorization"] = "Bearer " + api_key;
     std::string res;
-    auto res_code = client.get_response(OPENAI_LIST_MODELS, res, res_headers, headers);
+    auto res_code = call_remote_api("GET", OPENAI_LIST_MODELS, "", res, res_headers, headers);
     if (res_code != 200) {
         nlohmann::json json_res = nlohmann::json::parse(res);
         if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
@@ -67,7 +87,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
 
     std::string embedding_res;
     headers["Content-Type"] = "application/json";
-    res_code = client.post_response(OPENAI_CREATE_EMBEDDING, req_body.dump(), embedding_res, res_headers, headers);
+    res_code = call_remote_api("POST", OPENAI_CREATE_EMBEDDING, req_body.dump(), embedding_res, res_headers, headers);
 
 
     if (res_code != 200) {
@@ -84,7 +104,6 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
 }
 
 Option<std::vector<float>> OpenAIEmbedder::Embed(const std::string& text) {
-    HttpClient& client = HttpClient::get_instance();
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Authorization"] = "Bearer " + api_key;
@@ -94,7 +113,7 @@ Option<std::vector<float>> OpenAIEmbedder::Embed(const std::string& text) {
     req_body["input"] = text;
     // remove "openai/" prefix
     req_body["model"] = TextEmbedderManager::get_model_name_without_namespace(openai_model_path);
-    auto res_code = client.post_response(OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
     if (res_code != 200) {
         nlohmann::json json_res = nlohmann::json::parse(res);
         if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
@@ -115,9 +134,7 @@ Option<std::vector<std::vector<float>>> OpenAIEmbedder::batch_embed(const std::v
     headers["Content-Type"] = "application/json";
     std::map<std::string, std::string> res_headers;
     std::string res;
-    HttpClient& client = HttpClient::get_instance();
-
-    auto res_code = client.post_response(OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
 
     if(res_code != 200) {
         nlohmann::json json_res = nlohmann::json::parse(res);
@@ -159,7 +176,6 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
         return Option<bool>(400, "Property `embed.model_config.model_name` is not a supported Google model.");
     }
 
-    HttpClient& client = HttpClient::get_instance();
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Content-Type"] = "application/json";
@@ -167,7 +183,7 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
     nlohmann::json req_body;
     req_body["text"] = "test";
 
-    auto res_code = client.post_response(std::string(GOOGLE_CREATE_EMBEDDING) + api_key, req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", std::string(GOOGLE_CREATE_EMBEDDING) + api_key, req_body.dump(), res, res_headers, headers);
 
     if(res_code != 200) {
         nlohmann::json json_res = nlohmann::json::parse(res);
@@ -183,7 +199,6 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
 }
 
 Option<std::vector<float>> GoogleEmbedder::Embed(const std::string& text) {
-    HttpClient& client = HttpClient::get_instance();
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Content-Type"] = "application/json";
@@ -191,7 +206,7 @@ Option<std::vector<float>> GoogleEmbedder::Embed(const std::string& text) {
     nlohmann::json req_body;
     req_body["text"] = text;
 
-    auto res_code = client.post_response(std::string(GOOGLE_CREATE_EMBEDDING) + google_api_key, req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", std::string(GOOGLE_CREATE_EMBEDDING) + google_api_key, req_body.dump(), res, res_headers, headers);
 
     if(res_code != 200) {
         nlohmann::json json_res = nlohmann::json::parse(res);
@@ -246,7 +261,6 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, uns
 
     auto model_name_without_namespace = TextEmbedderManager::get_model_name_without_namespace(model_name);
 
-    HttpClient& client = HttpClient::get_instance();
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Content-Type"] = "application/json";
@@ -258,7 +272,7 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, uns
     instance["content"] = "typesense";
     req_body["instances"].push_back(instance);
 
-    auto res_code = client.post_response(get_gcp_embedding_url(project_id, model_name_without_namespace), req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name_without_namespace), req_body.dump(), res, res_headers, headers);
 
     if(res_code != 200) {
         nlohmann::json json_res = nlohmann::json::parse(res);
@@ -295,9 +309,8 @@ Option<std::vector<float>> GCPEmbedder::Embed(const std::string& text) {
     headers["Content-Type"] = "application/json";
     std::map<std::string, std::string> res_headers;
     std::string res;
-    HttpClient& client = HttpClient::get_instance();
 
-    auto res_code = client.post_response(get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
 
     if(res_code != 200) {
         if(res_code == 401) {
@@ -308,7 +321,7 @@ Option<std::vector<float>> GCPEmbedder::Embed(const std::string& text) {
             access_token = refresh_op.get();
             // retry
             headers["Authorization"] = "Bearer " + access_token;
-            res_code = client.post_response(get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+            res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
         }
     }
 
@@ -353,8 +366,7 @@ Option<std::vector<std::vector<float>>> GCPEmbedder::batch_embed(const std::vect
     headers["Content-Type"] = "application/json";
     std::map<std::string, std::string> res_headers;
     std::string res;
-    HttpClient& client = HttpClient::get_instance();
-    auto res_code = client.post_response(get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+    auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
     if(res_code != 200) {
         if(res_code == 401) {
             auto refresh_op = generate_access_token(refresh_token, client_id, client_secret);
@@ -364,7 +376,7 @@ Option<std::vector<std::vector<float>>> GCPEmbedder::batch_embed(const std::vect
             access_token = refresh_op.get();
             // retry
             headers["Authorization"] = "Bearer " + access_token;
-            res_code = client.post_response(get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
+            res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
         }
     }
 
@@ -386,7 +398,6 @@ Option<std::vector<std::vector<float>>> GCPEmbedder::batch_embed(const std::vect
 }
 
 Option<std::string> GCPEmbedder::generate_access_token(const std::string& refresh_token, const std::string& client_id, const std::string& client_secret) {
-    HttpClient& client = HttpClient::get_instance();
     std::unordered_map<std::string, std::string> headers;
     headers["Content-Type"] = "application/x-www-form-urlencoded";
     std::map<std::string, std::string> res_headers;
@@ -394,7 +405,7 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
     std::string req_body;
     req_body = "grant_type=refresh_token&client_id=" + client_id + "&client_secret=" + client_secret + "&refresh_token=" + refresh_token;
 
-    auto res_code = client.post_response(GCP_AUTH_TOKEN_URL, req_body, res, res_headers, headers);
+    auto res_code = call_remote_api("POST", GCP_AUTH_TOKEN_URL, req_body, res, res_headers, headers);
     
     if(res_code != 200) {
         nlohmann::json json_res = nlohmann::json::parse(res);

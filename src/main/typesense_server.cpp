@@ -98,6 +98,9 @@ void master_server_routes() {
     server->del("/limits/active/:id", del_throttle);
     server->del("/limits/exceeds/:id", del_exceed);
     server->post("/config", post_config, false, false);
+
+    // for proxying remote embedders
+    server->post("/proxy", post_proxy);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;
@@ -144,6 +147,7 @@ int main(int argc, char **argv) {
     Option<bool> config_validitation = config.is_valid();
 
     if(!config_validitation.ok()) {
+        std::cerr << "Typesense " << TYPESENSE_VERSION << std::endl;
         std::cerr << "Invalid configuration: " << config_validitation.error() << std::endl;
         std::cerr << "Command line " << options.usage() << std::endl;
         std::cerr << "You can also pass these arguments as environment variables such as "
