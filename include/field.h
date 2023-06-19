@@ -54,6 +54,7 @@ namespace fields {
     static const std::string from = "from";
     static const std::string embed_from = "embed_from";
     static const std::string model_name = "model_name";
+    static const std::string range_index = "range_index";
 
     // Some models require additional parameters to be passed to the model during indexing/querying
     // For e.g. e5-small model requires prefix "passage:" for indexing and "query:" for querying
@@ -93,13 +94,17 @@ struct field {
 
     std::string reference;      // Foo.bar (reference to bar field in Foo collection).
 
+    bool range_index;
+
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const nlohmann::json& embed = nlohmann::json()) :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
+          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed(embed) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
+            embed(embed), range_index(range_index) {
 
         set_computed_defaults(sort, infix);
     }
