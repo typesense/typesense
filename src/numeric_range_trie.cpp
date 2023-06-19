@@ -1,5 +1,6 @@
 #include <timsort.hpp>
 #include <set>
+#include <complex>
 #include "numeric_range_trie_test.h"
 #include "array_utils.h"
 
@@ -406,9 +407,17 @@ NumericTrie::iterator_t NumericTrie::search_equal_to(const int64_t& value) {
     return NumericTrie::iterator_t(matches);
 }
 
-void NumericTrie::Node::insert(const int64_t& cell_id, const uint32_t& seq_id, const char& max_level) {
+inline uint64_t indexable_limit(const char& max_level) {
+    return std::pow(EXPANSE, max_level);
+}
+
+void NumericTrie::Node::insert(const int64_t& value, const uint32_t& seq_id, const char& max_level) {
+    if (value >= indexable_limit(max_level)) {
+        return;
+    }
+
     char level = 0;
-    return insert_helper(cell_id, seq_id, level, max_level);
+    return insert_helper(value, seq_id, level, max_level);
 }
 
 void NumericTrie::Node::insert_geopoint(const uint64_t& cell_id, const uint32_t& seq_id, const char& max_level) {
@@ -433,6 +442,10 @@ inline int get_geopoint_index(const uint64_t& cell_id, const char& level) {
 }
 
 void NumericTrie::Node::remove(const int64_t& value, const uint32_t& id, const char& max_level) {
+    if (value >= indexable_limit(max_level)) {
+        return;
+    }
+
     char level = 1;
     Node* root = this;
     auto index = get_index(value, level, max_level);
@@ -596,6 +609,11 @@ void NumericTrie::Node::get_all_ids(uint32_t*& ids, uint32_t& ids_length) {
 
 void NumericTrie::Node::search_less_than(const int64_t& value, const char& max_level,
                                          uint32_t*& ids, uint32_t& ids_length) {
+    if (value >= indexable_limit(max_level)) {
+        get_all_ids(ids, ids_length);
+        return;
+    }
+
     char level = 0;
     std::vector<NumericTrie::Node*> matches;
     search_less_than_helper(value, level, max_level, matches);
@@ -655,7 +673,8 @@ void NumericTrie::Node::search_range(const int64_t& low, const int64_t& high, co
         return;
     }
     std::vector<NumericTrie::Node*> matches;
-    search_range_helper(low, high, max_level, matches);
+    search_range_helper(low, high >= indexable_limit(max_level) ? (int64_t) indexable_limit(max_level) - 1 : high,
+                        max_level, matches);
 
     std::vector<uint32_t> consolidated_ids;
     for (auto const& match: matches) {
@@ -739,6 +758,10 @@ void NumericTrie::Node::search_range_helper(const int64_t& low,const int64_t& hi
 
 void NumericTrie::Node::search_greater_than(const int64_t& value, const char& max_level,
                                             uint32_t*& ids, uint32_t& ids_length) {
+    if (value >= indexable_limit(max_level)) {
+        return;
+    }
+
     char level = 0;
     std::vector<NumericTrie::Node*> matches;
     search_greater_than_helper(value, level, max_level, matches);
@@ -794,6 +817,10 @@ void NumericTrie::Node::search_greater_than_helper(const int64_t& value, char& l
 
 void NumericTrie::Node::search_equal_to(const int64_t& value, const char& max_level,
                                         uint32_t*& ids, uint32_t& ids_length) {
+    if (value >= indexable_limit(max_level)) {
+        return;
+    }
+
     char level = 1;
     Node* root = this;
     auto index = get_index(value, level, max_level);
