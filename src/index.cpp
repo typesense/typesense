@@ -415,10 +415,10 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                     const std::string& fallback_field_type,
                                     const std::vector<char>& token_separators,
                                     const std::vector<char>& symbols_to_index,
-                                    const bool do_validation) {
+                                    const bool do_validation, const bool generate_embeddings) {
 
     // runs in a partitioned thread
-    std::vector<nlohmann::json*> docs_to_embed;
+    std::vector<index_record*> records_to_embed;
 
     for(size_t i = 0; i < batch_size; i++) {
         index_record& index_rec = iter_batch[batch_start_index + i];
@@ -455,14 +455,16 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                 index_rec.new_doc, index_rec.del_doc);
                 scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
 
-                for(auto& field: index_rec.doc.items()) {
-                    for(auto& embedding_field : embedding_fields) {
-                        if(!embedding_field.embed[fields::from].is_null()) {
-                            auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
-                            for(auto& embed_from: embed_from_vector) {
-                                if(embed_from == field.key()) {
-                                    docs_to_embed.push_back(&index_rec.new_doc);
-                                    break;
+                if(generate_embeddings) {
+                    for(auto& field: index_rec.doc.items()) {
+                        for(auto& embedding_field : embedding_fields) {
+                            if(!embedding_field.embed[fields::from].is_null()) {
+                                auto embed_from_vector = embedding_field.embed[fields::from].get<std::vector<std::string>>();
+                                for(auto& embed_from: embed_from_vector) {
+                                    if(embed_from == field.key()) {
+                                        records_to_embed.push_back(&index_rec);
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -470,7 +472,9 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 }
             } else {
                 handle_doc_ops(search_schema, index_rec.doc, index_rec.old_doc);
-                docs_to_embed.push_back(&index_rec.doc);
+                if(generate_embeddings) {
+                    records_to_embed.push_back(&index_rec);
+                }
             }
 
             compute_token_offsets_facets(index_rec, search_schema, token_separators, symbols_to_index);
@@ -500,13 +504,8 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
             index_rec.index_failure(400, e.what());
         }
     }
-
-    auto embed_op = batch_embed_fields(docs_to_embed, embedding_fields, search_schema);
-    if(!embed_op.ok()) {
-        for(size_t i = 0; i < batch_size; i++) {
-            index_record& index_rec = iter_batch[batch_start_index + i];
-            index_rec.index_failure(embed_op.code(), embed_op.error());
-        }
+    if(generate_embeddings) {
+        batch_embed_fields(records_to_embed, embedding_fields, search_schema);
     }
 }
 
@@ -517,7 +516,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
-                                 const bool do_validation) {
+                                 const bool do_validation, const bool generate_embeddings) {
 
     const size_t concurrency = 4;
     const size_t num_threads = std::min(concurrency, iter_batch.size());
@@ -547,7 +546,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
         index->thread_pool->enqueue([&, batch_index, batch_len]() {
             write_log_index = local_write_log_index;
             validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, search_schema,
-                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation);
+                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation, generate_embeddings);
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
@@ -3178,18 +3177,21 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         continue;
                     }
                     // (1 / rank_of_document) * WEIGHT)
+                    result->text_match_score = result->scores[result->match_score_index];
+                    LOG(INFO) << "SEQ_ID: " << result->key << ", score: " << result->text_match_score;   
                     result->scores[result->match_score_index] = float_to_int64_t((1.0 / (i + 1)) * TEXT_MATCH_WEIGHT);
                 }
 
                 for(int i = 0; i < vec_results.size(); i++) {
-                    auto& result = vec_results[i];
-                    auto doc_id = result.first;
+                    auto& vec_result = vec_results[i];
+                    auto doc_id = vec_result.first;
 
                     auto result_it = topster->kv_map.find(doc_id);
 
                     if(result_it != topster->kv_map.end()&& result_it->second->match_score_index >= 0 && result_it->second->match_score_index <= 2) {
                         auto result = result_it->second;
                         // old_score + (1 / rank_of_document) * WEIGHT)
+                        result->vector_distance = vec_result.second;
                         result->scores[result->match_score_index] = float_to_int64_t((int64_t_to_float(result->scores[result->match_score_index]))  +  ((1.0 / (i + 1)) * VECTOR_SEARCH_WEIGHT));
                     } else {
                         int64_t scores[3] = {0};
@@ -3197,6 +3199,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         scores[0] = float_to_int64_t((1.0 / (i + 1)) * VECTOR_SEARCH_WEIGHT);
                         int64_t match_score_index = 0;
                         KV kv(searched_queries.size(), doc_id, doc_id, match_score_index, scores);
+                        kv.vector_distance = vec_result.second;
                         topster->add(&kv);
                         ++all_result_ids_len;
                     }
@@ -6470,13 +6473,26 @@ bool Index::common_results_exist(std::vector<art_leaf*>& leaves, bool must_match
 }
 
 
-Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents, 
+void Index::batch_embed_fields(std::vector<index_record*>& records, 
                                        const tsl::htrie_map<char, field>& embedding_fields,
                                        const tsl::htrie_map<char, field> & search_schema) {
     for(const auto& field : embedding_fields) {
-        std::vector<std::pair<nlohmann::json*, std::string>> texts_to_embed;
+        std::vector<std::pair<index_record*, std::string>> texts_to_embed;
         auto indexing_prefix = TextEmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
-        for(auto& document : documents) {
+        for(auto& record : records) {
+            if(!record->indexed.ok()) {
+                continue;
+            }
+            nlohmann::json* document;
+            if(record->is_update) {
+                document = &record->new_doc;
+            } else {
+                document = &record->doc;
+            }
+
+            if(document == nullptr) {
+                continue;
+            }
             std::string text = indexing_prefix;
             auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
             for(const auto& field_name : embed_from) {
@@ -6489,8 +6505,8 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
                     }
                 }
             }
-            if(!text.empty()) {
-                texts_to_embed.push_back(std::make_pair(document, text));
+            if(text != indexing_prefix) {
+                texts_to_embed.push_back(std::make_pair(record, text));
             }
         }
 
@@ -6502,13 +6518,15 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
         auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
 
         if(!embedder_op.ok()) {
-            return Option<bool>(400, embedder_op.error());
+            LOG(ERROR) << "Error while getting embedder for model: " << field.embed[fields::model_config];
+            LOG(ERROR) << "Error: " << embedder_op.error();
+            return;
         }
 
         // sort texts by length
         std::sort(texts_to_embed.begin(), texts_to_embed.end(),
-                  [](const std::pair<nlohmann::json*, std::string>& a,
-                     const std::pair<nlohmann::json*, std::string>& b) {
+                  [](const std::pair<index_record*, std::string>& a,
+                     const std::pair<index_record*, std::string>& b) {
                       return a.second.size() < b.second.size();
                   });
         
@@ -6518,19 +6536,24 @@ Option<bool> Index::batch_embed_fields(std::vector<nlohmann::json*>& documents,
             texts.push_back(text_to_embed.second);
         }
 
-        auto embedding_op = embedder_op.get()->batch_embed(texts);
-        if(!embedding_op.ok()) {
-            return Option<bool>(400, embedding_op.error());
-        }
+        auto embeddings = embedder_op.get()->batch_embed(texts);
 
-        auto embeddings = embedding_op.get();
         for(size_t i = 0; i < embeddings.size(); i++) {
-            auto& embedding = embeddings[i];
-            auto& document = texts_to_embed[i].first;
-            (*document)[field.name] = embedding;
+            auto& embedding_res = embeddings[i];
+            if(!embedding_res.success) {
+                texts_to_embed[i].first->embedding_res = embedding_res.error;
+                texts_to_embed[i].first->index_failure(embedding_res.status_code, "");
+                continue;
+            }
+            nlohmann::json* document;
+            if(texts_to_embed[i].first->is_update) {
+                document = &texts_to_embed[i].first->new_doc;
+            } else {
+                document = &texts_to_embed[i].first->doc;
+            }
+            (*document)[field.name] = embedding_res.embedding;
         }
     }
-    return Option<bool>(true);
 }
 
 /*

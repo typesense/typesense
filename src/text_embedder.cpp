@@ -83,7 +83,7 @@ std::vector<float> TextEmbedder::mean_pooling(const std::vector<std::vector<floa
     return pooled_output;
 }
 
-Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
+embedding_res_t TextEmbedder::Embed(const std::string& text) {
     if(is_remote()) {
         return remote_embedder_->Embed(text);
     } else {
@@ -129,12 +129,12 @@ Option<std::vector<float>> TextEmbedder::Embed(const std::string& text) {
         }
         auto pooled_output = mean_pooling(output);  
 
-        return Option<std::vector<float>>(pooled_output);
+        return embedding_res_t(pooled_output);
     }
 }
 
-Option<std::vector<std::vector<float>>> TextEmbedder::batch_embed(const std::vector<std::string>& inputs) {
-    std::vector<std::vector<float>> outputs;
+std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs) {
+    std::vector<embedding_res_t> outputs;
     if(!is_remote()) {
         for(int i = 0; i < inputs.size(); i += 8) {
             auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 8, static_cast<int>(inputs.size())));
@@ -193,7 +193,7 @@ Option<std::vector<std::vector<float>>> TextEmbedder::batch_embed(const std::vec
             // if seq length is 0, return empty vector
             if(input_shapes[0][1] == 0) {
                 for(int i = 0; i < input_batch.size(); i++) {
-                    outputs.push_back(std::vector<float>());
+                    outputs.push_back(embedding_res_t(400, nlohmann::json({{"error", "Invalid input: empty sequence"}})));
                 }
                 continue;
             }
@@ -211,17 +211,14 @@ Option<std::vector<std::vector<float>>> TextEmbedder::batch_embed(const std::vec
                     }
                     output.push_back(output_row);
                 }
-                outputs.push_back(mean_pooling(output));
+                outputs.push_back(embedding_res_t(mean_pooling(output)));
             }
         }
     } else {
-        auto embed_op  = remote_embedder_->batch_embed(inputs);
-        if(!embed_op.ok()) {
-            return Option<std::vector<std::vector<float>>>(embed_op.code(), embed_op.error());
-        }
-        outputs = embed_op.get();
+        outputs = std::move(remote_embedder_->batch_embed(inputs));
     }
-    return Option<std::vector<std::vector<float>>>(outputs);
+    
+    return outputs;
 }
 
 TextEmbedder::~TextEmbedder() {

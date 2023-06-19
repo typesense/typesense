@@ -397,7 +397,7 @@ public:
 
     nlohmann::json get_summary_json() const;
 
-    size_t batch_index_in_memory(std::vector<index_record>& index_records);
+    size_t batch_index_in_memory(std::vector<index_record>& index_records, const bool generate_embeddings = true);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",

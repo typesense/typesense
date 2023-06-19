@@ -94,7 +94,6 @@ const std::string& TextEmbedderManager::get_model_dir() {
 }
 
 TextEmbedderManager::~TextEmbedderManager() {
-    delete_all_text_embedders();
 }
 
 const std::string TextEmbedderManager::get_absolute_model_path(const std::string& model_name) {
