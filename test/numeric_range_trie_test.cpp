@@ -564,11 +564,13 @@ TEST_F(NumericRangeTrieTest, SearchEqualTo) {
     ASSERT_EQ(58, ids[0]);
 
     reset(ids, ids_length);
-    trie->search_equal_to(0x202020, ids, ids_length);
+    trie->search_equal_to(0x01010101, ids, ids_length);
 
-    ASSERT_EQ(0, ids_length);
+    ASSERT_EQ(1, ids_length);
+    ASSERT_EQ(68, ids[0]);
 
-    trie->search_equal_to(4311810305, ids, ids_length); // 0x0101010101
+    reset(ids, ids_length);
+    trie->search_equal_to(0x0101010101, ids, ids_length);
     ASSERT_EQ(0, ids_length);
 }
 
