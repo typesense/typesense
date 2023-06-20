@@ -11,6 +11,10 @@
 #include "raft_server.h"
 #include "logger.h"
 #include "ratelimit_manager.h"
+#include "zlib.h"
+
+static z_stream zs;
+static bool inflate_initialized = false;
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
@@ -622,9 +626,58 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
             request->first_chunk_aggregate = false;
         }
 
-        // default value for last_chunk_aggregate is false
-        request->last_chunk_aggregate = (is_end_stream == 1);
-        process_request(request, response, custom_generator->rpath, custom_generator->h2o_handler, false);
+        if (!inflate_initialized) {
+            memset(&zs, 0, sizeof(zs));
+
+            if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) {
+                throw (std::runtime_error("inflateInit failed while decompressing."));
+            }
+            inflate_initialized = true;
+        }
+
+        zs.next_in = (Bytef *) request->body.c_str();
+        zs.avail_in = request->chunk_len;
+        zs.total_in = 0;
+        zs.total_out = 0;
+
+        int ret;
+        int buffer_size = 2 * request->chunk_len;
+        char *outbuffer = (char *) malloc(buffer_size);
+        while (zs.total_in < request->chunk_len) {
+            zs.next_out = reinterpret_cast<Bytef *>(outbuffer);
+            zs.avail_out = sizeof(outbuffer);
+
+            ret = inflate(&zs, Z_NO_FLUSH);
+
+            if (ret != Z_OK) {
+                LOG(ERROR) << "Exception during zlib inflate: (" << ret << ") "
+                           << zs.msg;
+                LOG(ERROR) << "total bytes read " << zs.total_in;
+                LOG(ERROR) << "total bytes out " << zs.total_out;
+
+                //throw std::runtime_error("exception during inflating");
+                break;
+            }
+
+            if (((zs.total_out / buffer_size) * 100) >= 90) {
+                outbuffer = (char *) realloc(outbuffer, 2 * buffer_size);
+                zs.avail_out = sizeof(outbuffer);
+                buffer_size *= 2;
+            }
+
+            if (ret == Z_STREAM_END) {
+                inflateEnd(&zs);
+            }
+        }
+
+        request->body = outbuffer;
+        request->chunk_len = zs.total_out;
+        delete[] outbuffer;
+        if (ret > 0) {
+            // default value for last_chunk_aggregate is false
+            request->last_chunk_aggregate = (is_end_stream == 1);
+            process_request(request, response, custom_generator->rpath, custom_generator->h2o_handler, false);
+        }
         return 0;
     }
 
