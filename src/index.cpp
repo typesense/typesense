@@ -441,7 +441,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                                                           index_rec.operation,
                                                                           index_rec.is_update,
                                                                           fallback_field_type,
-                                                                          index_rec.dirty_values);
+                                                                          index_rec.dirty_values, generate_embeddings);
 
                 if(!validation_op.ok()) {
                     index_rec.index_failure(validation_op.code(), validation_op.error());

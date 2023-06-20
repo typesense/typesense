@@ -31,7 +31,7 @@ public:
                                                      const index_operation_t op,
                                                      const bool is_update,
                                                      const std::string& fallback_field_type,
-                                                     const DIRTY_VALUES& dirty_values);
+                                                     const DIRTY_VALUES& dirty_values, const bool validate_embedding_fields = true);
 
 
     static Option<uint32_t> coerce_element(const field& a_field, nlohmann::json& document,

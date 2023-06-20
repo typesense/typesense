@@ -3776,9 +3776,9 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                     index->remove(seq_id, rec.doc, del_fields, true);
                 }
             }
-
+            
             Index::batch_memory_index(index, iter_batch, default_sorting_field, schema_additions, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true);
+                                      fallback_field_type, token_separators, symbols_to_index, true, false);
 
             iter_batch.clear();
         }
