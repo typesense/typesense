@@ -74,16 +74,18 @@ private:
     struct facet_doc_ids_list_t {
         tsl::htrie_map<char, facet_id_seq_ids_t> fvalue_seq_ids;
         std::list<facet_count_t> counts;
-        posting_list_t* seq_id_hashes;
+        posting_list_t* seq_id_hashes = nullptr;
 
         bool has_value_index = true;
-        bool has_hash_index = false;
+        bool has_hash_index = true;
 
         facet_doc_ids_list_t() {
             fvalue_seq_ids.clear();
             counts.clear();
-            seq_id_hashes = nullptr;
+            seq_id_hashes = new posting_list_t(256);
         }
+
+        facet_doc_ids_list_t(const facet_doc_ids_list_t& other) = delete;
 
         ~facet_doc_ids_list_t() {
             for(auto it = fvalue_seq_ids.begin(); it != fvalue_seq_ids.end(); ++it) {

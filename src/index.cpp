@@ -35,7 +35,7 @@
                     search_cutoff = true; \
                     break;\
                 }
-#define FACET_INDEX_THRESHOLD 250
+#define FACET_INDEX_THRESHOLD 1000000000
 
 spp::sparse_hash_map<uint32_t, int64_t> Index::text_match_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
@@ -660,10 +660,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
         facet_count = FACET_INDEX_THRESHOLD + 1;
 #endif
 
-        if(afield.facet) {
+        /*if(afield.facet) {
             size_t total_num_docs = seq_ids->num_ids();
             facet_index_v4->handle_index_change(afield.name, total_num_docs, FACET_INDEX_THRESHOLD, facet_count);
-        }
+        }*/
 
         for(const auto& record: iter_batch) {
             if(!record.indexed.ok()) {

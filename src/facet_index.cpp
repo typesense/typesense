@@ -6,8 +6,8 @@
 void facet_index_t::initialize(const std::string& field) {
     const auto facet_field_map_it = facet_field_map.find(field);
     if(facet_field_map_it == facet_field_map.end()) {
-        facet_doc_ids_list_t facet_doc_ids_list;
-        facet_field_map.emplace(field, std::move(facet_doc_ids_list));
+        // NOTE: try_emplace is needed to construct the value object in-place without calling the destructor
+        facet_field_map.try_emplace(field);
     }
 }
 
@@ -160,7 +160,11 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
 
      //LOG(INFO) << "fvalue_seq_ids size " << facet_index_map.size() << " , counts size " << counter_list.size();
 
-    size_t max_facets = std::min((size_t)2 * max_facet_count, counter_list.size());
+    // We look 2 * max_facet_count when keyword search / filtering is involved to ensure that we
+    // try and pick the actual top facets by count.
+    size_t max_facets = is_wildcard_no_filter_query ? std::min((size_t)max_facet_count, counter_list.size()) :
+                        std::min((size_t)2 * max_facet_count, counter_list.size());
+
     std::vector<uint32_t> id_list;
     for(const auto& facet_count : counter_list) {
          //LOG(INFO) << "checking ids in facet_value " << facet_count.facet_value << " having total count "
