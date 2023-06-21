@@ -20,6 +20,7 @@
   <a href="https://typesense.org/docs/">Documentation</a> | 
   <a href="https://github.com/orgs/typesense/projects/1">Roadmap</a> | 
   <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg">Slack Community</a> | 
+  <a href="https://threads.typesense.org/kb">Community Threads</a> | 
   <a href="https://twitter.com/typesense">Twitter</a> | 
   <a href="https://calendly.com/jason-typesense/typesense-office-hours">Office Hours</a>
 </p>
