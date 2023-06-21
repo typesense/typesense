@@ -1255,6 +1255,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         return ;
     }
 
+    size_t total_docs = seq_ids->num_ids();
+
     // assumed that facet fields have already been validated upstream
     for(size_t findex=0; findex < facets.size(); findex++) {
         auto& a_facet = facets[findex];
@@ -1275,10 +1277,18 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         bool is_wildcard_no_filter_query = is_wildcard_query && no_filters_provided;
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
 
+        // We have to choose between hash and value index:
+        // 1. Group queries -> requires hash index
+        // 2. Wildcard + no filters -> use value index
+        // 3. Very few unique facet values (< 250) -> use value index
+        // 4. Result match > 50%
+        bool use_value_index = (group_limit == 0) && ( is_wildcard_no_filter_query || num_facet_values < 250 ||
+                                (results_size * 2 > total_docs));
+
 #ifdef TEST_BUILD
         if(facet_index_type == VALUE) {
 #else
-        if(facet_value_index_exists && (group_limit == 0 || is_wildcard_no_filter_query)) {
+        if(facet_value_index_exists && use_value_index) {
 #endif
             // LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
@@ -1352,56 +1362,56 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 uint32_t doc_seq_id = result_ids[i];
                 facet_index_it.skip_to(doc_seq_id);
 
-                if(facet_index_it.valid()) {
-                    if(facet_index_it.id() != doc_seq_id) {
-                        continue;
-                    }
-
-                    facet_hashes.clear();
-                    posting_list_t::get_offsets(facet_index_it, facet_hashes);
-
-                    const uint64_t distinct_id = group_limit ? get_distinct_id(group_by_fields, doc_seq_id) : 0;
-                    //LOG(INFO) << "facet_hash_count " << facet_hash_count;
-                    if(((i + 1) % 16384) == 0) {
-                        RETURN_CIRCUIT_BREAKER
-                    }
-    
-                    for(size_t j = 0; j < facet_hashes.size(); j++) {
-                        
-                        const auto& fhash = facet_hashes[j];
-                        
-                        if(should_compute_stats) {
-                            compute_facet_stats(a_facet, fhash, facet_field.type);
-                        }
-    
-                        std::string fhash_str = std::to_string(fhash);
-                        if(a_facet.is_range_query) {
-                            int64_t doc_val = get_doc_val_from_sort_index(sort_index_it, doc_seq_id); 
-                                
-                            std::pair<std::string, std::string> range_pair {};
-                            if(a_facet.get_range(std::to_string(doc_val), range_pair)) {
-                                const auto& range_id = range_pair.first;
-                                facet_count_t& facet_count = a_facet.result_map[range_id];
-                                facet_count.count += 1;
-                            }
-                        } else if(!use_facet_query || fquery_hashes.find(fhash_str) != fquery_hashes.end()) {
-                            facet_count_t& facet_count = a_facet.result_map[fhash_str];
-                            //LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id << ", hash: " <<  fhash;
-                            facet_count.doc_id = doc_seq_id;
-                            facet_count.array_pos = j;
-                            if(group_limit) {
-                                a_facet.hash_groups[fhash].emplace(distinct_id);
-                            } else {
-                                facet_count.count += 1;
-                            }
-                            if(use_facet_query) {
-                                //LOG (INFO) << "adding hash tokens for hash " << fhash;
-                                a_facet.hash_tokens[fhash_str] = fquery_hashes.at(fhash_str);
-                            }
-                        }
-                    }
-                } else {
+                if(!facet_index_it.valid()) {
                     break;
+                }
+
+                if(facet_index_it.id() != doc_seq_id) {
+                    continue;
+                }
+
+                facet_hashes.clear();
+                posting_list_t::get_offsets(facet_index_it, facet_hashes);
+
+                const uint64_t distinct_id = group_limit ? get_distinct_id(group_by_fields, doc_seq_id) : 0;
+                //LOG(INFO) << "facet_hash_count " << facet_hash_count;
+                if(((i + 1) % 16384) == 0) {
+                    RETURN_CIRCUIT_BREAKER
+                }
+
+                for(size_t j = 0; j < facet_hashes.size(); j++) {
+
+                    const auto& fhash = facet_hashes[j];
+
+                    if(should_compute_stats) {
+                        compute_facet_stats(a_facet, fhash, facet_field.type);
+                    }
+
+                    std::string fhash_str = std::to_string(fhash);
+                    if(a_facet.is_range_query) {
+                        int64_t doc_val = get_doc_val_from_sort_index(sort_index_it, doc_seq_id);
+
+                        std::pair<std::string, std::string> range_pair {};
+                        if(a_facet.get_range(std::to_string(doc_val), range_pair)) {
+                            const auto& range_id = range_pair.first;
+                            facet_count_t& facet_count = a_facet.result_map[range_id];
+                            facet_count.count += 1;
+                        }
+                    } else if(!use_facet_query || fquery_hashes.find(fhash_str) != fquery_hashes.end()) {
+                        facet_count_t& facet_count = a_facet.result_map[fhash_str];
+                        //LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id << ", hash: " <<  fhash;
+                        facet_count.doc_id = doc_seq_id;
+                        facet_count.array_pos = j;
+                        if(group_limit) {
+                            a_facet.hash_groups[fhash].emplace(distinct_id);
+                        } else {
+                            facet_count.count += 1;
+                        }
+                        if(use_facet_query) {
+                            //LOG (INFO) << "adding hash tokens for hash " << fhash;
+                            a_facet.hash_tokens[fhash_str] = fquery_hashes.at(fhash_str);
+                        }
+                    }
                 }
             }
         }
