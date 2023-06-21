@@ -121,10 +121,6 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
 }
 
 void BatchedIndexer::run() {
-
-    // sleep this thread for 5 seconds
-    std::this_thread::sleep_for(std::chrono::seconds(5));
-
     LOG(INFO) << "Starting batch indexer with " << num_threads << " threads.";
     ThreadPool* thread_pool = new ThreadPool(num_threads);
     skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX, skip_index_iter_upper_bound);
