@@ -11,6 +11,10 @@
 #include "raft_server.h"
 #include "logger.h"
 #include "ratelimit_manager.h"
+#include "zlib.h"
+
+static z_stream zs;
+static bool zstream_initialized = false;
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
@@ -609,7 +613,6 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     }
 
     std::string chunk_str(chunk.base, chunk.len);
-
     request->body += chunk_str;
     request->chunk_len += chunk.len;
 
@@ -632,6 +635,42 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     if(can_process_async || is_end_stream) {
         // For async streaming requests, handler should be invoked for every aggregated chunk
         // For a non streaming request, buffer body and invoke only at the end
+        if(!zstream_initialized) {
+            if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK)
+                throw (std::runtime_error("inflateInit failed while decompressing."));
+            zstream_initialized = true;
+        }
+
+        std::string outbuffer;
+        outbuffer.resize(10 * request->body.size());
+
+        zs.next_in = (Bytef *) request->body.c_str();
+        zs.avail_in = request->body.size();
+        std::size_t size_uncompressed = 0;
+        int ret = 0;
+        do
+        {
+            zs.avail_out = static_cast<unsigned int>(outbuffer.size());
+            zs.next_out = reinterpret_cast<Bytef*>(&outbuffer[0] + size_uncompressed);
+            ret = inflate(&zs, Z_FINISH);
+            if (ret != Z_STREAM_END && ret != Z_OK && ret != Z_BUF_ERROR)
+            {
+                std::string error_msg = zs.msg;
+                inflateEnd(&zs);
+                throw std::runtime_error(error_msg);
+            }
+
+            size_uncompressed += (outbuffer.size() - zs.avail_out);
+        } while (zs.avail_out == 0);
+
+        if(ret == Z_STREAM_END) {
+            inflateEnd(&zs);
+        }
+
+        outbuffer.resize(size_uncompressed);
+
+        request->body = outbuffer;
+        request->chunk_len = outbuffer.size();
 
         if(request->first_chunk_aggregate) {
             request->first_chunk_aggregate = false;
