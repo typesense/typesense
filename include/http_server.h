@@ -51,7 +51,10 @@ public:
 
     bool is_res_start = true;
     h2o_send_state_t send_state = H2O_SEND_STATE_IN_PROGRESS;
-    h2o_iovec_t res_body{};
+
+    std::string res_body;
+    h2o_iovec_t res_buff;
+
     h2o_iovec_t res_content_type{};
     int status = 0;
     const char* reason = nullptr;
@@ -64,8 +67,10 @@ public:
         }
     }
 
-    void set_response(uint32_t status_code, const std::string& content_type, const std::string& body) {
-        res_body = h2o_strdup(&req->pool, body.c_str(), SIZE_MAX);
+    void set_response(uint32_t status_code, const std::string& content_type, std::string& body) {
+        std::string().swap(res_body);
+        res_body = std::move(body);
+        res_buff = h2o_iovec_t{.base = res_body.data(), .len = res_body.size()};
 
         if(is_res_start) {
             res_content_type = h2o_strdup(&req->pool, content_type.c_str(), SIZE_MAX);
