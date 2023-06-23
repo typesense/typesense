@@ -33,6 +33,7 @@ class RemoteEmbedder {
         static void init(ReplicationState* rs) {
             raft_server = rs;
         }
+        virtual ~RemoteEmbedder() = default;
 
 };
 

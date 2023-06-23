@@ -30,6 +30,7 @@ class TextEmbeddingTokenizer {
     private:
     public:
         virtual encoded_input_t Encode(const std::string& text) = 0;
+        virtual ~TextEmbeddingTokenizer() = default;
 };
 
 class BertTokenizerWrapper : public TextEmbeddingTokenizer {
