@@ -30,7 +30,7 @@
 #include "vector_query_ops.h"
 #include "hnswlib/hnswlib.h"
 #include "filter.h"
-#include "numeric_range_trie_test.h"
+#include "numeric_range_trie.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;

@@ -1,7 +1,6 @@
 #pragma once
 
-#include <map>
-#include "sorted_array.h"
+#include <ids_t.h>
 
 constexpr short EXPANSE = 256;
 
@@ -10,7 +9,7 @@ class NumericTrie {
 
     class Node {
         Node** children = nullptr;
-        sorted_array seq_ids;
+        void* seq_ids = SET_COMPACT_IDS(compact_id_list_t::create(0, {}));
 
         void insert_helper(const int64_t& value, const uint32_t& seq_id, char& level, const char& max_level);
 
@@ -30,6 +29,8 @@ class NumericTrie {
     public:
 
         ~Node() {
+            ids_t::destroy_list(seq_ids);
+
             if (children != nullptr) {
                 for (auto i = 0; i < EXPANSE; i++) {
                     delete children[i];

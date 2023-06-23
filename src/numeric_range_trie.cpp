@@ -1,7 +1,6 @@
 #include <timsort.hpp>
 #include <set>
-#include <complex>
-#include "numeric_range_trie_test.h"
+#include "numeric_range_trie.h"
 #include "array_utils.h"
 
 void NumericTrie::insert(const int64_t& value, const uint32_t& seq_id) {
@@ -407,12 +406,31 @@ NumericTrie::iterator_t NumericTrie::search_equal_to(const int64_t& value) {
     return NumericTrie::iterator_t(matches);
 }
 
-inline uint64_t indexable_limit(const char& max_level) {
-    return std::pow(EXPANSE, max_level);
+inline int64_t indexable_limit(const char& max_level) {
+    switch (max_level) {
+        case 1:
+            return 0xFF;
+        case 2:
+            return 0xFFFF;
+        case 3:
+            return 0xFFFFFF;
+        case 4:
+            return 0xFFFFFFFF;
+        case 5:
+            return 0xFFFFFFFFFF;
+        case 6:
+            return 0xFFFFFFFFFFFF;
+        case 7:
+            return 0xFFFFFFFFFFFFFF;
+        case 8:
+            return 0x7FFFFFFFFFFFFFFF;
+        default:
+            return 0;
+    }
 }
 
 void NumericTrie::Node::insert(const int64_t& value, const uint32_t& seq_id, const char& max_level) {
-    if (value >= indexable_limit(max_level)) {
+    if (value > indexable_limit(max_level)) {
         return;
     }
 
@@ -442,7 +460,7 @@ inline int get_geopoint_index(const uint64_t& cell_id, const char& level) {
 }
 
 void NumericTrie::Node::remove(const int64_t& value, const uint32_t& id, const char& max_level) {
-    if (value >= indexable_limit(max_level)) {
+    if (value > indexable_limit(max_level)) {
         return;
     }
 
@@ -451,7 +469,7 @@ void NumericTrie::Node::remove(const int64_t& value, const uint32_t& id, const c
     auto index = get_index(value, level, max_level);
 
     while (level < max_level) {
-        root->seq_ids.remove_value(id);
+        ids_t::erase(root->seq_ids, id);
 
         if (root->children == nullptr || root->children[index] == nullptr) {
             return;
@@ -461,12 +479,12 @@ void NumericTrie::Node::remove(const int64_t& value, const uint32_t& id, const c
         index = get_index(value, ++level, max_level);
     }
 
-    root->seq_ids.remove_value(id);
+    ids_t::erase(root->seq_ids, id);
     if (root->children != nullptr && root->children[index] != nullptr) {
         auto& child = root->children[index];
 
-        child->seq_ids.remove_value(id);
-        if (child->seq_ids.getLength() == 0) {
+        ids_t::erase(child->seq_ids, id);
+        if (ids_t::num_ids(child->seq_ids) == 0) {
             delete child;
             child = nullptr;
         }
@@ -479,9 +497,7 @@ void NumericTrie::Node::insert_helper(const int64_t& value, const uint32_t& seq_
     }
 
     // Root node contains all the sequence ids present in the tree.
-    if (!seq_ids.contains(seq_id)) {
-        seq_ids.append(seq_id);
-    }
+    ids_t::upsert(seq_ids, seq_id);
 
     if (++level <= max_level) {
         if (children == nullptr) {
@@ -504,9 +520,7 @@ void NumericTrie::Node::insert_geopoint_helper(const uint64_t& cell_id, const ui
     }
 
     // Root node contains all the sequence ids present in the tree.
-    if (!seq_ids.contains(seq_id)) {
-        seq_ids.append(seq_id);
-    }
+    ids_t::upsert(seq_ids, seq_id);
 
     if (++level <= max_level) {
         if (children == nullptr) {
@@ -562,12 +576,7 @@ void NumericTrie::Node::search_geopoints(const std::vector<uint64_t>& cell_ids, 
     }
 
     for (auto const& match: matches) {
-        auto const& m_seq_ids = match->seq_ids.uncompress();
-        for (uint32_t i = 0; i < match->seq_ids.getLength(); i++) {
-            geo_result_ids.push_back(m_seq_ids[i]);
-        }
-
-        delete [] m_seq_ids;
+        ids_t::uncompress(match->seq_ids, geo_result_ids);
     }
 
     gfx::timsort(geo_result_ids.begin(), geo_result_ids.end());
@@ -580,7 +589,7 @@ void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, co
     auto index = get_geopoint_index(cell_id, level);
 
     while (level < max_level) {
-        root->seq_ids.remove_value(id);
+        ids_t::erase(root->seq_ids, id);
 
         if (root->children == nullptr || root->children[index] == nullptr) {
             return;
@@ -590,12 +599,12 @@ void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, co
         index = get_geopoint_index(cell_id, ++level);
     }
 
-    root->seq_ids.remove_value(id);
+    ids_t::erase(root->seq_ids, id);
     if (root->children != nullptr && root->children[index] != nullptr) {
         auto& child = root->children[index];
 
-        child->seq_ids.remove_value(id);
-        if (child->seq_ids.getLength() == 0) {
+        ids_t::erase(child->seq_ids, id);
+        if (ids_t::num_ids(child->seq_ids) == 0) {
             delete child;
             child = nullptr;
         }
@@ -603,8 +612,8 @@ void NumericTrie::Node::delete_geopoint(const uint64_t& cell_id, uint32_t id, co
 }
 
 void NumericTrie::Node::get_all_ids(uint32_t*& ids, uint32_t& ids_length) {
-    ids = seq_ids.uncompress();
-    ids_length = seq_ids.getLength();
+    ids = ids_t::uncompress(seq_ids);
+    ids_length = ids_t::num_ids(seq_ids);
 }
 
 void NumericTrie::Node::search_less_than(const int64_t& value, const char& max_level,
@@ -620,12 +629,7 @@ void NumericTrie::Node::search_less_than(const int64_t& value, const char& max_l
 
     std::vector<uint32_t> consolidated_ids;
     for (auto const& match: matches) {
-        auto const& m_seq_ids = match->seq_ids.uncompress();
-        for (uint32_t i = 0; i < match->seq_ids.getLength(); i++) {
-            consolidated_ids.push_back(m_seq_ids[i]);
-        }
-
-        delete [] m_seq_ids;
+        ids_t::uncompress(match->seq_ids, consolidated_ids);
     }
 
     gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
@@ -673,17 +677,12 @@ void NumericTrie::Node::search_range(const int64_t& low, const int64_t& high, co
         return;
     }
     std::vector<NumericTrie::Node*> matches;
-    search_range_helper(low, high >= indexable_limit(max_level) ? (int64_t) indexable_limit(max_level) - 1 : high,
+    search_range_helper(low, high >= indexable_limit(max_level) ? indexable_limit(max_level) : high,
                         max_level, matches);
 
     std::vector<uint32_t> consolidated_ids;
     for (auto const& match: matches) {
-        auto const& m_seq_ids = match->seq_ids.uncompress();
-        for (uint32_t i = 0; i < match->seq_ids.getLength(); i++) {
-            consolidated_ids.push_back(m_seq_ids[i]);
-        }
-
-        delete [] m_seq_ids;
+        ids_t::uncompress(match->seq_ids, consolidated_ids);
     }
 
     gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
@@ -768,12 +767,7 @@ void NumericTrie::Node::search_greater_than(const int64_t& value, const char& ma
 
     std::vector<uint32_t> consolidated_ids;
     for (auto const& match: matches) {
-        auto const& m_seq_ids = match->seq_ids.uncompress();
-        for (uint32_t i = 0; i < match->seq_ids.getLength(); i++) {
-            consolidated_ids.push_back(m_seq_ids[i]);
-        }
-
-        delete [] m_seq_ids;
+        ids_t::uncompress(match->seq_ids, consolidated_ids);
     }
 
     gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
@@ -817,7 +811,7 @@ void NumericTrie::Node::search_greater_than_helper(const int64_t& value, char& l
 
 void NumericTrie::Node::search_equal_to(const int64_t& value, const char& max_level,
                                         uint32_t*& ids, uint32_t& ids_length) {
-    if (value >= indexable_limit(max_level)) {
+    if (value > indexable_limit(max_level)) {
         return;
     }
 
