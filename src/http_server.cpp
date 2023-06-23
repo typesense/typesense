@@ -665,6 +665,7 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
 
         if(ret == Z_STREAM_END) {
             inflateEnd(&zs);
+            zstream_initialized = false;
         }
 
         outbuffer.resize(size_uncompressed);
