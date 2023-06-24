@@ -279,6 +279,8 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
 
     if(!req_res->res->is_alive) {
         // underlying client request is dead, don't try to send anymore data
+        // also, close the socket as we've overridden the close socket handler!
+        close(item);
         return 0;
     }
 
