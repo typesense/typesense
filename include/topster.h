@@ -14,6 +14,11 @@ struct KV {
     uint64_t key{};
     uint64_t distinct_key{};
     int64_t scores[3]{};  // match score + 2 custom attributes
+    
+    // only to be used in hybrid search
+    float vector_distance = 0.0f;
+    int64_t text_match_score = 0;
+
     reference_filter_result_t* reference_filter_result = nullptr;
 
     // to be used only in final aggregation
@@ -42,6 +47,9 @@ struct KV {
 
         query_indices = kv.query_indices;
         kv.query_indices = nullptr;
+
+        vector_distance = kv.vector_distance;
+        text_match_score = kv.text_match_score;
     }
 
     KV& operator=(KV&& kv) noexcept  {
@@ -59,6 +67,9 @@ struct KV {
             delete[] query_indices;
             query_indices = kv.query_indices;
             kv.query_indices = nullptr;
+
+            vector_distance = kv.vector_distance;
+            text_match_score = kv.text_match_score;
         }
 
         return *this;
@@ -79,6 +90,9 @@ struct KV {
             delete[] query_indices;
             query_indices = kv.query_indices;
             kv.query_indices = nullptr;
+
+            vector_distance = kv.vector_distance;
+            text_match_score = kv.text_match_score;
         }
 
         return *this;

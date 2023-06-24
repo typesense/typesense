@@ -605,7 +605,7 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
                                                  const index_operation_t op,
                                                  const bool is_update,
                                                  const std::string& fallback_field_type,
-                                                 const DIRTY_VALUES& dirty_values) {
+                                                 const DIRTY_VALUES& dirty_values, const bool validate_embedding_fields) {
 
     bool missing_default_sort_field = (!default_sorting_field.empty() && document.count(default_sorting_field) == 0);
 
@@ -652,10 +652,12 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
         }
     }
 
-    // validate embedding fields
-    auto validate_embed_op = validate_embed_fields(document, embedding_fields, search_schema, !is_update);
-    if(!validate_embed_op.ok()) {
-        return Option<>(validate_embed_op.code(), validate_embed_op.error());
+    if(validate_embedding_fields) {
+        // validate embedding fields
+        auto validate_embed_op = validate_embed_fields(document, embedding_fields, search_schema, !is_update);
+        if(!validate_embed_op.ok()) {
+            return Option<>(validate_embed_op.code(), validate_embed_op.error());
+        }
     }
     
     return Option<>(200);
