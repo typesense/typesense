@@ -406,6 +406,37 @@ NumericTrie::iterator_t NumericTrie::search_equal_to(const int64_t& value) {
     return NumericTrie::iterator_t(matches);
 }
 
+void NumericTrie::seq_ids_outside_top_k(const size_t& k, std::vector<uint32_t>& result) {
+    size_t ids_skipped = 0;
+    if (negative_trie != nullptr && positive_trie != nullptr) {
+        positive_trie->seq_ids_outside_top_k(k, max_level, ids_skipped, result);
+
+        if (ids_skipped < k) { // Haven't skipped k ids yet, would need to skip ids in negative trie also.
+            negative_trie->seq_ids_outside_top_k(k, max_level, ids_skipped, result, true);
+            return;
+        }
+
+        negative_trie->get_all_ids(result);
+    } else if (negative_trie != nullptr) {
+        negative_trie->seq_ids_outside_top_k(k, max_level, ids_skipped, result, true);
+    } else {
+        positive_trie->seq_ids_outside_top_k(k, max_level, ids_skipped, result);
+    }
+}
+
+size_t NumericTrie::size() {
+    size_t size = 0;
+    if (negative_trie != nullptr) {
+        size += negative_trie->get_ids_length();
+    }
+    if (positive_trie != nullptr) {
+        size += positive_trie->get_ids_length();
+    }
+
+    return size;
+}
+
+
 inline int64_t indexable_limit(const char& max_level) {
     switch (max_level) {
         case 1:
@@ -846,6 +877,71 @@ void NumericTrie::Node::search_equal_to(const int64_t& value, const char& max_le
     }
 
     matches.push_back(root);
+}
+
+uint32_t NumericTrie::Node::get_ids_length() {
+    return ids_t::num_ids(seq_ids);
+}
+
+void NumericTrie::Node::seq_ids_outside_top_k(const size_t& k,  const char& max_level, size_t& ids_skipped,
+                                              std::vector<uint32_t>& result, const bool& is_negative) {
+    char level = 0;
+    seq_ids_outside_top_k_helper(k, ids_skipped, level, max_level, is_negative, result);
+}
+
+void NumericTrie::Node::seq_ids_outside_top_k_helper(const size_t& k, size_t& ids_skipped,
+                                                     char& level, const char& max_level,
+                                                     const bool& is_negative, std::vector<uint32_t>& result) {
+    if (level == max_level) {
+        std::vector<uint32_t> ids;
+        get_all_ids(ids);
+
+        for(size_t i = 0; i < ids.size(); i++) {
+            if(ids_skipped + i >= k) {
+                result.push_back(ids[i]);
+            }
+        }
+
+        ids_skipped += ids.size();
+        return;
+    } else if (level > max_level) {
+        return;
+    }
+
+    if (children == nullptr) {
+        return;
+    }
+
+    short index = is_negative ? 0 : EXPANSE - 1; // Since we need to grab ids in descending order of their values.
+    do {
+        if (children[index] == nullptr) {
+            continue;
+        }
+        if (ids_skipped + children[index]->get_ids_length() > k) {
+            break;
+        }
+
+        ids_skipped += children[index]->get_ids_length();
+    } while(is_negative ? (++index < EXPANSE) : (--index >= 0));
+
+    if (is_negative ? (index >= EXPANSE) : (index < 0)) {
+        return;
+    }
+
+    children[index]->seq_ids_outside_top_k_helper(k, ids_skipped, ++level, max_level, is_negative, result);
+    --level;
+
+    while (is_negative ? (++index < EXPANSE) : (--index >= 0)) {
+        if (children[index] == nullptr) {
+            continue;
+        }
+
+        children[index]->get_all_ids(result);
+    }
+}
+
+void NumericTrie::Node::get_all_ids(std::vector<uint32_t>& result) {
+    ids_t::uncompress(seq_ids, result);
 }
 
 void NumericTrie::iterator_t::reset() {

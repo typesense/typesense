@@ -26,6 +26,9 @@ class NumericTrie {
         void search_greater_than_helper(const int64_t& value, char& level, const char& max_level,
                                         std::vector<Node*>& matches);
 
+        void seq_ids_outside_top_k_helper(const size_t& k, size_t& ids_skipped, char& level, const char& max_level,
+                                          const bool& is_negative, std::vector<uint32_t>& result);
+
     public:
 
         ~Node() {
@@ -53,6 +56,10 @@ class NumericTrie {
 
         void get_all_ids(uint32_t*& ids, uint32_t& ids_length);
 
+        void get_all_ids(std::vector<uint32_t>& result);
+
+        uint32_t get_ids_length();
+
         void search_range(const int64_t& low, const int64_t& high, const char& max_level,
                           uint32_t*& ids, uint32_t& ids_length);
 
@@ -69,6 +76,9 @@ class NumericTrie {
         void search_equal_to(const int64_t& value, const char& max_level, uint32_t*& ids, uint32_t& ids_length);
 
         void search_equal_to(const int64_t& value, const char& max_level, std::vector<Node*>& matches);
+
+        void seq_ids_outside_top_k(const size_t& k,  const char& max_level, size_t& ids_skipped,
+                                   std::vector<uint32_t>& result, const bool& is_negative = false);
     };
 
     Node* negative_trie = nullptr;
@@ -152,4 +162,8 @@ public:
     void search_equal_to(const int64_t& value, uint32_t*& ids, uint32_t& ids_length);
 
     iterator_t search_equal_to(const int64_t& value);
+
+    void seq_ids_outside_top_k(const size_t& k, std::vector<uint32_t>& result);
+
+    size_t size();
 };
