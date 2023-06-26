@@ -596,6 +596,8 @@ public:
 
     const spp::sparse_hash_map<std::string, num_tree_t*>& _get_numerical_index() const;
 
+    const spp::sparse_hash_map<std::string, NumericTrie*>& _get_range_index() const;
+
     const spp::sparse_hash_map<std::string, array_mapped_infix_t>& _get_infix_index() const;
 
     const spp::sparse_hash_map<std::string, hnsw_index_t*>& _get_vector_index() const;
@@ -693,28 +695,11 @@ public:
                                         filter_result_t& filter_result,
                                         const std::string& collection_name = "") const;
 
-    /// Traverses through filter tree and gets an approximate doc count for each filter. Also arranges the children of
-    /// each operator in ascending order based on their approx doc count.
-    ///
-    /// \param filter_tree_root
-    /// \param approx_filter_ids_length Approximate count of docs that would match the whole filter_by clause.
-    /// \param collection_name Name of the collection to which current index belongs. Used to find the reference field in other collection.
-    Option<bool> rearrange_filter_tree(filter_node_t* const filter_tree_root,
-                                       uint32_t& approx_filter_ids_length,
-                                       const std::string& collection_name = "") const;
-
-    Option<bool> _approximate_filter_ids(const filter& a_filter,
-                                         uint32_t& filter_ids_length,
-                                         const std::string& collection_name = "") const;
 
     Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                   filter_result_t& filter_result,
                                                   const std::string& collection_name,
                                                   const std::string& reference_helper_field_name) const;
-
-    /// Get approximate count of docs matching a reference filter on foo collection when $foo(...) filter is encountered.
-    Option<bool> get_approximate_reference_filter_ids_with_lock(filter_node_t* const filter_tree_root,
-                                                                uint32_t& filter_ids_length) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 

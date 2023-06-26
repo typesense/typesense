@@ -78,19 +78,20 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             art_tree_init(t);
             search_index.emplace(a_field.name, t);
         } else if(a_field.is_geopoint()) {
-            geo_range_index.emplace(a_field.name, new NumericTrie());
+            geo_range_index.emplace(a_field.name, new NumericTrie(32));
 
             if(!a_field.is_single_geopoint()) {
                 spp::sparse_hash_map<uint32_t, int64_t*> * doc_to_geos = new spp::sparse_hash_map<uint32_t, int64_t*>();
                 geo_array_index.emplace(a_field.name, doc_to_geos);
             }
         } else {
-            num_tree_t* num_tree = new num_tree_t;
-            numerical_index.emplace(a_field.name, num_tree);
-
             if (a_field.range_index) {
-                auto trie = a_field.is_int32() ? new NumericTrie() : new NumericTrie(64);
+                auto trie = a_field.is_bool() ? new NumericTrie(8) :
+                            a_field.is_int32() ? new NumericTrie(32) : new NumericTrie(64);
                 range_index.emplace(a_field.name, trie);
+            } else {
+                num_tree_t* num_tree = new num_tree_t;
+                numerical_index.emplace(a_field.name, num_tree);
             }
         }
 
@@ -748,65 +749,57 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
     if(!afield.is_string()) {
         if (afield.type == field_types::INT32) {
-            if (afield.range_index) {
-                auto const& trie = range_index.at(afield.name);
-                iterate_and_index_numerical_field(iter_batch, afield, [&afield, trie]
-                        (const index_record& record, uint32_t seq_id) {
-                    int32_t value = record.doc[afield.name].get<int32_t>();
-                    trie->insert(value, seq_id);
-                });
-            }
-
-            auto num_tree = numerical_index.at(afield.name);
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+            auto num_tree = afield.range_index ? nullptr : numerical_index.at(afield.name);
+            auto trie = afield.range_index ? range_index.at(afield.name) : nullptr;
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree, trie]
                     (const index_record& record, uint32_t seq_id) {
                 int32_t value = record.doc[afield.name].get<int32_t>();
-                num_tree->insert(value, seq_id);
+                if (afield.range_index) {
+                    trie->insert(value, seq_id);
+                } else {
+                    num_tree->insert(value, seq_id);
+                }
             });
         }
 
         else if(afield.type == field_types::INT64) {
-            if (afield.range_index) {
-                auto const& trie = range_index.at(afield.name);
-                iterate_and_index_numerical_field(iter_batch, afield, [&afield, trie]
-                        (const index_record& record, uint32_t seq_id) {
-                    int64_t value = record.doc[afield.name].get<int64_t>();
-                    trie->insert(value, seq_id);
-                });
-            }
-
-            auto num_tree = numerical_index.at(afield.name);
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+            auto num_tree = afield.range_index ? nullptr : numerical_index.at(afield.name);
+            auto trie = afield.range_index ? range_index.at(afield.name) : nullptr;
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree, trie]
                     (const index_record& record, uint32_t seq_id) {
                 int64_t value = record.doc[afield.name].get<int64_t>();
-                num_tree->insert(value, seq_id);
+                if (afield.range_index) {
+                    trie->insert(value, seq_id);
+                } else {
+                    num_tree->insert(value, seq_id);
+                }
             });
         }
 
         else if(afield.type == field_types::FLOAT) {
-            if (afield.range_index) {
-                auto const& trie = range_index.at(afield.name);
-                iterate_and_index_numerical_field(iter_batch, afield, [&afield, trie]
-                        (const index_record& record, uint32_t seq_id) {
-                    float fvalue = record.doc[afield.name].get<float>();
-                    int64_t value = float_to_int64_t(fvalue);
-                    trie->insert(value, seq_id);
-                });
-            }
-
-            auto num_tree = numerical_index.at(afield.name);
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+            auto num_tree = afield.range_index ? nullptr : numerical_index.at(afield.name);
+            auto trie = afield.range_index ? range_index.at(afield.name) : nullptr;
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree, trie]
                     (const index_record& record, uint32_t seq_id) {
                 float fvalue = record.doc[afield.name].get<float>();
                 int64_t value = float_to_int64_t(fvalue);
-                num_tree->insert(value, seq_id);
+                if (afield.range_index) {
+                    trie->insert(value, seq_id);
+                } else {
+                    num_tree->insert(value, seq_id);
+                }
             });
         } else if(afield.type == field_types::BOOL) {
-            auto num_tree = numerical_index.at(afield.name);
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+            auto num_tree = afield.range_index ? nullptr : numerical_index.at(afield.name);
+            auto trie = afield.range_index ? range_index.at(afield.name) : nullptr;
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree, trie]
                     (const index_record& record, uint32_t seq_id) {
                 bool value = record.doc[afield.name].get<bool>();
-                num_tree->insert(value, seq_id);
+                if (afield.range_index) {
+                    trie->insert(value, seq_id);
+                } else {
+                    num_tree->insert(value, seq_id);
+                }
             });
         } else if(afield.type == field_types::GEOPOINT || afield.type == field_types::GEOPOINT_ARRAY) {
             auto geopoint_range_index = geo_range_index.at(afield.name);
@@ -936,8 +929,8 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             }
 
             // all other numerical arrays
-            auto num_tree = numerical_index.at(afield.name);
-            auto trie = range_index.count(afield.name) > 0 ? range_index.at(afield.name) : nullptr;
+            auto num_tree = afield.range_index ? nullptr : numerical_index.at(afield.name);
+            auto trie = afield.range_index ? range_index.at(afield.name) : nullptr;
             iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree, trie]
                     (const index_record& record, uint32_t seq_id) {
                 for(size_t arr_i = 0; arr_i < record.doc[afield.name].size(); arr_i++) {
@@ -945,35 +938,43 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
                     if(afield.type == field_types::INT32_ARRAY) {
                         const int32_t value = arr_value;
-                        num_tree->insert(value, seq_id);
 
                         if (afield.range_index) {
                             trie->insert(value, seq_id);
+                        } else {
+                            num_tree->insert(value, seq_id);
                         }
                     }
 
                     else if(afield.type == field_types::INT64_ARRAY) {
                         const int64_t value = arr_value;
-                        num_tree->insert(value, seq_id);
 
                         if (afield.range_index) {
                             trie->insert(value, seq_id);
+                        } else {
+                            num_tree->insert(value, seq_id);
                         }
                     }
 
                     else if(afield.type == field_types::FLOAT_ARRAY) {
                         const float fvalue = arr_value;
                         int64_t value = float_to_int64_t(fvalue);
-                        num_tree->insert(value, seq_id);
 
                         if (afield.range_index) {
                             trie->insert(value, seq_id);
+                        } else {
+                            num_tree->insert(value, seq_id);
                         }
                     }
 
                     else if(afield.type == field_types::BOOL_ARRAY) {
                         const bool value = record.doc[afield.name][arr_i];
-                        num_tree->insert(int64_t(value), seq_id);
+
+                        if (afield.range_index) {
+                            trie->insert(value, seq_id);
+                        } else {
+                            num_tree->insert(value, seq_id);
+                        }
                     }
                 }
             });
@@ -1548,45 +1549,10 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
     }
 }
 
-void Index::numeric_not_equals_filter(num_tree_t* const num_tree,
-                                      const int64_t value,
-                                      const uint32_t& context_ids_length,
-                                      uint32_t* const& context_ids,
-                                      size_t& ids_len,
-                                      uint32_t*& ids) const {
-    uint32_t* to_exclude_ids = nullptr;
-    size_t to_exclude_ids_len = 0;
-
-    if (context_ids_length != 0) {
-        num_tree->contains(EQUALS, value, context_ids_length, context_ids, to_exclude_ids_len, to_exclude_ids);
-    } else {
-        num_tree->search(EQUALS, value, &to_exclude_ids, to_exclude_ids_len);
-    }
-
-    auto all_ids = seq_ids->uncompress();
-    auto all_ids_size = seq_ids->num_ids();
-
-    uint32_t* to_include_ids = nullptr;
-    size_t to_include_ids_len = 0;
-
-    to_include_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_size, to_exclude_ids,
-                                                    to_exclude_ids_len, &to_include_ids);
-
-    delete[] all_ids;
-    delete[] to_exclude_ids;
-
-    uint32_t* out = nullptr;
-    ids_len = ArrayUtils::or_scalar(ids, ids_len, to_include_ids, to_include_ids_len, &out);
-
-    delete[] ids;
-    delete[] to_include_ids;
-
-    ids = out;
-}
-
 bool Index::field_is_indexed(const std::string& field_name) const {
     return search_index.count(field_name) != 0 ||
     numerical_index.count(field_name) != 0 ||
+    range_index.count(field_name) != 0 ||
     geo_range_index.count(field_name) != 0;
 }
 
@@ -1616,150 +1582,6 @@ void Index::aproximate_numerical_match(num_tree_t* const num_tree,
     }
 
     num_tree->approx_search_count(comparator, value, filter_ids_length);
-}
-
-Option<bool> Index::_approximate_filter_ids(const filter& a_filter,
-                                            uint32_t& filter_ids_length,
-                                            const std::string& collection_name) const {
-    if (!a_filter.referenced_collection_name.empty()) {
-        auto& cm = CollectionManager::get_instance();
-        auto collection = cm.get_collection(a_filter.referenced_collection_name);
-        if (collection == nullptr) {
-            return Option<bool>(400, "Referenced collection `" + a_filter.referenced_collection_name + "` not found.");
-        }
-
-        return collection->get_approximate_reference_filter_ids(a_filter.field_name, filter_ids_length);
-    }
-
-    if (a_filter.field_name == "id") {
-        filter_ids_length = a_filter.values.size();
-        return Option(true);
-    }
-
-    if (!field_is_indexed(a_filter.field_name)) {
-        return Option(true);
-    }
-
-    field f = search_schema.at(a_filter.field_name);
-
-    if (f.is_integer()) {
-        auto num_tree = numerical_index.at(f.name);
-
-        for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
-            const std::string& filter_value = a_filter.values[fi];
-            auto const value = (int64_t)std::stol(filter_value);
-
-            if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
-                const std::string& next_filter_value = a_filter.values[fi + 1];
-                auto const range_end_value = (int64_t)std::stol(next_filter_value);
-
-                aproximate_numerical_match(num_tree, a_filter.comparators[fi], value, range_end_value,
-                                           filter_ids_length);
-                fi++;
-            } else {
-                aproximate_numerical_match(num_tree, a_filter.comparators[fi], value, 0, filter_ids_length);
-            }
-        }
-    } else if (f.is_float()) {
-        auto num_tree = numerical_index.at(a_filter.field_name);
-
-        for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
-            const std::string& filter_value = a_filter.values[fi];
-            float value = (float)std::atof(filter_value.c_str());
-            int64_t float_int64 = float_to_int64_t(value);
-
-            if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
-                const std::string& next_filter_value = a_filter.values[fi + 1];
-                auto const range_end_value = float_to_int64_t((float) std::atof(next_filter_value.c_str()));
-
-                aproximate_numerical_match(num_tree, a_filter.comparators[fi], float_int64, range_end_value,
-                                           filter_ids_length);
-                fi++;
-            } else {
-                aproximate_numerical_match(num_tree, a_filter.comparators[fi], float_int64, 0, filter_ids_length);
-            }
-        }
-    } else if (f.is_bool()) {
-        auto num_tree = numerical_index.at(a_filter.field_name);
-
-        size_t value_index = 0;
-        for (const std::string& filter_value : a_filter.values) {
-            int64_t bool_int64 = (filter_value == "1") ? 1 : 0;
-
-            aproximate_numerical_match(num_tree, a_filter.comparators[value_index], bool_int64, 0, filter_ids_length);
-            value_index++;
-        }
-    } else if (f.is_geopoint()) {
-        // Optimistically setting a value greater than 0. Exact count would be found during initialization of
-        // filter_result_iterator.
-        filter_ids_length = 1;
-    } else if (f.is_string()) {
-        art_tree* t = search_index.at(a_filter.field_name);
-
-        for (const std::string& filter_value : a_filter.values) {
-            Tokenizer tokenizer(filter_value, true, false, f.locale, symbols_to_index, token_separators);
-
-            std::string str_token;
-            size_t token_index = 0;
-
-            while (tokenizer.next(str_token, token_index)) {
-                auto const leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
-                                                          str_token.length()+1);
-                if (leaf == nullptr) {
-                    continue;
-                }
-
-                filter_ids_length += posting_t::num_ids(leaf->values);
-            }
-        }
-    }
-
-    if (a_filter.apply_not_equals && filter_ids_length == 0) {
-        filter_ids_length = seq_ids->num_ids();
-    }
-
-    return Option(true);
-}
-
-Option<bool> Index::rearrange_filter_tree(filter_node_t* const root,
-                                          uint32_t& approx_filter_ids_length,
-                                          const std::string& collection_name) const {
-    if (root == nullptr) {
-        return Option(true);
-    }
-
-    if (root->isOperator) {
-        uint32_t l_filter_ids_length = 0;
-        if (root->left != nullptr) {
-            auto rearrange_op = rearrange_filter_tree(root->left, l_filter_ids_length, collection_name);
-            if (!rearrange_op.ok()) {
-                return rearrange_op;
-            }
-        }
-
-        uint32_t r_filter_ids_length = 0;
-        if (root->right != nullptr) {
-            auto rearrange_op = rearrange_filter_tree(root->right, r_filter_ids_length, collection_name);
-            if (!rearrange_op.ok()) {
-                return rearrange_op;
-            }
-        }
-
-        if (root->filter_operator == AND) {
-            approx_filter_ids_length = std::min(l_filter_ids_length, r_filter_ids_length);
-        } else {
-            approx_filter_ids_length = l_filter_ids_length + r_filter_ids_length;
-        }
-
-        if (l_filter_ids_length > r_filter_ids_length) {
-            std::swap(root->left, root->right);
-        }
-
-        return Option(true);
-    }
-
-    _approximate_filter_ids(root->filter_exp, approx_filter_ids_length, collection_name);
-    return Option(true);
 }
 
 Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root,
@@ -1820,13 +1642,6 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     }
 
     return Option(true);
-}
-
-Option<bool> Index::get_approximate_reference_filter_ids_with_lock(filter_node_t* const filter_tree_root,
-                                                                   uint32_t& filter_ids_length) const {
-    std::shared_lock lock(mutex);
-
-    return rearrange_filter_tree(filter_tree_root, filter_ids_length);
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name) {
@@ -2317,14 +2132,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const std::string& collection_name) const {
     std::shared_lock lock(mutex);
 
-    uint32_t approx_filter_ids_length = 0;
-    auto rearrange_op = rearrange_filter_tree(filter_tree_root, approx_filter_ids_length, collection_name);
-    if (!rearrange_op.ok()) {
-        return rearrange_op;
-    }
-
-    auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
-                                                               approx_filter_ids_length);
+    auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
 
     auto filter_init_op = filter_result_iterator->init_status();
@@ -5425,12 +5233,13 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
                                              document[field_name].get<std::vector<int32_t>>();
         for(int32_t value: values) {
             if (search_field.range_index) {
-                auto const& trie = range_index.at(search_field.name);
+                auto trie = range_index.at(field_name);
                 trie->remove(value, seq_id);
+            } else {
+                num_tree_t* num_tree = numerical_index.at(field_name);
+                num_tree->remove(value, seq_id);
             }
 
-            num_tree_t* num_tree = numerical_index.at(field_name);
-            num_tree->remove(value, seq_id);
             if(search_field.facet) {
                 remove_facet_token(search_field, search_index, std::to_string(value), seq_id);
             }
@@ -5441,12 +5250,13 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
                                              document[field_name].get<std::vector<int64_t>>();
         for(int64_t value: values) {
             if (search_field.range_index) {
-                auto const& trie = range_index.at(search_field.name);
+                auto trie = range_index.at(field_name);
                 trie->remove(value, seq_id);
+            } else {
+                num_tree_t* num_tree = numerical_index.at(field_name);
+                num_tree->remove(value, seq_id);
             }
 
-            num_tree_t* num_tree = numerical_index.at(field_name);
-            num_tree->remove(value, seq_id);
             if(search_field.facet) {
                 remove_facet_token(search_field, search_index, std::to_string(value), seq_id);
             }
@@ -5462,12 +5272,13 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
             int64_t fintval = float_to_int64_t(value);
 
             if (search_field.range_index) {
-                auto const& trie = range_index.at(search_field.name);
+                auto trie = range_index.at(field_name);
                 trie->remove(fintval, seq_id);
+            } else {
+                num_tree_t* num_tree = numerical_index.at(field_name);
+                num_tree->remove(fintval, seq_id);
             }
 
-            num_tree_t* num_tree = numerical_index.at(field_name);
-            num_tree->remove(fintval, seq_id);
             if(search_field.facet) {
                 remove_facet_token(search_field, search_index, StringUtils::float_to_str(value), seq_id);
             }
@@ -5478,9 +5289,15 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
                                           std::vector<bool>{document[field_name].get<bool>()} :
                                           document[field_name].get<std::vector<bool>>();
         for(bool value: values) {
-            num_tree_t* num_tree = numerical_index.at(field_name);
             int64_t bool_int64 = value ? 1 : 0;
-            num_tree->remove(bool_int64, seq_id);
+            if (search_field.range_index) {
+                auto trie = range_index.at(field_name);
+                trie->remove(bool_int64, seq_id);
+            } else {
+                num_tree_t* num_tree = numerical_index.at(field_name);
+                num_tree->remove(bool_int64, seq_id);
+            }
+
             if(search_field.facet) {
                 remove_facet_token(search_field, search_index, std::to_string(value), seq_id);
             }
@@ -5611,6 +5428,10 @@ const spp::sparse_hash_map<std::string, num_tree_t*>& Index::_get_numerical_inde
     return numerical_index;
 }
 
+const spp::sparse_hash_map<std::string, NumericTrie*>& Index::_get_range_index() const {
+    return range_index;
+}
+
 const spp::sparse_hash_map<std::string, array_mapped_infix_t>& Index::_get_infix_index() const {
     return infix_index;
 };
@@ -5650,17 +5471,19 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
                 art_tree_init(t);
                 search_index.emplace(new_field.name, t);
             } else if(new_field.is_geopoint()) {
-                geo_range_index.emplace(new_field.name, new NumericTrie());
+                geo_range_index.emplace(new_field.name, new NumericTrie(32));
                 if(!new_field.is_single_geopoint()) {
                     auto geo_array_map = new spp::sparse_hash_map<uint32_t, int64_t*>();
                     geo_array_index.emplace(new_field.name, geo_array_map);
                 }
             } else {
-                num_tree_t* num_tree = new num_tree_t;
-                numerical_index.emplace(new_field.name, num_tree);
-
                 if (new_field.range_index) {
-                    range_index.emplace(new_field.name, new NumericTrie(new_field.is_int32() ? 32 : 64));
+                    auto trie = new_field.is_bool() ? new NumericTrie(8) :
+                                new_field.is_int32() ? new NumericTrie(32) : new NumericTrie(64);
+                    range_index.emplace(new_field.name, trie);
+                } else {
+                    num_tree_t* num_tree = new num_tree_t;
+                    numerical_index.emplace(new_field.name, num_tree);
                 }
             }
         }
@@ -5716,12 +5539,12 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
                 geo_array_index.erase(del_field.name);
             }
         } else {
-            delete numerical_index[del_field.name];
-            numerical_index.erase(del_field.name);
-
             if (del_field.range_index) {
                 delete range_index[del_field.name];
                 range_index.erase(del_field.name);
+            } else {
+                delete numerical_index[del_field.name];
+                numerical_index.erase(del_field.name);
             }
         }
 
