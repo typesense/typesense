@@ -2246,3 +2246,145 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 }
+
+
+TEST_F(CollectionSortingTest, AscendingVectorDistance) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "title", "type": "string" },
+              {"name": "points", "type": "float[]", "num_dim": 2}
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::vector<float>> points = {
+        {3.0, 4.0},
+        {9.0, 21.0},
+        {8.0, 15.0},
+        {1.0, 1.0},
+        {5.0, 7.0}
+    };
+
+    for(size_t i = 0; i < points.size(); i++) {
+        nlohmann::json doc;
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = points[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("_vector_distance", "asc"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "points:([8.0, 15.0])").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    std::vector<std::string> expected_ids = {"2", "1", "4", "0", "3"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+}
+
+
+TEST_F(CollectionSortingTest, DescendingVectorDistance) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "title", "type": "string" },
+              {"name": "points", "type": "float[]", "num_dim": 2}
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::vector<float>> points = {
+        {3.0, 4.0},
+        {9.0, 21.0},
+        {8.0, 15.0},
+        {1.0, 1.0},
+        {5.0, 7.0}
+    };
+
+    for(size_t i = 0; i < points.size(); i++) {
+        nlohmann::json doc;
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = points[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    } 
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("_vector_distance", "DESC"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "points:([8.0, 15.0])").get();
+    
+    ASSERT_EQ(5, results["hits"].size());
+    std::vector<std::string> expected_ids = {"3", "0", "4", "1", "2"};
+
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+}
+
+
+TEST_F(CollectionSortingTest, InvalidVectorDistanceSorting) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "title", "type": "string" },
+              {"name": "points", "type": "float[]", "num_dim": 2}
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::vector<float>> points = {
+        {1.0, 1.0},
+        {2.0, 2.0},
+        {3.0, 3.0},
+        {4.0, 4.0},
+        {5.0, 5.0},
+    };
+
+    for(size_t i = 0; i < points.size(); i++) {
+        nlohmann::json doc;
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = points[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("_vector_distance", "desc"),
+    };
+
+
+
+    auto results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
+
+    ASSERT_FALSE(results.ok());
+
+    ASSERT_EQ("sort_by vector_distance is only supported for vector queries, semantic search and hybrid search.", results.error());
+}

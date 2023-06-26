@@ -344,6 +344,7 @@ private:
     static spp::sparse_hash_map<uint32_t, int64_t> eval_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> geo_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> str_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t> vector_distance_sentinel_value;
 
     // Internal utility functions
 
@@ -947,7 +948,7 @@ public:
                              size_t filter_index,
                              int64_t max_field_match_score,
                              int64_t* scores,
-                             int64_t& match_score_index) const;
+                             int64_t& match_score_index, float vector_distance = 0) const;
 
     void
     process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
