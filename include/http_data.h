@@ -336,6 +336,11 @@ struct http_req {
 
         delete data;
         data = nullptr;
+
+        if(zstream_initialized) {
+            zstream_initialized = false;
+            inflateEnd(&zs);
+        }
     }
 
     void wait() {
