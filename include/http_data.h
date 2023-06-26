@@ -12,6 +12,7 @@
 #include "logger.h"
 #include "app_metrics.h"
 #include "tsconfig.h"
+#include "zlib.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -247,6 +248,9 @@ struct http_req {
 
     std::atomic<bool> is_diposed;
     std::string client_ip = "0.0.0.0";
+
+    z_stream zs;
+    bool zstream_initialized = false;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),

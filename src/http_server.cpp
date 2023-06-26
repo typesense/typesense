@@ -11,10 +11,6 @@
 #include "raft_server.h"
 #include "logger.h"
 #include "ratelimit_manager.h"
-#include "zlib.h"
-
-static z_stream zs;
-static bool zstream_initialized = false;
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
@@ -635,37 +631,43 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     if(can_process_async || is_end_stream) {
         // For async streaming requests, handler should be invoked for every aggregated chunk
         // For a non streaming request, buffer body and invoke only at the end
-        if(!zstream_initialized &&
+        if(!request->zstream_initialized && (request->body.size() > 2) &&
             (31 == (int)request->body[0] && -117 == (int)request->body[1])) { //gzip header
-            if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK)
+            request->zs.zalloc = Z_NULL;
+            request->zs.zfree = Z_NULL;
+            request->zs.opaque = Z_NULL;
+            request->zs.avail_in = 0;
+            request->zs.next_in = Z_NULL;
+
+            if (inflateInit2(&request->zs, 16 + MAX_WBITS) != Z_OK)
                 throw (std::runtime_error("inflateInit failed while decompressing."));
-            zstream_initialized = true;
+            request->zstream_initialized = true;
         }
 
-        if(zstream_initialized) {
+        if(request->zstream_initialized) {
             std::string outbuffer;
             outbuffer.resize(10 * request->body.size());
 
-            zs.next_in = (Bytef *) request->body.c_str();
-            zs.avail_in = request->body.size();
+            request->zs.next_in = (Bytef *) request->body.c_str();
+            request->zs.avail_in = request->body.size();
             std::size_t size_uncompressed = 0;
             int ret = 0;
             do {
-                zs.avail_out = static_cast<unsigned int>(outbuffer.size());
-                zs.next_out = reinterpret_cast<Bytef *>(&outbuffer[0] + size_uncompressed);
-                ret = inflate(&zs, Z_FINISH);
+                request->zs.avail_out = static_cast<unsigned int>(outbuffer.size());
+                request->zs.next_out = reinterpret_cast<Bytef *>(&outbuffer[0] + size_uncompressed);
+                ret = inflate(&request->zs, Z_FINISH);
                 if (ret != Z_STREAM_END && ret != Z_OK && ret != Z_BUF_ERROR) {
-                    std::string error_msg = zs.msg;
-                    inflateEnd(&zs);
+                    std::string error_msg = request->zs.msg;
+                    inflateEnd(&request->zs);
                     throw std::runtime_error(error_msg);
                 }
 
-                size_uncompressed += (outbuffer.size() - zs.avail_out);
-            } while (zs.avail_out == 0);
+                size_uncompressed += (outbuffer.size() - request->zs.avail_out);
+            } while (request->zs.avail_out == 0);
 
             if (ret == Z_STREAM_END) {
-                inflateEnd(&zs);
-                zstream_initialized = false;
+                request->zstream_initialized = false;
+                inflateEnd(&request->zs);
             }
 
             outbuffer.resize(size_uncompressed);
