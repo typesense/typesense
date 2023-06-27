@@ -1599,9 +1599,18 @@ void filter_result_iterator_t::compute_result() {
         return;
     }
 
+    // Resetting posting_list_iterators.
+    for (uint32_t i = 0; i < posting_lists.size(); i++) {
+        auto const& plists = posting_lists[i];
+
+        posting_list_iterators[i].clear();
+        for (auto const& plist: plists) {
+            posting_list_iterators[i].push_back(plist->new_iterator());
+        }
+    }
+
     auto const& a_filter = filter_node->filter_exp;
     auto const& f = index->search_schema.at(a_filter.field_name);
-    art_tree* t = index->search_index.at(a_filter.field_name);
 
     uint32_t* or_ids = nullptr;
     size_t or_ids_size = 0;
@@ -1609,37 +1618,12 @@ void filter_result_iterator_t::compute_result() {
     // aggregates IDs across array of filter values and reduces excessive ORing
     std::vector<uint32_t> f_id_buff;
 
-    for (const std::string& filter_value : a_filter.values) {
-        std::vector<void*> posting_lists;
-
-        // there could be multiple tokens in a filter value, which we have to treat as ANDs
-        // e.g. country: South Africa
-        Tokenizer tokenizer(filter_value, true, false, f.locale, index->symbols_to_index, index->token_separators);
-
-        std::string str_token;
-        size_t token_index = 0;
-        std::vector<std::string> str_tokens;
-
-        while (tokenizer.next(str_token, token_index)) {
-            str_tokens.push_back(str_token);
-
-            art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
-                                                     str_token.length()+1);
-            if (leaf == nullptr) {
-                continue;
-            }
-
-            posting_lists.push_back(leaf->values);
-        }
-
-        if (posting_lists.size() != str_tokens.size()) {
-            continue;
-        }
-
-        if(a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
+    for (uint32_t i = 0; i < posting_lists.size(); i++) {
+        auto& p_list = posting_lists[i];
+        if (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
             // needs intersection + exact matching (unlike CONTAINS)
             std::vector<uint32_t> result_id_vec;
-            posting_t::intersect(posting_lists, result_id_vec);
+            posting_list_t::intersect(p_list, result_id_vec);
 
             if (result_id_vec.empty()) {
                 continue;
@@ -1650,8 +1634,9 @@ void filter_result_iterator_t::compute_result() {
             size_t exact_str_ids_size = 0;
             std::unique_ptr<uint32_t[]> exact_str_ids_guard(exact_str_ids);
 
-            posting_t::get_exact_matches(posting_lists, f.is_array(), result_id_vec.data(), result_id_vec.size(),
-                                         exact_str_ids, exact_str_ids_size);
+            posting_list_t::get_exact_matches(posting_list_iterators[i], f.is_array(),
+                                              result_id_vec.data(), result_id_vec.size(),
+                                              exact_str_ids, exact_str_ids_size);
 
             if (exact_str_ids_size == 0) {
                 continue;
@@ -1663,7 +1648,7 @@ void filter_result_iterator_t::compute_result() {
         } else {
             // CONTAINS
             size_t before_size = f_id_buff.size();
-            posting_t::intersect(posting_lists, f_id_buff);
+            posting_list_t::intersect(p_list, f_id_buff);
             if (f_id_buff.size() == before_size) {
                 continue;
             }
