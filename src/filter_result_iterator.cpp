@@ -1591,6 +1591,12 @@ void filter_result_iterator_t::compute_result() {
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
+
+        // Deleting subtree since we've already computed the result.
+        delete left_it;
+        left_it = nullptr;
+        delete right_it;
+        right_it = nullptr;
         return;
     }
 
