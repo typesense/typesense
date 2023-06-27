@@ -474,7 +474,7 @@ void NumericTrie::Node::insert_geopoint(const uint64_t& cell_id, const uint32_t&
     return insert_geopoint_helper(cell_id, seq_id, level, max_level);
 }
 
-inline int get_index(const int64_t& value, const char& level, const char& max_level) {
+inline short get_index(const int64_t& value, const char& level, const char& max_level) {
     // Values are index considering higher order of the bytes first.
     // 0x01020408 (16909320) would be indexed in the trie as follows:
     // Level   Index
@@ -485,7 +485,7 @@ inline int get_index(const int64_t& value, const char& level, const char& max_le
     return (value >> (8 * (max_level - level))) & 0xFF;
 }
 
-inline int get_geopoint_index(const uint64_t& cell_id, const char& level) {
+inline short get_geopoint_index(const uint64_t& cell_id, const char& level) {
     // Doing 8-level since cell_id is a 64 bit number.
     return (cell_id >> (8 * (8 - level))) & 0xFF;
 }
@@ -772,7 +772,7 @@ void NumericTrie::Node::search_range_helper(const int64_t& low,const int64_t& hi
 
     auto index = low_index + 1;
     // All the nodes in-between low and high are a match by default.
-    while (index < std::min(high_index, (int)EXPANSE)) {
+    while (index < std::min(high_index, EXPANSE)) {
         if (root->children[index] != nullptr) {
             matches.push_back(root->children[index]);
         }
