@@ -711,10 +711,40 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
                                 4, {off}, 32767, 32767, 2,
                                 false, true, "vec:(" + dummy_vec_string +")");
     ASSERT_EQ(true, results_op.ok());
-
-
     ASSERT_EQ(1, results_op.get()["found"].get<size_t>());
     ASSERT_EQ(1, results_op.get()["hits"].size());
+}
+
+TEST_F(CollectionVectorTest, HybridSearchOnlyVectorMatches) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["name"] = "john doe";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results_op = coll1->search("zzz", {"name", "vec"}, "", {"name"}, {}, {0}, 20, 1, FREQUENCY, {true},
+                                    Index::DROP_TOKENS_THRESHOLD,
+                                    spp::sparse_hash_set<std::string>(),
+                                    spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                    "", 10, {}, {}, {}, 0,
+                                    "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                    fallback,
+                                    4, {off}, 32767, 32767, 2);
+    ASSERT_EQ(true, results_op.ok());
+    ASSERT_EQ(1, results_op.get()["found"].get<size_t>());
+    ASSERT_EQ(1, results_op.get()["hits"].size());
+    ASSERT_EQ(1, results_op.get()["facet_counts"].size());
+    ASSERT_EQ(4, results_op.get()["facet_counts"][0].size());
+    ASSERT_EQ("name", results_op.get()["facet_counts"][0]["field_name"]);
 }
 
 TEST_F(CollectionVectorTest, DistanceThresholdTest) {

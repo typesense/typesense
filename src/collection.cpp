@@ -742,6 +742,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                               std::vector<sort_by>& sort_fields_std,
                                                               const bool is_wildcard_query, 
+                                                              const bool is_vector_query,
                                                               const bool is_group_by_query) const {
 
     size_t num_sort_expressions = 0;
@@ -916,7 +917,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         }
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
-            sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found) {
+            sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found && sort_field_std.name != sort_field_const::vector_distance) {
                 
             const auto field_it = search_schema.find(sort_field_std.name);
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
@@ -928,6 +929,11 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
         if(sort_field_std.name == sort_field_const::group_found && is_group_by_query == false) {
             std::string error = "group_by parameters should not be empty when using sort_by group_found";
+            return Option<bool>(404, error);
+        }
+
+        if(sort_field_std.name == sort_field_const::vector_distance && !is_vector_query) {
+            std::string error = "sort_by vector_distance is only supported for vector queries, semantic search and hybrid search.";
             return Option<bool>(404, error);
         }
         
@@ -952,6 +958,10 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
         }
 
+        if(is_vector_query) {
+            sort_fields_std.emplace_back(sort_field_const::vector_distance, sort_field_const::asc);
+        }
+
         if(!default_sorting_field.empty()) {
             sort_fields_std.emplace_back(default_sorting_field, sort_field_const::desc);
         } else {
@@ -960,15 +970,25 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
     }
 
     bool found_match_score = false;
+    bool found_vector_distance = false;
     for(const auto & sort_field : sort_fields_std) {
         if(sort_field.name == sort_field_const::text_match) {
             found_match_score = true;
+        }
+        if(sort_field.name == sort_field_const::vector_distance) {
+            found_vector_distance = true;
+        }
+        if(found_match_score && found_vector_distance) {
             break;
         }
     }
 
     if(!found_match_score && !is_wildcard_query && sort_fields.size() < 3) {
         sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
+    }
+
+    if(!found_vector_distance && is_vector_query && sort_fields.size() < 3) {
+        sort_fields_std.emplace_back(sort_field_const::vector_distance, sort_field_const::asc);
     }
 
     if(sort_fields_std.size() > 3) {
@@ -1087,7 +1107,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const text_match_type_t match_type,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold,
-                                  const size_t page_offset) const {
+                                  const size_t page_offset,
+                                  const size_t vector_query_hits) const {
 
     std::shared_lock lock(mutex);
 
@@ -1228,6 +1249,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 vector_query._reset();
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;
+                vector_query.k = vector_query_hits;
                 continue;
             }
 
@@ -1457,10 +1479,11 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     bool is_wildcard_query = (query == "*");
     bool is_group_by_query = group_by_fields.size() > 0;
+    bool is_vector_query = !vector_query.field_name.empty();
 
     if(curated_sort_by.empty()) {
         auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, 
-                                    sort_fields_std, is_wildcard_query, is_group_by_query);
+                                    sort_fields_std, is_wildcard_query, is_vector_query, is_group_by_query);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -1472,7 +1495,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         }
 
         auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, 
-                                    sort_fields_std, is_wildcard_query, is_group_by_query);
+                                    sort_fields_std, is_wildcard_query, is_vector_query, is_group_by_query);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -1923,7 +1946,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             }
 
             if(!vector_query.field_name.empty() && query == "*") {
-                wrapper_doc["vector_distance"] = Index::int64_t_to_float(-field_order_kv->scores[0]);
+                wrapper_doc["vector_distance"] = field_order_kv->vector_distance;
             }
 
             hits_array.push_back(wrapper_doc);

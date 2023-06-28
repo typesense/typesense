@@ -43,6 +43,7 @@ spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::eval_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::geo_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::str_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t> Index::vector_distance_sentinel_value;
 
 struct token_posting_t {
     uint32_t token_id;
@@ -2337,12 +2338,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 }
 
                 int64_t scores[3] = {0};
-                scores[0] = -float_to_int64_t(vec_dist_score);
                 int64_t match_score_index = -1;
 
-                //LOG(INFO) << "SEQ_ID: " << seq_id << ", score: " << dist_label.first;
+                compute_sort_scores(sort_fields_std, sort_order, field_values, geopoint_indices, seq_id, 0, 0, scores, match_score_index, vec_dist_score);
 
                 KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, nullptr);
+                kv.vector_distance = vec_dist_score;
                 int ret = topster->add(&kv);
 
                 if(group_limit != 0 && ret < 2) {
@@ -2563,7 +2564,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
                 std::vector<std::pair<float, size_t>> dist_labels;
-                auto k = std::max<size_t>(vector_query.k, fetch_size);
+                // use k as 100 by default for ensuring results stability in pagination
+                size_t default_k = 100;
+                auto k = std::max<size_t>(vector_query.k, default_k);
 
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());
@@ -2599,32 +2602,62 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         continue;
                     }
                     // (1 / rank_of_document) * WEIGHT)
+
                     result->text_match_score = result->scores[result->match_score_index];
-                    LOG(INFO) << "SEQ_ID: " << result->key << ", score: " << result->text_match_score;   
                     result->scores[result->match_score_index] = float_to_int64_t((1.0 / (i + 1)) * TEXT_MATCH_WEIGHT);
                 }
 
-                for(int i = 0; i < vec_results.size(); i++) {
-                    auto& vec_result = vec_results[i];
-                    auto doc_id = vec_result.first;
+                std::vector<uint32_t> vec_search_ids;  // list of IDs found only in vector search
 
+                for(size_t res_index = 0; res_index < vec_results.size(); res_index++) {
+                    auto& vec_result = vec_results[res_index];
+                    auto doc_id = vec_result.first;
                     auto result_it = topster->kv_map.find(doc_id);
 
-                    if(result_it != topster->kv_map.end()&& result_it->second->match_score_index >= 0 && result_it->second->match_score_index <= 2) {
+                    if(result_it != topster->kv_map.end()) {
+                        if(result_it->second->match_score_index < 0 || result_it->second->match_score_index > 2) {
+                            continue;
+                        }
+
+                        // result overlaps with keyword search: we have to combine the scores
+
                         auto result = result_it->second;
                         // old_score + (1 / rank_of_document) * WEIGHT)
                         result->vector_distance = vec_result.second;
-                        result->scores[result->match_score_index] = float_to_int64_t((int64_t_to_float(result->scores[result->match_score_index]))  +  ((1.0 / (i + 1)) * VECTOR_SEARCH_WEIGHT));
+                        result->scores[result->match_score_index] = float_to_int64_t(
+                                (int64_t_to_float(result->scores[result->match_score_index])) +
+                                ((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT));
+
+                        for(size_t i = 0;i < 3; i++) {
+                            if(field_values[i] == &vector_distance_sentinel_value) {
+                                result->scores[i] = float_to_int64_t(vec_result.second);
+                            }
+
+                            if(sort_order[i] == -1) {
+                                result->scores[i] = -result->scores[i];
+                            }
+                        }
+                      
                     } else {
-                        int64_t scores[3] = {0};
+                        // Result has been found only in vector search: we have to add it to both KV and result_ids
                         // (1 / rank_of_document) * WEIGHT)
-                        scores[0] = float_to_int64_t((1.0 / (i + 1)) * VECTOR_SEARCH_WEIGHT);
-                        int64_t match_score_index = 0;
+                        int64_t scores[3] = {0};
+                        int64_t match_score = float_to_int64_t((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT);
+                        int64_t match_score_index = -1;
+                        compute_sort_scores(sort_fields_std, sort_order, field_values, geopoint_indices, doc_id, 0, match_score, scores, match_score_index, vec_result.second);
                         KV kv(searched_queries.size(), doc_id, doc_id, match_score_index, scores);
                         kv.vector_distance = vec_result.second;
                         topster->add(&kv);
-                        ++all_result_ids_len;
+                        vec_search_ids.push_back(doc_id);
                     }
+                }
+
+                if(!vec_search_ids.empty()) {
+                    uint32_t* new_all_result_ids = nullptr;
+                    all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, &vec_search_ids[0],
+                                                               vec_search_ids.size(), &new_all_result_ids);
+                    delete[] all_result_ids;
+                    all_result_ids = new_all_result_ids;
                 }
             }
         }
@@ -3589,7 +3622,7 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
                                 std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
                                 const std::vector<size_t>& geopoint_indices,
                                 uint32_t seq_id, size_t filter_index, int64_t max_field_match_score,
-                                int64_t* scores, int64_t& match_score_index) const {
+                                int64_t* scores, int64_t& match_score_index, float vector_distance) const {
 
     int64_t geopoint_distances[3];
 
@@ -3684,6 +3717,8 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
             }
 
             scores[0] = int64_t(found);
+        } else if(field_values[0] == &vector_distance_sentinel_value) {
+            scores[0] = float_to_int64_t(vector_distance);
         } else {
             auto it = field_values[0]->find(seq_id);
             scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
@@ -3740,6 +3775,8 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
             }
 
             scores[1] = int64_t(found);
+        }  else if(field_values[1] == &vector_distance_sentinel_value) {
+            scores[1] = float_to_int64_t(vector_distance);
         } else {
             auto it = field_values[1]->find(seq_id);
             scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
@@ -3792,6 +3829,8 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
             }
 
             scores[2] = int64_t(found);
+        } else if(field_values[2] == &vector_distance_sentinel_value) {
+            scores[2] = float_to_int64_t(vector_distance);
         } else {
             auto it = field_values[2]->find(seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
@@ -4490,15 +4529,14 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             field_values[i] = &seq_id_sentinel_value;
         } else if (sort_fields_std[i].name == sort_field_const::eval) {
             field_values[i] = &eval_sentinel_value;
-
             auto filter_result_iterator = filter_result_iterator_t("", this, sort_fields_std[i].eval.filter_tree_root);
             auto filter_init_op = filter_result_iterator.init_status();
             if (!filter_init_op.ok()) {
                 return;
             }
-
             sort_fields_std[i].eval.size = filter_result_iterator.to_filter_id_array(sort_fields_std[i].eval.ids);
-
+        } else if(sort_fields_std[i].name == sort_field_const::vector_distance) {
+            field_values[i] = &vector_distance_sentinel_value;
         } else if (search_schema.count(sort_fields_std[i].name) != 0 && search_schema.at(sort_fields_std[i].name).sort) {
             if (search_schema.at(sort_fields_std[i].name).type == field_types::GEOPOINT_ARRAY) {
                 geopoint_indices.push_back(i);
