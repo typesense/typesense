@@ -9,6 +9,18 @@
 
 
 
+struct embedding_res_t {
+    std::vector<float> embedding;
+    nlohmann::json error = nlohmann::json::object();
+    int status_code;
+    bool success;
+
+    embedding_res_t(const std::vector<float>& embedding) : embedding(embedding), success(true) {}
+
+    embedding_res_t(int status_code, const nlohmann::json& error) : error(error), success(false), status_code(status_code) {}
+};
+
+
 
 class RemoteEmbedder {
     protected:
@@ -16,11 +28,12 @@ class RemoteEmbedder {
         static long call_remote_api(const std::string& method, const std::string& url, const std::string& body, std::string& res_body, std::map<std::string, std::string>& headers, const std::unordered_map<std::string, std::string>& req_headers);
         static inline ReplicationState* raft_server = nullptr;
     public:
-        virtual Option<std::vector<float>> Embed(const std::string& text) = 0;
-        virtual Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) = 0;
+        virtual embedding_res_t Embed(const std::string& text) = 0;
+        virtual std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) = 0;
         static void init(ReplicationState* rs) {
             raft_server = rs;
         }
+        virtual ~RemoteEmbedder() = default;
 
 };
 
@@ -34,8 +47,8 @@ class OpenAIEmbedder : public RemoteEmbedder {
     public:
         OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
-        Option<std::vector<float>> Embed(const std::string& text) override;
-        Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) override;
+        embedding_res_t Embed(const std::string& text) override;
+        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) override;
 };
 
 
@@ -49,8 +62,8 @@ class GoogleEmbedder : public RemoteEmbedder {
     public:
         GoogleEmbedder(const std::string& google_api_key);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
-        Option<std::vector<float>> Embed(const std::string& text) override;
-        Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) override;
+        embedding_res_t Embed(const std::string& text) override;
+        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) override;
 };
 
 
@@ -75,8 +88,8 @@ class GCPEmbedder : public RemoteEmbedder {
         GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
                     const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
-        Option<std::vector<float>> Embed(const std::string& text) override;
-        Option<std::vector<std::vector<float>>> batch_embed(const std::vector<std::string>& inputs) override;
+        embedding_res_t Embed(const std::string& text) override;
+        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) override;
 };
 
 

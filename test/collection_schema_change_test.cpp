@@ -1630,3 +1630,45 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
     embedding_fields_map = coll->get_embedding_fields();
     ASSERT_EQ(0, embedding_fields_map.size());
 }
+
+TEST_F(CollectionSchemaChangeTest, DropAndReindexEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+
+    ASSERT_TRUE(op.ok());
+
+    // drop the embedding field and reindex
+    nlohmann::json schema_without_embedding = R"({
+                            "fields": [
+                            {"name": "embedding", "drop": true},
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                            ]
+                        })"_json;
+    
+    auto update_op = op.get()->alter(schema_without_embedding);
+
+    ASSERT_TRUE(update_op.ok());
+
+    auto embedding_fields_map = op.get()->get_embedding_fields();
+
+    ASSERT_EQ(1, embedding_fields_map.size());
+
+    // try adding a document
+    nlohmann::json doc;
+    doc["name"] = "hello";
+    auto add_op = op.get()->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+    auto added_doc = add_op.get();
+
+    ASSERT_EQ(384, added_doc["embedding"].get<std::vector<float>>().size());
+}

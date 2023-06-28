@@ -669,6 +669,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *MAX_FACET_VALUES = "max_facet_values";
 
     const char *VECTOR_QUERY = "vector_query";
+    const char *VECTOR_QUERY_HITS = "vector_query_hits";
 
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
@@ -821,6 +822,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
+    size_t vector_query_hits = 250;
 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
@@ -847,6 +849,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FILTER_CURATED_HITS, &filter_curated_hits_option},
         {FACET_SAMPLE_PERCENT, &facet_sample_percent},
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
+        {VECTOR_QUERY_HITS, &vector_query_hits},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1383,7 +1386,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         // batch must match atleast the number of shards
          if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
-            size_t num_indexed = collection->batch_index_in_memory(index_records);
+            size_t num_indexed = collection->batch_index_in_memory(index_records, false);
             batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {

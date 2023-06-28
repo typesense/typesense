@@ -504,6 +504,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     );
     *allocated_generator = custom_gen;
 
+    // ensures that the first response need not wait for previous chunk to be done sending
+    response->notify();
+
     //LOG(INFO) << "Init res: " << custom_gen->response << ", ref count: " << custom_gen->response.use_count();
 
     if(root_resource == "multi_search") {
@@ -544,7 +547,9 @@ bool HttpServer::is_write_request(const std::string& root_resource, const std::s
         return false;
     }
 
-    bool write_free_request = (root_resource == "multi_search" || root_resource == "operations");
+    bool write_free_request = (root_resource == "multi_search" || root_resource == "proxy" ||
+                               root_resource == "operations");
+
     if(!write_free_request &&
        (http_method == "POST" || http_method == "PUT" ||
         http_method == "DELETE" || http_method == "PATCH")) {
@@ -632,9 +637,6 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
 
         if(request->first_chunk_aggregate) {
             request->first_chunk_aggregate = false;
-
-            // ensures that the first response need not wait for previous chunk to be done sending
-            response->notify();
         }
 
         // default value for last_chunk_aggregate is false
@@ -821,7 +823,7 @@ void HttpServer::stream_response(stream_response_state_t& state) {
             h2o_start_response(req, state.generator);
         }
 
-        h2o_send(req, &state.res_body, 1, H2O_SEND_STATE_FINAL);
+        h2o_send(req, &state.res_buff, 1, H2O_SEND_STATE_FINAL);
         h2o_dispose_request(req);
 
         return ;
@@ -833,13 +835,13 @@ void HttpServer::stream_response(stream_response_state_t& state) {
         h2o_start_response(req, state.generator);
     }
 
-    if(state.res_body.len == 0 && state.send_state != H2O_SEND_STATE_FINAL) {
+    if(state.res_buff.len == 0 && state.send_state != H2O_SEND_STATE_FINAL) {
         // without this guard, http streaming will break
         state.generator->proceed(state.generator, req);
         return;
     }
 
-    h2o_send(req, &state.res_body, 1, state.send_state);
+    h2o_send(req, &state.res_buff, 1, state.send_state);
 
     //LOG(INFO) << "stream_response after send";
 }

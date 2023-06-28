@@ -194,7 +194,8 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(raft_dir_path,
                                   config->get_disk_used_max_percentage(), config->get_memory_used_max_percentage());
 
-    if (resource_check != cached_resource_stat_t::OK && request->http_method != "DELETE") {
+    if (resource_check != cached_resource_stat_t::OK &&
+        request->http_method != "DELETE" && request->path_without_query != "/health") {
         response->set_422("Rejecting write: running out of resource type: " +
                           std::string(magic_enum::enum_name(resource_check)));
         response->final = true;
@@ -966,6 +967,36 @@ bool ReplicationState::get_ext_snapshot_succeeded() {
 
 std::string ReplicationState::get_leader_url() const {
     std::shared_lock lock(node_mutex);
+
+    if(!node) {
+        const Option<std::string> & refreshed_nodes_op = Config::fetch_nodes_config(config->get_nodes());
+
+        if(!refreshed_nodes_op.ok()) {
+            LOG(WARNING) << "Error while fetching peer configuration: " << refreshed_nodes_op.error();
+            return "";
+        }
+
+        const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint,
+                                                                            Config::get_instance().get_api_port(),
+               
+                                                                            refreshed_nodes_op.get());
+        std::vector<braft::PeerId> peers;
+        braft::Configuration peer_config;
+        peer_config.parse_from(nodes_config);
+        peer_config.list_peers(&peers);
+
+        if(peers.empty()) {
+            LOG(WARNING) << "No peers found in nodes config: " << nodes_config;
+            return "";
+        }
+
+
+        const std::string protocol = api_uses_ssl ? "https" : "http";
+        std::string url = get_node_url_path(peers[0].to_string(), "/", protocol);
+
+        LOG(INFO) << "Returning first peer as leader URL: " << url;
+        return url;
+    }
 
     if(node->leader_id().is_empty()) {
         LOG(ERROR) << "Could not get leader status, as node does not have a leader!";

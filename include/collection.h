@@ -207,7 +207,8 @@ private:
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                       std::vector<sort_by>& sort_fields_std,
-                                                      bool is_wildcard_query, bool is_group_by_query = false) const;
+                                                      bool is_wildcard_query,const bool is_vector_query,
+                                                      bool is_group_by_query = false) const;
 
     
     Option<bool> persist_collection_meta();
@@ -397,7 +398,7 @@ public:
 
     nlohmann::json get_summary_json() const;
 
-    size_t batch_index_in_memory(std::vector<index_record>& index_records);
+    size_t batch_index_in_memory(std::vector<index_record>& index_records, const bool generate_embeddings = true);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
@@ -462,7 +463,8 @@ public:
                                   const text_match_type_t match_type = max_score,
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0,
-                                  const size_t page_offset = UINT32_MAX) const;
+                                  const size_t page_offset = UINT32_MAX,
+                                  const size_t vector_query_hits = 250) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
