@@ -35,6 +35,7 @@ This is a selection of sites and apps using Typesense.
 | [Lawyaw](https://lawyaw.com) | Lawyaw provides easy to use document automation software that helps legal practices save time and avoid mistakes without sacrificing quality. *"Typesense is used as our search index and works great to search, sort and facet thousands of our Court forms each day. We look forward to working with Typesense for years to come as it continues to mature!" - @tpayne84* | 
 | [Magny SaaS search bar](https://magny.io) | Magny is a SaaS platform that helps implement command palettes, which significantly decreases the time users find anything in your app, leveraging the user experience and efficiency. |
 | [MyHearty](https://myhearty.my) | A one-stop charity website to fundraise, donate, volunteer and apply for aids. It comes with a full-featured search UI (instant search, geosearch) for campaigns, volunteer events and aids. |
+| [NeoDB](https://neodb.social/) | An open source project and free service to help users in Fediverse manage, share and discover collections, reviews and ratings for culture products, with a searchable catalog of over a million books, movies, music, podcasts, games and performances. |
 | [Neolace](https://www.neolace.com) | Knowledge graph platform (combines a wiki and a graph database) |
 | [New York University Databrary](https://nyu.databrary.org/) | Video documentation library |
 | [Oddle Eats](https://eats.oddle.me) | Food Delivery Service in Singapore | 
