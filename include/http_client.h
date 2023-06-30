@@ -26,7 +26,7 @@ private:
 
     static size_t curl_write_download(void *ptr, size_t size, size_t nmemb, FILE *stream);
 
-    static CURL* init_curl(const std::string& url, std::string& response);
+    static CURL* init_curl(const std::string& url, std::string& response, const size_t timeout_ms = 0);
 
     static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk,
                                  bool send_ts_api_header);
@@ -57,7 +57,7 @@ public:
                              bool send_ts_api_header = false);
 
     static long delete_response(const std::string& url, std::string& response,
-                                std::map<std::string, std::string>& res_headers, long timeout_ms=120000,
+                                std::map<std::string, std::string>& res_headers, long timeout_ms=4000,
                                 bool send_ts_api_header = false);
 
     static long post_response(const std::string & url, const std::string & body, std::string & response,
