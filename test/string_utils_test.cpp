@@ -391,7 +391,32 @@ TEST(StringUtilsTest, TokenizeFilterQuery) {
     tokenList = {"(", "(", "age:<5", "||", "age:>10", ")", "&&", "location:(48.906,2.343,5mi)", ")", "||", "tags:AT&T"};
     tokenizeTestHelper(filter_query, tokenList);
 
-    filter_query = "((age: <5 || age: >10) && category:= [shoes]) && $Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
-    tokenList = {"(", "(", "age: <5", "||", "age: >10", ")", "&&", "category:= [shoes]", ")", "&&", "$Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))"};
+    filter_query = "((age: <5 || age: >10) && category:= [shoes]) &&"
+                   " $Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
+    tokenList = {"(", "(", "age: <5", "||", "age: >10", ")", "&&", "category:= [shoes]", ")", "&&",
+                 "$Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))"};
     tokenizeTestHelper(filter_query, tokenList);
+}
+
+void splitIncludeTestHelper(const std::string& include_fields, const std::vector<std::string>& expected) {
+    std::vector<std::string> output;
+    auto tokenize_op = StringUtils::split_include_fields(include_fields, output);
+    ASSERT_TRUE(tokenize_op.ok());
+    ASSERT_EQ(expected.size(), output.size());
+    for (auto i = 0; i < output.size(); i++) {
+        ASSERT_EQ(expected[i], output[i]);
+    }
+}
+
+TEST(StringUtilsTest, SplitIncludeFields) {
+    std::string include_fields;
+    std::vector<std::string> tokens;
+
+    include_fields = "id, title, count";
+    tokens = {"id", "title", "count"};
+    splitIncludeTestHelper(include_fields, tokens);
+
+    include_fields = "id, $Collection(title, pref*), count";
+    tokens = {"id", "$Collection(title, pref*)", "count"};
+    splitIncludeTestHelper(include_fields, tokens);
 }
