@@ -316,6 +316,7 @@ void CollectionManager::dispose() {
     collections.clear();
     collection_symlinks.clear();
     preset_configs.clear();
+    stopword_configs.clear();
     store->close();
 }
 
@@ -663,6 +664,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *QUERY_BY_WEIGHTS = "query_by_weights";
     const char *SORT_BY = "sort_by";
 
+    const char *STOPWORDS = "stopwords";
+
     const char *FACET_BY = "facet_by";
     const char *FACET_QUERY = "facet_query";
     const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
@@ -747,6 +750,24 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 bool populated = AuthManager::add_item_to_params(req_params, search_item, false);
                 if(!populated) {
                     return Option<bool>(400, "One or more search parameters are malformed.");
+                }
+            }
+        }
+    }
+
+    //remove the stopwords from search query
+    const auto stopword_it = req_params.find("stopword");
+
+    if(stopword_it != req_params.end()) {
+        nlohmann::json stopword;
+        const auto& stopword_op = CollectionManager::get_instance().get_stopword(stopword_it->second, stopword);
+        if(stopword_op.ok()) {
+            for(const auto& search_item: stopword.items()) {
+                auto& raw_query = req_params[QUERY];
+                const auto& val = search_item.value().get<std::string>();
+                auto pos = raw_query.find(search_item.value());
+                if(pos != std::string::npos) {
+                    raw_query.erase(pos, val.size());
                 }
             }
         }
@@ -1463,6 +1484,52 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
     }
 
     preset_configs.erase(preset_name);
+    return Option<bool>(true);
+}
+
+
+spp::sparse_hash_map<std::string, nlohmann::json> CollectionManager::get_stopwords() const {
+    std::shared_lock lock(mutex);
+    return stopword_configs;
+}
+
+Option<bool> CollectionManager::get_stopword(const string& stopword_name, nlohmann::json& stopword) const {
+    std::shared_lock lock(mutex);
+
+    const auto& it = stopword_configs.find(stopword_name);
+    if(it != stopword_configs.end()) {
+        stopword = it->second;
+        return Option<bool>(true);
+    }
+
+    return Option<bool>(404, "Not found.");
+}
+
+Option<bool> CollectionManager::upsert_stopword(const string& stopword_name, const nlohmann::json& stopword_config) {
+    std::unique_lock lock(mutex);
+
+    bool inserted = store->insert(get_stopword_key(stopword_name), stopword_config.dump());
+    if(!inserted) {
+        return Option<bool>(500, "Unable to insert into store.");
+    }
+
+    stopword_configs[stopword_name] = stopword_config;
+    return Option<bool>(true);
+}
+
+std::string CollectionManager::get_stopword_key(const string& stopword_name) {
+    return std::string(STOPWORD_PREFIX) + "_" + stopword_name;
+}
+
+Option<bool> CollectionManager::delete_stopword(const string& stopword_name) {
+    std::unique_lock lock(mutex);
+
+    bool removed = store->remove(get_preset_key(stopword_name));
+    if(!removed) {
+        return Option<bool>(500, "Unable to delete from store.");
+    }
+
+    stopword_configs.erase(stopword_name);
     return Option<bool>(true);
 }
 

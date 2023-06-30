@@ -1848,6 +1848,102 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     res->set_200(res_json.dump());
     return true;
 }
+
+bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    const spp::sparse_hash_map<std::string, nlohmann::json> & stopwords = collectionManager.get_stopwords();
+    nlohmann::json res_json = nlohmann::json::object();
+    res_json["stopwords"] = nlohmann::json::array();
+
+    for(const auto& preset_kv: stopwords) {
+        nlohmann::json stopword;
+        stopword["name"] = preset_kv.first;
+        stopword["value"] = preset_kv.second;
+        res_json["stopwords"].push_back(stopword);
+    }
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string & stopword_name = req->params["stopword_name"];
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+
+    nlohmann::json stopword;
+    Option<bool> stopword_op = collectionManager.get_stopword(stopword_name, stopword);
+
+    if(!stopword_op.ok()) {
+        res->set(stopword_op.code(), stopword_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = stopword_name;
+    res_json["value"] = stopword;
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    const std::string & stopword_name = req->params["name"];
+
+    const char* STOPWORD_VALUE = "value";
+
+    if(req_json.count(STOPWORD_VALUE) == 0) {
+        res->set_400(std::string("Parameter `") + STOPWORD_VALUE + "` is required.");
+        return false;
+    }
+
+    Option<bool> success_op = collectionManager.upsert_stopword(stopword_name, req_json[STOPWORD_VALUE]);
+    if(!success_op.ok()) {
+        res->set_500(success_op.error());
+        return false;
+    }
+
+    req_json["name"] = stopword_name;
+
+    res->set_200(req_json.dump());
+    return true;
+}
+
+bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string & stopword_name = req->params["name"];
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+
+    nlohmann::json stopword;
+    Option<bool> stopword_op = collectionManager.get_stopword(stopword_name, stopword);
+    if(!stopword_op.ok()) {
+        res->set(stopword_op.code(), stopword_op.error());
+        return false;
+    }
+
+    Option<bool> delete_op = collectionManager.delete_stopword(stopword_name);
+
+    if(!delete_op.ok()) {
+        res->set_500(delete_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = stopword_name;
+    res_json["value"] = stopword;
+    res->set_200(res_json.dump());
+    return true;
+}
+
 bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
 

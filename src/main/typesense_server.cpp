@@ -68,6 +68,11 @@ void master_server_routes() {
     server->put("/presets/:name", put_upsert_preset);
     server->del("/presets/:name", del_preset);
 
+    server->get("/stopwords", get_stopwords);
+    server->get("/stopwords/:name", get_stopword);
+    server->put("/stopwords/:name", put_upsert_stopword);
+    server->del("/stopwords/:name", del_stopword);
+
     // analytics
     server->get("/analytics/rules", get_analytics_rules);
     server->post("/analytics/rules", post_create_analytics_rules);
