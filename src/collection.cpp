@@ -419,7 +419,7 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     }
 
     const auto& dirty_values = parse_dirty_values_option(req_dirty_values);
-    size_t docs_updated_count;
+    size_t docs_updated_count = 0;
     nlohmann::json update_document, dummy;
 
     try {

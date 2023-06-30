@@ -464,7 +464,11 @@ Option<bool> StringUtils::split_include_fields(const std::string& include_fields
 
         if (range_pos == std::string::npos && comma_pos == std::string::npos) {
             if (start < size - 1) {
-                tokens.push_back(include_fields.substr(start, size - start));
+                include_field = include_fields.substr(start, size - start);
+                include_field = trim(include_field);
+                if (!include_field.empty()) {
+                    tokens.push_back(include_field);
+                }
             }
             break;
         } else if (range_pos < comma_pos) {
