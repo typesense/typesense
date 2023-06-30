@@ -755,22 +755,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
-    //remove the stopwords from search query
+    //check if stopword set is supplied
     const auto stopword_it = req_params.find("stopword");
+    std::string stopwords_set="";
 
     if(stopword_it != req_params.end()) {
-        nlohmann::json stopword;
-        const auto& stopword_op = CollectionManager::get_instance().get_stopword(stopword_it->second, stopword);
-        if(stopword_op.ok()) {
-            for(const auto& search_item: stopword.items()) {
-                auto& raw_query = req_params[QUERY];
-                const auto& val = search_item.value().get<std::string>();
-                auto pos = raw_query.find(search_item.value());
-                if(pos != std::string::npos) {
-                    raw_query.erase(pos, val.size());
-                }
-            }
-        }
+        stopwords_set = stopword_it->second;
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();

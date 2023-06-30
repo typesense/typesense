@@ -1035,7 +1035,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const std::vector<std::string>& raw_search_fields,
                                   const std::string & filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
-                                  const size_t per_page, const size_t page,
+                                  const std::string& stopword, const size_t per_page, const size_t page,
                                   token_ordering token_order, const std::vector<bool>& prefixes,
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
@@ -1513,6 +1513,20 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         for(auto& phrase: field_query_tokens[0].q_phrases) {
             for(auto& token: phrase) {
                 q_tokens.push_back(token);
+            }
+        }
+
+        nlohmann::json stopwords_list;
+        const auto &stopword_op = CollectionManager::get_instance().get_stopword(stopword, stopwords_list);
+        if (stopword_op.ok()) {
+            auto &include_tokens = field_query_tokens[0].q_include_tokens;
+            for (const auto &search_item: stopwords_list.items()) {
+                auto val = search_item.value().get<std::string>();
+                std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+                include_tokens.erase(std::remove_if(include_tokens.begin(), include_tokens.end(),
+                                                    [&](const auto& token) {
+                                                            return token.value == val;
+                                                        }), include_tokens.end());
             }
         }
 
