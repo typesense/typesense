@@ -31,7 +31,7 @@
 #include "hnswlib/hnswlib.h"
 #include "filter.h"
 #include "facet_index.h"
-#include "numeric_range_trie_test.h"
+#include "numeric_range_trie.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
@@ -209,6 +209,9 @@ struct index_record {
     nlohmann::json new_doc;             // new *full* document to be stored into disk
     nlohmann::json del_doc;             // document containing the fields that should be deleted
 
+    nlohmann::json embedding_res;       // embedding result
+    int embedding_status_code;          // embedding status code
+
     index_operation_t operation;
     bool is_update;
 
@@ -349,6 +352,7 @@ private:
     static spp::sparse_hash_map<uint32_t, int64_t> eval_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> geo_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> str_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t> vector_distance_sentinel_value;
 
     // Internal utility functions
 
@@ -530,7 +534,7 @@ private:
 
     void initialize_facet_indexes(const field& facet_field);
      
-    static Option<bool> batch_embed_fields(std::vector<nlohmann::json*>& documents,
+    static void batch_embed_fields(std::vector<index_record*>& documents,
                                        const tsl::htrie_map<char, field>& embedding_fields,
                                        const tsl::htrie_map<char, field> & search_schema);
     
@@ -599,6 +603,8 @@ public:
     const spp::sparse_hash_map<std::string, art_tree *>& _get_search_index() const;
 
     const spp::sparse_hash_map<std::string, num_tree_t*>& _get_numerical_index() const;
+
+    const spp::sparse_hash_map<std::string, NumericTrie*>& _get_range_index() const;
 
     const spp::sparse_hash_map<std::string, array_mapped_infix_t>& _get_infix_index() const;
 
@@ -670,7 +676,7 @@ public:
                                           const std::string& fallback_field_type,
                                           const std::vector<char>& token_separators,
                                           const std::vector<char>& symbols_to_index,
-                                          const bool do_validation);
+                                          const bool do_validation, const bool generate_embeddings = true);
 
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record>& iter_batch,
@@ -680,7 +686,7 @@ public:
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,
-                                     const bool do_validation);
+                                     const bool do_validation, const bool generate_embeddings = true);
 
     void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
 
@@ -699,28 +705,11 @@ public:
                                         filter_result_t& filter_result,
                                         const std::string& collection_name = "") const;
 
-    /// Traverses through filter tree and gets an approximate doc count for each filter. Also arranges the children of
-    /// each operator in ascending order based on their approx doc count.
-    ///
-    /// \param filter_tree_root
-    /// \param approx_filter_ids_length Approximate count of docs that would match the whole filter_by clause.
-    /// \param collection_name Name of the collection to which current index belongs. Used to find the reference field in other collection.
-    Option<bool> rearrange_filter_tree(filter_node_t* const filter_tree_root,
-                                       uint32_t& approx_filter_ids_length,
-                                       const std::string& collection_name = "") const;
-
-    Option<bool> _approximate_filter_ids(const filter& a_filter,
-                                         uint32_t& filter_ids_length,
-                                         const std::string& collection_name = "") const;
 
     Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                   filter_result_t& filter_result,
                                                   const std::string& collection_name,
                                                   const std::string& reference_helper_field_name) const;
-
-    /// Get approximate count of docs matching a reference filter on foo collection when $foo(...) filter is encountered.
-    Option<bool> get_approximate_reference_filter_ids_with_lock(filter_node_t* const filter_tree_root,
-                                                                uint32_t& filter_ids_length) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 
@@ -938,7 +927,7 @@ public:
                              size_t filter_index,
                              int64_t max_field_match_score,
                              int64_t* scores,
-                             int64_t& match_score_index) const;
+                             int64_t& match_score_index, float vector_distance = 0) const;
 
     void process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                              const std::vector<uint32_t>& excluded_ids, const std::vector<std::string>& group_by_fields,

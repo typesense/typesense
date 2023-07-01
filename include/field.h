@@ -550,6 +550,8 @@ namespace sort_field_const {
     static const std::string precision = "precision";
 
     static const std::string missing_values = "missing_values";
+
+    static const std::string vector_distance = "_vector_distance";
 }
 
 struct sort_by {

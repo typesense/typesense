@@ -2138,234 +2138,79 @@ TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {
     ASSERT_EQ(1, res["hits"].size());
 }
 
-TEST_F(CollectionSpecificMoreTest, RearrangingFilterTree) {
-    nlohmann::json schema =
-            R"({
-                "name": "Collection",
-                "fields": [
-                    {"name": "name", "type": "string"},
-                    {"name": "age", "type": "int32"},
-                    {"name": "years", "type": "int32[]"},
-                    {"name": "rating", "type": "float"}
-                ]
-            })"_json;
+TEST_F(CollectionSpecificMoreTest, TruncateAterTopK) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
 
-    Collection* coll = collectionManager.create_collection(schema).get();
+    Collection* coll1 = collectionManager.create_collection(schema).get();
 
-    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
-    std::string json_line;
-    while (std::getline(infile, json_line)) {
-        auto add_op = coll->add(json_line);
-        ASSERT_TRUE(add_op.ok());
+    for(auto i = -10; i < 5; i++) {
+        nlohmann::json doc;
+        doc["title"] = std::to_string(i);
+        doc["points"] = i;
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
-    infile.close();
 
-    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query("years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
-                                                        coll->get_schema(), store, doc_id_prefix, filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
-    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
-
-    //           &&
-    //         /    \
-    //   years>2000  ||
-    //       4      /  \
-    //             /    &&
-    //           &&    /   \
-    //          /  \ age>50 rating<5
-    //         /    \   1        2
-    //        /      \
-    //    age<30  rating>5
-    //      2         3
-    ASSERT_TRUE(filter_tree_root != nullptr);
-    ASSERT_TRUE(filter_tree_root->isOperator);
-    ASSERT_EQ(filter_tree_root->filter_operator, AND);
-
-    auto root = filter_tree_root->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "years");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, OR);
-
-    root = filter_tree_root->right->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, AND);
-
-    root = filter_tree_root->right->left->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "age");
-    ASSERT_EQ(root->filter_exp.comparators.front(), LESS_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "30");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right->left->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "rating");
-    ASSERT_EQ(root->filter_exp.comparators.front(), GREATER_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "5");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, AND);
-
-    root = filter_tree_root->right->right->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "age");
-    ASSERT_EQ(root->filter_exp.comparators.front(), GREATER_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "50");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right->right->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "rating");
-    ASSERT_EQ(root->filter_exp.comparators.front(), LESS_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "5");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    uint32_t count = 0;
-    coll->_get_index()->rearrange_filter_tree(filter_tree_root, count);
-
-    //                 &&
-    //               /    \
-    //             ||    years>2000
-    //           /    \
-    //         &&       \
-    //       /   \        \
-    //  age>50  rating<5   &&
-    //                   /    \
-    //               age<30  rating>5
-    ASSERT_TRUE(filter_tree_root != nullptr);
-    ASSERT_TRUE(filter_tree_root->isOperator);
-    ASSERT_EQ(filter_tree_root->filter_operator, AND);
-
-    root = filter_tree_root->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, OR);
-
-    root = filter_tree_root->left->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, AND);
-
-    root = filter_tree_root->left->left->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "age");
-    ASSERT_EQ(root->filter_exp.comparators.front(), GREATER_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "50");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->left->left->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "rating");
-    ASSERT_EQ(root->filter_exp.comparators.front(), LESS_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "5");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->left->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, AND);
-
-    root = filter_tree_root->left->right->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "age");
-    ASSERT_EQ(root->filter_exp.comparators.front(), LESS_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "30");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->left->right->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "rating");
-    ASSERT_EQ(root->filter_exp.comparators.front(), GREATER_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "5");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "years");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    collectionManager.drop_collection("Collection");
-}
-
-TEST_F(CollectionSpecificMoreTest, ApproxFilterMatchCount) {
-    nlohmann::json schema =
-            R"({
-                "name": "Collection",
-                "fields": [
-                    {"name": "name", "type": "string"},
-                    {"name": "age", "type": "int32"},
-                    {"name": "years", "type": "int32[]"},
-                    {"name": "rating", "type": "float"},
-                    {"name": "location", "type": "geopoint", "optional": true}
-                ]
-            })"_json;
-
-    Collection *coll = collectionManager.create_collection(schema).get();
-
-    std::ifstream infile(std::string(ROOT_DIR) + "test/numeric_array_documents.jsonl");
-    std::string json_line;
-    while (std::getline(infile, json_line)) {
-        auto add_op = coll->add(json_line);
-        ASSERT_TRUE(add_op.ok());
+    for(auto i = 0; i < 5; i++) {
+        nlohmann::json doc;
+        doc["title"] = std::to_string(10 + i);
+        doc["points"] = i;
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
-    infile.close();
 
-    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query("name: Jeremy", coll->get_schema(), store, doc_id_prefix,
-                                                        filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
+/*     Values   Doc ids
+        -10       0
+        -9        1
+        -8        2
+        -7        3
+        -6        4
+        -5        5
+        -4        6
+        -3        7
+        -2        8
+        -1        9
+        0         10, 15
+        1         11, 16
+        2         12, 17
+        3         13, 18
+        4         14, 19
+ */
 
-    uint32_t approx_count = 0;
-    coll->_get_index()->_approximate_filter_ids(filter_tree_root->filter_exp, approx_count);
-    ASSERT_EQ(approx_count, 5);
+    auto results = coll1->search("*", {"*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(20, results["found"]);
 
-    delete filter_tree_root;
-    filter_op = filter::parse_filter_query("location:(48.8662, 2.3255, 48.8581, 2.3209, 48.8561, 2.3448, 48.8641, 2.3469)",
-                                           coll->get_schema(), store, doc_id_prefix, filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
+    coll1->truncate_after_top_k("points", 15);
 
-    coll->_get_index()->_approximate_filter_ids(filter_tree_root->filter_exp, approx_count);
-    ASSERT_EQ(approx_count, 1);
+    results = coll1->search("*", {"*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(15, results["found"]);
 
-    delete filter_tree_root;
-    filter_op = filter::parse_filter_query("years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
-                                                        coll->get_schema(), store, doc_id_prefix, filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
+    std::vector<std::string> ids = {"19", "18", "17", "16", "15", "14", "13", "12", "11", "10", "9", "8", "7", "6", "5"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(ids[i], results["hits"][i]["document"]["id"]);
+    }
 
-    coll->_get_index()->rearrange_filter_tree(filter_tree_root, approx_count);
-    ASSERT_EQ(approx_count, 3);
+    coll1->truncate_after_top_k("points", 11);
 
-    delete filter_tree_root;
-    collectionManager.drop_collection("Collection");
+    results = coll1->search("*", {"*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(11, results["found"]);
+
+    ids = {"19", "18", "17", "16", "15", "14", "13", "12", "11", "10", "9"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(ids[i], results["hits"][i]["document"]["id"]);
+    }
+
+    coll1->truncate_after_top_k("points", 5);
+
+    results = coll1->search("*", {"*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(5, results["found"]);
+
+    ids = {"19", "18", "14", "13", "12"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(ids[i], results["hits"][i]["document"]["id"]);
+    }
 }

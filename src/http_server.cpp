@@ -547,7 +547,9 @@ bool HttpServer::is_write_request(const std::string& root_resource, const std::s
         return false;
     }
 
-    bool write_free_request = (root_resource == "multi_search" || root_resource == "operations");
+    bool write_free_request = (root_resource == "multi_search" || root_resource == "proxy" ||
+                               root_resource == "operations");
+
     if(!write_free_request &&
        (http_method == "POST" || http_method == "PUT" ||
         http_method == "DELETE" || http_method == "PATCH")) {
