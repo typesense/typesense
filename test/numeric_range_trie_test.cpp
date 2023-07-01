@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <collection_manager.h>
 #include "collection.h"
-#include "numeric_range_trie_test.h"
+#include "numeric_range_trie.h"
 
 class NumericRangeTrieTest : public ::testing::Test {
 protected:

@@ -2641,23 +2641,6 @@ Option<std::string> Collection::get_reference_field(const std::string & collecti
     return Option(reference_field_name);
 }
 
-Option<bool> Collection::get_approximate_reference_filter_ids(const std::string& filter_query,
-                                                              uint32_t& filter_ids_length) const {
-    std::shared_lock lock(mutex);
-
-    const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root = nullptr;
-    Option<bool> parse_op = filter::parse_filter_query(filter_query, search_schema,
-                                                       store, doc_id_prefix, filter_tree_root);
-    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
-
-    if(!parse_op.ok()) {
-        return parse_op;
-    }
-
-    return index->get_approximate_reference_filter_ids_with_lock(filter_tree_root, filter_ids_length);
-}
-
 Option<bool> Collection::get_reference_filter_ids(const std::string & filter_query,
                                                   filter_result_t& filter_result,
                                                   const std::string & collection_name) const {
@@ -4946,6 +4929,7 @@ void Collection::hide_credential(nlohmann::json& json, const std::string& creden
         }
     }
 }
+
 Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k) {
     std::vector<uint32_t> seq_ids;
     auto op = index->seq_ids_outside_top_k(field_name, k, seq_ids);
