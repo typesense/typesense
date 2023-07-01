@@ -454,7 +454,6 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 // scrub string fields to reduce delete ops
                 get_doc_changes(index_rec.operation, search_schema, index_rec.doc, index_rec.old_doc,
                                 index_rec.new_doc, index_rec.del_doc);
-                scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
 
                 if(generate_embeddings) {
                     for(auto& field: index_rec.doc.items()) {
@@ -6236,11 +6235,19 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
 
     if(op == UPSERT) {
         new_doc = update_doc;
+        // since UPSERT could replace a doc with lesser fields, we have to add those missing fields to del_doc
+        for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
+            if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
+                continue;
+            }
+
+            if(!update_doc.contains(it.key())) {
+                del_doc[it.key()] = it.value();
+            }
+        }
     } else {
-        new_doc = old_doc;
-
         handle_doc_ops(search_schema, update_doc, old_doc);
-
+        new_doc = old_doc;
         new_doc.merge_patch(update_doc);
 
         if(old_doc.contains(".flat")) {
@@ -6251,87 +6258,33 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
         }
     }
 
-    for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
-        if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
-            continue;
-        }
-
-        if(op == UPSERT && !update_doc.contains(it.key())) {
-            del_doc[it.key()] = it.value();
-        }
-    }
-
     auto it = update_doc.begin();
-    for(; it != update_doc.end(); ) {
-        if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
+    while(it != update_doc.end()) {
+        if(it.value().is_object() || (it.value().is_array() && !it.value().empty() && it.value()[0].is_object())) {
             ++it;
             continue;
         }
 
-        // if the update doc contains a field that exists in old, we record that (for delete + reindex)
-        bool field_exists_in_old_doc = (old_doc.count(it.key()) != 0);
-        if(field_exists_in_old_doc) {
-            // key exists in the stored doc, so it must be reindexed
-            // we need to check for this because a field can be optional
-            del_doc[it.key()] = old_doc[it.key()];
-        }
-
-        // adds new key or overrides existing key from `old_doc`
         if(it.value().is_null()) {
-            // null values should not indexed
+            // null values should not be indexed
             new_doc.erase(it.key());
+            del_doc[it.key()] = old_doc[it.key()];
             it = update_doc.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
-
-void Index::scrub_reindex_doc(const tsl::htrie_map<char, field>& search_schema,
-                              nlohmann::json& update_doc,
-                              nlohmann::json& del_doc,
-                              const nlohmann::json& old_doc) {
-
-    /*LOG(INFO) << "update_doc: " << update_doc;
-    LOG(INFO) << "old_doc: " << old_doc;
-    LOG(INFO) << "del_doc: " << del_doc;*/
-
-    // del_doc contains fields that exist in both update doc and old doc
-    // But we will only remove fields that are different
-
-    std::vector<std::string> unchanged_keys;
-
-    for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
-        const std::string& field_name = it.key();
-
-        const auto& search_field_it = search_schema.find(field_name);
-        if(search_field_it == search_schema.end()) {
             continue;
         }
 
-        if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
-            continue;
-        }
-
-        const auto search_field = search_field_it.value();  // copy, don't use reference!
-
-        // compare values between old and update docs:
-        // if they match, we will remove them from both del and update docs
-
-        if(update_doc.contains(search_field.name)) {
-            if(update_doc[search_field.name].is_null()) {
-                // we don't allow null values to be stored or indexed but need to be removed from stored doc
-                update_doc.erase(search_field.name);
-            }
-            else if(update_doc[search_field.name] == old_doc[search_field.name]) {
-                unchanged_keys.push_back(field_name);
+        if(old_doc.contains(it.key())) {
+            if(old_doc[it.key()] == it.value()) {
+                // unchanged so should not be part of update doc
+                it = update_doc.erase(it);
+                continue;
+            } else {
+                // delete this old value from index
+                del_doc[it.key()] = old_doc[it.key()];
             }
         }
-    }
 
-    for(const auto& unchanged_key: unchanged_keys) {
-        del_doc.erase(unchanged_key);
-        update_doc.erase(unchanged_key);
+        it++;
     }
 }
 

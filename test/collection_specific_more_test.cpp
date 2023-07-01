@@ -1225,6 +1225,153 @@ TEST_F(CollectionSpecificMoreTest, UpsertUpdateEmplaceShouldAllRemoveIndex) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionSpecificMoreTest, UpdateWithEmptyArray) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "tags", "type": "string[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "tags": ["alpha", "beta", "gamma"]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto doc2 = R"({
+        "id": "1",
+        "tags": ["one", "two"]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc2.dump(), CREATE).ok());
+
+    // via update
+
+    auto doc_update = R"({
+        "id": "0",
+        "tags": []
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPDATE).ok());
+
+    auto results = coll1->search("alpha", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // via upsert
+
+    doc_update = R"({
+        "id": "1",
+        "tags": []
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPSERT).ok());
+
+    results = coll1->search("one", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionSpecificMoreTest, UpdateArrayWithNullValue) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "tags", "type": "string[]", "optional": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "tags": ["alpha", "beta", "gamma"]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto doc2 = R"({
+        "id": "1",
+        "tags": ["one", "two"]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc2.dump(), CREATE).ok());
+
+    // via update
+
+    auto doc_update = R"({
+        "id": "0",
+        "tags": null
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPDATE).ok());
+
+    auto results = coll1->search("alpha", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // via upsert
+
+    doc_update = R"({
+        "id": "1",
+        "tags": null
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPSERT).ok());
+
+    results = coll1->search("one", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionSpecificMoreTest, ReplaceArrayElement) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "tags", "type": "string[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "tags": ["alpha", "beta", "gamma"]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto doc2 = R"({
+        "id": "1",
+        "tags": ["one", "two", "three"]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc2.dump(), CREATE).ok());
+
+    // via update
+
+    auto doc_update = R"({
+        "id": "0",
+        "tags": ["alpha", "gamma"]
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPDATE).ok());
+
+    auto results = coll1->search("beta", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // via upsert
+
+    doc_update = R"({
+        "id": "1",
+        "tags": ["one", "three"]
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPSERT).ok());
+
+    results = coll1->search("two", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionSpecificMoreTest, UnorderedWeightingOfFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
