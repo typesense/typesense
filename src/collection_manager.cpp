@@ -783,7 +783,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::vector<sort_by> sort_fields;
     size_t per_page = 10;
     size_t page = 0;
-    size_t offset = UINT32_MAX;
+    size_t offset = 0;
     token_ordering token_order = NOT_SET;
 
     std::string vector_query;
@@ -978,14 +978,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
-    if(!req_params[PAGE].empty() && page == 0 && offset == UINT32_MAX) {
-        return Option<bool>(422, "Parameter `page` must be an integer of value greater than 0.");
-    }
-
-    if(req_params[PAGE].empty() && req_params[OFFSET].empty()) {
-        page = 1;
-    }
-
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
     exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
 
@@ -1097,10 +1089,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         result["search_time_ms"] = timeMillis;
     }
 
-    if(page != 0) {
-        result["page"] = page;
-    } else {
+    if(page == 0 && offset != 0) {
         result["offset"] = offset;
+    } else {
+        result["page"] = (page == 0) ? 1 : page;
     }
 
     results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);

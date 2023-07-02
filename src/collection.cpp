@@ -1392,7 +1392,17 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         return Option<nlohmann::json>(422, message);
     }
 
-    size_t offset = (page != 0) ? (per_page * (page - 1)) : page_offset;
+    size_t offset = 0;
+
+    if(page == 0 && page_offset != 0) {
+        // if only offset is set, use that
+        offset = page_offset;
+    } else {
+        // if both are set or none set, use page value (default is 1)
+        size_t actual_page = (page == 0) ? 1 : page;
+        offset = (per_page * (actual_page - 1));
+    }
+
     size_t fetch_size = offset + per_page;
 
     if(fetch_size > limit_hits) {

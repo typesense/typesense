@@ -1054,11 +1054,11 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
     ASSERT_EQ(422, res_op.code());
     ASSERT_STREQ("Only upto 250 hits can be fetched per page.", res_op.error().c_str());
 
-    // when page number is not valid
-    res_op = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 10, 0,
-                                FREQUENCY, {true}, 1000, empty, empty, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ(422, res_op.code());
+    // when page number is zero, use the first page
+    results = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 3, 0,
+                                FREQUENCY, {true}, 1000, empty, empty, 10).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(6, results["found"].get<int>());
 
     // do pagination
 
@@ -3026,11 +3026,11 @@ TEST_F(CollectionTest, WildcardQueryReturnsResultsBasedOnPerPageParam) {
     ASSERT_EQ(422, res_op.code());
     ASSERT_STREQ("Only upto 250 hits can be fetched per page.", res_op.error().c_str());
 
-    // when page number is not valid
-    res_op = collection->search("*", query_fields, "", facets, sort_fields, {0}, 10, 0,
-                                     FREQUENCY, {false}, 1000, empty, empty, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ(422, res_op.code());
+    // when page number is 0, just fetch first page
+    results = collection->search("*", query_fields, "", facets, sort_fields, {0}, 10, 0,
+                                     FREQUENCY, {false}, 1000, empty, empty, 10).get();
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
 
     // do pagination
 
