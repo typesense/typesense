@@ -1281,8 +1281,9 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         // 2. Wildcard + no filters -> use value index
         // 3. Very few unique facet values (< 250) -> use value index
         // 4. Result match > 50%
-        bool use_value_index = (group_limit == 0) && ( is_wildcard_no_filter_query || num_facet_values < 250 ||
-                                (results_size * 2 > total_docs));
+        bool use_value_index = (group_limit == 0) && ( is_wildcard_no_filter_query ||
+                                (results_size > 1000 && num_facet_values < 250) ||
+                                (results_size > 1000 && results_size * 2 > total_docs));
 
 #ifdef TEST_BUILD
         if(facet_index_type == VALUE) {
