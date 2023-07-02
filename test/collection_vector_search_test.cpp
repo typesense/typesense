@@ -693,15 +693,29 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
 
     nlohmann::json doc;
 
-    doc["name"] = "john doe";
+    doc["name"] = "micheal scott";
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
-    std::string dummy_vec_string = "[0.9";
-    for (int i = 0; i < 382; i++) {
-        dummy_vec_string += ", 0.9";
-    }
-    dummy_vec_string += ", 0.9]";
+    doc["name"] = "jim halpert";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
+    doc["name"] = "pam beesly";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    nlohmann::json model_config = R"({
+        "model_name": "ts/e5-small"
+    })"_json;
+
+    auto query_embedding = TextEmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("dwight schrute");
+    
+    std::string vec_string = "[";
+    for(size_t i = 0; i < query_embedding.embedding.size(); i++) {
+        vec_string += std::to_string(query_embedding.embedding[i]);
+        if(i != query_embedding.embedding.size() - 1) {
+            vec_string += ",";
+        }
+    }
+    vec_string += "]";  
     auto results_op = coll1->search("john", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                                 spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
@@ -709,12 +723,21 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
                                 fallback,
                                 4, {off}, 32767, 32767, 2,
-                                false, true, "vec:(" + dummy_vec_string +")");
+                                false, true, "vec:(" + vec_string + ")");
     ASSERT_EQ(true, results_op.ok());
 
 
-    ASSERT_EQ(1, results_op.get()["found"].get<size_t>());
-    ASSERT_EQ(1, results_op.get()["hits"].size());
+    ASSERT_EQ(3, results_op.get()["found"].get<size_t>());
+    ASSERT_EQ(3, results_op.get()["hits"].size());
+
+    // order: 
+    // 1. jim halpert
+    // 2. michael scott
+    // 3. pam beesly
+
+    ASSERT_EQ("jim halpert", results_op.get()["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ("micheal scott", results_op.get()["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ("pam beesly", results_op.get()["hits"][2]["document"]["name"].get<std::string>());
 }
 
 TEST_F(CollectionVectorTest, DistanceThresholdTest) {
