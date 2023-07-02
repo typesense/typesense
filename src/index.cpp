@@ -454,7 +454,6 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 // scrub string fields to reduce delete ops
                 get_doc_changes(index_rec.operation, search_schema, index_rec.doc, index_rec.old_doc,
                                 index_rec.new_doc, index_rec.del_doc);
-                scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
 
                 if(generate_embeddings) {
                     for(auto& field: index_rec.doc.items()) {
@@ -2855,9 +2854,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
         if (!vector_query.field_name.empty()) {
-            // use k as 250 by default for ensuring results stability in pagination
-            size_t default_k = 250;
-            auto k = std::max<size_t>(vector_query.k, default_k);
+            auto k = std::max<size_t>(vector_query.k, fetch_size);
             if(vector_query.query_doc_given) {
                 // since we will omit the query doc from results
                 k++;
@@ -3145,8 +3142,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
                 std::vector<std::pair<float, size_t>> dist_labels;
-                // use k as 250 by default for ensuring results stability in pagination
-                size_t default_k = 250;
+                // use k as 100 by default for ensuring results stability in pagination
+                size_t default_k = 100;
                 auto k = std::max<size_t>(vector_query.k, default_k);
 
                 if(field_vector_index->distance_type == cosine) {
@@ -3186,17 +3183,26 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     result->scores[result->match_score_index] = float_to_int64_t((1.0 / (i + 1)) * TEXT_MATCH_WEIGHT);
                 }
 
-                for(int i = 0; i < vec_results.size(); i++) {
-                    auto& vec_result = vec_results[i];
-                    auto doc_id = vec_result.first;
+                std::vector<uint32_t> vec_search_ids;  // list of IDs found only in vector search
 
+                for(size_t res_index = 0; res_index < vec_results.size(); res_index++) {
+                    auto& vec_result = vec_results[res_index];
+                    auto doc_id = vec_result.first;
                     auto result_it = topster->kv_map.find(doc_id);
 
-                    if(result_it != topster->kv_map.end()&& result_it->second->match_score_index >= 0 && result_it->second->match_score_index <= 2) {
+                    if(result_it != topster->kv_map.end()) {
+                        if(result_it->second->match_score_index < 0 || result_it->second->match_score_index > 2) {
+                            continue;
+                        }
+
+                        // result overlaps with keyword search: we have to combine the scores
+
                         auto result = result_it->second;
                         // old_score + (1 / rank_of_document) * WEIGHT)
                         result->vector_distance = vec_result.second;
-                        result->scores[result->match_score_index] = float_to_int64_t((int64_t_to_float(result->scores[result->match_score_index]))  +  ((1.0 / (i + 1)) * VECTOR_SEARCH_WEIGHT));
+                        result->scores[result->match_score_index] = float_to_int64_t(
+                                (int64_t_to_float(result->scores[result->match_score_index])) +
+                                ((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT));
 
                         for(size_t i = 0;i < 3; i++) {
                             if(field_values[i] == &vector_distance_sentinel_value) {
@@ -3209,16 +3215,25 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         }
 
                     } else {
-                        int64_t scores[3] = {0};
+                        // Result has been found only in vector search: we have to add it to both KV and result_ids
                         // (1 / rank_of_document) * WEIGHT)
-                        int64_t match_score = float_to_int64_t((1.0 / (i + 1)) * VECTOR_SEARCH_WEIGHT);
+                        int64_t scores[3] = {0};
+                        int64_t match_score = float_to_int64_t((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT);
                         int64_t match_score_index = -1;
                         compute_sort_scores(sort_fields_std, sort_order, field_values, geopoint_indices, doc_id, 0, match_score, scores, match_score_index, vec_result.second);
                         KV kv(searched_queries.size(), doc_id, doc_id, match_score_index, scores);
                         kv.vector_distance = vec_result.second;
                         topster->add(&kv);
-                        ++all_result_ids_len;
+                        vec_search_ids.push_back(doc_id);
                     }
+                }
+
+                if(!vec_search_ids.empty()) {
+                    uint32_t* new_all_result_ids = nullptr;
+                    all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, &vec_search_ids[0],
+                                                               vec_search_ids.size(), &new_all_result_ids);
+                    delete[] all_result_ids;
+                    all_result_ids = new_all_result_ids;
                 }
             }
         }
@@ -6220,11 +6235,19 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
 
     if(op == UPSERT) {
         new_doc = update_doc;
+        // since UPSERT could replace a doc with lesser fields, we have to add those missing fields to del_doc
+        for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
+            if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
+                continue;
+            }
+
+            if(!update_doc.contains(it.key())) {
+                del_doc[it.key()] = it.value();
+            }
+        }
     } else {
-        new_doc = old_doc;
-
         handle_doc_ops(search_schema, update_doc, old_doc);
-
+        new_doc = old_doc;
         new_doc.merge_patch(update_doc);
 
         if(old_doc.contains(".flat")) {
@@ -6235,87 +6258,33 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
         }
     }
 
-    for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
-        if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
-            continue;
-        }
-
-        if(op == UPSERT && !update_doc.contains(it.key())) {
-            del_doc[it.key()] = it.value();
-        }
-    }
-
     auto it = update_doc.begin();
-    for(; it != update_doc.end(); ) {
-        if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
+    while(it != update_doc.end()) {
+        if(it.value().is_object() || (it.value().is_array() && !it.value().empty() && it.value()[0].is_object())) {
             ++it;
             continue;
         }
 
-        // if the update doc contains a field that exists in old, we record that (for delete + reindex)
-        bool field_exists_in_old_doc = (old_doc.count(it.key()) != 0);
-        if(field_exists_in_old_doc) {
-            // key exists in the stored doc, so it must be reindexed
-            // we need to check for this because a field can be optional
-            del_doc[it.key()] = old_doc[it.key()];
-        }
-
-        // adds new key or overrides existing key from `old_doc`
         if(it.value().is_null()) {
-            // null values should not indexed
+            // null values should not be indexed
             new_doc.erase(it.key());
+            del_doc[it.key()] = old_doc[it.key()];
             it = update_doc.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
-
-void Index::scrub_reindex_doc(const tsl::htrie_map<char, field>& search_schema,
-                              nlohmann::json& update_doc,
-                              nlohmann::json& del_doc,
-                              const nlohmann::json& old_doc) {
-
-    /*LOG(INFO) << "update_doc: " << update_doc;
-    LOG(INFO) << "old_doc: " << old_doc;
-    LOG(INFO) << "del_doc: " << del_doc;*/
-
-    // del_doc contains fields that exist in both update doc and old doc
-    // But we will only remove fields that are different
-
-    std::vector<std::string> unchanged_keys;
-
-    for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
-        const std::string& field_name = it.key();
-
-        const auto& search_field_it = search_schema.find(field_name);
-        if(search_field_it == search_schema.end()) {
             continue;
         }
 
-        if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
-            continue;
-        }
-
-        const auto search_field = search_field_it.value();  // copy, don't use reference!
-
-        // compare values between old and update docs:
-        // if they match, we will remove them from both del and update docs
-
-        if(update_doc.contains(search_field.name)) {
-            if(update_doc[search_field.name].is_null()) {
-                // we don't allow null values to be stored or indexed but need to be removed from stored doc
-                update_doc.erase(search_field.name);
-            }
-            else if(update_doc[search_field.name] == old_doc[search_field.name]) {
-                unchanged_keys.push_back(field_name);
+        if(old_doc.contains(it.key())) {
+            if(old_doc[it.key()] == it.value()) {
+                // unchanged so should not be part of update doc
+                it = update_doc.erase(it);
+                continue;
+            } else {
+                // delete this old value from index
+                del_doc[it.key()] = old_doc[it.key()];
             }
         }
-    }
 
-    for(const auto& unchanged_key: unchanged_keys) {
-        del_doc.erase(unchanged_key);
-        update_doc.erase(unchanged_key);
+        it++;
     }
 }
 

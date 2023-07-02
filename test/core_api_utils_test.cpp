@@ -253,6 +253,40 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
 
 }
 
+TEST_F(CoreAPIUtilsTest, SearchEmbeddedPresetKey) {
+    nlohmann::json preset_value = R"(
+        {"per_page": 100}
+    )"_json;
+
+    Option<bool> success_op = collectionManager.upsert_preset("apple", preset_value);
+    ASSERT_TRUE(success_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json embedded_params;
+    embedded_params["preset"] = "apple";
+    req->embedded_params_vec.push_back(embedded_params);
+    req->params["collection"] = "foo";
+
+    get_search(req, res);
+    ASSERT_EQ("100", req->params["per_page"]);
+
+    // with multi search
+
+    req->params.clear();
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "users";
+    search["filter_by"] = "age: > 100";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    ASSERT_EQ("100", req->params["per_page"]);
+}
+
 TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
     std::map<std::string, std::string> req_params;
     std::string body = R"(

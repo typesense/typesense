@@ -27,6 +27,7 @@ struct sort_fields_guard_t {
 
     ~sort_fields_guard_t() {
         for(auto& sort_by_clause: sort_fields_std) {
+            delete sort_by_clause.eval.filter_tree_root;
             if(sort_by_clause.eval.ids) {
                 delete [] sort_by_clause.eval.ids;
                 sort_by_clause.eval.ids = nullptr;
@@ -418,7 +419,7 @@ Option<nlohmann::json> Collection::update_matching_filter(const std::string& fil
     }
 
     const auto& dirty_values = parse_dirty_values_option(req_dirty_values);
-    size_t docs_updated_count;
+    size_t docs_updated_count = 0;
     nlohmann::json update_document, dummy;
 
     try {
@@ -1578,6 +1579,11 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     std::unique_ptr<search_args> search_params_guard(search_params);
 
     auto search_op = index->run_search(search_params, name);
+
+    // filter_tree_root might be updated in Index::static_filter_query_eval.
+    filter_tree_root_guard.release();
+    filter_tree_root_guard.reset(filter_tree_root);
+
     if (!search_op.ok()) {
         return Option<nlohmann::json>(search_op.code(), search_op.error());
     }

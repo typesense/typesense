@@ -631,9 +631,6 @@ public:
                                              const std::vector<char>& local_token_separators,
                                              const std::vector<char>& local_symbols_to_index);
 
-    static void scrub_reindex_doc(const tsl::htrie_map<char, field>& search_schema,
-                                  nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc);
-
     static void tokenize_string_field(const nlohmann::json& document,
                                       const field& search_field, std::vector<std::string>& tokens,
                                       const std::string& locale,

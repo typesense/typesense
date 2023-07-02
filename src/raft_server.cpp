@@ -194,7 +194,8 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(raft_dir_path,
                                   config->get_disk_used_max_percentage(), config->get_memory_used_max_percentage());
 
-    if (resource_check != cached_resource_stat_t::OK && request->http_method != "DELETE") {
+    if (resource_check != cached_resource_stat_t::OK &&
+        request->http_method != "DELETE" && request->path_without_query != "/health") {
         response->set_422("Rejecting write: running out of resource type: " +
                           std::string(magic_enum::enum_name(resource_check)));
         response->final = true;
@@ -307,18 +308,19 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
                 }
             } else {
                 std::string api_res;
-                long status = HttpClient::post_response(url, request->body, api_res, res_headers, {}, 4000, true);
+                long status = HttpClient::post_response(url, request->body, api_res, res_headers, {}, 10*1000, true);
                 response->content_type_header = res_headers["content-type"];
                 response->set_body(status, api_res);
             }
         } else if(request->http_method == "PUT") {
             std::string api_res;
-            long status = HttpClient::put_response(url, request->body, api_res, res_headers, 4000, true);
+            long status = HttpClient::put_response(url, request->body, api_res, res_headers, 10*1000, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else if(request->http_method == "DELETE") {
             std::string api_res;
-            long status = HttpClient::delete_response(url, api_res, res_headers, 120000, true);
+            // timeout: 0 since delete can take a long time
+            long status = HttpClient::delete_response(url, api_res, res_headers, 0, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else if(request->http_method == "PATCH") {
@@ -326,9 +328,9 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             route_path* rpath = nullptr;
             bool route_found = server->get_route(request->route_hash, &rpath);
 
-            long timeout_ms = 4 * 1000;
+            long timeout_ms = 10 * 1000;
             if(route_found && rpath->handler == patch_update_collection) {
-                timeout_ms = 300 * 1000;  // 5 minutes for patching a collection which can take some time
+                timeout_ms = 0;  // patching a collection can take a long time
             }
 
             long status = HttpClient::patch_response(url, request->body, api_res, res_headers, timeout_ms, true);
@@ -676,7 +678,7 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
 
     std::string api_res;
     std::map<std::string, std::string> res_headers;
-    long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 4000, true);
+    long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 5*1000, true);
     if(status_code == 200) {
         // compare leader's applied log with local applied to see if we are lagging
         nlohmann::json leader_status = nlohmann::json::parse(api_res);
@@ -936,7 +938,7 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
             std::string url = get_node_url_path(peer_addr, "/health", protocol);
             std::string api_res;
             std::map<std::string, std::string> res_headers;
-            long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 4000, true);
+            long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 5*1000, true);
             bool peer_healthy = (status_code == 200);
 
             //LOG(INFO) << "do_snapshot, status_code: " << status_code;

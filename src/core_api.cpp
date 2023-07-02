@@ -58,10 +58,8 @@ void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr
         return ;
     }
 
-    if(req->_req->res.status != 0) {
-        // not the first response chunk, so wait for previous chunk to finish
-        res->wait();
-    }
+    // wait for previous chunk to finish (if any)
+    res->wait();
 
     auto req_res = new async_req_res_t(req, res, true);
     server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
@@ -369,29 +367,6 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         }
     }
 
-    const auto preset_it = req->params.find("preset");
-
-    if(preset_it != req->params.end()) {
-        nlohmann::json preset;
-        const auto& preset_op = CollectionManager::get_instance().get_preset(preset_it->second, preset);
-
-        if(preset_op.ok()) {
-            if(!preset.is_object()) {
-                res->set_400("Search preset is not an object.");
-                return false;
-            }
-
-            for(const auto& search_item: preset.items()) {
-                // overwrite = false since req params will contain embedded params and so has higher priority
-                bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
-                if(!populated) {
-                    res->set_400("One or more search parameters are malformed.");
-                    return false;
-                }
-            }
-        }
-    }
-
     if(req->embedded_params_vec.empty()) {
         res->set_500("Embedded params is empty.");
         return false;
@@ -567,27 +542,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             if(!populated) {
                 res->set_400("One or more search parameters are malformed.");
                 return false;
-            }
-        }
-
-        if(search_params.count("preset") != 0) {
-            nlohmann::json preset;
-            auto preset_op = CollectionManager::get_instance().get_preset(search_params["preset"].get<std::string>(),
-                                                                          preset);
-            if(preset_op.ok()) {
-                if(!search_params.is_object()) {
-                    res->set_400("Search preset is not an object.");
-                    return false;
-                }
-
-                for(const auto& search_item: preset.items()) {
-                    // overwrite = false since req params will contain embedded params and so has higher priority
-                    bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
-                    if(!populated) {
-                        res->set_400("One or more search parameters are malformed.");
-                        return false;
-                    }
-                }
             }
         }
 
