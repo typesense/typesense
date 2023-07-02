@@ -2397,6 +2397,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->is_valid)) {
                 dist_labels.clear();
 
+                if(no_filters_provided) {
+                    filter_result_iterator->approx_filter_ids_length = 0;
+                }
+
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
 
                 if(field_vector_index->distance_type == cosine) {
@@ -2407,6 +2411,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, &filterFunctor);
                 }
             }
+
             filter_result_iterator->reset();
 
             std::vector<uint32_t> nearest_ids;
@@ -2656,6 +2661,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 // For hybrid search, we need to give weight to text match and vector search
                 constexpr float TEXT_MATCH_WEIGHT = 0.7;
                 constexpr float VECTOR_SEARCH_WEIGHT = 1.0 - TEXT_MATCH_WEIGHT;
+
+                if(no_filters_provided) {
+                    filter_result_iterator->approx_filter_ids_length = 0;
+                }
 
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
