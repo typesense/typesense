@@ -525,11 +525,6 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     if(req->proceed_req == nullptr) {
         // Full request body is already available, so we don't care if handler is async or not
         //LOG(INFO) << "Full request body is already available: " << req->entity.len;
-        //process gzip file by checking header
-        if((request->body.size() > 2) &&
-           (31 == (int)request->body[0] && -117 == (int)request->body[1])) {
-            handle_gzip(request);
-        }
 
         request->last_chunk_aggregate = true;
         return process_request(request, response, rpath, h2o_handler, use_meta_thread_pool);
