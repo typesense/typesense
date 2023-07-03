@@ -1037,7 +1037,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
-                                                          sort_fields, num_typos,
+                                                          sort_fields, num_typos, stopwords_set,
                                                           per_page,
                                                           page,
                                                           token_order, prefixes, drop_tokens_threshold,
