@@ -525,6 +525,12 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     if(req->proceed_req == nullptr) {
         // Full request body is already available, so we don't care if handler is async or not
         //LOG(INFO) << "Full request body is already available: " << req->entity.len;
+        //process gzip file by checking header
+        if((request->body.size() > 2) &&
+           (31 == (int)request->body[0] && -117 == (int)request->body[1])) {
+            handle_gzip(request);
+        }
+
         request->last_chunk_aggregate = true;
         return process_request(request, response, rpath, h2o_handler, use_meta_thread_pool);
     } else {
@@ -631,51 +637,6 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     if(can_process_async || is_end_stream) {
         // For async streaming requests, handler should be invoked for every aggregated chunk
         // For a non streaming request, buffer body and invoke only at the end
-        if(!request->zstream_initialized && (request->body.size() > 2) &&
-            (31 == (int)request->body[0] && -117 == (int)request->body[1])) { //gzip header
-            request->zs.zalloc = Z_NULL;
-            request->zs.zfree = Z_NULL;
-            request->zs.opaque = Z_NULL;
-            request->zs.avail_in = 0;
-            request->zs.next_in = Z_NULL;
-
-            if (inflateInit2(&request->zs, 16 + MAX_WBITS) != Z_OK)
-                throw (std::runtime_error("inflateInit failed while decompressing."));
-            request->zstream_initialized = true;
-        }
-
-        if(request->zstream_initialized) {
-            std::string outbuffer;
-            outbuffer.resize(10 * request->body.size());
-
-            request->zs.next_in = (Bytef *) request->body.c_str();
-            request->zs.avail_in = request->body.size();
-            std::size_t size_uncompressed = 0;
-            int ret = 0;
-            do {
-                request->zs.avail_out = static_cast<unsigned int>(outbuffer.size());
-                request->zs.next_out = reinterpret_cast<Bytef *>(&outbuffer[0] + size_uncompressed);
-                ret = inflate(&request->zs, Z_FINISH);
-                if (ret != Z_STREAM_END && ret != Z_OK && ret != Z_BUF_ERROR) {
-                    std::string error_msg = request->zs.msg;
-                    inflateEnd(&request->zs);
-                    throw std::runtime_error(error_msg);
-                }
-
-                size_uncompressed += (outbuffer.size() - request->zs.avail_out);
-            } while (request->zs.avail_out == 0);
-
-            if (ret == Z_STREAM_END) {
-                request->zstream_initialized = false;
-                inflateEnd(&request->zs);
-            }
-
-            outbuffer.resize(size_uncompressed);
-
-            request->body = outbuffer;
-            request->chunk_len = outbuffer.size();
-        }
-
         if(request->first_chunk_aggregate) {
             request->first_chunk_aggregate = false;
         }
@@ -690,11 +651,63 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     return 0;
 }
 
+void HttpServer::handle_gzip(const std::shared_ptr<http_req>& request) {
+    if(!request->zstream_initialized) {
+        request->zs.zalloc = Z_NULL;
+        request->zs.zfree = Z_NULL;
+        request->zs.opaque = Z_NULL;
+        request->zs.avail_in = 0;
+        request->zs.next_in = Z_NULL;
+
+        if (inflateInit2(&request->zs, 16 + MAX_WBITS) != Z_OK)
+            throw (std::runtime_error("inflateInit failed while decompressing."));
+        request->zstream_initialized = true;
+    }
+
+    if(request->zstream_initialized) {
+        std::string outbuffer;
+        outbuffer.resize(10 * request->body.size());
+
+        request->zs.next_in = (Bytef *) request->body.c_str();
+        request->zs.avail_in = request->body.size();
+        std::size_t size_uncompressed = 0;
+        int ret = 0;
+        do {
+            request->zs.avail_out = static_cast<unsigned int>(outbuffer.size());
+            request->zs.next_out = reinterpret_cast<Bytef *>(&outbuffer[0] + size_uncompressed);
+            ret = inflate(&request->zs, Z_FINISH);
+            if (ret != Z_STREAM_END && ret != Z_OK && ret != Z_BUF_ERROR) {
+                std::string error_msg = request->zs.msg;
+                inflateEnd(&request->zs);
+                throw std::runtime_error(error_msg);
+            }
+
+            size_uncompressed += (outbuffer.size() - request->zs.avail_out);
+        } while (request->zs.avail_out == 0);
+
+        if (ret == Z_STREAM_END) {
+            request->zstream_initialized = false;
+            inflateEnd(&request->zs);
+        }
+
+        outbuffer.resize(size_uncompressed);
+
+        request->body = outbuffer;
+        request->chunk_len = outbuffer.size();
+    }
+}
+
 int HttpServer::process_request(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response,
                                 route_path *rpath, const h2o_custom_req_handler_t *handler,
                                 const bool use_meta_thread_pool) {
 
     //LOG(INFO) << "process_request called";
+    //check if it's first gzip chunk or is gzip stream initialized
+    if(((request->body.size() > 2) &&
+       (31 == (int)request->body[0] && -117 == (int)request->body[1])) || request->zstream_initialized) {
+        handle_gzip(request);
+    }
+
     const std::string& root_resource = (rpath->path_parts.empty()) ? "" : rpath->path_parts[0];
 
     if(root_resource == "multi_search") {
