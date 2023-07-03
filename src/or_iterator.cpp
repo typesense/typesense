@@ -250,3 +250,97 @@ or_iterator_t::~or_iterator_t() noexcept {
         it.reset_cache();
     }
 }
+
+bool or_iterator_t::contains_atleast_one(std::vector<or_iterator_t>& its, result_iter_state_t&& istate) {
+    size_t it_size = its.size();
+    bool is_excluded;
+
+    switch (its.size()) {
+        case 0:
+            break;
+        case 1:
+            if(istate.is_filter_provided() && istate.is_filter_valid()) {
+                its[0].skip_to(istate.get_filter_id());
+            }
+
+            while(its.size() == it_size && its[0].valid()) {
+                auto id = its[0].id();
+                if(take_id(istate, id, is_excluded)) {
+                    return true;
+                }
+
+                if(istate.is_filter_provided() && !is_excluded) {
+                    if(istate.is_filter_valid()) {
+                        // skip iterator till next id available in filter
+                        its[0].skip_to(istate.get_filter_id());
+                    } else {
+                        break;
+                    }
+                } else {
+                    its[0].next();
+                }
+            }
+            break;
+        case 2:
+            if(istate.is_filter_provided() && istate.is_filter_valid()) {
+                its[0].skip_to(istate.get_filter_id());
+                its[1].skip_to(istate.get_filter_id());
+            }
+
+            while(its.size() == it_size && !at_end2(its)) {
+                if(equals2(its)) {
+                    auto id = its[0].id();
+                    if(take_id(istate, id, is_excluded)) {
+                        return true;
+                    }
+
+                    if(istate.is_filter_provided() != 0 && !is_excluded) {
+                        if(istate.is_filter_valid()) {
+                            // skip iterator till next id available in filter
+                            its[0].skip_to(istate.get_filter_id());
+                            its[1].skip_to(istate.get_filter_id());
+                        } else {
+                            break;
+                        }
+                    } else {
+                        advance_all2(its);
+                    }
+                } else {
+                    advance_non_largest2(its);
+                }
+            }
+            break;
+        default:
+            if(istate.is_filter_provided() && istate.is_filter_valid()) {
+                for(auto& it: its) {
+                    it.skip_to(istate.get_filter_id());
+                }
+            }
+
+            while(its.size() == it_size && !at_end(its)) {
+                if(equals(its)) {
+                    auto id = its[0].id();
+                    if(take_id(istate, id, is_excluded)) {
+                        return true;
+                    }
+
+                    if(istate.is_filter_provided() && !is_excluded) {
+                        if(istate.is_filter_valid()) {
+                            // skip iterator till next id available in filter
+                            for(auto& it: its) {
+                                it.skip_to(istate.get_filter_id());
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        advance_all(its);
+                    }
+                } else {
+                    advance_non_largest(its);
+                }
+            }
+    }
+
+    return false;
+}

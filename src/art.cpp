@@ -19,6 +19,7 @@
 #include <list>
 #include <stdint.h>
 #include <posting.h>
+#include <or_iterator.h>
 #include "art.h"
 #include "logger.h"
 #include "array_utils.h"
@@ -1000,6 +1001,24 @@ bool validate_and_add_leaf(art_leaf* leaf, const bool last_token, const std::str
     return true;
 }
 
+void leaf_values_iterator(art_leaf*& leaf, std::vector<or_iterator_t>& or_iterators,
+                          std::vector<posting_list_t*>& expanded_plists) {
+    if(IS_COMPACT_POSTING(leaf->values)) {
+        auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
+        posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
+        expanded_plists.emplace_back(full_posting_list);
+
+        std::vector<posting_list_t::iterator_t> its;
+        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
+        or_iterators.emplace_back(or_iterator_t(its));
+    } else {
+        posting_list_t* full_posting_list = (posting_list_t*)(leaf->values);
+        std::vector<posting_list_t::iterator_t> its;
+        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
+        or_iterators.emplace_back(or_iterator_t(its));
+    }
+}
+
 bool validate_and_add_leaf(art_leaf* leaf,
                            const std::string& prev_token,
                            const art_leaf* prev_leaf, const std::vector<uint32_t>& prev_leaf_ids,
@@ -1020,20 +1039,18 @@ bool validate_and_add_leaf(art_leaf* leaf,
         if (filter_result_iterator->is_valid && !filter_result_iterator->contains_atleast_one(leaf->values)) {
             return false;
         }
-    } else if (!filter_result_iterator->is_valid) {
-        if (!posting_t::contains_atleast_one(leaf->values, prev_leaf_ids.data(), prev_leaf_ids.size())) {
-            return false;
-        }
     } else {
-        std::vector<uint32_t> leaf_ids;
-        leaf_ids.insert(leaf_ids.end(), prev_leaf_ids.begin(), prev_leaf_ids.end());
-        posting_t::merge({leaf->values}, leaf_ids);
+        std::vector<or_iterator_t> or_iterators;
+        std::vector<posting_list_t*> expanded_plists;
 
-        bool found = false;
-        for (uint32_t i = 0; i < leaf_ids.size() && filter_result_iterator->is_valid && !found; i++) {
-            found = (filter_result_iterator->valid(leaf_ids[i]) == 1);
+        leaf_values_iterator(const_cast<art_leaf*&>(prev_leaf), or_iterators, expanded_plists);
+        leaf_values_iterator(leaf, or_iterators, expanded_plists);
+
+        auto found = or_iterator_t::contains_atleast_one(or_iterators, result_iter_state_t(nullptr, 0, filter_result_iterator));
+
+        for (auto& item: expanded_plists) {
+            delete item;
         }
-
         if (!found) {
             return false;
         }
