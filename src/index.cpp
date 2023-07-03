@@ -2345,12 +2345,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             goto process_search_results;
         }
 
-        // if filters were not provided, use the seq_ids index to generate the list of all document ids
-        if (no_filters_provided) {
-            filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids());
-            filter_iterator_guard.reset(filter_result_iterator);
-        }
-
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
         if (!vector_query.field_name.empty()) {
@@ -2397,10 +2391,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             if(no_filters_provided ||
                 (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->is_valid)) {
                 dist_labels.clear();
-
-                if(no_filters_provided) {
-                    filter_result_iterator->approx_filter_ids_length = 0;
-                }
 
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
 
@@ -2461,6 +2451,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 all_result_ids_len = nearest_ids.size();
             }
         } else {
+            // if filters were not provided, use the seq_ids index to generate the list of all document ids
+            if (no_filters_provided) {
+                filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids());
+                filter_iterator_guard.reset(filter_result_iterator);
+            }
+
             search_wildcard(filter_tree_root, included_ids_map, sort_fields_std, topster,
                             curated_topster, groups_processed, searched_queries, group_limit, group_by_fields,
                             curated_ids, curated_ids_sorted,
@@ -2662,10 +2658,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 // For hybrid search, we need to give weight to text match and vector search
                 constexpr float TEXT_MATCH_WEIGHT = 0.7;
                 constexpr float VECTOR_SEARCH_WEIGHT = 1.0 - TEXT_MATCH_WEIGHT;
-
-                if(no_filters_provided) {
-                    filter_result_iterator->approx_filter_ids_length = 0;
-                }
 
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
