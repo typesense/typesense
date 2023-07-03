@@ -679,34 +679,37 @@ TEST_F(CollectionVectorTest, VectorWithNullValue) {
 }
 
 TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
-        nlohmann::json schema = R"({
-        "name": "coll1",
-        "fields": [
-            {"name": "name", "type": "string"},
-            {"name": "vec", "type": "float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
-        ]
-    })"_json;
-
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                            ]
+                        })"_json;
+    
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
-    Collection* coll1 = collectionManager.create_collection(schema).get();
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    nlohmann::json object;
+    object["name"] = "butter";
+    auto add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
 
-    nlohmann::json doc;
+    object["name"] = "butterball";
+    add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
 
-    doc["name"] = "micheal scott";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    doc["name"] = "jim halpert";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    doc["name"] = "pam beesly";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    object["name"] = "butterfly";
+    add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
 
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
     })"_json;
 
-    auto query_embedding = TextEmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("dwight schrute");
+    auto query_embedding = TextEmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("butter");
     
     std::string vec_string = "[";
     for(size_t i = 0; i < query_embedding.embedding.size(); i++) {
@@ -716,29 +719,32 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
         }
     }
     vec_string += "]";  
-    auto results_op = coll1->search("john", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+    auto search_res_op = coll->search("butter", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                                 spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                 "", 10, {}, {}, {}, 0,
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
                                 fallback,
                                 4, {off}, 32767, 32767, 2,
-                                false, true, "vec:(" + vec_string + ")");
-    ASSERT_EQ(true, results_op.ok());
+                                false, true, "embedding:(" + vec_string + ")");
+    
+    ASSERT_TRUE(search_res_op.ok());
+    auto search_res = search_res_op.get();
+    ASSERT_EQ(3, search_res["found"].get<size_t>());
+    ASSERT_EQ(3, search_res["hits"].size());
+    // Hybrid search with rank fusion order:
+    // 1. butter (1/1 * 0.7) + (1/1 * 0.3) = 1
+    // 2. butterfly (1/2 * 0.7) + (1/3 * 0.3) = 0.45
+    // 3. butterball (1/3 * 0.7) + (1/2 * 0.3) = 0.383
+    ASSERT_EQ("butter", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterfly", search_res["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterball", search_res["hits"][2]["document"]["name"].get<std::string>());
 
-
-    ASSERT_EQ(3, results_op.get()["found"].get<size_t>());
-    ASSERT_EQ(3, results_op.get()["hits"].size());
-
-    // order: 
-    // 1. jim halpert
-    // 2. michael scott
-    // 3. pam beesly
-
-    ASSERT_EQ("jim halpert", results_op.get()["hits"][0]["document"]["name"].get<std::string>());
-    ASSERT_EQ("micheal scott", results_op.get()["hits"][1]["document"]["name"].get<std::string>());
-    ASSERT_EQ("pam beesly", results_op.get()["hits"][2]["document"]["name"].get<std::string>());
+    ASSERT_FLOAT_EQ((1.0/1.0 * 0.7) + (1.0/1.0 * 0.3), search_res["hits"][0]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ((1.0/2.0 * 0.7) + (1.0/3.0 * 0.3), search_res["hits"][1]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ((1.0/3.0 * 0.7) + (1.0/2.0 * 0.3), search_res["hits"][2]["hybrid_search_info"]["rank_fusion_score"].get<float>());
 }
+
 
 TEST_F(CollectionVectorTest, HybridSearchOnlyVectorMatches) {
     nlohmann::json schema = R"({
