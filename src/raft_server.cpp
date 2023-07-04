@@ -189,7 +189,7 @@ Option<bool> ReplicationState::handle_gzip(const std::shared_ptr<http_req>& requ
         request->zs.next_in = Z_NULL;
 
         if (inflateInit2(&request->zs, 16 + MAX_WBITS) != Z_OK) {
-            return Option<bool>(404, "inflateInit failed while decompressing");
+            return Option<bool>(400, "inflateInit failed while decompressing");
         }
 
         request->zstream_initialized = true;
@@ -209,7 +209,7 @@ Option<bool> ReplicationState::handle_gzip(const std::shared_ptr<http_req>& requ
         if (ret != Z_STREAM_END && ret != Z_OK && ret != Z_BUF_ERROR) {
             std::string error_msg = request->zs.msg;
             inflateEnd(&request->zs);
-            return Option<bool>(404, error_msg);
+            return Option<bool>(400, error_msg);
         }
 
         size_uncompressed += (outbuffer.size() - request->zs.avail_out);
