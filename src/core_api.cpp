@@ -928,14 +928,42 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
     const index_operation_t operation = get_index_operation(req->params[ACTION]);
     const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES_PARAM]);
 
-    Option<nlohmann::json> inserted_doc_op = collection->add(req->body, operation, "", dirty_values);
+    nlohmann::json document;
+    std::vector<std::string> json_lines = {req->body};
+    const nlohmann::json& inserted_doc_op = collection->add_many(json_lines, document, operation, "", dirty_values, false, false);
 
-    if(!inserted_doc_op.ok()) {
-        res->set(inserted_doc_op.code(), inserted_doc_op.error());
+    if(!inserted_doc_op["success"].get<bool>()) {
+        nlohmann::json res_doc;
+
+        try {
+            res_doc = nlohmann::json::parse(json_lines[0]);
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "JSON error: " << e.what();
+            res->set_400("Bad JSON.");
+            return false;
+        }
+
+        res->status_code = res_doc["code"].get<size_t>();
+        // erase keys from res_doc except error and embedding_error
+        for(auto it = res_doc.begin(); it != res_doc.end(); ) {
+            if(it.key() != "error" && it.key() != "embedding_error") {
+                it = res_doc.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        // rename error to message if not empty and exists
+        if(res_doc.count("error") != 0 && !res_doc["error"].get<std::string>().empty()) {
+            res_doc["message"] = res_doc["error"];
+            res_doc.erase("error");
+        }
+
+        res->body = res_doc.dump();
         return false;
     }
 
-    res->set_201(inserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+    res->set_201(document.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 

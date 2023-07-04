@@ -768,7 +768,7 @@ TEST_F(CoreAPIUtilsTest, SearchPagination) {
     ASSERT_EQ(400, results["code"].get<size_t>());
     ASSERT_EQ("Parameter `offset` must be an unsigned integer.", results["error"].get<std::string>());
 
-    // when page is 0 and no offset is sent
+    // when page is 0 and offset is NOT sent, we will treat as page=1
     search.clear();
     req->params.clear();
     body["searches"] = nlohmann::json::array();
@@ -782,8 +782,29 @@ TEST_F(CoreAPIUtilsTest, SearchPagination) {
 
     post_multi_search(req, res);
     results = nlohmann::json::parse(res->body)["results"][0];
-    ASSERT_EQ(422, results["code"].get<size_t>());
-    ASSERT_EQ("Parameter `page` must be an integer of value greater than 0.", results["error"].get<std::string>());
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(1, results["page"].get<size_t>());
+    ASSERT_EQ(0, results.count("offset"));
+
+    // when both page and offset are sent, use page
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["page"] = "2";
+    search["offset"] = "30";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(2, results["page"].get<size_t>());
+    ASSERT_EQ(0, results.count("offset"));
+
 }
 
 TEST_F(CoreAPIUtilsTest, ExportWithFilter) {

@@ -656,3 +656,24 @@ uint32_t* id_list_t::uncompress() {
 
     return arr;
 }
+
+size_t id_list_t::intersect_count(const uint32_t *res_ids, size_t res_ids_len) {
+    size_t count = 0;
+    size_t res_index = 0;
+    auto it = new_iterator();
+
+    while(it.valid() && res_index < res_ids_len) {
+        if(it.id() < res_ids[res_index]) {
+            it.skip_to(res_ids[res_index]);
+        } else if(it.id() > res_ids[res_index]) {
+            // returns index that is >= to value or last if no such element is found.
+            res_index = std::lower_bound(res_ids + res_index, res_ids + res_ids_len, it.id()) - res_ids;
+        } else {
+            it.next();
+            res_index++;
+            count++;
+        }
+    }
+
+    return count;
+}
