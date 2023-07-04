@@ -68,7 +68,7 @@ private:
 
     spp::sparse_hash_map<std::string, nlohmann::json> preset_configs;
 
-    spp::sparse_hash_map<std::string, nlohmann::json> stopword_configs;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> stopword_configs;
 
     // Auto incrementing ID assigned to each collection
     // Using a ID instead of a collection's name makes renaming possible
@@ -206,11 +206,11 @@ public:
     Option<bool> delete_preset(const std::string & preset_name);
 
     //stopwords
-    spp::sparse_hash_map<std::string, nlohmann::json> get_stopwords() const;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> get_stopwords() const;
 
-    Option<bool> get_stopword(const std::string&, nlohmann::json&) const;
+    Option<bool> get_stopword(const std::string&, spp::sparse_hash_set<std::string>&) const;
 
-    Option<bool> upsert_stopword(const std::string&, const nlohmann::json&);
+    Option<bool> upsert_stopword(const std::string&, const nlohmann::json&, const std::string&);
 
     Option<bool> delete_stopword(const std::string&);
 

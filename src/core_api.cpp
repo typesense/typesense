@@ -1851,14 +1851,16 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
 bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    const spp::sparse_hash_map<std::string, nlohmann::json> & stopwords = collectionManager.get_stopwords();
+    const spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>>& stopwords = collectionManager.get_stopwords();
     nlohmann::json res_json = nlohmann::json::object();
     res_json["stopwords"] = nlohmann::json::array();
 
-    for(const auto& preset_kv: stopwords) {
+    for(const auto& stopwords_kv: stopwords) {
         nlohmann::json stopword;
-        stopword["name"] = preset_kv.first;
-        stopword["value"] = preset_kv.second;
+        stopword["name"] = stopwords_kv.first;
+        for(const auto& val : stopwords_kv.second) {
+            stopword["value"].push_back(val);
+        }
         res_json["stopwords"].push_back(stopword);
     }
 
@@ -1870,8 +1872,8 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     const std::string & stopword_name = req->params["stopword_name"];
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
-    nlohmann::json stopword;
-    Option<bool> stopword_op = collectionManager.get_stopword(stopword_name, stopword);
+    spp::sparse_hash_set<std::string> stopwords;
+    Option<bool> stopword_op = collectionManager.get_stopword(stopword_name, stopwords);
 
     if(!stopword_op.ok()) {
         res->set(stopword_op.code(), stopword_op.error());
@@ -1880,7 +1882,9 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 
     nlohmann::json res_json;
     res_json["name"] = stopword_name;
-    res_json["value"] = stopword;
+    for(const auto& stopword : stopwords) {
+        res_json["value"].push_back(stopword);
+    }
 
     res->set_200(res_json.dump());
     return true;
@@ -1900,14 +1904,15 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
     CollectionManager & collectionManager = CollectionManager::get_instance();
     const std::string & stopword_name = req->params["name"];
 
-    const char* STOPWORD_VALUE = "value";
+    const char* STOPWORD_VALUES = "stopwords";
+    const char* STOPWORD_LOCALE = "locale";
 
-    if(req_json.count(STOPWORD_VALUE) == 0) {
-        res->set_400(std::string("Parameter `") + STOPWORD_VALUE + "` is required.");
+    if(req_json.count(STOPWORD_VALUES) == 0) {
+        res->set_400(std::string("Parameter `") + STOPWORD_VALUES + "` is required.");
         return false;
     }
 
-    Option<bool> success_op = collectionManager.upsert_stopword(stopword_name, req_json[STOPWORD_VALUE]);
+    Option<bool> success_op = collectionManager.upsert_stopword(stopword_name, req_json[STOPWORD_VALUES], req_json[STOPWORD_LOCALE]);
     if(!success_op.ok()) {
         res->set_500(success_op.error());
         return false;
@@ -1923,8 +1928,8 @@ bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     const std::string & stopword_name = req->params["name"];
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
-    nlohmann::json stopword;
-    Option<bool> stopword_op = collectionManager.get_stopword(stopword_name, stopword);
+    spp::sparse_hash_set<std::string> stopwords;
+    Option<bool> stopword_op = collectionManager.get_stopword(stopword_name, stopwords);
     if(!stopword_op.ok()) {
         res->set(stopword_op.code(), stopword_op.error());
         return false;
@@ -1939,7 +1944,10 @@ bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 
     nlohmann::json res_json;
     res_json["name"] = stopword_name;
-    res_json["value"] = stopword;
+    for(const auto& stopword : stopwords) {
+        res_json["value"].push_back(stopword);
+    }
+
     res->set_200(res_json.dump());
     return true;
 }

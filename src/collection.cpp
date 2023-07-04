@@ -1035,7 +1035,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const std::vector<std::string>& raw_search_fields,
                                   const std::string & filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
-                                  const std::string& stopword, const size_t per_page, const size_t page,
+                                  const size_t per_page, const size_t page,
                                   token_ordering token_order, const std::vector<bool>& prefixes,
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
@@ -1077,7 +1077,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold,
                                   const size_t page_offset,
-                                  facet_index_type_t facet_index_type) const {
+                                  facet_index_type_t facet_index_type,
+                                  const std::string& stopwords_set) const {
 
     std::shared_lock lock(mutex);
 
@@ -1483,7 +1484,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         field_query_tokens.emplace_back(query_tokens_t{});
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
-                           false, stopword);
+                           false, stopwords_set);
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
             field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
@@ -1495,7 +1496,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopword);
+                           field_locale, pre_segmented_query, stopwords_set);
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -2421,17 +2422,17 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
-                                    const std::string& locale, const bool already_segmented, const std::string& stopword) const {
+                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
     } else {
         std::vector<std::string> tokens;
-        nlohmann::json stopwords_list;
-        if(!stopword.empty()) {
-            const auto &stopword_op = CollectionManager::get_instance().get_stopword(stopword, stopwords_list);
+        spp::sparse_hash_set<std::string> stopwords_list;
+        if(!stopwords_set.empty()) {
+            const auto &stopword_op = CollectionManager::get_instance().get_stopword(stopwords_set, stopwords_list);
             if (!stopword_op.ok()) {
-                LOG(ERROR) << "Error fetching stopword_list for stopword " << stopword << " "<<stopword_op.error();
+                LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set << " "<<stopword_op.error();
             }
         }
 
@@ -2445,9 +2446,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             Tokenizer(query, true, false, locale, custom_symbols, token_separators).tokenize(tokens);
         }
 
-        for (const auto &search_item: stopwords_list.items()) {
-            auto val = search_item.value().get<std::string>();
-            std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        for (const auto val: stopwords_list) {
             tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
         }
 
@@ -2534,8 +2533,13 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         }
 
         if(q_include_tokens.empty()) {
-            // this can happen if the only query token is an exclusion token
-            q_include_tokens.emplace_back("##hrhdh##");
+            if(!stopwords_set.empty()) {
+                //this can happen when all tokens in the include are stopwords
+                q_include_tokens.emplace_back("##hrhdh##");
+            } else {
+                // this can happen if the only query token is an exclusion token
+                q_include_tokens.emplace_back("*");
+            }
         }
     }
 }

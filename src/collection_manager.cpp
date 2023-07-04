@@ -664,8 +664,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *QUERY_BY_WEIGHTS = "query_by_weights";
     const char *SORT_BY = "sort_by";
 
-    const char *STOPWORDS = "stopwords";
-
     const char *FACET_BY = "facet_by";
     const char *FACET_QUERY = "facet_query";
     const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
@@ -1037,7 +1035,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
-                                                          sort_fields, num_typos, stopwords_set,
+                                                          sort_fields, num_typos,
                                                           per_page,
                                                           page,
                                                           token_order, prefixes, drop_tokens_threshold,
@@ -1078,8 +1076,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           match_type,
                                                           facet_sample_percent,
                                                           facet_sample_threshold,
-                                                          offset
-                                                        );
+                                                          offset,
+                                                          facet_index_type_t::HASH,
+                                                          stopwords_set
+                                                          );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
@@ -1478,32 +1478,43 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
 }
 
 
-spp::sparse_hash_map<std::string, nlohmann::json> CollectionManager::get_stopwords() const {
+spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> CollectionManager::get_stopwords() const {
     std::shared_lock lock(mutex);
     return stopword_configs;
 }
 
-Option<bool> CollectionManager::get_stopword(const string& stopword_name, nlohmann::json& stopword) const {
+Option<bool> CollectionManager::get_stopword(const string& stopword_name, spp::sparse_hash_set<std::string>& stopwords) const {
     std::shared_lock lock(mutex);
 
     const auto& it = stopword_configs.find(stopword_name);
     if(it != stopword_configs.end()) {
-        stopword = it->second;
+        stopwords = it->second;
         return Option<bool>(true);
     }
 
     return Option<bool>(404, "Not found.");
 }
 
-Option<bool> CollectionManager::upsert_stopword(const string& stopword_name, const nlohmann::json& stopword_config) {
+Option<bool> CollectionManager::upsert_stopword(const string& stopword_name, const nlohmann::json& stopwords, const std::string& locale) {
     std::unique_lock lock(mutex);
 
-    bool inserted = store->insert(get_stopword_key(stopword_name), stopword_config.dump());
+    bool inserted = store->insert(get_stopword_key(stopword_name), stopwords.dump());
     if(!inserted) {
         return Option<bool>(500, "Unable to insert into store.");
     }
 
-    stopword_configs[stopword_name] = stopword_config;
+    std::vector<std::string> tokens;
+
+    for (const auto &stopword: stopwords.items()) {
+        const auto& val = stopword.value().get<std::string>();
+        Tokenizer(val, true, false, locale, {}, {}).tokenize(tokens);
+
+        for(const auto& tok : tokens) {
+            stopword_configs[stopword_name].emplace(tok);
+        }
+        tokens.clear();
+    }
+
     return Option<bool>(true);
 }
 
@@ -1514,7 +1525,7 @@ std::string CollectionManager::get_stopword_key(const string& stopword_name) {
 Option<bool> CollectionManager::delete_stopword(const string& stopword_name) {
     std::unique_lock lock(mutex);
 
-    bool removed = store->remove(get_preset_key(stopword_name));
+    bool removed = store->remove(get_stopword_key(stopword_name));
     if(!removed) {
         return Option<bool>(500, "Unable to delete from store.");
     }
