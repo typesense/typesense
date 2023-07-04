@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <or_iterator.h>
 #include <posting_list.h>
+#include <posting.h>
+#include <filter_result_iterator.h>
 #include "logger.h"
 
 TEST(OrIteratorTest, IntersectTwoListsWith3SubLists) {
@@ -255,4 +257,70 @@ TEST(OrIteratorTest, IntersectAndFilterTwoIts) {
 
     delete p1;
     delete p2;
+}
+
+TEST(OrIteratorTest, ContainsAtLeastOne) {
+    std::vector<uint32_t> ids = {1, 3, 5};
+
+    std::vector<or_iterator_t> or_iterators;
+    std::vector<posting_list_t*> expanded_plists;
+
+    posting_list_t p_list1(2);
+    for (const auto &id: ids) {
+        p_list1.upsert(id, {1, 2, 3});
+    }
+    void* raw_pointer = &p_list1;
+
+    posting_t::get_or_iterator(raw_pointer, or_iterators, expanded_plists);
+    ASSERT_EQ(1, or_iterators.size());
+
+    posting_list_t p_list2(2);
+    ids = {2, 4};
+    for (const auto &id: ids) {
+        p_list2.upsert(id, {1, 2, 3});
+    }
+    raw_pointer = &p_list2;
+
+    posting_t::get_or_iterator(raw_pointer, or_iterators, expanded_plists);
+    ASSERT_EQ(2, or_iterators.size());
+
+    auto found = or_iterator_t::contains_atleast_one(or_iterators,
+                                                     result_iter_state_t(nullptr, 0, nullptr));
+    ASSERT_FALSE(found);
+
+    or_iterators.clear();
+
+    posting_list_t p_list3(2);
+    ids = {1, 2, 4, 5};
+    for (const auto &id: ids) {
+        p_list3.upsert(id, {1, 2, 3});
+    }
+
+    raw_pointer = &p_list1;
+    posting_t::get_or_iterator(raw_pointer, or_iterators, expanded_plists);
+    raw_pointer = &p_list3;
+    posting_t::get_or_iterator(raw_pointer, or_iterators, expanded_plists);
+    ASSERT_EQ(2, or_iterators.size());
+
+    found = or_iterator_t::contains_atleast_one(or_iterators,
+                                                result_iter_state_t(nullptr, 0, nullptr));
+    ASSERT_TRUE(found);
+    ASSERT_EQ(1, or_iterators.front().id()); // Match found on id 1
+
+    or_iterators.clear();
+
+    raw_pointer = &p_list1;
+    posting_t::get_or_iterator(raw_pointer, or_iterators, expanded_plists);
+    raw_pointer = &p_list3;
+    posting_t::get_or_iterator(raw_pointer, or_iterators, expanded_plists);
+    ASSERT_EQ(2, or_iterators.size());
+
+    auto filter_ids = new uint32_t[1]{5};
+    auto filter_iterator = new filter_result_iterator_t(filter_ids, 1);
+    found = or_iterator_t::contains_atleast_one(or_iterators,
+                                                result_iter_state_t(nullptr, 0, filter_iterator));
+    ASSERT_TRUE(found);
+    ASSERT_EQ(5, or_iterators.front().id()); // Match found on id 5
+
+    delete filter_iterator;
 }

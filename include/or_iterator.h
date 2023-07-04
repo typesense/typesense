@@ -50,6 +50,8 @@ public:
 
     template<class T>
     static bool intersect(std::vector<or_iterator_t>& its, result_iter_state_t& istate, T func);
+
+    static bool contains_atleast_one(std::vector<or_iterator_t>& its, result_iter_state_t&& istate);
 };
 
 template<class T>

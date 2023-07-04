@@ -111,7 +111,17 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnSingleField) {
 
     // max candidates as default 4
     auto results = coll1->search("mark j", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("mark b", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("9", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("8", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("mark b", {"title"}, "points: < 9", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("8", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionSpecificMoreTest, TypoCorrectionShouldUseMaxCandidates) {

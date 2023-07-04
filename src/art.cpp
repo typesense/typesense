@@ -19,6 +19,7 @@
 #include <list>
 #include <stdint.h>
 #include <posting.h>
+#include <or_iterator.h>
 #include "art.h"
 #include "logger.h"
 #include "array_utils.h"
@@ -1019,22 +1020,19 @@ bool validate_and_add_leaf(art_leaf* leaf,
         if (filter_result_iterator->is_valid && !filter_result_iterator->contains_atleast_one(leaf->values)) {
             return false;
         }
-    } else if (!filter_result_iterator->is_valid) {
-        std::vector<uint32_t> prev_leaf_ids;
-        posting_t::merge({prev_leaf->values}, prev_leaf_ids);
-
-        if (!posting_t::contains_atleast_one(leaf->values, prev_leaf_ids.data(), prev_leaf_ids.size())) {
-            return false;
-        }
     } else {
-        std::vector<uint32_t> leaf_ids;
-        posting_t::merge({prev_leaf->values, leaf->values}, leaf_ids);
+        std::vector<or_iterator_t> or_iterators;
+        std::vector<posting_list_t*> expanded_plists;
 
-        bool found = false;
-        for (uint32_t i = 0; i < leaf_ids.size() && filter_result_iterator->is_valid && !found; i++) {
-            found = (filter_result_iterator->valid(leaf_ids[i]) == 1);
+        posting_t::get_or_iterator(const_cast<art_leaf*&>(prev_leaf)->values, or_iterators, expanded_plists);
+        posting_t::get_or_iterator(leaf->values, or_iterators, expanded_plists);
+
+        auto found = or_iterator_t::contains_atleast_one(or_iterators,
+                                                         result_iter_state_t(nullptr, 0, filter_result_iterator));
+
+        for (auto& item: expanded_plists) {
+            delete item;
         }
-
         if (!found) {
             return false;
         }
@@ -1148,7 +1146,7 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                   filter_result_iterator_t* const filter_result_iterator,
                   const art_tree* t, std::set<std::string>& exclude_leaves, std::vector<art_leaf *>& results) {
 
-    printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
+//    printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 
     auto prev_leaf = static_cast<art_leaf*>(
             art_search(t, reinterpret_cast<const unsigned char*>(prev_token.c_str()), prev_token.size() + 1)
@@ -1801,8 +1799,8 @@ int art_fuzzy_search_i(art_tree *t, const unsigned char *term, const int term_le
     //LOG(INFO) << "exact_leaf: " << exact_leaf << ", term: " << term << ", term_len: " << term_len;
 
     for(auto node: nodes) {
-        art_topk_iter(node, token_order, max_words, exact_leaf,
-                      last_token, prev_token,
+        art_topk_iter(node, token_order, max_words,
+                      exact_leaf, last_token, prev_token,
                       filter_result_iterator,
                       t, exclude_leaves, results);
     }
