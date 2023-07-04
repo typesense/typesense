@@ -142,6 +142,8 @@ private:
 
     butil::EndPoint peering_endpoint;
 
+    Option<bool> handle_gzip(const std::shared_ptr<http_req>& request);
+
 public:
 
     static constexpr const char* log_dir_name = "log";
