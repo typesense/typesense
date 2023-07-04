@@ -523,6 +523,24 @@ void posting_t::get_matching_array_indices(const std::vector<void*>& raw_posting
     }
 }
 
+void posting_t::get_or_iterator(void*& raw_posting_list, std::vector<or_iterator_t>& or_iterators,
+                                std::vector<posting_list_t*>& expanded_plists) {
+    if(IS_COMPACT_POSTING(raw_posting_list)) {
+        auto compact_posting_list = COMPACT_POSTING_PTR(raw_posting_list);
+        posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
+        expanded_plists.emplace_back(full_posting_list);
+
+        std::vector<posting_list_t::iterator_t> its;
+        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
+        or_iterators.emplace_back(or_iterator_t(its));
+    } else {
+        posting_list_t* full_posting_list = (posting_list_t*)(raw_posting_list);
+        std::vector<posting_list_t::iterator_t> its;
+        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
+        or_iterators.emplace_back(or_iterator_t(its));
+    }
+}
+
 void posting_t::get_phrase_matches(const std::vector<void*>& raw_posting_lists, bool field_is_array,
                                    const uint32_t* ids, uint32_t num_ids, uint32_t*& phrase_ids, size_t& num_phrase_ids) {
 

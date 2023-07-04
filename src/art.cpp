@@ -1001,24 +1001,6 @@ bool validate_and_add_leaf(art_leaf* leaf, const bool last_token, const std::str
     return true;
 }
 
-void leaf_values_iterator(art_leaf*& leaf, std::vector<or_iterator_t>& or_iterators,
-                          std::vector<posting_list_t*>& expanded_plists) {
-    if(IS_COMPACT_POSTING(leaf->values)) {
-        auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
-        posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
-        expanded_plists.emplace_back(full_posting_list);
-
-        std::vector<posting_list_t::iterator_t> its;
-        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
-        or_iterators.emplace_back(or_iterator_t(its));
-    } else {
-        posting_list_t* full_posting_list = (posting_list_t*)(leaf->values);
-        std::vector<posting_list_t::iterator_t> its;
-        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
-        or_iterators.emplace_back(or_iterator_t(its));
-    }
-}
-
 bool validate_and_add_leaf(art_leaf* leaf,
                            const std::string& prev_token, const art_leaf* prev_leaf,
                            const art_leaf* exact_leaf,
@@ -1042,8 +1024,8 @@ bool validate_and_add_leaf(art_leaf* leaf,
         std::vector<or_iterator_t> or_iterators;
         std::vector<posting_list_t*> expanded_plists;
 
-        leaf_values_iterator(const_cast<art_leaf*&>(prev_leaf), or_iterators, expanded_plists);
-        leaf_values_iterator(leaf, or_iterators, expanded_plists);
+        posting_t::get_or_iterator(const_cast<art_leaf*&>(prev_leaf)->values, or_iterators, expanded_plists);
+        posting_t::get_or_iterator(leaf->values, or_iterators, expanded_plists);
 
         auto found = or_iterator_t::contains_atleast_one(or_iterators,
                                                          result_iter_state_t(nullptr, 0, filter_result_iterator));
