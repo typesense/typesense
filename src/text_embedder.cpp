@@ -83,9 +83,9 @@ std::vector<float> TextEmbedder::mean_pooling(const std::vector<std::vector<floa
     return pooled_output;
 }
 
-embedding_res_t TextEmbedder::Embed(const std::string& text) {
+embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote_embedding_timeout_ms, const int remote_embedding_num_tries) {
     if(is_remote()) {
-        return remote_embedder_->Embed(text);
+        return remote_embedder_->Embed(text, remote_embedding_timeout_ms, remote_embedding_num_tries);
     } else {
         // Cannot run same model in parallel, so lock the mutex
         std::lock_guard<std::mutex> lock(mutex_);

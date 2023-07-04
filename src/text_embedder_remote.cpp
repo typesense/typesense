@@ -104,11 +104,13 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     return Option<bool>(true);
 }
 
-embedding_res_t OpenAIEmbedder::Embed(const std::string& text) {
+embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remote_embedding_timeout_ms, const int remote_embedding_num_tries) {
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Authorization"] = "Bearer " + api_key;
     headers["Content-Type"] = "application/json";
+    headers["remote_embedding_timeout_ms"] = std::to_string(remote_embedding_timeout_ms);
+    headers["remote_embedding_num_tries"] = std::to_string(remote_embedding_num_tries);
     std::string res;
     nlohmann::json req_body;
     req_body["input"] = text;
@@ -170,9 +172,11 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
 
     nlohmann::json res_json = nlohmann::json::parse(res);
     std::vector<embedding_res_t> outputs;
+
     for(auto& data : res_json["data"]) {
         outputs.push_back(embedding_res_t(data["embedding"].get<std::vector<float>>()));
     }
+
 
     return outputs;
 }
@@ -222,10 +226,12 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
     return Option<bool>(true);
 }
 
-embedding_res_t GoogleEmbedder::Embed(const std::string& text) {
+embedding_res_t GoogleEmbedder::Embed(const std::string& text, const size_t remote_embedding_timeout_ms, const int remote_embedding_num_tries) {
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Content-Type"] = "application/json";
+    headers["remote_embedding_timeout_ms"] = std::to_string(remote_embedding_timeout_ms);
+    headers["remote_embedding_num_tries"] = std::to_string(remote_embedding_num_tries);
     std::string res;
     nlohmann::json req_body;
     req_body["text"] = text;
@@ -325,7 +331,7 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, uns
     return Option<bool>(true);
 }
 
-embedding_res_t GCPEmbedder::Embed(const std::string& text) {
+embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_embedding_timeout_ms, const int remote_embedding_num_tries) {
     nlohmann::json req_body;
     req_body["instances"] = nlohmann::json::array();
     nlohmann::json instance;
@@ -334,6 +340,8 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text) {
     std::unordered_map<std::string, std::string> headers;
     headers["Authorization"] = "Bearer " + access_token;
     headers["Content-Type"] = "application/json";
+    headers["remote_embedding_timeout_ms"] = std::to_string(remote_embedding_timeout_ms);
+    headers["remote_embedding_num_tries"] = std::to_string(remote_embedding_num_tries);
     std::map<std::string, std::string> res_headers;
     std::string res;
 

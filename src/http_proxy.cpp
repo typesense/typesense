@@ -8,17 +8,19 @@ HttpProxy::HttpProxy() : cache(30s){
 }
 
 
-http_proxy_res_t HttpProxy::call(const std::string& url, const std::string& method, const std::string& body, const std::unordered_map<std::string, std::string>& headers) {
+http_proxy_res_t HttpProxy::call(const std::string& url, const std::string& method, const std::string& body, 
+                                const std::unordered_map<std::string, std::string>& headers, const size_t timeout_ms) {
     HttpClient& client = HttpClient::get_instance();
     http_proxy_res_t res;
+
     if(method == "GET") {
-        res.status_code = client.get_response(url, res.body, res.headers, headers, 20 * 1000);
+        res.status_code = client.get_response(url, res.body, res.headers, headers, timeout_ms);
     } else if(method == "POST") {
-        res.status_code = client.post_response(url, body, res.body, res.headers, headers, 20 * 1000);
+        res.status_code = client.post_response(url, body, res.body, res.headers, headers, timeout_ms);
     } else if(method == "PUT") {
-        res.status_code = client.put_response(url, body, res.body, res.headers, 20 * 1000);
+        res.status_code = client.put_response(url, body, res.body, res.headers, timeout_ms);
     } else if(method == "DELETE") {
-        res.status_code = client.delete_response(url, res.body, res.headers, 20 * 1000);
+        res.status_code = client.delete_response(url, res.body, res.headers, timeout_ms);
     } else {
         res.status_code = 400;
         nlohmann::json j;
@@ -29,7 +31,7 @@ http_proxy_res_t HttpProxy::call(const std::string& url, const std::string& meth
 }
 
 
-http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& method, const std::string& body, const std::unordered_map<std::string, std::string>& headers) {
+http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& method, const std::string& body, std::unordered_map<std::string, std::string>& headers) {
     // check if url is in cache
     uint64_t key = StringUtils::hash_wy(url.c_str(), url.size());
     key = StringUtils::hash_combine(key, StringUtils::hash_wy(method.c_str(), method.size()));
@@ -42,12 +44,33 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
         return cache[key];
     }
 
-    auto res = call(url, method, body, headers);
+    size_t timeout_ms = 30000;
+    size_t num_retries = 2;
 
-    if(res.status_code == 500){
-        // retry
-        res = call(url, method, body, headers);
+    if(headers.find("remote_embedding_timeout_ms") != headers.end()) {
+        std::stringstream ss(headers["remote_embedding_timeout_ms"]);
+        ss >> timeout_ms;
+
+        headers.erase("remote_embedding_timeout_ms");
     }
+
+
+    if(headers.find("remote_embedding_num_retries") != headers.end()) {
+        std::stringstream ss(headers["remote_embedding_num_retries"]);
+        ss >> num_retries;
+
+        headers.erase("remote_embedding_num_retries");
+    }
+
+    http_proxy_res_t res;
+    for(size_t i = 0;i < num_retries;i++) {
+        res = call(url, method, body, headers, timeout_ms);
+        
+        if(res.status_code != 500) {
+            break;
+        }
+    }
+
 
     if(res.status_code == 500){
         nlohmann::json j;
@@ -61,5 +84,6 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
         cache.insert(key, res);
     }
 
+ 
     return res;
 }
