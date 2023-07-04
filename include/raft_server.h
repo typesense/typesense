@@ -142,7 +142,7 @@ private:
 
     butil::EndPoint peering_endpoint;
 
-    void handle_gzip(const std::shared_ptr<http_req>& request);
+    Option<bool> handle_gzip(const std::shared_ptr<http_req>& request);
 
 public:
 
