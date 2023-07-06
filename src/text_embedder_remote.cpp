@@ -148,6 +148,8 @@ embedding_res_t OpenAIEmbedder::Embed(const std::string& text) {
         try {
             json_res = nlohmann::json::parse(res);
         } catch (const std::exception& e) {
+            json_res = nlohmann::json::object();
+            json_res["error"] = "Malformed response from OpenAI API.";
             
         }
         nlohmann::json embedding_res = nlohmann::json::object();
@@ -200,6 +202,7 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
             json_res = nlohmann::json::parse(res);
         } catch (const std::exception& e) {
             json_res = nlohmann::json::object();
+            json_res["error"] = "Malformed response from OpenAI API.";
         }
         LOG(INFO) << "OpenAI API error: " << json_res.dump();
         nlohmann::json embedding_res = nlohmann::json::object();
@@ -285,6 +288,8 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
         try {
             json_res = nlohmann::json::parse(res);
         } catch (const std::exception& e) {
+            json_res = nlohmann::json::object();
+            json_res["error"] = "Malformed response from Google API.";
         }
         if(res_code == 408) {
             return Option<bool>(408, "Google API timeout.");
@@ -321,7 +326,7 @@ embedding_res_t GoogleEmbedder::Embed(const std::string& text) {
             nlohmann::json json_res = nlohmann::json::parse(res);
         } catch (const std::exception& e) {
             json_res = nlohmann::json::object();
-            json_res["error"] = res;
+            json_res["error"] = "Malformed response from Google API."
         }
         nlohmann::json embedding_res = nlohmann::json::object();
         embedding_res["response"] = json_res;
@@ -473,7 +478,7 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text) {
             json_res = nlohmann::json::parse(res);
         } catch (const std::exception& e) {
             json_res = nlohmann::json::object();
-            json_res["error"] = "Got malformed response from GCP API.";
+            json_res["error"] = "Malformed response from GCP API.";
         }
         nlohmann::json embedding_res = nlohmann::json::object();
         embedding_res["response"] = json_res;
@@ -556,7 +561,7 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
             json_res = nlohmann::json::parse(res);
         } catch (const std::exception& e) {
             json_res = nlohmann::json::object();
-            json_res["error"] = "Got malformed response from GCP API.";
+            json_res["error"] = "Malformed response from GCP API.";
         }
         nlohmann::json embedding_res = nlohmann::json::object();
         embedding_res["response"] = json_res;
