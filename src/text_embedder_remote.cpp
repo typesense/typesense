@@ -15,9 +15,9 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
                             std::map<std::string, std::string>& headers, const std::unordered_map<std::string, std::string>& req_headers) {
     if(raft_server == nullptr || raft_server->get_leader_url().empty()) {
         if(method == "GET") {
-            return HttpClient::get_instance().get_response(url, res_body, headers, req_headers, 100000, true);
+            return HttpClient::get_instance().get_response(url, res_body, headers, req_headers, 45000, true);
         } else if(method == "POST") {
-            return HttpClient::get_instance().post_response(url, body, res_body, headers, req_headers, 100000, true);
+            return HttpClient::get_instance().post_response(url, body, res_body, headers, req_headers, 45000, true);
         } else {
             return 400;
         }
@@ -30,7 +30,7 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
     req_body["url"] = url;
     req_body["body"] = body;
     req_body["headers"] = req_headers;
-    return HttpClient::get_instance().post_response(leader_url, req_body.dump(), res_body, headers, {}, 10000, true);
+    return HttpClient::get_instance().post_response(leader_url, req_body.dump(), res_body, headers, {}, 45000, true);
 }
 
 

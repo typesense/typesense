@@ -36,6 +36,7 @@ class HttpProxy {
     private:
         HttpProxy();
         ~HttpProxy() = default;
+        http_proxy_res_t call(const std::string& url, const std::string& method, const std::string& body = "", const std::unordered_map<std::string, std::string>& headers = {});
 
 
         // lru cache for http requests
