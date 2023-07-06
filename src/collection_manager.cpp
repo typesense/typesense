@@ -671,9 +671,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *VECTOR_QUERY = "vector_query";
     const char *VECTOR_QUERY_HITS = "vector_query_hits";
 
-    const char *REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
-    const char *REMOTE_EMBEDDING_NUM_RETRIES = "remote_embedding_num_retries";
-
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
 
@@ -827,9 +824,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     text_match_type_t match_type = max_score;
     size_t vector_query_hits = 250;
 
-    size_t remote_embedding_timeout_ms = 30000;
-    size_t remote_embedding_num_retries = 2;
-
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
 
@@ -856,8 +850,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_PERCENT, &facet_sample_percent},
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {VECTOR_QUERY_HITS, &vector_query_hits},
-        {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
-        {REMOTE_EMBEDDING_NUM_RETRIES, &remote_embedding_num_retries}
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1078,10 +1070,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           match_type,
                                                           facet_sample_percent,
                                                           facet_sample_threshold,
-                                                          offset,
-                                                          vector_query_hits,
-                                                          remote_embedding_timeout_ms,
-                                                          remote_embedding_num_retries
+                                                          offset
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

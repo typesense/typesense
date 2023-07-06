@@ -32,11 +32,11 @@ class HttpProxy {
         void operator=(const HttpProxy&) = delete;
         HttpProxy(HttpProxy&&) = delete;
         void operator=(HttpProxy&&) = delete;
-        http_proxy_res_t send(const std::string& url, const std::string& method, const std::string& body, std::unordered_map<std::string, std::string>& headers);
+        http_proxy_res_t send(const std::string& url, const std::string& method, const std::string& body, const std::unordered_map<std::string, std::string>& headers);
     private:
         HttpProxy();
         ~HttpProxy() = default;
-        http_proxy_res_t call(const std::string& url, const std::string& method, const std::string& body = "", const std::unordered_map<std::string, std::string>& headers = {}, const size_t timeout_ms = 30000);
+        http_proxy_res_t call(const std::string& url, const std::string& method, const std::string& body = "", const std::unordered_map<std::string, std::string>& headers = {});
 
 
         // lru cache for http requests

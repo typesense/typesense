@@ -28,7 +28,7 @@ class RemoteEmbedder {
         static long call_remote_api(const std::string& method, const std::string& url, const std::string& body, std::string& res_body, std::map<std::string, std::string>& headers, const std::unordered_map<std::string, std::string>& req_headers);
         static inline ReplicationState* raft_server = nullptr;
     public:
-        virtual embedding_res_t Embed(const std::string& text, const size_t remote_embedding_timeout_ms = 30000, const int remote_embedding_num_tries = 2) = 0;
+        virtual embedding_res_t Embed(const std::string& text) = 0;
         virtual std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) = 0;
         static void init(ReplicationState* rs) {
             raft_server = rs;
@@ -47,7 +47,7 @@ class OpenAIEmbedder : public RemoteEmbedder {
     public:
         OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
-        embedding_res_t Embed(const std::string& text, const size_t remote_embedding_timeout_ms = 30000, const int remote_embedding_num_tries = 2) override;
+        embedding_res_t Embed(const std::string& text) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) override;
 };
 
@@ -62,7 +62,7 @@ class GoogleEmbedder : public RemoteEmbedder {
     public:
         GoogleEmbedder(const std::string& google_api_key);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
-        embedding_res_t Embed(const std::string& text, const size_t remote_embedding_timeout_ms = 30000, const int remote_embedding_num_tries = 2) override;
+        embedding_res_t Embed(const std::string& text) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) override;
 };
 
@@ -88,7 +88,7 @@ class GCPEmbedder : public RemoteEmbedder {
         GCPEmbedder(const std::string& project_id, const std::string& model_name, const std::string& access_token, 
                     const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
-        embedding_res_t Embed(const std::string& text, const size_t remote_embedding_timeout_ms = 30000, const int remote_embedding_num_tries = 2) override;
+        embedding_res_t Embed(const std::string& text) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) override;
 };
 
