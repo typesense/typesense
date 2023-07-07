@@ -156,6 +156,9 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
         LOG(ERROR) << "CURL failed. URL: " << url << ", Code: " << res << ", strerror: " << curl_easy_strerror(res);
         curl_easy_cleanup(curl);
         curl_slist_free_all(chunk);
+        if(res == CURLE_OPERATION_TIMEDOUT) {
+            return 408;
+        }
         return 500;
     }
 
