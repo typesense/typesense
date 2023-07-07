@@ -808,9 +808,11 @@ void HttpServer::stream_response(stream_response_state_t& state) {
 
     h2o_req_t* req = state.get_req();
 
-    if(state.is_res_start) {
+    bool start_of_res = (req->res.status == 0);
+
+    if(start_of_res) {
         h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
-                       state.res_content_type.base, state.res_content_type.len);
+                       state.res_content_type.data(), state.res_content_type.size());
         req->res.status = state.status;
         req->res.reason = state.reason;
     }
@@ -829,7 +831,7 @@ void HttpServer::stream_response(stream_response_state_t& state) {
         return ;
     }
 
-    if (state.is_res_start) {
+    if (start_of_res) {
         /*LOG(INFO) << "h2o_start_response, content_type=" << state.res_content_type
                   << ",response.status_code=" << state.res_status_code;*/
         h2o_start_response(req, state.generator);
@@ -969,7 +971,7 @@ bool HttpServer::on_stream_response_message(void *data) {
     // NOTE: access to `req` and `res` objects must be synchronized and wrapped by `req_res`
 
     if(req_res->is_alive()) {
-        stream_response(req_res->res_state);
+        stream_response(req_res->get_res_state());
     } else {
         // serialized request or generator has been disposed (underlying request is probably dead)
         req_res->req_notify();

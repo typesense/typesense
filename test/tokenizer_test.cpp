@@ -238,7 +238,7 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
 
     // window used to locate the starting offset for snippet on the text
     while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
-        LOG(INFO) << "tok_start: " << tok_start;
+        //LOG(INFO) << "tok_start: " << tok_start;
     }
 
     return ;
