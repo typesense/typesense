@@ -1107,7 +1107,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold,
                                   const size_t page_offset,
-                                  const size_t vector_query_hits) const {
+                                  const size_t vector_query_hits,
+                                  const size_t remote_embedding_timeout_ms, 
+                                  const size_t remote_embedding_num_retry) const {
 
     std::shared_lock lock(mutex);
 
@@ -1236,7 +1238,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 }
 
                 std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + raw_query;
-                auto embedding_op = embedder->Embed(embed_query);
+                auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_retry);
                 if(!embedding_op.success) {
                     if(!embedding_op.error["error"].get<std::string>().empty()) {
                         return Option<nlohmann::json>(400, embedding_op.error["error"].get<std::string>());
