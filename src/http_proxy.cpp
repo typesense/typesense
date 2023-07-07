@@ -44,7 +44,7 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
 
     auto res = call(url, method, body, headers);
 
-    if(res.status_code == 408){
+    if(res.status_code >= 500 || res.status_code == 408){
         // retry
         res = call(url, method, body, headers);
     }
@@ -57,7 +57,7 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
     
 
     // add to cache 
-    if(res.status_code != 408){
+    if(res.status_code == 200){
         cache.insert(key, res);
     }
 
