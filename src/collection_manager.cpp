@@ -285,6 +285,17 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         iter->Next();
     }
 
+    // restore query suggestions configs
+    std::vector<std::string> analytics_config_jsons;
+    store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
+                     std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
+                     analytics_config_jsons);
+
+    for(const auto& analytics_config_json: analytics_config_jsons) {
+        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
+        AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
+    }
+
     delete iter;
 
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";
@@ -1310,17 +1321,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
         collection->add_synonym(collection_synonym, false);
-    }
-
-    // restore query suggestions configs
-    std::vector<std::string> analytics_config_jsons;
-    cm.store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
-                        std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
-                        analytics_config_jsons);
-
-    for(const auto& analytics_config_json: analytics_config_jsons) {
-        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
-        AnalyticsManager::get_instance().create_rule(analytics_config, false);
     }
 
     // Fetch records from the store and re-create memory index
