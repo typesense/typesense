@@ -132,13 +132,13 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     return Option<bool>(true);
 }
 
-embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedder_num_try) {
+embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_try) {
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Authorization"] = "Bearer " + api_key;
     headers["Content-Type"] = "application/json";
     headers["timeout_ms"] = std::to_string(remote_embedder_timeout_ms);
-    headers["num_try"] = std::to_string(remote_embedder_num_try);
+    headers["num_try"] = std::to_string(remote_embedding_num_try);
     std::string res;
     nlohmann::json req_body;
     req_body["input"] = std::vector<std::string>{text};
@@ -287,12 +287,12 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
     return Option<bool>(true);
 }
 
-embedding_res_t GoogleEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedder_num_try) {
+embedding_res_t GoogleEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_try) {
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Content-Type"] = "application/json";
     headers["timeout_ms"] = std::to_string(remote_embedder_timeout_ms);
-    headers["num_try"] = std::to_string(remote_embedder_num_try);
+    headers["num_try"] = std::to_string(remote_embedding_num_try);
     std::string res;
     nlohmann::json req_body;
     req_body["text"] = text;
@@ -422,7 +422,7 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, uns
     return Option<bool>(true);
 }
 
-embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedder_num_try) {
+embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_try) {
     nlohmann::json req_body;
     req_body["instances"] = nlohmann::json::array();
     nlohmann::json instance;
@@ -432,7 +432,7 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_
     headers["Authorization"] = "Bearer " + access_token;
     headers["Content-Type"] = "application/json";
     headers["timeout_ms"] = std::to_string(remote_embedder_timeout_ms);
-    headers["num_try"] = std::to_string(remote_embedder_num_try);
+    headers["num_try"] = std::to_string(remote_embedding_num_try);
     std::map<std::string, std::string> res_headers;
     std::string res;
 
