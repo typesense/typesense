@@ -5177,3 +5177,44 @@ TEST_F(CollectionTest, EmbeddingFieldEmptyArrayInDocument) {
 
     ASSERT_EQ(384, get_op.get()["embedding"].size());
 }
+
+
+TEST_F(CollectionTest, CatchPartialResponseFromRemoteEmbedding) {
+    std::string partial_json = R"({
+        "results": [
+            {
+                "embedding": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "text": "butter"
+            },
+            {
+                "embedding": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "text": "butterball"
+            },
+            {
+                "embedding": [
+                    0.0,
+                    0.0)";
+    
+    nlohmann::json req_body = R"({
+        "inputs": [
+            "butter",
+            "butterball",
+            "butterfly"
+        ]
+    })"_json;
+
+    OpenAIEmbedder embedder("", "");
+
+    auto res = embedder.get_error_json(req_body, 200, partial_json);
+
+    ASSERT_EQ(res["response"]["error"], "Malformed response from OpenAI API.");
+    ASSERT_EQ(res["request"]["body"], req_body);
+}
