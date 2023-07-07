@@ -466,7 +466,7 @@ public:
                                   const size_t page_offset = UINT32_MAX,
                                   const size_t vector_query_hits = 250,
                                   const size_t remote_embedding_timeout_ms = 30000,
-                                  const size_t remote_embedding_num_retry = 2) const;
+                                  const size_t remote_embedding_num_try = 2) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

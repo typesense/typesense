@@ -38,16 +38,16 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
     key = StringUtils::hash_combine(key, StringUtils::hash_wy(body.c_str(), body.size()));
 
     size_t timeout_ms = 30000;
-    size_t num_retry = 2;
+    size_t num_try = 2;
 
     if(headers.find("timeout_ms") != headers.end()){
         timeout_ms = std::stoul(headers.at("timeout_ms"));
         headers.erase("timeout_ms");
     }
 
-    if(headers.find("num_retry") != headers.end()){
-        num_retry = std::stoul(headers.at("num_retry"));
-        headers.erase("num_retry");
+    if(headers.find("num_try") != headers.end()){
+        num_try = std::stoul(headers.at("num_try"));
+        headers.erase("num_try");
     }
 
     for(auto& header : headers){
@@ -59,7 +59,7 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
     }
 
     http_proxy_res_t res;
-    for(size_t i = 0; i < num_retry; i++){
+    for(size_t i = 0; i < num_try; i++){
         res = call(url, method, body, headers, timeout_ms);
 
         if(res.status_code != 408 && res.status_code < 500){
