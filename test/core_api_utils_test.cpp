@@ -1138,3 +1138,26 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
 }
+
+
+
+TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {
+    nlohmann::json body;
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    // test with url as empty string
+    body["url"] = "https://typesense.org/docs/";
+    body["method"] = "GET";
+    body["headers"] = nlohmann::json::object();
+    body["headers"]["timeout_ms"] = "1";
+    body["headers"]["num_retry"] = "1";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(408, resp->status_code);
+    ASSERT_EQ("Server error on remote server. Please try again later.", nlohmann::json::parse(resp->body)["message"]);
+}

@@ -147,7 +147,11 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
 
 bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_upsert_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 

@@ -285,6 +285,17 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         iter->Next();
     }
 
+    // restore query suggestions configs
+    std::vector<std::string> analytics_config_jsons;
+    store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
+                     std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
+                     analytics_config_jsons);
+
+    for(const auto& analytics_config_json: analytics_config_jsons) {
+        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
+        AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
+    }
+
     delete iter;
 
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";
@@ -671,6 +682,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *VECTOR_QUERY = "vector_query";
     const char *VECTOR_QUERY_HITS = "vector_query_hits";
 
+    const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
+    const char* REMOTE_EMBEDDING_NUM_TRY = "remote_embedding_num_try";
+
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
 
@@ -824,6 +838,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     text_match_type_t match_type = max_score;
     size_t vector_query_hits = 250;
 
+    size_t remote_embedding_timeout_ms = 30000;
+    size_t remote_embedding_num_try = 2;
+
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
 
@@ -850,6 +867,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_PERCENT, &facet_sample_percent},
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {VECTOR_QUERY_HITS, &vector_query_hits},
+        {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
+        {REMOTE_EMBEDDING_NUM_TRY, &remote_embedding_num_try},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1062,7 +1081,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           match_type,
                                                           facet_sample_percent,
                                                           facet_sample_threshold,
-                                                          offset
+                                                          offset,
+                                                          HASH,
+                                                          vector_query_hits,
+                                                          remote_embedding_timeout_ms,
+                                                          remote_embedding_num_try
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1310,17 +1333,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
         collection->add_synonym(collection_synonym, false);
-    }
-
-    // restore query suggestions configs
-    std::vector<std::string> analytics_config_jsons;
-    cm.store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
-                        std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
-                        analytics_config_jsons);
-
-    for(const auto& analytics_config_json: analytics_config_jsons) {
-        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
-        AnalyticsManager::get_instance().create_rule(analytics_config, false);
     }
 
     // Fetch records from the store and re-create memory index
