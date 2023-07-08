@@ -545,7 +545,7 @@ private:
      
     static void batch_embed_fields(std::vector<index_record*>& documents, 
                                        const tsl::htrie_map<char, field>& embedding_fields,
-                                       const tsl::htrie_map<char, field> & search_schema);
+                                       const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size = 200);
     
 public:
     // for limiting number of results on multiple candidates / query rewrites
@@ -678,7 +678,7 @@ public:
                                           const std::string& fallback_field_type,
                                           const std::vector<char>& token_separators,
                                           const std::vector<char>& symbols_to_index,
-                                          const bool do_validation, const bool generate_embeddings = true);
+                                          const bool do_validation, const size_t remote_embedding_batch_size = 200, const bool generate_embeddings = true);
 
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record>& iter_batch,
@@ -688,7 +688,7 @@ public:
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,
-                                     const bool do_validation, const bool generate_embeddings = true);
+                                     const bool do_validation, const size_t remote_embedding_batch_size = 200, const bool generate_embeddings = true);
 
     void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
 

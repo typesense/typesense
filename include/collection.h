@@ -385,7 +385,7 @@ public:
                     const std::vector<sort_by>& sort_by_fields);
 
     void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed,
-                     const bool& return_doc, const bool& return_id);
+                     const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size = 200);
 
     bool is_exceeding_memory_threshold() const;
 
@@ -398,7 +398,7 @@ public:
 
     nlohmann::json get_summary_json() const;
 
-    size_t batch_index_in_memory(std::vector<index_record>& index_records, const bool generate_embeddings = true);
+    size_t batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size = 200, const bool generate_embeddings = true);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
@@ -407,7 +407,7 @@ public:
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                             const index_operation_t& operation=CREATE, const std::string& id="",
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
-                            const bool& return_doc=false, const bool& return_id=false);
+                            const bool& return_doc=false, const bool& return_id=false, const size_t remote_embedding_batch_size=100);
 
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
