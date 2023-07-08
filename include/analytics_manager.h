@@ -24,10 +24,11 @@ private:
 
         void to_json(nlohmann::json& obj) const {
             obj["name"] = name;
+            obj["type"] = POPULAR_QUERIES_TYPE;
             obj["params"] = nlohmann::json::object();
-            obj["params"]["suggestion_collection"] = suggestion_collection;
-            obj["params"]["query_collections"] = query_collections;
             obj["params"]["limit"] = limit;
+            obj["params"]["source"]["collections"] = query_collections;
+            obj["params"]["destination"]["collection"] = suggestion_collection;
         }
     };
 
@@ -48,7 +49,9 @@ private:
 
     Option<bool> remove_popular_queries_index(const std::string& name);
 
-    Option<bool> create_popular_queries_index(nlohmann::json &payload, bool write_to_disk);
+    Option<bool> create_popular_queries_index(nlohmann::json &payload,
+                                              bool upsert,
+                                              bool write_to_disk);
 
 public:
 
@@ -69,12 +72,14 @@ public:
 
     Option<nlohmann::json> list_rules();
 
-    Option<bool> create_rule(nlohmann::json& payload, bool write_to_disk = true);
+    Option<nlohmann::json> get_rule(const std::string& name);
+
+    Option<bool> create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk);
 
     Option<bool> remove_rule(const std::string& name);
 
     void add_suggestion(const std::string& query_collection,
-                        std::string& query, const bool live_query, const std::string& user_id);
+                        std::string& query, bool live_query, const std::string& user_id);
 
     void stop();
 

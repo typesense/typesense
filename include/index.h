@@ -150,7 +150,7 @@ struct search_args {
                 filter_node_t* filter_tree_root, std::vector<facet>& facets,
                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by>& sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
-                size_t max_facet_values, size_t max_hits, size_t per_page, size_t page, token_ordering token_order,
+                size_t max_facet_values, size_t max_hits, size_t per_page, size_t offset, token_ordering token_order,
                 const std::vector<bool>& prefixes, size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
                 const string& default_sorting_field, bool prioritize_exact_match,

@@ -285,6 +285,17 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         iter->Next();
     }
 
+    // restore query suggestions configs
+    std::vector<std::string> analytics_config_jsons;
+    store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
+                     std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
+                     analytics_config_jsons);
+
+    for(const auto& analytics_config_json: analytics_config_jsons) {
+        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
+        AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
+    }
+
     delete iter;
 
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";
@@ -671,6 +682,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *VECTOR_QUERY = "vector_query";
     const char *VECTOR_QUERY_HITS = "vector_query_hits";
 
+    const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
+    const char* REMOTE_EMBEDDING_NUM_TRY = "remote_embedding_num_try";
+
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
 
@@ -783,7 +797,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::vector<sort_by> sort_fields;
     size_t per_page = 10;
     size_t page = 0;
-    size_t offset = UINT32_MAX;
+    size_t offset = 0;
     token_ordering token_order = NOT_SET;
 
     std::string vector_query;
@@ -824,6 +838,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     text_match_type_t match_type = max_score;
     size_t vector_query_hits = 250;
 
+    size_t remote_embedding_timeout_ms = 30000;
+    size_t remote_embedding_num_try = 2;
+
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
 
@@ -850,6 +867,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_PERCENT, &facet_sample_percent},
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {VECTOR_QUERY_HITS, &vector_query_hits},
+        {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
+        {REMOTE_EMBEDDING_NUM_TRY, &remote_embedding_num_try},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -978,14 +997,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
-    if(!req_params[PAGE].empty() && page == 0 && offset == UINT32_MAX) {
-        return Option<bool>(422, "Parameter `page` must be an integer of value greater than 0.");
-    }
-
-    if(req_params[PAGE].empty() && req_params[OFFSET].empty()) {
-        page = 1;
-    }
-
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
     exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
 
@@ -1070,7 +1081,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           match_type,
                                                           facet_sample_percent,
                                                           facet_sample_threshold,
-                                                          offset
+                                                          offset,
+                                                          vector_query_hits,
+                                                          remote_embedding_timeout_ms,
+                                                          remote_embedding_num_try
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1097,10 +1111,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         result["search_time_ms"] = timeMillis;
     }
 
-    if(page != 0) {
-        result["page"] = page;
-    } else {
+    if(page == 0 && offset != 0) {
         result["offset"] = offset;
+    } else {
+        result["page"] = (page == 0) ? 1 : page;
     }
 
     results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
@@ -1318,17 +1332,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
         collection->add_synonym(collection_synonym, false);
-    }
-
-    // restore query suggestions configs
-    std::vector<std::string> analytics_config_jsons;
-    cm.store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
-                        std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
-                        analytics_config_jsons);
-
-    for(const auto& analytics_config_json: analytics_config_jsons) {
-        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
-        AnalyticsManager::get_instance().create_rule(analytics_config, false);
     }
 
     // Fetch records from the store and re-create memory index

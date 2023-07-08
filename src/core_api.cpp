@@ -2091,13 +2091,25 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
 bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto rules_op = AnalyticsManager::get_instance().list_rules();
 
-    if(rules_op.ok()) {
-        res->set_200(rules_op.get().dump());
-        return true;
+    if(!rules_op.ok()) {
+        res->set(rules_op.code(), rules_op.error());
+        return false;
     }
 
-    res->set(rules_op.code(), rules_op.error());
-    return false;
+    res->set_200(rules_op.get().dump());
+    return true;
+}
+
+bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto rules_op = AnalyticsManager::get_instance().get_rule(req->params["name"]);
+
+    if(!rules_op.ok()) {
+        res->set(rules_op.code(), rules_op.error());
+        return false;
+    }
+
+    res->set_200(rules_op.get().dump());
+    return true;
 }
 
 bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -2111,7 +2123,7 @@ bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std
         return false;
     }
 
-    auto op = AnalyticsManager::get_instance().create_rule(req_json);
+    auto op = AnalyticsManager::get_instance().create_rule(req_json, false, true);
 
     if(!op.ok()) {
         res->set(op.code(), op.error());
@@ -2122,6 +2134,29 @@ bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std
     return true;
 }
 
+bool put_upsert_analytics_rules(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    req_json["name"] = req->params["name"];
+    auto op = AnalyticsManager::get_instance().create_rule(req_json, true, true);
+
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+        return false;
+    }
+
+    res->set_200(req_json.dump());
+    return true;
+}
+
 bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     auto op = AnalyticsManager::get_instance().remove_rule(req->params["name"]);
     if(!op.ok()) {
@@ -2129,10 +2164,9 @@ bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared
         return false;
     }
 
-    res->set_200(R"({"ok": true)");
+    res->set_200(R"({"ok": true})");
     return true;
 }
-
 
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     HttpProxy& proxy = HttpProxy::get_instance();

@@ -1108,7 +1108,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold,
                                   const size_t page_offset,
-                                  const size_t vector_query_hits) const {
+                                  const size_t vector_query_hits,
+                                  const size_t remote_embedding_timeout_ms, 
+                                  const size_t remote_embedding_num_try) const {
 
     std::shared_lock lock(mutex);
 
@@ -1234,10 +1236,15 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                         std::string error = "Prefix search is not supported for remote embedders. Please set `prefix=false` as an additional search parameter to disable prefix searching.";
                         return Option<nlohmann::json>(400, error);
                     }
+
+                    if(remote_embedding_num_try == 0) {
+                        std::string error = "`remote-embedding-num-try` must be greater than 0.";
+                        return Option<nlohmann::json>(400, error);
+                    }
                 }
 
                 std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + raw_query;
-                auto embedding_op = embedder->Embed(embed_query);
+                auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_try);
                 if(!embedding_op.success) {
                     if(!embedding_op.error["error"].get<std::string>().empty()) {
                         return Option<nlohmann::json>(400, embedding_op.error["error"].get<std::string>());
@@ -1393,7 +1400,17 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         return Option<nlohmann::json>(422, message);
     }
 
-    size_t offset = (page != 0) ? (per_page * (page - 1)) : page_offset;
+    size_t offset = 0;
+
+    if(page == 0 && page_offset != 0) {
+        // if only offset is set, use that
+        offset = page_offset;
+    } else {
+        // if both are set or none set, use page value (default is 1)
+        size_t actual_page = (page == 0) ? 1 : page;
+        offset = (per_page * (actual_page - 1));
+    }
+
     size_t fetch_size = offset + per_page;
 
     if(fetch_size > limit_hits) {

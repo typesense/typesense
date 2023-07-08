@@ -132,53 +132,27 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     return Option<bool>(true);
 }
 
-embedding_res_t OpenAIEmbedder::Embed(const std::string& text) {
+embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_try) {
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Authorization"] = "Bearer " + api_key;
     headers["Content-Type"] = "application/json";
+    headers["timeout_ms"] = std::to_string(remote_embedder_timeout_ms);
+    headers["num_try"] = std::to_string(remote_embedding_num_try);
     std::string res;
     nlohmann::json req_body;
-    req_body["input"] = text;
+    req_body["input"] = std::vector<std::string>{text};
     // remove "openai/" prefix
     req_body["model"] = TextEmbedderManager::get_model_name_without_namespace(openai_model_path);
     auto res_code = call_remote_api("POST", OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
     if (res_code != 200) {
-        nlohmann::json json_res;
-        try {
-            json_res = nlohmann::json::parse(res);
-        } catch (const std::exception& e) {
-            json_res = nlohmann::json::object();
-            json_res["error"] = "Malformed response from OpenAI API.";
-            
-        }
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["response"] = json_res;
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = OPENAI_CREATE_EMBEDDING;
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
-
-        if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
-            embedding_res["error"] = "OpenAI API error: " + json_res["error"]["message"].get<std::string>();
-        }
-        if(res_code == 408) {
-            embedding_res["error"] = "OpenAI API timeout.";
-        }
-        return embedding_res_t(res_code, embedding_res);
+        return embedding_res_t(res_code, get_error_json(req_body, res_code, res));
     }
     try {
         embedding_res_t embedding_res = embedding_res_t(nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>());
         return embedding_res;
     } catch (const std::exception& e) {
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = OPENAI_CREATE_EMBEDDING;
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
-        embedding_res["error"] = "Malformed response from OpenAI API.";
-
-        return embedding_res_t(500, embedding_res);
+        return embedding_res_t(500, get_error_json(req_body, res_code, res));
     }
 }
 
@@ -206,46 +180,19 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
 
     if(res_code != 200) {
         std::vector<embedding_res_t> outputs;
-
-        nlohmann::json json_res;
-        try {
-            json_res = nlohmann::json::parse(res);
-        } catch (const std::exception& e) {
-            json_res = nlohmann::json::object();
-            json_res["error"] = "Malformed response from OpenAI API.";
-        }
-        LOG(INFO) << "OpenAI API error: " << json_res.dump();
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["response"] = json_res;
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = OPENAI_CREATE_EMBEDDING;
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
-        embedding_res["request"]["body"]["input"] = std::vector<std::string>{inputs[0]};
-        if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
-            embedding_res["error"] = "OpenAI API error: " + json_res["error"]["message"].get<std::string>();
-        }
-        if(res_code == 408) {
-            embedding_res["error"] = "OpenAI API timeout.";
-        }
-
+        nlohmann::json embedding_res = get_error_json(req_body, res_code, res);
         for(size_t i = 0; i < inputs.size(); i++) {
             embedding_res["request"]["body"]["input"][0] = inputs[i];
             outputs.push_back(embedding_res_t(res_code, embedding_res));
         }
         return outputs;
     }
+
     nlohmann::json res_json;
     try {
         res_json = nlohmann::json::parse(res);
     } catch (const std::exception& e) {
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = OPENAI_CREATE_EMBEDDING;
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
-        embedding_res["request"]["body"]["input"] = std::vector<std::string>{inputs[0]};
-        embedding_res["error"] = "Malformed response from OpenAI API";
+        nlohmann::json embedding_res = get_error_json(req_body, res_code, res);
         std::vector<embedding_res_t> outputs;
         for(size_t i = 0; i < inputs.size(); i++) {
             embedding_res["request"]["body"]["input"][0] = inputs[i];
@@ -259,6 +206,36 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
     }
 
     return outputs;
+}
+
+
+nlohmann::json OpenAIEmbedder::get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) {
+    nlohmann::json json_res;
+    try {
+        json_res = nlohmann::json::parse(res_body);
+    } catch (const std::exception& e) {
+        json_res = nlohmann::json::object();
+        json_res["error"] = "Malformed response from OpenAI API.";
+    }
+    nlohmann::json embedding_res = nlohmann::json::object();
+    embedding_res["response"] = json_res;
+    embedding_res["request"] = nlohmann::json::object();
+    embedding_res["request"]["url"] = OPENAI_CREATE_EMBEDDING;
+    embedding_res["request"]["method"] = "POST";
+    embedding_res["request"]["body"] = req_body;
+    if(embedding_res["request"]["body"].count("input") > 0 && embedding_res["request"]["body"]["input"].get<std::vector<std::string>>().size() > 1) {
+        auto vec = embedding_res["request"]["body"]["input"].get<std::vector<std::string>>();
+        vec.resize(1);
+        embedding_res["request"]["body"]["input"] = vec;
+    }
+    if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
+        embedding_res["error"] = "OpenAI API error: " + json_res["error"]["message"].get<std::string>();
+    }
+    if(res_code == 408) {
+        embedding_res["error"] = "OpenAI API timeout.";
+    }
+
+    return embedding_res;
 }
 
 
@@ -320,10 +297,12 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
     return Option<bool>(true);
 }
 
-embedding_res_t GoogleEmbedder::Embed(const std::string& text) {
+embedding_res_t GoogleEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_try) {
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Content-Type"] = "application/json";
+    headers["timeout_ms"] = std::to_string(remote_embedder_timeout_ms);
+    headers["num_try"] = std::to_string(remote_embedding_num_try);
     std::string res;
     nlohmann::json req_body;
     req_body["text"] = text;
@@ -331,37 +310,13 @@ embedding_res_t GoogleEmbedder::Embed(const std::string& text) {
     auto res_code = call_remote_api("POST", std::string(GOOGLE_CREATE_EMBEDDING) + google_api_key, req_body.dump(), res, res_headers, headers);
 
     if(res_code != 200) {
-        nlohmann::json json_res;
-        try {
-            nlohmann::json json_res = nlohmann::json::parse(res);
-        } catch (const std::exception& e) {
-            json_res = nlohmann::json::object();
-            json_res["error"] = "Malformed response from Google API.";
-        }
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["response"] = json_res;
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = GOOGLE_CREATE_EMBEDDING;
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
-        if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
-            embedding_res["error"] = "Google API error: " + json_res["error"]["message"].get<std::string>();
-        }
-        if(res_code == 408) {
-            embedding_res["error"] = "Google API timeout.";
-        }
-        return embedding_res_t(res_code, embedding_res);
+        return embedding_res_t(res_code, get_error_json(req_body, res_code, res));
     }
+
     try {
         return embedding_res_t(nlohmann::json::parse(res)["embedding"]["value"].get<std::vector<float>>());
     } catch (const std::exception& e) {
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = GOOGLE_CREATE_EMBEDDING;
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
-        embedding_res["error"] = "Malformed response from Google API.";
-        return embedding_res_t(500, embedding_res);
+        return embedding_res_t(500, get_error_json(req_body, res_code, res));
     }
 }
 
@@ -374,6 +329,30 @@ std::vector<embedding_res_t> GoogleEmbedder::batch_embed(const std::vector<std::
     }
 
     return outputs;
+}
+
+nlohmann::json GoogleEmbedder::get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) {
+    nlohmann::json json_res;
+    try {
+        nlohmann::json json_res = nlohmann::json::parse(res_body);
+    } catch (const std::exception& e) {
+        json_res = nlohmann::json::object();
+        json_res["error"] = "Malformed response from Google API.";
+    }
+    nlohmann::json embedding_res = nlohmann::json::object();
+    embedding_res["response"] = json_res;
+    embedding_res["request"] = nlohmann::json::object();
+    embedding_res["request"]["url"] = GOOGLE_CREATE_EMBEDDING;
+    embedding_res["request"]["method"] = "POST";
+    embedding_res["request"]["body"] = req_body;
+    if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
+        embedding_res["error"] = "Google API error: " + json_res["error"]["message"].get<std::string>();
+    }
+    if(res_code == 408) {
+        embedding_res["error"] = "Google API timeout.";
+    }
+
+    return embedding_res;
 }
 
 
@@ -453,7 +432,7 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, uns
     return Option<bool>(true);
 }
 
-embedding_res_t GCPEmbedder::Embed(const std::string& text) {
+embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_try) {
     nlohmann::json req_body;
     req_body["instances"] = nlohmann::json::array();
     nlohmann::json instance;
@@ -462,6 +441,8 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text) {
     std::unordered_map<std::string, std::string> headers;
     headers["Authorization"] = "Bearer " + access_token;
     headers["Content-Type"] = "application/json";
+    headers["timeout_ms"] = std::to_string(remote_embedder_timeout_ms);
+    headers["num_try"] = std::to_string(remote_embedding_num_try);
     std::map<std::string, std::string> res_headers;
     std::string res;
 
@@ -483,41 +464,13 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text) {
     }
 
     if(res_code != 200) {
-        nlohmann::json json_res;
-        try {
-            json_res = nlohmann::json::parse(res);
-        } catch (const std::exception& e) {
-            json_res = nlohmann::json::object();
-            json_res["error"] = "Malformed response from GCP API.";
-        }
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["response"] = json_res;
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = get_gcp_embedding_url(project_id, model_name);
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
-        if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
-            embedding_res["error"] = "GCP API error: " + json_res["error"]["message"].get<std::string>();
-        } else {
-            embedding_res["error"] = "Malformed response from GCP API.";
-        }
-
-        if(res_code == 408) {
-            embedding_res["error"] = "GCP API timeout.";
-        }
-        return embedding_res_t(res_code, embedding_res);
+        return embedding_res_t(res_code, get_error_json(req_body, res_code, res));
     }
     nlohmann::json res_json;
     try {
         res_json = nlohmann::json::parse(res);
     } catch (const std::exception& e) {
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = get_gcp_embedding_url(project_id, model_name);
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
-        embedding_res["error"] = "Malformed response from GCP API.";
-        return embedding_res_t(500, embedding_res);
+        return embedding_res_t(500, get_error_json(req_body, res_code, res));
     }
     return embedding_res_t(res_json["predictions"][0]["embeddings"]["values"].get<std::vector<float>>());
 }
@@ -566,28 +519,7 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
     }
 
     if(res_code != 200) {
-        nlohmann::json json_res;
-        try {
-            json_res = nlohmann::json::parse(res);
-        } catch (const std::exception& e) {
-            json_res = nlohmann::json::object();
-            json_res["error"] = "Malformed response from GCP API.";
-        }
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["response"] = json_res;
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = get_gcp_embedding_url(project_id, model_name);
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
-        if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
-            embedding_res["error"] = "GCP API error: " + json_res["error"]["message"].get<std::string>();
-        } else {
-            embedding_res["error"] = "Malformed response from GCP API.";
-        }
-
-        if(res_code == 408) {
-            embedding_res["error"] = "GCP API timeout.";
-        }
+        auto embedding_res = get_error_json(req_body, res_code, res);
         std::vector<embedding_res_t> outputs;
         for(size_t i = 0; i < inputs.size(); i++) {
             outputs.push_back(embedding_res_t(res_code, embedding_res));
@@ -598,12 +530,7 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
     try {
         res_json = nlohmann::json::parse(res);
     } catch (const std::exception& e) {
-        nlohmann::json embedding_res = nlohmann::json::object();
-        embedding_res["error"] = "Nalformed response from GCP API.";
-        embedding_res["request"] = nlohmann::json::object();
-        embedding_res["request"]["url"] = get_gcp_embedding_url(project_id, model_name);
-        embedding_res["request"]["method"] = "POST";
-        embedding_res["request"]["body"] = req_body;
+        nlohmann::json embedding_res = get_error_json(req_body, res_code, res);
         std::vector<embedding_res_t> outputs;
         for(size_t i = 0; i < inputs.size(); i++) {
             outputs.push_back(embedding_res_t(400, embedding_res));
@@ -616,6 +543,34 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
     }
 
     return outputs;
+}
+
+
+nlohmann::json GCPEmbedder::get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) {
+    nlohmann::json json_res;
+    try {
+        json_res = nlohmann::json::parse(res_body);
+    } catch (const std::exception& e) {
+        json_res = nlohmann::json::object();
+        json_res["error"] = "Malformed response from GCP API.";
+    }
+    nlohmann::json embedding_res = nlohmann::json::object();
+    embedding_res["response"] = json_res;
+    embedding_res["request"] = nlohmann::json::object();
+    embedding_res["request"]["url"] = get_gcp_embedding_url(project_id, model_name);
+    embedding_res["request"]["method"] = "POST";
+    embedding_res["request"]["body"] = req_body;
+    if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
+        embedding_res["error"] = "GCP API error: " + json_res["error"]["message"].get<std::string>();
+    } else {
+        embedding_res["error"] = "Malformed response from GCP API.";
+    }
+
+    if(res_code == 408) {
+        embedding_res["error"] = "GCP API timeout.";
+    }
+
+    return embedding_res;
 }
 
 Option<std::string> GCPEmbedder::generate_access_token(const std::string& refresh_token, const std::string& client_id, const std::string& client_secret) {
@@ -653,5 +608,3 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
 
     return Option<std::string>(access_token);
 }
-
-
