@@ -745,9 +745,14 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     const char *DIRTY_VALUES = "dirty_values";
     const char *RETURN_DOC = "return_doc";
     const char *RETURN_ID = "return_id";
+    const char *REMOTE_EMBEDDING_BATCH_SIZE = "remote_embedding_batch_size";
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "40";
+    }
+
+    if(req->params.count(REMOTE_EMBEDDING_BATCH_SIZE) == 0) {
+        req->params[REMOTE_EMBEDDING_BATCH_SIZE] = "200";
     }
 
     if(req->params.count(ACTION) == 0) {
@@ -796,10 +801,18 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     }
 
     const size_t IMPORT_BATCH_SIZE = std::stoi(req->params[BATCH_SIZE]);
+    const size_t REMOTE_EMBEDDING_BATCH_SIZE_VAL = std::stoi(req->params[REMOTE_EMBEDDING_BATCH_SIZE]);
 
     if(IMPORT_BATCH_SIZE == 0) {
         res->final = true;
         res->set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
+        stream_response(req, res);
+        return false;
+    }
+
+    if(REMOTE_EMBEDDING_BATCH_SIZE_VAL == 0) {
+        res->final = true;
+        res->set_400("Parameter `" + std::string(REMOTE_EMBEDDING_BATCH_SIZE) + "` must be a positive integer.");
         stream_response(req, res);
         return false;
     }
@@ -873,7 +886,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         const bool& return_doc = req->params[RETURN_DOC] == "true";
         const bool& return_id = req->params[RETURN_ID] == "true";
         nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
-                                                       dirty_values, return_doc, return_id);
+                                                       dirty_values, return_doc, return_id, REMOTE_EMBEDDING_BATCH_SIZE_VAL);
         //const std::string& import_summary_json = json_res->dump();
         //response_stream << import_summary_json << "\n";
 

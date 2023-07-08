@@ -133,7 +133,7 @@ embedding_res_t TextEmbedder::Embed(const std::string& text) {
     }
 }
 
-std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs) {
+std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
     std::vector<embedding_res_t> outputs;
     if(!is_remote()) {
         for(int i = 0; i < inputs.size(); i += 8) {
@@ -215,7 +215,7 @@ std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::st
             }
         }
     } else {
-        outputs = std::move(remote_embedder_->batch_embed(inputs));
+        outputs = std::move(remote_embedder_->batch_embed(inputs, remote_embedding_batch_size));
     }
     
     return outputs;

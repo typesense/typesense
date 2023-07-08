@@ -29,7 +29,7 @@ class RemoteEmbedder {
         static inline ReplicationState* raft_server = nullptr;
     public:
         virtual embedding_res_t Embed(const std::string& text) = 0;
-        virtual std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) = 0;
+        virtual std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200) = 0;
         static void init(ReplicationState* rs) {
             raft_server = rs;
         }
@@ -48,7 +48,7 @@ class OpenAIEmbedder : public RemoteEmbedder {
         OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
         embedding_res_t Embed(const std::string& text) override;
-        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) override;
+        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200) override;
 };
 
 
@@ -63,7 +63,7 @@ class GoogleEmbedder : public RemoteEmbedder {
         GoogleEmbedder(const std::string& google_api_key);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
         embedding_res_t Embed(const std::string& text) override;
-        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) override;
+        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200) override;
 };
 
 
@@ -89,7 +89,7 @@ class GCPEmbedder : public RemoteEmbedder {
                     const std::string& refresh_token, const std::string& client_id, const std::string& client_secret);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims);
         embedding_res_t Embed(const std::string& text) override;
-        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs) override;
+        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200) override;
 };
 
 

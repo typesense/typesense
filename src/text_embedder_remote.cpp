@@ -182,7 +182,17 @@ embedding_res_t OpenAIEmbedder::Embed(const std::string& text) {
     }
 }
 
-std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::string>& inputs) {
+std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
+    // call recursively if inputs larger than remote_embedding_batch_size
+    if(inputs.size() > remote_embedding_batch_size) {
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i += remote_embedding_batch_size) {
+            auto batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + remote_embedding_batch_size, inputs.size()));
+            auto batch_outputs = batch_embed(batch, remote_embedding_batch_size);
+            outputs.insert(outputs.end(), batch_outputs.begin(), batch_outputs.end());
+        }
+        return outputs;
+    }
     nlohmann::json req_body;
     req_body["input"] = inputs;
     // remove "openai/" prefix
@@ -326,7 +336,7 @@ embedding_res_t GoogleEmbedder::Embed(const std::string& text) {
             nlohmann::json json_res = nlohmann::json::parse(res);
         } catch (const std::exception& e) {
             json_res = nlohmann::json::object();
-            json_res["error"] = "Malformed response from Google API."
+            json_res["error"] = "Malformed response from Google API.";
         }
         nlohmann::json embedding_res = nlohmann::json::object();
         embedding_res["response"] = json_res;
@@ -356,7 +366,7 @@ embedding_res_t GoogleEmbedder::Embed(const std::string& text) {
 }
 
 
-std::vector<embedding_res_t> GoogleEmbedder::batch_embed(const std::vector<std::string>& inputs) {
+std::vector<embedding_res_t> GoogleEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
     std::vector<embedding_res_t> outputs;
     for(auto& input : inputs) {
         auto res = Embed(input);
@@ -513,7 +523,7 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text) {
 }
 
 
-std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::string>& inputs) {
+std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
     // GCP API has a limit of 5 instances per request
     if(inputs.size() > 5) {
         std::vector<embedding_res_t> res;
