@@ -2151,7 +2151,10 @@ bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared
         return false;
     }
 
-    res->set_200(R"({"ok": true})");
+    nlohmann::json res_json;
+    res_json["name"] = req->params["name"];
+
+    res->set_200(res_json.dump());
     return true;
 }
 
