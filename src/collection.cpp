@@ -295,7 +295,8 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
 
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                                     const index_operation_t& operation, const std::string& id,
-                                    const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id) {
+                                    const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id,
+                                    const size_t remote_embedding_batch_size) {
     //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
     std::vector<index_record> index_records;
 
@@ -385,7 +386,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
 
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1 || repeated_doc) {
-            batch_index(index_records, json_lines, num_indexed, return_doc, return_id);
+            batch_index(index_records, json_lines, num_indexed, return_doc, return_id, remote_embedding_batch_size);
 
             // to return the document for the single doc add cases
             if(index_records.size() == 1) {
@@ -502,9 +503,9 @@ bool Collection::is_exceeding_memory_threshold() const {
 }
 
 void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
-                             size_t &num_indexed, const bool& return_doc, const bool& return_id) {
+                             size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size) {
 
-    batch_index_in_memory(index_records);
+    batch_index_in_memory(index_records, remote_embedding_batch_size);
 
     // store only documents that were indexed in-memory successfully
     for(auto& index_record: index_records) {
@@ -608,11 +609,11 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     return Option<>(200);
 }
 
-size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const bool generate_embeddings) {
+size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size, const bool generate_embeddings) {
     std::unique_lock lock(mutex);
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
-                                                   token_separators, symbols_to_index, true, generate_embeddings);
+                                                   token_separators, symbols_to_index, true, remote_embedding_batch_size, generate_embeddings);
     num_documents += num_indexed;
     return num_indexed;
 }
@@ -3819,7 +3820,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             }
             
             Index::batch_memory_index(index, iter_batch, default_sorting_field, schema_additions, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true, false);
+                                      fallback_field_type, token_separators, symbols_to_index, true, 100, false);
 
             iter_batch.clear();
         }

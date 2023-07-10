@@ -17,7 +17,7 @@ class TextEmbedder {
         TextEmbedder(const nlohmann::json& model_config);
         ~TextEmbedder();
         embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_try = 2);
-        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs);
+        std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200);
         const std::string& get_vocab_file_name() const;
         bool is_remote() {
             return remote_embedder_ != nullptr;

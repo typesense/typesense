@@ -653,6 +653,9 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf_qlen_greater_than_key) {
     std::vector<art_leaf*> leaves;
     art_fuzzy_search(&t, (const unsigned char *)(term.c_str()), term.size(), 0, 2, 10, FREQUENCY, true, false, "", nullptr, 0, leaves, exclude_leaves);
     ASSERT_EQ(0, leaves.size());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_art_fuzzy_search_single_leaf_non_prefix) {

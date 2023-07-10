@@ -621,7 +621,6 @@ TEST_F(CoreAPIUtilsTest, PresetSingleSearch) {
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
-    Collection* coll1 = op.get();
 
     auto preset_value = R"(
         {"collection":"preset_coll", "per_page": "12"}
@@ -932,7 +931,7 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
 
     // exclude fields
 
-    delete dynamic_cast<deletion_state_t*>(req->data);
+    delete dynamic_cast<export_state_t*>(req->data);
     req->data = nullptr;
     res->body.clear();
     req->params.erase("include_fields");
@@ -993,7 +992,7 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFieldsWithFilter) {
 
     // exclude fields
 
-    delete dynamic_cast<deletion_state_t*>(req->data);
+    delete dynamic_cast<export_state_t*>(req->data);
     req->data = nullptr;
     res->body.clear();
     req->params.erase("include_fields");

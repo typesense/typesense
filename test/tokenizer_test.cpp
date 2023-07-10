@@ -322,7 +322,7 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("つ", tokens[8]);
 
     tokens.clear();  // 配管
-    Tokenizer("配管", false, false, "ja").tokenize(tokens);
+    Tokenizer("配管", true, false, "ja").tokenize(tokens);
 }
 
 TEST(TokenizerTest, ShouldTokenizeLocaleTextWithEnglishText) {

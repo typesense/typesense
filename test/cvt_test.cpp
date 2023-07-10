@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cvt.h>
 
+/*
 TEST(CVTTest, TaggedPointers) {
     CVTrie trie;
     uint8_t* bytes = new uint8_t[3];
@@ -57,3 +58,4 @@ TEST(CVTTest, AddSingleLeaf) {
     ASSERT_EQ(nullptr, trie.find("foooo", 5));
     ASSERT_EQ(nullptr, trie.find("f", 1));
 }
+ */

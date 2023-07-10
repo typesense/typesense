@@ -83,6 +83,10 @@ Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payl
     suggestion_config.suggestion_collection = suggestion_collection;
     suggestion_config.limit = limit;
 
+    if(!upsert && popular_queries.count(suggestion_collection) != 0) {
+        return Option<bool>(400, "There's already another configuration for this destination collection.");
+    }
+
     for(const auto& coll: params["source"]["collections"]) {
         if(!coll.is_string()) {
             return Option<bool>(400, "Must contain a valid list of source collection names.");
