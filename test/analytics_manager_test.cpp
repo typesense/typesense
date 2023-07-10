@@ -100,6 +100,8 @@ TEST_F(AnalyticsManagerTest, AddSuggestion) {
     ASSERT_EQ(2, userQueries.size());
     ASSERT_EQ("foobar", userQueries[0].query);
     ASSERT_EQ("buzzfoo", userQueries[1].query);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 }
 
 TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
