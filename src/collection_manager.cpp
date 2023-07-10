@@ -316,7 +316,6 @@ void CollectionManager::dispose() {
     collections.clear();
     collection_symlinks.clear();
     preset_configs.clear();
-    stopword_configs.clear();
     store->close();
 }
 
@@ -754,7 +753,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     //check if stopword set is supplied
-    const auto stopword_it = req_params.find("stopword");
+    const auto stopword_it = req_params.find("stopwords");
     std::string stopwords_set="";
 
     if(stopword_it != req_params.end()) {
@@ -1477,63 +1476,6 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
     return Option<bool>(true);
 }
 
-
-spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> CollectionManager::get_stopwords() const {
-    std::shared_lock lock(mutex);
-    return stopword_configs;
-}
-
-Option<bool> CollectionManager::get_stopword(const string& stopword_name, spp::sparse_hash_set<std::string>& stopwords) const {
-    std::shared_lock lock(mutex);
-
-    const auto& it = stopword_configs.find(stopword_name);
-    if(it != stopword_configs.end()) {
-        stopwords = it->second;
-        return Option<bool>(true);
-    }
-
-    return Option<bool>(404, "Not found.");
-}
-
-Option<bool> CollectionManager::upsert_stopword(const string& stopword_name, const nlohmann::json& stopwords, const std::string& locale) {
-    std::unique_lock lock(mutex);
-
-    bool inserted = store->insert(get_stopword_key(stopword_name), stopwords.dump());
-    if(!inserted) {
-        return Option<bool>(500, "Unable to insert into store.");
-    }
-
-    std::vector<std::string> tokens;
-
-    for (const auto &stopword: stopwords.items()) {
-        const auto& val = stopword.value().get<std::string>();
-        Tokenizer(val, true, false, locale, {}, {}).tokenize(tokens);
-
-        for(const auto& tok : tokens) {
-            stopword_configs[stopword_name].emplace(tok);
-        }
-        tokens.clear();
-    }
-
-    return Option<bool>(true);
-}
-
-std::string CollectionManager::get_stopword_key(const string& stopword_name) {
-    return std::string(STOPWORD_PREFIX) + "_" + stopword_name;
-}
-
-Option<bool> CollectionManager::delete_stopword(const string& stopword_name) {
-    std::unique_lock lock(mutex);
-
-    bool removed = store->remove(get_stopword_key(stopword_name));
-    if(!removed) {
-        return Option<bool>(500, "Unable to delete from store.");
-    }
-
-    stopword_configs.erase(stopword_name);
-    return Option<bool>(true);
-}
-
 Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json) {
     std::shared_lock lock(mutex);
 
@@ -1593,3 +1535,4 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
 
     return Option<Collection*>(new_coll);
 }
+

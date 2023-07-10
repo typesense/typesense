@@ -68,8 +68,6 @@ private:
 
     spp::sparse_hash_map<std::string, nlohmann::json> preset_configs;
 
-    spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> stopword_configs;
-
     // Auto incrementing ID assigned to each collection
     // Using a ID instead of a collection's name makes renaming possible
     std::atomic<uint32_t> next_collection_id;
@@ -103,7 +101,6 @@ public:
     static constexpr const char* SYMLINK_PREFIX = "$SL";
     static constexpr const char* PRESET_PREFIX = "$PS";
     static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
-    static constexpr const char* STOPWORD_PREFIX = "$SW";
 
     static CollectionManager & get_instance() {
         static CollectionManager instance;
@@ -204,15 +201,4 @@ public:
     Option<bool> upsert_preset(const std::string & preset_name, const nlohmann::json& preset_config);
 
     Option<bool> delete_preset(const std::string & preset_name);
-
-    //stopwords
-    spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> get_stopwords() const;
-
-    Option<bool> get_stopword(const std::string&, spp::sparse_hash_set<std::string>&) const;
-
-    Option<bool> upsert_stopword(const std::string&, const nlohmann::json&, const std::string&);
-
-    Option<bool> delete_stopword(const std::string&);
-
-    static std::string get_stopword_key(const std::string & stopword_name);
 };

@@ -18,6 +18,7 @@
 #include "thread_local_vars.h"
 #include "vector_query_ops.h"
 #include "text_embedder_manager.h"
+#include "stopwords_manager.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -2430,7 +2431,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         std::vector<std::string> tokens;
         spp::sparse_hash_set<std::string> stopwords_list;
         if(!stopwords_set.empty()) {
-            const auto &stopword_op = CollectionManager::get_instance().get_stopword(stopwords_set, stopwords_list);
+            const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwords_list);
             if (!stopword_op.ok()) {
                 LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set << " "<<stopword_op.error();
             }
@@ -4878,3 +4879,4 @@ Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k
 
     return Option<bool>(true);
 }
+

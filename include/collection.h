@@ -391,7 +391,7 @@ public:
     void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
-                            const std::string& locale, const bool already_segmented, const std::string& stopword) const;
+                            const std::string& locale, const bool already_segmented, const std::string& stopword_set="") const;
 
     // PUBLIC OPERATIONS
 
@@ -591,4 +591,5 @@ bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::js
         return false;
     }
 }
+
 

@@ -16,6 +16,7 @@
 #include "ratelimit_manager.h"
 #include "event_manager.h"
 #include "http_proxy.h"
+#include "include/stopwords_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -1850,8 +1851,8 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    const spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>>& stopwords = collectionManager.get_stopwords();
+    StopwordsManager& stopwordManager = StopwordsManager::get_instance();
+    const spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>>& stopwords = stopwordManager.get_stopwords();
     nlohmann::json res_json = nlohmann::json::object();
     res_json["stopwords"] = nlohmann::json::array();
 
@@ -1870,10 +1871,10 @@ bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
 
 bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string & stopword_name = req->params["stopword_name"];
-    CollectionManager & collectionManager = CollectionManager::get_instance();
+    StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
     spp::sparse_hash_set<std::string> stopwords;
-    Option<bool> stopword_op = collectionManager.get_stopword(stopword_name, stopwords);
+    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
 
     if(!stopword_op.ok()) {
         res->set(stopword_op.code(), stopword_op.error());
@@ -1901,18 +1902,33 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
         return false;
     }
 
-    CollectionManager & collectionManager = CollectionManager::get_instance();
+    StopwordsManager& stopwordManager = StopwordsManager::get_instance();
     const std::string & stopword_name = req->params["name"];
 
     const char* STOPWORD_VALUES = "stopwords";
     const char* STOPWORD_LOCALE = "locale";
 
-    if(req_json.count(STOPWORD_VALUES) == 0) {
-        res->set_400(std::string("Parameter `") + STOPWORD_VALUES + "` is required.");
+    if(req_json.count(STOPWORD_VALUES) == 0){
+        res->set_400(std::string("Parameter `") + STOPWORD_VALUES + "` is required");
         return false;
     }
 
-    Option<bool> success_op = collectionManager.upsert_stopword(stopword_name, req_json[STOPWORD_VALUES], req_json[STOPWORD_LOCALE]);
+    if((!req_json[STOPWORD_VALUES].is_array()) || (!req_json[STOPWORD_VALUES][0].is_string())) {
+        res->set_400(std::string("Parameter `") + STOPWORD_VALUES + "` is required as string array value");
+        return false;
+    }
+
+    if(req_json.count(STOPWORD_LOCALE) == 0) {
+        res->set_400(std::string("Parameter `") + STOPWORD_LOCALE + "` is required");
+        return false;
+    }
+
+    if(!req_json[STOPWORD_LOCALE].is_string()) {
+        res->set_400(std::string("Parameter `") + STOPWORD_LOCALE + "` is required as string value");
+        return false;
+    }
+
+    Option<bool> success_op = stopwordManager.upsert_stopword(stopword_name, req_json[STOPWORD_VALUES], req_json[STOPWORD_LOCALE]);
     if(!success_op.ok()) {
         res->set_500(success_op.error());
         return false;
@@ -1926,16 +1942,16 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
 
 bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string & stopword_name = req->params["name"];
-    CollectionManager & collectionManager = CollectionManager::get_instance();
+    StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
     spp::sparse_hash_set<std::string> stopwords;
-    Option<bool> stopword_op = collectionManager.get_stopword(stopword_name, stopwords);
+    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
     if(!stopword_op.ok()) {
         res->set(stopword_op.code(), stopword_op.error());
         return false;
     }
 
-    Option<bool> delete_op = collectionManager.delete_stopword(stopword_name);
+    Option<bool> delete_op = stopwordManager.delete_stopword(stopword_name);
 
     if(!delete_op.ok()) {
         res->set_500(delete_op.error());

@@ -21,6 +21,7 @@
 #include "typesense_server_utils.h"
 #include "file_utils.h"
 #include "threadpool.h"
+#include "stopwords_manager.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -424,7 +425,10 @@ int run_server(const Config & config, const std::string & version, void (*master
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
                            config.get_api_key(), quit_raft_service, batch_indexer);
-    
+
+    StopwordsManager& stopwordsManager = StopwordsManager::get_instance();
+    stopwordsManager.init(&store);
+
     RateLimitManager *rateLimitManager = RateLimitManager::getInstance();
     auto rate_limit_manager_init = rateLimitManager->init(&meta_store);
 
@@ -523,3 +527,4 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     return ret_code;
 }
+

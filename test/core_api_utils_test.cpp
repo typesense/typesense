@@ -4,11 +4,13 @@
 #include <collection_manager.h>
 #include <core_api.h>
 #include "core_api_utils.h"
+#include "stopwords_manager.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    StopwordsManager& stopwordsManager = StopwordsManager::get_instance();
     std::atomic<bool> quit = false;
 
     std::vector<std::string> query_fields;
@@ -22,6 +24,8 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        stopwordsManager.init(store);
     }
 
     virtual void SetUp() {
@@ -1116,4 +1120,202 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
 
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
+}
+
+TEST_F(CoreAPIUtilsTest, StopwordsBasics) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "type": "string" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    nlohmann::json doc;
+    doc["title"] = "The Dark Knight Europe";
+    doc["points"] = 10;
+    coll1->add(doc.dump(), CREATE);
+
+    doc["title"] = "An American America";
+    doc["points"] = 12;
+    coll1->add(doc.dump(), CREATE);
+
+    doc["title"] = "An the";
+    doc["points"] = 17;
+    coll1->add(doc.dump(), CREATE);
+
+    doc["title"] = "A Deadman";
+    doc["points"] = 13;
+    coll1->add(doc.dump(), CREATE);
+
+    doc["title"] = "A Village Of The Deadman";
+    doc["points"] = 20;
+    coll1->add(doc.dump(), CREATE);
+
+    //when all words in query are stopwords
+    auto stopword_value = R"(
+        {"stopwords": ["the", "a", "an"], "locale": "en"}
+    )"_json;
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "coll1";
+    req->params["name"] = "articles";
+    req->body = stopword_value.dump();
+
+    auto result = put_upsert_stopword(req, res);
+    if(!result) {
+        LOG(ERROR) << res->body;
+        FAIL();
+    }
+
+    nlohmann::json body;
+
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "coll1";
+    search["q"] = "the";
+    search["query_by"] = "title";
+    body["searches"].push_back(search);
+
+    req->body = body.dump();
+    nlohmann::json embedded_params;
+    embedded_params["stopwords"] = "articles";
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+    nlohmann::json results = nlohmann::json::parse(res->body)["results"][0];
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    req->params.clear();
+    req->embedded_params_vec.clear();
+    body.clear();
+
+    //when not all words in query are stopwords then it should match the remaining words
+    stopword_value = R"(
+        {"stopwords": ["america", "europe"], "locale": "en"}
+    )"_json;
+
+    req->params["collection"] = "coll1";
+    req->params["name"] = "continents";
+    req->body = stopword_value.dump();
+
+    result = put_upsert_stopword(req, res);
+    if(!result) {
+        LOG(ERROR) << res->body;
+        FAIL();
+    }
+
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "America Man";
+    search["query_by"] = "title";
+    body["searches"].push_back(search);
+
+    req->body = body.dump();
+    embedded_params["stopwords"] = "continents";
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    req->params.clear();
+    req->embedded_params_vec.clear();
+    body.clear();
+
+    req->params["collection"] = "coll1";
+
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "a deadman";
+    search["query_by"] = "title";
+    body["searches"].push_back(search);
+
+    req->body = body.dump();
+    embedded_params["stopwords"] = "articles";
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+
+    ASSERT_EQ(2, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+
+TEST_F(CoreAPIUtilsTest, StopwordsValidation) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "type": "string" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    auto stopword_value = R"(
+        {"stopwords": ["america", "europe"]}
+    )"_json;
+
+    req->params["collection"] = "coll1";
+    req->params["name"] = "continents";
+    req->body = stopword_value.dump();
+
+    auto result = put_upsert_stopword(req, res);
+    ASSERT_EQ(400, res->status_code);
+    ASSERT_STREQ("{\"message\": \"Parameter `locale` is required\"}", res->body.c_str());
+
+    //with a typo
+    stopword_value = R"(
+        {"stopword": ["america", "europe"], "locale": "en"}
+    )"_json;
+
+    req->params["collection"] = "coll1";
+    req->params["name"] = "continents";
+    req->body = stopword_value.dump();
+
+    result = put_upsert_stopword(req, res);
+    ASSERT_EQ(400, res->status_code);
+    ASSERT_STREQ("{\"message\": \"Parameter `stopwords` is required\"}", res->body.c_str());
+
+    //check for value types
+    stopword_value = R"(
+        {"stopwords": ["america", "europe"], "locale": 12}
+    )"_json;
+
+    req->params["collection"] = "coll1";
+    req->params["name"] = "continents";
+    req->body = stopword_value.dump();
+
+    result = put_upsert_stopword(req, res);
+    ASSERT_EQ(400, res->status_code);
+    ASSERT_STREQ("{\"message\": \"Parameter `locale` is required as string value\"}", res->body.c_str());
+
+    stopword_value = R"(
+        {"stopwords": [1, 5, 2], "locale": "ko"}
+    )"_json;
+
+    req->params["collection"] = "coll1";
+    req->params["name"] = "continents";
+    req->body = stopword_value.dump();
+
+    result = put_upsert_stopword(req, res);
+    ASSERT_EQ(400, res->status_code);
+    ASSERT_STREQ("{\"message\": \"Parameter `stopwords` is required as string array value\"}", res->body.c_str());
+
+    collectionManager.drop_collection("coll1");
 }
