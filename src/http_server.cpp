@@ -431,7 +431,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     bool needs_readiness_check = (root_resource == "collections") ||
          !(
-             root_resource == "health" || root_resource == "debug" ||
+             root_resource == "health" || root_resource == "debug" || root_resource == "proxy" ||
              root_resource == "stats.json" || root_resource == "metrics.json" ||
              root_resource == "sequence" || root_resource == "operations" ||
              root_resource == "config" || root_resource == "status"
