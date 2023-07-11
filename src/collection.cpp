@@ -3825,7 +3825,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             }
             
             Index::batch_memory_index(index, iter_batch, default_sorting_field, schema_additions, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true, 100, false);
+                                      fallback_field_type, token_separators, symbols_to_index, true, 200, false);
 
             iter_batch.clear();
         }

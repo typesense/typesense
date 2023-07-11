@@ -1,3 +1,4 @@
+#include <http_proxy.h>
 #include "text_embedder_remote.h"
 #include "text_embedder_manager.h"
 
@@ -11,34 +12,48 @@ Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& mo
     return Option<bool>(true);
 }
 
-long RemoteEmbedder::call_remote_api(const std::string& method, const std::string& url, const std::string& body, std::string& res_body, 
-                            std::map<std::string, std::string>& headers, const std::unordered_map<std::string, std::string>& req_headers) {
+long RemoteEmbedder::call_remote_api(const std::string& method, const std::string& url, const std::string& req_body, std::string& res_body,
+                                     std::map<std::string, std::string>& res_headers, std::unordered_map<std::string, std::string>& req_headers) {
+
     if(raft_server == nullptr || raft_server->get_leader_url().empty()) {
-        if(method == "GET") {
-            return HttpClient::get_instance().get_response(url, res_body, headers, req_headers, 45000, true);
-        } else if(method == "POST") {
-            return HttpClient::get_instance().post_response(url, body, res_body, headers, req_headers, 45000, true);
+        // call proxy's internal send() directly
+        if(method == "GET" || method == "POST") {
+            auto proxy_res = HttpProxy::get_instance().send(url, method, req_body, req_headers);
+            res_body = std::move(proxy_res.body);
+            res_headers = std::move(proxy_res.headers);
+            return proxy_res.status_code;
         } else {
             return 400;
         }
     }
 
-    auto leader_url = raft_server->get_leader_url();
-    leader_url += "proxy";
-    nlohmann::json req_body;
-    req_body["method"] = method;
-    req_body["url"] = url;
-    req_body["body"] = body;
-    req_body["headers"] = req_headers;
-    return HttpClient::get_instance().post_response(leader_url, req_body.dump(), res_body, headers, {}, 45000, true);
+    auto proxy_url = raft_server->get_leader_url() + "proxy";
+    nlohmann::json proxy_req_body;
+    proxy_req_body["method"] = method;
+    proxy_req_body["url"] = url;
+    proxy_req_body["body"] = req_body;
+    proxy_req_body["headers"] = req_headers;
+
+    size_t per_call_timeout_ms = HttpProxy::default_timeout_ms;
+    size_t num_try = HttpProxy::default_num_try;
+
+    if(res_headers.find("timeout_ms") != res_headers.end()){
+        per_call_timeout_ms = std::stoul(res_headers.at("timeout_ms"));
+    }
+
+    if(res_headers.find("num_try") != res_headers.end()){
+        num_try = std::stoul(res_headers.at("num_try"));
+    }
+
+    size_t proxy_call_timeout_ms = (per_call_timeout_ms * num_try) + 1000;
+
+    return HttpClient::get_instance().post_response(proxy_url, proxy_req_body.dump(), res_body, res_headers, {},
+                                                    proxy_call_timeout_ms, true);
 }
-
-
 
 OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key) : api_key(api_key), openai_model_path(openai_model_path) {
 
 }
-
 
 Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims) {
     auto validate_properties = validate_string_properties(model_config, {"model_name", "api_key"});

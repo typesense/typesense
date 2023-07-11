@@ -24,6 +24,9 @@ struct http_proxy_res_t {
 class HttpProxy {
     // singleton class for http proxy
     public:
+        static const size_t default_timeout_ms = 30000*4;
+        static const size_t default_num_try = 2;
+
         static HttpProxy& get_instance() {
             static HttpProxy instance;
             return instance;
@@ -32,13 +35,13 @@ class HttpProxy {
         void operator=(const HttpProxy&) = delete;
         HttpProxy(HttpProxy&&) = delete;
         void operator=(HttpProxy&&) = delete;
-        http_proxy_res_t send(const std::string& url, const std::string& method, const std::string& body, std::unordered_map<std::string, std::string>& headers);
+        http_proxy_res_t send(const std::string& url, const std::string& method, const std::string& req_body, std::unordered_map<std::string, std::string>& req_headers);
     private:
         HttpProxy();
         ~HttpProxy() = default;
-        http_proxy_res_t call(const std::string& url, const std::string& method, 
-                              const std::string& body = "", const std::unordered_map<std::string, std::string>& headers = {}, 
-                              const size_t timeout_ms = 30000);
+        http_proxy_res_t call(const std::string& url, const std::string& method,
+                              const std::string& req_body = "", const std::unordered_map<std::string, std::string>& req_headers = {},
+                              const size_t timeout_ms = default_timeout_ms);
 
 
         // lru cache for http requests

@@ -970,37 +970,12 @@ std::string ReplicationState::get_leader_url() const {
     std::shared_lock lock(node_mutex);
 
     if(!node) {
-        const Option<std::string> & refreshed_nodes_op = Config::fetch_nodes_config(config->get_nodes());
-
-        if(!refreshed_nodes_op.ok()) {
-            LOG(WARNING) << "Error while fetching peer configuration: " << refreshed_nodes_op.error();
-            return "";
-        }
-
-        const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint,
-                                                                            Config::get_instance().get_api_port(),
-               
-                                                                            refreshed_nodes_op.get());
-        std::vector<braft::PeerId> peers;
-        braft::Configuration peer_config;
-        peer_config.parse_from(nodes_config);
-        peer_config.list_peers(&peers);
-
-        if(peers.empty()) {
-            LOG(WARNING) << "No peers found in nodes config: " << nodes_config;
-            return "";
-        }
-
-
-        const std::string protocol = api_uses_ssl ? "https" : "http";
-        std::string url = get_node_url_path(peers[0].to_string(), "/", protocol);
-
-        LOG(INFO) << "Returning first peer as leader URL: " << url;
-        return url;
+        LOG(ERROR) << "Could not get leader url as node is not initialized!";
+        return "";
     }
 
     if(node->leader_id().is_empty()) {
-        LOG(ERROR) << "Could not get leader status, as node does not have a leader!";
+        LOG(ERROR) << "Could not get leader url, as node does not have a leader!";
         return "";
     }
 
