@@ -24,7 +24,7 @@ struct http_proxy_res_t {
 class HttpProxy {
     // singleton class for http proxy
     public:
-        static const size_t default_timeout_ms = 30000*4;
+        static const size_t default_timeout_ms = 60000;
         static const size_t default_num_try = 2;
 
         static HttpProxy& get_instance() {

@@ -158,10 +158,8 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
 
         if(res == CURLE_OPERATION_TIMEDOUT) {
             double total_time;
-            char* http_method;
             curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &total_time);
-            curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_METHOD, http_method);
-            LOG(ERROR) << "CURL timeout. Time taken: " << total_time << ", URL: " << http_method << " " << url;
+            LOG(ERROR) << "CURL timeout. Time taken: " << total_time << ", URL: " << url;
             status_code = 408;
         } else {
             LOG(ERROR) << "CURL failed. URL: " << url << ", Code: " << res << ", strerror: " << curl_easy_strerror(res);
