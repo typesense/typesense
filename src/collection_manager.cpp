@@ -838,7 +838,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     text_match_type_t match_type = max_score;
     size_t vector_query_hits = 250;
 
-    size_t remote_embedding_timeout_ms = 30000;
+    size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_try = 2;
 
     size_t facet_sample_percent = 100;
