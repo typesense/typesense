@@ -2627,5 +2627,27 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    std::string extreme_filter = "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5)))";
+
+    auto search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+                                  {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, search_op.get()["hits"].size());
+
+    extreme_filter += "|| (years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5)))";
+    search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+                             {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("`filter_by` has too many operations.", search_op.error());
+
     collectionManager.drop_collection("ComplexFilterQueryCollection");
 }
