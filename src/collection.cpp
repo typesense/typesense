@@ -1108,8 +1108,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold,
                                   const size_t page_offset,
-                                  const size_t vector_query_hits,
-                                  const size_t remote_embedding_timeout_ms, 
+                                  const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_try) const {
 
     std::shared_lock lock(mutex);
@@ -1258,13 +1257,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     }
                 }
                 std::vector<float> embedding = embedding_op.embedding;
-                // distance could have been set for an embed field, so we take a backup and restore
-                auto dist = vector_query.distance_threshold;
-                vector_query._reset();
+                // params could have been set for an embed field, so we take a backup and restore
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;
-                vector_query.k = vector_query_hits;
-                vector_query.distance_threshold = dist;
                 continue;
             }
 
@@ -1278,11 +1273,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
         std::string error = "Vector query could not find any embedded fields.";
         return Option<nlohmann::json>(400, error);
-    }
-
-    std::string real_raw_query = raw_query;
-    if(!vector_query.field_name.empty() && processed_search_fields.size() == 0) {
-        raw_query = "*";
     }
 
     if(!query_by_weights.empty() && processed_search_fields.size() != query_by_weights.size()) {
@@ -2165,7 +2155,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     result["request_params"] = nlohmann::json::object();
     result["request_params"]["collection_name"] = name;
     result["request_params"]["per_page"] = per_page;
-    result["request_params"]["q"] = real_raw_query;
+    result["request_params"]["q"] = raw_query;
 
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";

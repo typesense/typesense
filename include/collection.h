@@ -464,7 +464,6 @@ public:
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0,
                                   const size_t page_offset = 0,
-                                  const size_t vector_query_hits = 250,
                                   const size_t remote_embedding_timeout_ms = 30000,
                                   const size_t remote_embedding_num_try = 2) const;
 

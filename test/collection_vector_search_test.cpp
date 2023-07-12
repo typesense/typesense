@@ -161,16 +161,27 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
-    // `k` value should work correctly
-    results = coll1->search("*", {}, "", {}, {}, {0}, 1, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+    // `k` value should overrides per_page
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                             "", 10, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off}, 32767, 32767, 2,
-                            false, true, "vec:([], id: 1, k: 1)").get();
+                            false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488], k: 1)").get();
 
     ASSERT_EQ(1, results["hits"].size());
+
+    // when k is not set, should use per_page
+    results = coll1->search("*", {}, "", {}, {}, {0}, 2, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488])").get();
+
+    ASSERT_EQ(2, results["hits"].size());
 
     // when `id` does not exist, return appropriate error
     res_op = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
@@ -183,19 +194,6 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Document id referenced in vector query is not found.", res_op.error());
-
-    // DEPRECATED: vector query is also supported on non-wildcard queries with hybrid search
-    // only supported with wildcard queries
-    // res_op = coll1->search("title", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
-    //                        spp::sparse_hash_set<std::string>(),
-    //                        spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
-    //                        "", 10, {}, {}, {}, 0,
-    //                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-    //                        4, {off}, 32767, 32767, 2,
-    //                        false, true, "zec:([0.96826, 0.94, 0.39557, 0.4542])");
-
-    // ASSERT_FALSE(res_op.ok());
-    // ASSERT_EQ("Vector query is supported only on wildcard (q=*) searches.", res_op.error());
 
     // support num_dim on only float array fields
     schema = R"({
@@ -763,6 +761,21 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
 
     ASSERT_FLOAT_EQ(0.0462081432, search_res["hits"][0]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.1213316321, search_res["hits"][1]["vector_distance"].get<float>());
+
+    // to pass k param
+    vec_query = "embedding:([], k: 1)";
+    search_res_op = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, vec_query);
+    ASSERT_TRUE(search_res_op.ok());
+    search_res = search_res_op.get();
+    ASSERT_EQ(1, search_res["found"].get<size_t>());
+    ASSERT_EQ(1, search_res["hits"].size());
 
     // when no embedding field is passed, it should not be allowed
     search_res_op = coll->search("butter", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
