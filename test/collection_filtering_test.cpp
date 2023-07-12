@@ -2651,3 +2651,42 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
 
     collectionManager.drop_collection("ComplexFilterQueryCollection");
 }
+
+TEST_F(CollectionFilteringTest, LargeFilterToken) {
+    nlohmann::json json =
+            R"({
+                "name": "LargeFilterTokenCollection",
+                "fields": [
+                    {"name": "uri", "type": "string"}
+                ],
+                "symbols_to_index": [
+                    "/",
+                    "-"
+                ]
+            })"_json;
+
+    auto op = collectionManager.create_collection(json);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    json.clear();
+    std::string token = "rade/aols/insolvenzrecht/persoenliche-risiken-fuer-organe-von-kapitalgesellschaften-gmbh-"
+                        "geschaeftsfuehrer-ag-vorstand";
+    json["uri"] = token;
+    auto add_op = coll->add(json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll->search("*", query_fields, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll->search("*", query_fields, "uri:" + token, {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    token.erase(100); // Max token length that's indexed is 100, we'll still get a match.
+    results = coll->search("*", query_fields, "uri:" + token, {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    token.erase(99);
+    results = coll->search("*", query_fields, "uri:" + token, {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+}

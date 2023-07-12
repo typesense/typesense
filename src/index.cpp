@@ -1862,6 +1862,9 @@ Option<bool> Index::do_filtering(filter_node_t* const root,
             std::vector<std::string> str_tokens;
 
             while (tokenizer.next(str_token, token_index)) {
+                if (str_token.size() > 100) {
+                    str_token.erase(100);
+                }
                 str_tokens.push_back(str_token);
 
                 art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
