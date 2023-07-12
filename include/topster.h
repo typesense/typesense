@@ -16,7 +16,7 @@ struct KV {
     int64_t scores[3]{};  // match score + 2 custom attributes
     
     // only to be used in hybrid search
-    float vector_distance = 0.0f;
+    float vector_distance = 2.0f;
     int64_t text_match_score = 0;
 
     reference_filter_result_t* reference_filter_result = nullptr;

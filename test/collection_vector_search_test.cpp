@@ -743,8 +743,64 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     ASSERT_FLOAT_EQ((1.0/1.0 * 0.7) + (1.0/1.0 * 0.3), search_res["hits"][0]["hybrid_search_info"]["rank_fusion_score"].get<float>());
     ASSERT_FLOAT_EQ((1.0/2.0 * 0.7) + (1.0/3.0 * 0.3), search_res["hits"][1]["hybrid_search_info"]["rank_fusion_score"].get<float>());
     ASSERT_FLOAT_EQ((1.0/3.0 * 0.7) + (1.0/2.0 * 0.3), search_res["hits"][2]["hybrid_search_info"]["rank_fusion_score"].get<float>());
-}
 
+    // hybrid search with empty vector (to pass distance threshold param)
+    std::string vec_query = "embedding:([], distance_threshold: 0.20)";
+
+    search_res_op = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, vec_query);
+    ASSERT_TRUE(search_res_op.ok());
+    search_res = search_res_op.get();
+
+    ASSERT_EQ(2, search_res["found"].get<size_t>());
+    ASSERT_EQ(2, search_res["hits"].size());
+
+    ASSERT_FLOAT_EQ(0.0462081432, search_res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.1213316321, search_res["hits"][1]["vector_distance"].get<float>());
+
+    // when no embedding field is passed, it should not be allowed
+    search_res_op = coll->search("butter", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, vec_query);
+    ASSERT_FALSE(search_res_op.ok());
+    ASSERT_EQ("Vector query could not find any embedded fields.", search_res_op.error());
+
+    // when no vector matches distance threshold, only text matches are entertained and distance score should be
+    // 2 in those cases
+    vec_query = "embedding:([], distance_threshold: 0.01)";
+    search_res_op = coll->search("butter", {"name", "embedding"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, vec_query);
+    ASSERT_TRUE(search_res_op.ok());
+    search_res = search_res_op.get();
+
+    ASSERT_EQ(3, search_res["found"].get<size_t>());
+    ASSERT_EQ(3, search_res["hits"].size());
+
+    ASSERT_FLOAT_EQ(2.0f, search_res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(2.0f, search_res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(2.0f, search_res["hits"][2]["vector_distance"].get<float>());
+
+    ASSERT_FLOAT_EQ(2.0f, search_res["hits"][0]["hybrid_search_info"]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(2.0f, search_res["hits"][1]["hybrid_search_info"]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(2.0f, search_res["hits"][2]["hybrid_search_info"]["vector_distance"].get<float>());
+}
 
 TEST_F(CollectionVectorTest, HybridSearchOnlyVectorMatches) {
     nlohmann::json schema = R"({
@@ -837,7 +893,7 @@ TEST_F(CollectionVectorTest, DistanceThresholdTest) {
 
 }
 
-TEST_F(CollectionVectorTest, EmbeddingFieldVectorIndexTest) {
+TEST_F(CollectionVectorTest, EmbeddingFieldAlterDropTest) {
     nlohmann::json schema = R"({
                 "name": "objects",
                 "fields": [

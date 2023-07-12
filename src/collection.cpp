@@ -1168,7 +1168,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     vector_query_t vector_query;
     if(!vector_query_str.empty()) {
-        auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query, this);
+        bool is_wildcard_query = (raw_query == "*" || raw_query.empty());
+
+        auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query,
+                                                                      is_wildcard_query, this);
         if(!parse_vector_op.ok()) {
             return Option<nlohmann::json>(400, parse_vector_op.error());
         }
@@ -1178,18 +1181,17 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
         }
 
-        if(vector_field_it.value().num_dim != vector_query.values.size()) {
+        if(is_wildcard_query && vector_field_it.value().num_dim != vector_query.values.size()) {
             return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
                                                std::to_string(vector_field_it.value().num_dim) + " dimensions.");
         }
     }
 
-
-
     // validate search fields
     std::vector<std::string> processed_search_fields;
     std::vector<uint32_t> query_by_weights;
-    bool has_embedding_query = false;
+    size_t num_embed_fields = 0;
+
     for(size_t i = 0; i < raw_search_fields.size(); i++) {
         const std::string& field_name = raw_search_fields[i];
         if(field_name == "id") {
@@ -1208,7 +1210,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             auto search_field = search_schema.at(expanded_search_field);
 
             if(search_field.num_dim > 0) {
-                if(!vector_query.field_name.empty()) {
+                num_embed_fields++;
+
+                if(num_embed_fields > 1 ||
+                    (!vector_query.field_name.empty() && search_field.name != vector_query.field_name)) {
                     std::string error = "Only one embedding field is allowed in the query.";
                     return Option<nlohmann::json>(400, error);
                 }
@@ -1253,10 +1258,13 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     }
                 }
                 std::vector<float> embedding = embedding_op.embedding;
+                // distance could have been set for an embed field, so we take a backup and restore
+                auto dist = vector_query.distance_threshold;
                 vector_query._reset();
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;
                 vector_query.k = vector_query_hits;
+                vector_query.distance_threshold = dist;
                 continue;
             }
 
@@ -1265,6 +1273,11 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 query_by_weights.push_back(raw_query_by_weights[i]);
             }
         }
+    }
+
+    if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
+        std::string error = "Vector query could not find any embedded fields.";
+        return Option<nlohmann::json>(400, error);
     }
 
     std::string real_raw_query = raw_query;
@@ -1962,7 +1975,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 wrapper_doc["geo_distance_meters"] = geo_distances;
             }
 
-            if(!vector_query.field_name.empty() && query == "*") {
+            if(!vector_query.field_name.empty()) {
                 wrapper_doc["vector_distance"] = field_order_kv->vector_distance;
             }
 
