@@ -19,7 +19,7 @@ Option<bool> StopwordsManager::get_stopword(const std::string& stopword_name, sp
         return Option<bool>(true);
     }
 
-    return Option<bool>(404, "Not found.");
+    return Option<bool>(404, "stopword `" + stopword_name +"` not found.");
 }
 
 Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name, const nlohmann::json& stopwords, const std::string& locale) {
@@ -55,6 +55,10 @@ Option<bool> StopwordsManager::delete_stopword(const std::string& stopword_name)
     bool removed = store->remove(get_stopword_key(stopword_name));
     if(!removed) {
         return Option<bool>(500, "Unable to delete from store.");
+    }
+
+    if(stopword_configs.find(stopword_name) == stopword_configs.end()) {
+        return Option<bool>(404, "Stopword `" + stopword_name + "` not found.");
     }
 
     stopword_configs.erase(stopword_name);

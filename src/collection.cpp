@@ -2433,7 +2433,8 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         if(!stopwords_set.empty()) {
             const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwords_list);
             if (!stopword_op.ok()) {
-                LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set << " "<<stopword_op.error();
+                LOG(ERROR) << stopword_op.error();
+                LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
             }
         }
 
