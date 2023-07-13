@@ -505,7 +505,7 @@ bool Collection::is_exceeding_memory_threshold() const {
 void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
                              size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size) {
 
-    batch_index_in_memory(index_records, remote_embedding_batch_size);
+    batch_index_in_memory(index_records, remote_embedding_batch_size, true);
 
     // store only documents that were indexed in-memory successfully
     for(auto& index_record: index_records) {
