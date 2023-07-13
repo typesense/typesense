@@ -154,6 +154,8 @@ public:
     uint32_t* uncompress();
 
     void uncompress(std::vector<uint32_t>& data);
+
+    size_t intersect_count(const uint32_t* res_ids, size_t res_ids_len);
 };
 
 template<class T>

@@ -1055,11 +1055,11 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
     ASSERT_EQ(422, res_op.code());
     ASSERT_STREQ("Only upto 250 hits can be fetched per page.", res_op.error().c_str());
 
-    // when page number is not valid
-    res_op = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 10, 0,
-                                FREQUENCY, {true}, 1000, empty, empty, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ(422, res_op.code());
+    // when page number is zero, use the first page
+    results = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 3, 0,
+                                FREQUENCY, {true}, 1000, empty, empty, 10).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(6, results["found"].get<int>());
 
     // do pagination
 
@@ -3027,11 +3027,11 @@ TEST_F(CollectionTest, WildcardQueryReturnsResultsBasedOnPerPageParam) {
     ASSERT_EQ(422, res_op.code());
     ASSERT_STREQ("Only upto 250 hits can be fetched per page.", res_op.error().c_str());
 
-    // when page number is not valid
-    res_op = collection->search("*", query_fields, "", facets, sort_fields, {0}, 10, 0,
-                                     FREQUENCY, {false}, 1000, empty, empty, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ(422, res_op.code());
+    // when page number is 0, just fetch first page
+    results = collection->search("*", query_fields, "", facets, sort_fields, {0}, 10, 0,
+                                     FREQUENCY, {false}, 1000, empty, empty, 10).get();
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
 
     // do pagination
 
@@ -4790,9 +4790,9 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
     ASSERT_EQ("butterfly", search_res["hits"][1]["document"]["name"].get<std::string>());
     ASSERT_EQ("butterball", search_res["hits"][2]["document"]["name"].get<std::string>());
 
-    ASSERT_FLOAT_EQ((1.0/1.0 * 0.7) + (1.0/1.0 * 0.3), search_res["hits"][0]["rank_fusion_score"].get<float>());
-    ASSERT_FLOAT_EQ((1.0/2.0 * 0.7) + (1.0/3.0 * 0.3), search_res["hits"][1]["rank_fusion_score"].get<float>());
-    ASSERT_FLOAT_EQ((1.0/3.0 * 0.7) + (1.0/2.0 * 0.3), search_res["hits"][2]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ((1.0/1.0 * 0.7) + (1.0/1.0 * 0.3), search_res["hits"][0]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ((1.0/2.0 * 0.7) + (1.0/3.0 * 0.3), search_res["hits"][1]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ((1.0/3.0 * 0.7) + (1.0/2.0 * 0.3), search_res["hits"][2]["hybrid_search_info"]["rank_fusion_score"].get<float>());
 }
 
 TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
@@ -4813,8 +4813,7 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
     spp::sparse_hash_set<std::string> dummy_include_exclude;
     auto search_res_op = coll->search("*", {"name","embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
 
-    ASSERT_FALSE(search_res_op.ok());
-    ASSERT_EQ("Wildcard query is not supported for embedding fields.", search_res_op.error());
+    ASSERT_TRUE(search_res_op.ok());
 }
 
 TEST_F(CollectionTest, CreateModelDirIfNotExists) {
@@ -5060,7 +5059,7 @@ TEST_F(CollectionTest, HideOpenAIApiKey) {
     ASSERT_TRUE(op.ok());
     auto summary = op.get()->get_summary_json();
     // hide api key with * after first 3 characters
-    ASSERT_EQ(summary["fields"][1]["embed"]["model_config"]["api_key"].get<std::string>(), api_key.replace(3, api_key.size() - 3, api_key.size() - 3, '*'));
+    ASSERT_EQ(summary["fields"][1]["embed"]["model_config"]["api_key"].get<std::string>(), api_key.replace(5, api_key.size() - 5, api_key.size() - 5, '*'));
 }
 
 TEST_F(CollectionTest, PrefixSearchDisabledForOpenAI) {
@@ -5134,3 +5133,89 @@ TEST_F(CollectionTest, MoreThanOneEmbeddingField) {
     ASSERT_EQ("Only one embedding field is allowed in the query.", search_res_op.error());
 }
 
+
+TEST_F(CollectionTest, EmbeddingFieldEmptyArrayInDocument) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "names", "type": "string[]"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["names"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto coll = op.get();
+
+    nlohmann::json doc;
+    doc["names"] = nlohmann::json::array();
+    
+    // try adding
+    auto add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_TRUE(add_op.get()["embedding"].is_null());
+
+    // try updating
+    auto id = add_op.get()["id"];
+    doc["names"].push_back("butter");
+    std::string dirty_values;
+
+
+    auto update_op = coll->update_matching_filter("id:=" + id.get<std::string>(), doc.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(1, update_op.get()["num_updated"]);
+
+
+    auto get_op = coll->get(id);
+    ASSERT_TRUE(get_op.ok());
+
+    ASSERT_FALSE(get_op.get()["embedding"].is_null());
+
+    ASSERT_EQ(384, get_op.get()["embedding"].size());
+}
+
+
+TEST_F(CollectionTest, CatchPartialResponseFromRemoteEmbedding) {
+    std::string partial_json = R"({
+        "results": [
+            {
+                "embedding": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "text": "butter"
+            },
+            {
+                "embedding": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "text": "butterball"
+            },
+            {
+                "embedding": [
+                    0.0,
+                    0.0)";
+    
+    nlohmann::json req_body = R"({
+        "inputs": [
+            "butter",
+            "butterball",
+            "butterfly"
+        ]
+    })"_json;
+
+    OpenAIEmbedder embedder("", "");
+
+    auto res = embedder.get_error_json(req_body, 200, partial_json);
+
+    ASSERT_EQ(res["response"]["error"], "Malformed response from OpenAI API.");
+    ASSERT_EQ(res["request"]["body"], req_body);
+}

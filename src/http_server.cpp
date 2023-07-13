@@ -431,7 +431,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     bool needs_readiness_check = (root_resource == "collections") ||
          !(
-             root_resource == "health" || root_resource == "debug" ||
+             root_resource == "health" || root_resource == "debug" || root_resource == "proxy" ||
              root_resource == "stats.json" || root_resource == "metrics.json" ||
              root_resource == "sequence" || root_resource == "operations" ||
              root_resource == "config" || root_resource == "status"
@@ -525,6 +525,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     if(req->proceed_req == nullptr) {
         // Full request body is already available, so we don't care if handler is async or not
         //LOG(INFO) << "Full request body is already available: " << req->entity.len;
+
         request->last_chunk_aggregate = true;
         return process_request(request, response, rpath, h2o_handler, use_meta_thread_pool);
     } else {
@@ -547,7 +548,9 @@ bool HttpServer::is_write_request(const std::string& root_resource, const std::s
         return false;
     }
 
-    bool write_free_request = (root_resource == "multi_search" || root_resource == "operations");
+    bool write_free_request = (root_resource == "multi_search" || root_resource == "proxy" ||
+                               root_resource == "operations");
+
     if(!write_free_request &&
        (http_method == "POST" || http_method == "PUT" ||
         http_method == "DELETE" || http_method == "PATCH")) {
@@ -609,7 +612,6 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     }
 
     std::string chunk_str(chunk.base, chunk.len);
-
     request->body += chunk_str;
     request->chunk_len += chunk.len;
 
@@ -632,7 +634,6 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     if(can_process_async || is_end_stream) {
         // For async streaming requests, handler should be invoked for every aggregated chunk
         // For a non streaming request, buffer body and invoke only at the end
-
         if(request->first_chunk_aggregate) {
             request->first_chunk_aggregate = false;
         }
@@ -806,9 +807,11 @@ void HttpServer::stream_response(stream_response_state_t& state) {
 
     h2o_req_t* req = state.get_req();
 
-    if(state.is_res_start) {
+    bool start_of_res = (req->res.status == 0);
+
+    if(start_of_res) {
         h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
-                       state.res_content_type.base, state.res_content_type.len);
+                       state.res_content_type.data(), state.res_content_type.size());
         req->res.status = state.status;
         req->res.reason = state.reason;
     }
@@ -827,7 +830,7 @@ void HttpServer::stream_response(stream_response_state_t& state) {
         return ;
     }
 
-    if (state.is_res_start) {
+    if (start_of_res) {
         /*LOG(INFO) << "h2o_start_response, content_type=" << state.res_content_type
                   << ",response.status_code=" << state.res_status_code;*/
         h2o_start_response(req, state.generator);
@@ -967,7 +970,7 @@ bool HttpServer::on_stream_response_message(void *data) {
     // NOTE: access to `req` and `res` objects must be synchronized and wrapped by `req_res`
 
     if(req_res->is_alive()) {
-        stream_response(req_res->res_state);
+        stream_response(req_res->get_res_state());
     } else {
         // serialized request or generator has been disposed (underlying request is probably dead)
         req_res->req_notify();

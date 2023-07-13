@@ -322,22 +322,28 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     // when params is empty, embedded param should be set
     std::map<std::string, std::string> empty_params;
     embedded_params.clear();
+    embedded_params.push_back(nlohmann::json::object());
     ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key)}, empty_params, embedded_params));
     ASSERT_EQ("user_id:1080", embedded_params[0]["filter_by"].get<std::string>());
 
     // when more than a single key prefix matches, must pick the correct underlying key
-
+    embedded_params.clear();
+    embedded_params.push_back(nlohmann::json::object());
     api_key_t key_search_coll2("KeyVal2", "test key", {"documents:search"}, {"coll2"}, FUTURE_TS);
     auth_manager.create_key(key_search_coll2);
     ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key)}, empty_params, embedded_params));
     ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll2", scoped_key)}, empty_params, embedded_params));
 
     // scoped key generated from key_search_coll2
+    embedded_params.clear();
+    embedded_params.push_back(nlohmann::json::object());
     std::string scoped_key_prefix2 = "QmNlNXdkUThaeDJFZXNiOXB4VUFCT1BmN01GSEJnRUdiMng2aTJESjJqND1LZXlWeyJmaWx0ZXJfYnkiOiAidXNlcl9pZDoxMDgwIn0=";
     ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("coll2", scoped_key_prefix2)}, empty_params, embedded_params));
     ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key_prefix2)}, empty_params, embedded_params));
 
     // should only allow scoped API keys derived from parent key with documents:search action
+    embedded_params.clear();
+    embedded_params.push_back(nlohmann::json::object());
     api_key_t key_search_admin("AdminKey", "admin key", {"*"}, {"*"}, FUTURE_TS);
     auth_manager.create_key(key_search_admin);
     std::string scoped_key2 = StringUtils::base64_encode(
@@ -351,7 +357,7 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     api_key_t key_expiry("ExpireKey", "expire key", {"documents:search"}, {"*"}, FUTURE_TS);
     auth_manager.create_key(key_expiry);
 
-    empty_params.clear();
+    embedded_params.clear();
     embedded_params.push_back(nlohmann::json::object());
 
     std::string scoped_key3 = "K1M2STRDelZYNHpxNGVWUTlBTGpOWUl4dk8wNU8xdnVEZi9aSUcvZE5tcz1FeHBpeyJmaWx0ZXJfYnkiOi"
@@ -366,7 +372,7 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     api_key_t key_expiry2("ExpireKey2", "expire key", {"documents:search"}, {"*"}, FUTURE_TS);
     auth_manager.create_key(key_expiry2);
 
-    empty_params.clear();
+    embedded_params.clear();
     embedded_params.push_back(nlohmann::json::object());
 
     std::string scoped_key4 = "SXFKNldZZWRiWkVKVmI2RCt3OTlKNHpBZ24yWlRUbEdJdERtTy9IZ2REZz1FeHBpeyJmaWx0ZXJfYnkiOiAidXN"
@@ -380,7 +386,7 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     api_key_t key_expiry3("ExpireKey3", "expire key", {"documents:search"}, {"*"}, 1606563841);
     auth_manager.create_key(key_expiry3);
 
-    empty_params.clear();
+    embedded_params.clear();
     embedded_params.push_back(nlohmann::json::object());
 
     std::string scoped_key5 = "V3JMNFJlZHRMVStrZHphNFVGZDh4MWltSmx6Yzk2R3QvS2ZwSE8weGRWQT1FeHBpeyJmaWx0ZXJfYnkiOiAidX"

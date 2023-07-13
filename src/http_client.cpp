@@ -19,7 +19,7 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
                                std::map<std::string, std::string>& res_headers,
                                const std::unordered_map<std::string, std::string>& headers, long timeout_ms,
                                bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response);
+    CURL *curl = init_curl(url, response, timeout_ms);
     if(curl == nullptr) {
         return 500;
     }
@@ -60,7 +60,7 @@ long HttpClient::post_response_async(const std::string &url, const std::shared_p
 long HttpClient::put_response(const std::string &url, const std::string &body, std::string &response,
                               std::map<std::string, std::string>& res_headers, long timeout_ms,
                               bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response);
+    CURL *curl = init_curl(url, response, timeout_ms);
     if(curl == nullptr) {
         return 500;
     }
@@ -73,7 +73,7 @@ long HttpClient::put_response(const std::string &url, const std::string &body, s
 long HttpClient::patch_response(const std::string &url, const std::string &body, std::string &response,
                               std::map<std::string, std::string>& res_headers, long timeout_ms,
                               bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response);
+    CURL *curl = init_curl(url, response, timeout_ms);
     if(curl == nullptr) {
         return 500;
     }
@@ -86,7 +86,7 @@ long HttpClient::patch_response(const std::string &url, const std::string &body,
 long HttpClient::delete_response(const std::string &url, std::string &response,
                                  std::map<std::string, std::string>& res_headers, long timeout_ms,
                                  bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response);
+    CURL *curl = init_curl(url, response, timeout_ms);
     if(curl == nullptr) {
         return 500;
     }
@@ -99,7 +99,7 @@ long HttpClient::get_response(const std::string &url, std::string &response,
                               std::map<std::string, std::string>& res_headers,
                               const std::unordered_map<std::string, std::string>& headers,
                               long timeout_ms, bool send_ts_api_header) {
-    CURL *curl = init_curl(url, response);
+    CURL *curl = init_curl(url, response, timeout_ms);
     if(curl == nullptr) {
         return 500;
     }
@@ -153,10 +153,23 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
     if (res != CURLE_OK) {
         char* url = nullptr;
         curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
-        LOG(ERROR) << "CURL failed. URL: " << url << ", Code: " << res << ", strerror: " << curl_easy_strerror(res);
+
+        long status_code = 0;
+
+        if(res == CURLE_OPERATION_TIMEDOUT) {
+            double total_time;
+            curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &total_time);
+            LOG(ERROR) << "CURL timeout. Time taken: " << total_time << ", URL: " << url;
+            status_code = 408;
+        } else {
+            LOG(ERROR) << "CURL failed. URL: " << url << ", Code: " << res << ", strerror: " << curl_easy_strerror(res);
+            status_code = 500;
+        }
+
         curl_easy_cleanup(curl);
         curl_slist_free_all(chunk);
-        return 500;
+
+        return status_code;
     }
 
     long http_code = 500;
@@ -279,6 +292,8 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
 
     if(!req_res->res->is_alive) {
         // underlying client request is dead, don't try to send anymore data
+        // also, close the socket as we've overridden the close socket handler!
+        close(item);
         return 0;
     }
 
@@ -349,7 +364,7 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
     return curl;
 }
 
-CURL *HttpClient::init_curl(const std::string& url, std::string& response) {
+CURL *HttpClient::init_curl(const std::string& url, std::string& response, const size_t timeout_ms) {
     CURL *curl = curl_easy_init();
 
     if(curl == nullptr) {
@@ -367,6 +382,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response) {
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
     // to allow self-signed certs

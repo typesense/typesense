@@ -207,7 +207,8 @@ private:
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                       std::vector<sort_by>& sort_fields_std,
-                                                      bool is_wildcard_query, bool is_group_by_query = false) const;
+                                                      bool is_wildcard_query,const bool is_vector_query,
+                                                      bool is_group_by_query = false) const;
 
     
     Option<bool> persist_collection_meta();
@@ -384,7 +385,7 @@ public:
                     const std::vector<sort_by>& sort_by_fields);
 
     void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed,
-                     const bool& return_doc, const bool& return_id);
+                     const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size = 200);
 
     bool is_exceeding_memory_threshold() const;
 
@@ -397,7 +398,7 @@ public:
 
     nlohmann::json get_summary_json() const;
 
-    size_t batch_index_in_memory(std::vector<index_record>& index_records);
+    size_t batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size = 200, const bool generate_embeddings = true);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
@@ -406,7 +407,7 @@ public:
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                             const index_operation_t& operation=CREATE, const std::string& id="",
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
-                            const bool& return_doc=false, const bool& return_id=false);
+                            const bool& return_doc=false, const bool& return_id=false, const size_t remote_embedding_batch_size=200);
 
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
@@ -462,16 +463,14 @@ public:
                                   const text_match_type_t match_type = max_score,
                                   const size_t facet_sample_percent = 100,
                                   const size_t facet_sample_threshold = 0,
-                                  const size_t page_offset = UINT32_MAX,
+                                  const size_t page_offset = 0,
                                   facet_index_type_t facet_index_type = HASH,
-                                  const std::string& stopwords_set=""
-                                  ) const;
+                                  const size_t vector_query_hits = 250,
+                                  const size_t remote_embedding_timeout_ms = 30000,
+                                  const size_t remote_embedding_num_try = 2,
+                                  const std::string& stopwords_set="") const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
-
-    /// Get approximate count of docs matching a reference filter on foo collection when $foo(...) filter is encountered.
-    Option<bool> get_approximate_reference_filter_ids(const std::string& filter_query,
-                                                      uint32_t& filter_ids_length) const;
 
     Option<bool> get_reference_filter_ids(const std::string& filter_query,
                                           filter_result_t& filter_result,
@@ -591,5 +590,4 @@ bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::js
         return false;
     }
 }
-
 

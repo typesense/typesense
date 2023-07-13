@@ -145,34 +145,27 @@ bool compact_id_list_t::contains(uint32_t id) {
     return false;
 }
 
-bool compact_id_list_t::contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size) {
+size_t compact_id_list_t::intersect_count(const uint32_t* res_ids, size_t res_ids_len) {
+    size_t count = 0;
     size_t i = 0;
-    size_t target_ids_index = 0;
+    size_t res_index = 0;
 
-    while(i < length && target_ids_index < target_ids_size) {
-        size_t num_existing_offsets = ids[i];
-        size_t existing_id = ids[i + num_existing_offsets + 1];
+    while(i < length && res_index < res_ids_len) {
+        size_t curr_id = ids[i];
 
-        // Returns iterator to the first element that is >= to value or last if no such element is found.
-        size_t found_index = std::lower_bound(target_ids + target_ids_index,
-                                              target_ids + target_ids_size, existing_id) - target_ids;
-
-        if(found_index == target_ids_size) {
-            // all elements are lesser than lowest value (existing_id), so we can stop looking
-            return false;
+        if(curr_id < res_ids[res_index]) {
+            i++;
+        } else if(curr_id > res_ids[res_index]) {
+            // returns index that is >= to value or last if no such element is found.
+            res_index = std::lower_bound(res_ids + res_index, res_ids + res_ids_len, curr_id) - res_ids;
         } else {
-            if(target_ids[found_index] == existing_id) {
-                return true;
-            }
-
-            // adjust lower bound to found_index+1 whose value is >= `existing_id`
-            target_ids_index = found_index;
+            i++;
+            res_index++;
+            count++;
         }
-
-        i += num_existing_offsets + 2;
     }
 
-    return false;
+    return count;
 }
 
 /* posting operations */
@@ -289,16 +282,6 @@ bool ids_t::contains(const void* obj, uint32_t id) {
     }
 }
 
-bool ids_t::contains_atleast_one(const void* obj, const uint32_t* target_ids, size_t target_ids_size) {
-    if(IS_COMPACT_IDS(obj)) {
-        compact_id_list_t* list = COMPACT_IDS_PTR(obj);
-        return list->contains_atleast_one(target_ids, target_ids_size);
-    } else {
-        id_list_t* list = (id_list_t*)(obj);
-        return list->contains_atleast_one(target_ids, target_ids_size);
-    }
-}
-
 void ids_t::merge(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids) {
     // we will have to convert the compact posting list (if any) to full form
     std::vector<id_list_t*> id_lists;
@@ -379,6 +362,16 @@ void ids_t::uncompress(void*& obj, std::vector<uint32_t>& ids) {
     } else {
         id_list_t* list = (id_list_t*)(obj);
         list->uncompress(ids);
+    }
+}
+
+size_t ids_t::intersect_count(void*& obj, const uint32_t* result_ids, size_t result_ids_len) {
+    if(IS_COMPACT_IDS(obj)) {
+        compact_id_list_t* list = COMPACT_IDS_PTR(obj);
+        return list->intersect_count(result_ids, result_ids_len);
+    } else {
+        id_list_t* list = (id_list_t*)(obj);
+        return list->intersect_count(result_ids, result_ids_len);
     }
 }
 

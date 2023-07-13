@@ -135,6 +135,8 @@ TEST(SortedArrayTest, Load) {
     for(size_t i=0; i<SIZE; i++) {
         ASSERT_EQ(array[i], arr.at(i));
     }
+
+    delete [] array;
 }
 
 TEST(SortedArrayTest, Uncompress) {
@@ -260,6 +262,8 @@ TEST(SortedArrayTest, BulkIndexOf) {
     ids.indexOf(&search_ids[0], search_ids.size(), results);
     ASSERT_EQ(562, results[0]);
     ASSERT_EQ(562, results[1]);
+
+    delete [] results;
 }
 
 TEST(SortedArrayTest, BulkIndexOf2) {
@@ -344,6 +348,8 @@ TEST(SortedArrayTest, BulkIndexOf2) {
 
     ASSERT_EQ(8, filter_ids[6]);
     ASSERT_EQ(4, indices[6]);
+
+    delete [] indices;
 }
 
 TEST(SortedArrayTest, NumFoundOfSortedArrayGreaterThanValues) {

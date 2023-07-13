@@ -180,6 +180,54 @@ string ReplicationState::resolve_node_hosts(const string& nodes_config) {
     return final_nodes_config;
 }
 
+Option<bool> ReplicationState::handle_gzip(const std::shared_ptr<http_req>& request) {
+    if (!request->zstream_initialized) {
+        request->zs.zalloc = Z_NULL;
+        request->zs.zfree = Z_NULL;
+        request->zs.opaque = Z_NULL;
+        request->zs.avail_in = 0;
+        request->zs.next_in = Z_NULL;
+
+        if (inflateInit2(&request->zs, 16 + MAX_WBITS) != Z_OK) {
+            return Option<bool>(400, "inflateInit failed while decompressing");
+        }
+
+        request->zstream_initialized = true;
+    }
+
+    std::string outbuffer;
+    outbuffer.resize(10 * request->body.size());
+
+    request->zs.next_in = (Bytef *) request->body.c_str();
+    request->zs.avail_in = request->body.size();
+    std::size_t size_uncompressed = 0;
+    int ret = 0;
+    do {
+        request->zs.avail_out = static_cast<unsigned int>(outbuffer.size());
+        request->zs.next_out = reinterpret_cast<Bytef *>(&outbuffer[0] + size_uncompressed);
+        ret = inflate(&request->zs, Z_FINISH);
+        if (ret != Z_STREAM_END && ret != Z_OK && ret != Z_BUF_ERROR) {
+            std::string error_msg = request->zs.msg;
+            inflateEnd(&request->zs);
+            return Option<bool>(400, error_msg);
+        }
+
+        size_uncompressed += (outbuffer.size() - request->zs.avail_out);
+    } while (request->zs.avail_out == 0);
+
+    if (ret == Z_STREAM_END) {
+        request->zstream_initialized = false;
+        inflateEnd(&request->zs);
+    }
+
+    outbuffer.resize(size_uncompressed);
+
+    request->body = outbuffer;
+    request->chunk_len = outbuffer.size();
+
+    return Option<bool>(true);
+}
+
 void ReplicationState::write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
     if(shutting_down) {
         //LOG(INFO) << "write(), force shutdown";
@@ -218,6 +266,19 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
 
     if (!node->is_leader()) {
         return write_to_leader(request, response);
+    }
+
+    //check if it's first gzip chunk or is gzip stream initialized
+    if(((request->body.size() > 2) &&
+        (31 == (int)request->body[0] && -117 == (int)request->body[1])) || request->zstream_initialized) {
+        auto res = handle_gzip(request);
+
+        if(!res.ok()) {
+            response->set_422(res.error());
+            response->final = true;
+            auto req_res = new async_req_res_t(request, response, true);
+            return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        }
     }
 
     // Serialize request to replicated WAL so that all the nodes in the group receive it as well.
@@ -308,18 +369,19 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
                 }
             } else {
                 std::string api_res;
-                long status = HttpClient::post_response(url, request->body, api_res, res_headers, {}, 4000, true);
+                long status = HttpClient::post_response(url, request->body, api_res, res_headers, {}, 10*1000, true);
                 response->content_type_header = res_headers["content-type"];
                 response->set_body(status, api_res);
             }
         } else if(request->http_method == "PUT") {
             std::string api_res;
-            long status = HttpClient::put_response(url, request->body, api_res, res_headers, 4000, true);
+            long status = HttpClient::put_response(url, request->body, api_res, res_headers, 10*1000, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else if(request->http_method == "DELETE") {
             std::string api_res;
-            long status = HttpClient::delete_response(url, api_res, res_headers, 120000, true);
+            // timeout: 0 since delete can take a long time
+            long status = HttpClient::delete_response(url, api_res, res_headers, 0, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else if(request->http_method == "PATCH") {
@@ -327,9 +389,9 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             route_path* rpath = nullptr;
             bool route_found = server->get_route(request->route_hash, &rpath);
 
-            long timeout_ms = 4 * 1000;
+            long timeout_ms = 10 * 1000;
             if(route_found && rpath->handler == patch_update_collection) {
-                timeout_ms = 300 * 1000;  // 5 minutes for patching a collection which can take some time
+                timeout_ms = 0;  // patching a collection can take a long time
             }
 
             long status = HttpClient::patch_response(url, request->body, api_res, res_headers, timeout_ms, true);
@@ -677,7 +739,7 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
 
     std::string api_res;
     std::map<std::string, std::string> res_headers;
-    long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 4000, true);
+    long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 5*1000, true);
     if(status_code == 200) {
         // compare leader's applied log with local applied to see if we are lagging
         nlohmann::json leader_status = nlohmann::json::parse(api_res);
@@ -937,7 +999,7 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
             std::string url = get_node_url_path(peer_addr, "/health", protocol);
             std::string api_res;
             std::map<std::string, std::string> res_headers;
-            long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 4000, true);
+            long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 5*1000, true);
             bool peer_healthy = (status_code == 200);
 
             //LOG(INFO) << "do_snapshot, status_code: " << status_code;
@@ -968,8 +1030,13 @@ bool ReplicationState::get_ext_snapshot_succeeded() {
 std::string ReplicationState::get_leader_url() const {
     std::shared_lock lock(node_mutex);
 
+    if(!node) {
+        LOG(ERROR) << "Could not get leader url as node is not initialized!";
+        return "";
+    }
+
     if(node->leader_id().is_empty()) {
-        LOG(ERROR) << "Could not get leader status, as node does not have a leader!";
+        LOG(ERROR) << "Could not get leader url, as node does not have a leader!";
         return "";
     }
 

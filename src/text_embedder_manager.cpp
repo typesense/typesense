@@ -94,7 +94,6 @@ const std::string& TextEmbedderManager::get_model_dir() {
 }
 
 TextEmbedderManager::~TextEmbedderManager() {
-    delete_all_text_embedders();
 }
 
 const std::string TextEmbedderManager::get_absolute_model_path(const std::string& model_name) {
@@ -117,8 +116,9 @@ const bool TextEmbedderManager::check_md5(const std::string& file_path, const st
     std::stringstream ss,res;
     ss << stream.rdbuf();
     MD5((unsigned char*)ss.str().c_str(), ss.str().length(), md5);
-    for (int i = 0; i < MD5_DIGEST_LENGTH; i++) {
-        res << std::hex << (int)md5[i];
+    // convert md5 to hex string with leading zeros
+    for(int i = 0; i < MD5_DIGEST_LENGTH; i++) {
+        res << std::hex << std::setfill('0') << std::setw(2) << (int)md5[i];
     }
     return res.str() == target_md5;
 }

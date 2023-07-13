@@ -5,7 +5,7 @@
 #include "http_client.h"
 #include "collection_manager.h"
 
-Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool write_to_disk) {
+Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*
         Sample payload:
 
@@ -37,16 +37,23 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool write_t
     }
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
-        return create_popular_queries_index(payload, write_to_disk);
+        return create_popular_queries_index(payload, upsert, write_to_disk);
     }
 
     return Option<bool>(400, "Invalid type.");
 }
 
-Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payload, bool write_to_disk) {
+Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payload, bool upsert, bool write_to_disk) {
     // params and name are validated upstream
-    const auto& params = payload["params"];
     const std::string& suggestion_config_name = payload["name"].get<std::string>();
+    bool already_exists = suggestion_configs.find(suggestion_config_name) != suggestion_configs.end();
+
+    if(!upsert && already_exists) {
+        return Option<bool>(400, "There's already another configuration with the name `" +
+                                 suggestion_config_name + "`.");
+    }
+
+    const auto& params = payload["params"];
 
     if(!params.contains("source") || !params["source"].is_object()) {
         return Option<bool>(400, "Bad or missing source.");
@@ -56,16 +63,10 @@ Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payl
         return Option<bool>(400, "Bad or missing destination.");
     }
 
-
     size_t limit = 1000;
 
     if(params.contains("limit") && params["limit"].is_number_integer()) {
         limit = params["limit"].get<size_t>();
-    }
-
-    if(suggestion_configs.find(suggestion_config_name) != suggestion_configs.end()) {
-        return Option<bool>(400, "There's already another configuration with the name `" +
-                                            suggestion_config_name + "`.");
     }
 
     if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
@@ -82,6 +83,10 @@ Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payl
     suggestion_config.suggestion_collection = suggestion_collection;
     suggestion_config.limit = limit;
 
+    if(!upsert && popular_queries.count(suggestion_collection) != 0) {
+        return Option<bool>(400, "There's already another configuration for this destination collection.");
+    }
+
     for(const auto& coll: params["source"]["collections"]) {
         if(!coll.is_string()) {
             return Option<bool>(400, "Must contain a valid list of source collection names.");
@@ -92,6 +97,14 @@ Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payl
     }
 
     std::unique_lock lock(mutex);
+
+    if(already_exists) {
+        // remove the previous configuration with same name (upsert)
+        Option<bool> remove_op = remove_popular_queries_index(suggestion_config_name);
+        if(!remove_op.ok()) {
+            return Option<bool>(500, "Error erasing the existing configuration.");;
+        }
+    }
 
     suggestion_configs.emplace(suggestion_config_name, suggestion_config);
 
@@ -130,11 +143,23 @@ Option<nlohmann::json> AnalyticsManager::list_rules() {
     for(const auto& suggestion_config: suggestion_configs) {
         nlohmann::json rule;
         suggestion_config.second.to_json(rule);
-        rule["type"] = POPULAR_QUERIES_TYPE;
         rules["rules"].push_back(rule);
     }
 
     return Option<nlohmann::json>(rules);
+}
+
+Option<nlohmann::json> AnalyticsManager::get_rule(const string& name) {
+    nlohmann::json rule;
+    std::unique_lock lock(mutex);
+
+    auto suggestion_config_it = suggestion_configs.find(name);
+    if(suggestion_config_it == suggestion_configs.end()) {
+        return Option<nlohmann::json>(404, "Rule not found.");
+    }
+
+    suggestion_config_it->second.to_json(rule);
+    return Option<nlohmann::json>(rule);
 }
 
 Option<bool> AnalyticsManager::remove_rule(const string &name) {

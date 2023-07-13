@@ -35,7 +35,7 @@ struct compact_id_list_t {
 
     [[nodiscard]] uint32_t num_ids() const;
 
-    bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
+    size_t intersect_count(const uint32_t* res_ids, size_t res_ids_len);
 };
 
 class ids_t {
@@ -90,8 +90,6 @@ public:
 
     static bool contains(const void* obj, uint32_t id);
 
-    static bool contains_atleast_one(const void* obj, const uint32_t* target_ids, size_t target_ids_size);
-
     static void merge(const std::vector<void*>& id_lists, std::vector<uint32_t>& result_ids);
 
     static void intersect(const std::vector<void*>& id_lists, std::vector<uint32_t>& result_ids);
@@ -99,6 +97,8 @@ public:
     static uint32_t* uncompress(void*& obj);
 
     static void uncompress(void*& obj, std::vector<uint32_t>& ids);
+
+    static size_t intersect_count(void*& obj, const uint32_t* result_ids, size_t result_ids_len);
 
     static void to_expanded_id_lists(const std::vector<void*>& raw_id_lists, std::vector<id_list_t*>& id_lists,
                                      std::vector<id_list_t*>& expanded_id_lists);

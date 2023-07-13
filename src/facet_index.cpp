@@ -165,7 +165,6 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
     size_t max_facets = is_wildcard_no_filter_query ? std::min((size_t)max_facet_count, counter_list.size()) :
                         std::min((size_t)2 * max_facet_count, counter_list.size());
 
-    std::vector<uint32_t> id_list;
     for(const auto& facet_count : counter_list) {
          //LOG(INFO) << "checking ids in facet_value " << facet_count.facet_value << " having total count "
          //           << facet_count.count << ", is_wildcard_no_filter_query: " << is_wildcard_no_filter_query;
@@ -178,13 +177,7 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
             if(!ids) {
                 continue;
             }
-
-            ids_t::uncompress(ids, id_list);
-            uint32_t* out = nullptr;
-            count = ArrayUtils::and_scalar(id_list.data(), id_list.size(), result_ids, result_ids_len, &out);
-            delete[] out;
-
-            id_list.clear();
+            count = ids_t::intersect_count(ids, result_ids, result_ids_len);
         }
 
         if(count) {

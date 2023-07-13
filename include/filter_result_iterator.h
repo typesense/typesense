@@ -145,13 +145,12 @@ public:
     /// Holds the upper-bound of the number of seq ids this iterator would match.
     /// Useful in a scenario where we need to differentiate between filter iterator not matching any document v/s filter
     /// iterator reaching it's end. (is_valid would be false in both these cases)
-    uint32_t approx_filter_ids_length;
+    uint32_t approx_filter_ids_length = 0;
 
     explicit filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count);
 
     explicit filter_result_iterator_t(const std::string collection_name,
-                                      Index const* const index, filter_node_t const* const filter_node,
-                                      uint32_t approx_filter_ids_length = UINT32_MAX);
+                                      Index const* const index, filter_node_t const* const filter_node);
 
     ~filter_result_iterator_t();
 

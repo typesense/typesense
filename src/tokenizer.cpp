@@ -140,7 +140,9 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             } else if(normalize && locale == "ja") {
                 auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
                 raw_text.toUTF8String(word);
-                JapaneseLocalizer::get_instance().normalize(word);
+                char* normalized_word = JapaneseLocalizer::get_instance().normalize(word);
+                word.assign(normalized_word, strlen(normalized_word));
+                free(normalized_word);
             } else {
                 unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(word);
             }
