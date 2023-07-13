@@ -1311,7 +1311,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_override_json: collection_override_jsons) {
         nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
         override_t override;
-        auto parse_op = override_t::parse(collection_override, "", override);
+        auto parse_op = override_t::parse(collection_override, "", override, "", collection->get_symbols_to_index(),
+                                          collection->get_token_separators());
         if(parse_op.ok()) {
             collection->add_override(override, false);
         } else {

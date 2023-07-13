@@ -1399,7 +1399,9 @@ bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     }
     
     override_t override;
-    Option<bool> parse_op = override_t::parse(req_json, override_id, override);
+    Option<bool> parse_op = override_t::parse(req_json, override_id, override, "",
+                                              collection->get_symbols_to_index(),
+                                              collection->get_token_separators());
     if(!parse_op.ok()) {
         res->set(parse_op.code(), parse_op.error());
         return false;

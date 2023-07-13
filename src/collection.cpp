@@ -643,10 +643,18 @@ void Collection::curate_results(string& actual_query, const string& filter_query
         }
     }
 
-    std::string query = actual_query;
 
     if(enable_overrides && !overrides.empty()) {
-        StringUtils::tolowercase(query);
+        std::string query;
+
+        if(actual_query == "*") {
+            query = "*";
+        } else {
+            std::vector<std::string> tokens;
+            Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators);
+            tokenizer.tokenize(tokens);
+            query = StringUtils::join(tokens, " ");
+        }
 
         for(const auto& override_kv: overrides) {
             const auto& override = override_kv.second;
