@@ -416,7 +416,37 @@ TEST(StringUtilsTest, SplitIncludeFields) {
     tokens = {"id", "title", "count"};
     splitIncludeTestHelper(include_fields, tokens);
 
-    include_fields = "id, $Collection(title, pref*), count";
+    include_fields = "id, $Collection(title, pref*), count, ";
     tokens = {"id", "$Collection(title, pref*)", "count"};
     splitIncludeTestHelper(include_fields, tokens);
+}
+
+TEST(StringUtilsTest, GetReferenceCollectionNames) {
+    std::string filter_query = "";
+    std::set<std::string> reference_collection_names;
+    StringUtils::get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_TRUE(reference_collection_names.empty());
+
+    filter_query = "foo:bar";
+    StringUtils::get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_TRUE(reference_collection_names.empty());
+
+    filter_query = "$foo(bar:baz)";
+    std::vector<std::string> result = {"foo"};
+    StringUtils::get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_EQ(1, reference_collection_names.size());
+    for (const auto &item: result) {
+        ASSERT_EQ(1, reference_collection_names.count(item));
+    }
+    reference_collection_names.clear();
+
+    filter_query = "((age: <5 || age: >10) && category:= [shoes]) &&"
+                   " $Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
+    result = {"Customers"};
+    StringUtils::get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_EQ(1, reference_collection_names.size());
+    for (const auto &item: result) {
+        ASSERT_EQ(1, reference_collection_names.count(item));
+    }
+    reference_collection_names.clear();
 }
