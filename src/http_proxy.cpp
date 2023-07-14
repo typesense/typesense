@@ -56,9 +56,13 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
         key = StringUtils::hash_combine(key, StringUtils::hash_wy(header.first.c_str(), header.first.size()));
         key = StringUtils::hash_combine(key, StringUtils::hash_wy(header.second.c_str(), header.second.size()));
     }
+
+    std::shared_lock slock(mutex);
     if(cache.contains(key)){
         return cache[key];
     }
+
+    slock.unlock();
 
     http_proxy_res_t res;
     for(size_t i = 0; i < num_try; i++){
@@ -80,6 +84,7 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
 
     // add to cache 
     if(res.status_code == 200){
+        std::unique_lock ulock(mutex);
         cache.insert(key, res);
     }
 
