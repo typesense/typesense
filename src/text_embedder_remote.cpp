@@ -12,8 +12,10 @@ Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& mo
     return Option<bool>(true);
 }
 
-long RemoteEmbedder::call_remote_api(const std::string& method, const std::string& url, const std::string& req_body, std::string& res_body,
-                                     std::map<std::string, std::string>& res_headers, std::unordered_map<std::string, std::string>& req_headers) {
+long RemoteEmbedder::call_remote_api(const std::string& method, const std::string& url, const std::string& req_body,
+                                     std::string& res_body,
+                                     std::map<std::string, std::string>& res_headers,
+                                     std::unordered_map<std::string, std::string>& req_headers) {
 
     if(raft_server == nullptr || raft_server->get_leader_url().empty()) {
         // call proxy's internal send() directly
@@ -37,12 +39,12 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
     size_t per_call_timeout_ms = HttpProxy::default_timeout_ms;
     size_t num_try = HttpProxy::default_num_try;
 
-    if(res_headers.find("timeout_ms") != res_headers.end()){
-        per_call_timeout_ms = std::stoul(res_headers.at("timeout_ms"));
+    if(req_headers.find("timeout_ms") != req_headers.end()){
+        per_call_timeout_ms = std::stoul(req_headers.at("timeout_ms"));
     }
 
-    if(res_headers.find("num_try") != res_headers.end()){
-        num_try = std::stoul(res_headers.at("num_try"));
+    if(req_headers.find("num_try") != req_headers.end()){
+        num_try = std::stoul(req_headers.at("num_try"));
     }
 
     size_t proxy_call_timeout_ms = (per_call_timeout_ms * num_try) + 1000;
