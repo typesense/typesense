@@ -1240,6 +1240,14 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 if(!embedder_op.ok()) {
                     return Option<nlohmann::json>(400, embedder_op.error());
                 }
+
+                auto remote_embedding_timeout_us = remote_embedding_timeout_ms * 1000;
+                if((std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > remote_embedding_timeout_us) {
+                    std::string error = "Request timed out.";
+                    return Option<nlohmann::json>(500, error);
+                }
+
                 auto embedder = embedder_op.get();
 
                 if(embedder->is_remote()) {
