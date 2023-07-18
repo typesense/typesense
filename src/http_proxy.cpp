@@ -73,7 +73,7 @@ http_proxy_res_t HttpProxy::send(const std::string& url, const std::string& meth
         }
 
         LOG(ERROR) << "Proxy call failed, status_code: " << res.status_code
-                   << ", timeout_ms:  " << timeout_ms << ", num_try: " << num_try;
+                   << ", timeout_ms:  " << timeout_ms << ", try: " << i+1 << ", num_try: " << num_try;
     }
 
     if(res.status_code == 408){
