@@ -19,7 +19,7 @@ Option<bool> StopwordsManager::get_stopword(const std::string& stopword_name, sp
         return Option<bool>(true);
     }
 
-    return Option<bool>(404, "stopword `" + stopword_name +"` not found.");
+    return Option<bool>(404, "Stopword `" + stopword_name +"` not found.");
 }
 
 Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name, const nlohmann::json& stopwords, const std::string& locale) {
@@ -31,17 +31,18 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
     }
 
     std::vector<std::string> tokens;
+    spp::sparse_hash_set<std::string> stopwords_set;
 
     for (const auto &stopword: stopwords.items()) {
         const auto& val = stopword.value().get<std::string>();
         Tokenizer(val, true, false, locale, {}, {}).tokenize(tokens);
 
         for(const auto& tok : tokens) {
-            stopword_configs[stopword_name].emplace(tok);
+            stopwords_set.emplace(tok);
         }
         tokens.clear();
     }
-
+    stopword_configs[stopword_name] = stopwords_set;
     return Option<bool>(true);
 }
 
