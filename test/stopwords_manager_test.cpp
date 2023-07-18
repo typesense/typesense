@@ -30,24 +30,24 @@ protected:
 
 TEST_F(StopwordsManagerTest, UpsertGetStopwords) {
     auto stopwords1 = R"(
-            {"stopwords": ["america", "europe"]}
+            {"stopwords": ["america", "europe"], "locale": "en"}
         )"_json;
 
-    auto upsert_op = stopwordsManager.upsert_stopword("continents", stopwords1["stopwords"], "en");
+    auto upsert_op = stopwordsManager.upsert_stopword("continents", stopwords1);
     ASSERT_TRUE(upsert_op.ok());
 
     auto stopwords2 = R"(
-                {"stopwords": ["a", "an", "the"]}
+                {"stopwords": ["a", "an", "the"], "locale": "en"}
             )"_json;
 
-    upsert_op = stopwordsManager.upsert_stopword("articles", stopwords2["stopwords"], "en");
+    upsert_op = stopwordsManager.upsert_stopword("articles", stopwords2);
     ASSERT_TRUE(upsert_op.ok());
 
     auto stopwords3 = R"(
-                {"stopwords": ["India", "United States", "Japan", "China"]}
+                {"stopwords": ["India", "United States", "Japan", "China"], "locale": "en"}
             )"_json;
 
-    upsert_op = stopwordsManager.upsert_stopword("countries", stopwords3["stopwords"], "en");
+    upsert_op = stopwordsManager.upsert_stopword("countries", stopwords3);
     ASSERT_TRUE(upsert_op.ok());
 
     auto stopword_config = stopwordsManager.get_stopwords();
@@ -74,9 +74,9 @@ TEST_F(StopwordsManagerTest, UpsertGetStopwords) {
 }
 
 TEST_F(StopwordsManagerTest, GetStopword) {
-    auto stopwords = R"({"stopwords": ["a", "an", "the"]})"_json;
+    auto stopwords = R"({"stopwords": ["a", "an", "the"], "locale": "en"})"_json;
 
-    auto upsert_op = stopwordsManager.upsert_stopword("articles", stopwords["stopwords"], "en");
+    auto upsert_op = stopwordsManager.upsert_stopword("articles", stopwords);
     ASSERT_TRUE(upsert_op.ok());
 
     spp::sparse_hash_set<std::string> stopwords_set;
@@ -94,9 +94,9 @@ TEST_F(StopwordsManagerTest, GetStopword) {
     ASSERT_EQ("Stopword `country` not found.", get_op.error());
 
     //try fetching stopwords with token
-    stopwords = R"({"stopwords": ["India", "United States", "Japan"]})"_json;
+    stopwords = R"({"stopwords": ["India", "United States", "Japan"], "locale": "en"})"_json;
 
-    upsert_op = stopwordsManager.upsert_stopword("country", stopwords["stopwords"], "en");
+    upsert_op = stopwordsManager.upsert_stopword("country", stopwords);
     ASSERT_TRUE(upsert_op.ok());
 
     get_op = stopwordsManager.get_stopword("country", stopwords_set);
@@ -106,17 +106,17 @@ TEST_F(StopwordsManagerTest, GetStopword) {
 
 TEST_F(StopwordsManagerTest, DeleteStopword) {
     auto stopwords1 = R"(
-                {"stopwords": ["america", "europe"]}
+                {"stopwords": ["america", "europe"], "locale": "en"}
             )"_json;
 
-    auto upsert_op = stopwordsManager.upsert_stopword("continents", stopwords1["stopwords"], "en");
+    auto upsert_op = stopwordsManager.upsert_stopword("continents", stopwords1);
     ASSERT_TRUE(upsert_op.ok());
 
     auto stopwords2 = R"(
-                    {"stopwords": ["a", "an", "the"]}
+                    {"stopwords": ["a", "an", "the"], "locale": "en"}
                 )"_json;
 
-    upsert_op = stopwordsManager.upsert_stopword("articles", stopwords2["stopwords"], "en");
+    upsert_op = stopwordsManager.upsert_stopword("articles", stopwords2);
     ASSERT_TRUE(upsert_op.ok());
 
     spp::sparse_hash_set<std::string> stopwords_set;
@@ -138,11 +138,11 @@ TEST_F(StopwordsManagerTest, DeleteStopword) {
 }
 
 TEST_F(StopwordsManagerTest, UpdateStopword) {
-    auto stopwords = R"(
-                {"stopwords": ["america", "europe"]}
+    auto stopwords_json = R"(
+                {"stopwords": ["america", "europe"], "locale": "en"}
             )"_json;
 
-    auto upsert_op = stopwordsManager.upsert_stopword("continents", stopwords["stopwords"], "en");
+    auto upsert_op = stopwordsManager.upsert_stopword("continents", stopwords_json);
     ASSERT_TRUE(upsert_op.ok());
 
     auto stopword_config = stopwordsManager.get_stopwords();
@@ -152,10 +152,10 @@ TEST_F(StopwordsManagerTest, UpdateStopword) {
     ASSERT_TRUE(stopword_config["continents"].find("europe") != stopword_config["continents"].end());
 
     //adding new words with same name should replace the stopwords set
-    stopwords = R"(
-                {"stopwords": ["india", "china", "japan"]}
+    stopwords_json = R"(
+                {"stopwords": ["india", "china", "japan"], "locale": "en"}
             )"_json;
-    upsert_op = stopwordsManager.upsert_stopword("continents", stopwords["stopwords"], "en");
+    upsert_op = stopwordsManager.upsert_stopword("continents", stopwords_json);
     ASSERT_TRUE(upsert_op.ok());
 
     stopword_config = stopwordsManager.get_stopwords();

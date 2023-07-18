@@ -1969,7 +1969,7 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
         return false;
     }
 
-    Option<bool> success_op = stopwordManager.upsert_stopword(stopword_name, req_json[STOPWORD_VALUES], req_json[STOPWORD_LOCALE]);
+    Option<bool> success_op = stopwordManager.upsert_stopword(stopword_name, req_json);
     if(!success_op.ok()) {
         res->set_500(success_op.error());
         return false;

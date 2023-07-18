@@ -8,6 +8,7 @@
 #include "batched_indexer.h"
 #include "logger.h"
 #include "magic_enum.hpp"
+#include "stopwords_manager.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -284,6 +285,27 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         iter->Next();
     }
+
+    //load stopwords
+    std::string stopword_prefix_key = std::string(StopwordsManager::STOPWORD_PREFIX) + "_";
+    std::string stopword_upper_bound_key = std::string(StopwordsManager::STOPWORD_PREFIX) + "`"; // cannot inline this
+    rocksdb::Slice stopword_upper_bound(stopword_upper_bound_key);
+
+    iter = store->scan(stopword_prefix_key, &stopword_upper_bound);
+    while(iter->Valid() && iter->key().starts_with(stopword_prefix_key)) {
+        std::vector<std::string> parts;
+        std::string stopword_name = iter->key().ToString().substr(stopword_prefix_key.size());
+        nlohmann::json stopword_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
+
+        if(!stopword_obj.is_discarded() && stopword_obj.is_object()) {
+            StopwordsManager::get_instance().load_stopword_config(stopword_name, stopword_obj);
+        } else {
+            LOG(INFO) << "Invalid object for stopword " << stopword_name;
+        }
+
+        iter->Next();
+    }
+
 
     // restore query suggestions configs
     std::vector<std::string> analytics_config_jsons;
