@@ -2392,7 +2392,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->is_valid)) {
                 dist_results.clear();
 
-                // TODO: Need to pass reference info
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
 
                 std::vector<std::pair<float, size_t>> pairs;
@@ -2403,18 +2402,29 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 } else {
                     pairs = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, &filterFunctor);
                 }
+                filter_result_iterator->reset();
 
-                for (const auto &pair: pairs) {
-                    auto filter_result = single_filter_result_t(static_cast<uint32_t>(pair.second), {});
-                    dist_results.emplace_back(pair.first, filter_result);
+                if (filter_result_iterator->is_valid && !filter_result_iterator->reference.empty()) {
+                    // We'll have to get the references of each document.
+                    for (auto pair: pairs) {
+                        // The doc_id must be valid otherwise it would've been filtered out upstream.
+                        filter_result_iterator->skip_to(pair.second);
+                        auto filter_result = single_filter_result_t(pair.second,
+                                                                    std::move(filter_result_iterator->reference));
+                        dist_results.emplace_back(pair.first, filter_result);
+                        filter_result_iterator->reset();
+                    }
+                } else {
+                    for (const auto &pair: pairs) {
+                        auto filter_result = single_filter_result_t(pair.second, {});
+                        dist_results.emplace_back(pair.first, filter_result);
+                    }
                 }
             }
 
-            filter_result_iterator->reset();
-
             std::vector<uint32_t> nearest_ids;
 
-            for (const auto& dist_result : dist_results) {
+            for (auto& dist_result : dist_results) {
                 auto& seq_id = dist_result.second.seq_id;
 
                 if(vector_query.query_doc_given && vector_query.seq_id == seq_id) {
@@ -2442,9 +2452,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 compute_sort_scores(sort_fields_std, sort_order, field_values, geopoint_indices,
                                     seq_id, 0, 0, scores, match_score_index, vec_dist_score);
 
-                KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores,
-                      dist_result.second.reference_filter_results);
+                KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
                 kv.vector_distance = vec_dist_score;
+                kv.reference_filter_results = std::move(dist_result.second.reference_filter_results);
                 int ret = topster->add(&kv);
 
                 if(group_limit != 0 && ret < 2) {
@@ -2671,7 +2681,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
 
-                // TODO: Need to pass reference info
                 std::vector<std::pair<float, size_t>> dist_labels;
                 // use k as 100 by default for ensuring results stability in pagination
                 size_t default_k = 100;
@@ -2756,6 +2765,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         compute_sort_scores(sort_fields_std, sort_order, field_values, geopoint_indices, doc_id, 0, match_score, scores, match_score_index, vec_result.second);
                         KV kv(searched_queries.size(), doc_id, doc_id, match_score_index, scores);
                         kv.vector_distance = vec_result.second;
+
+                        if (filter_result_iterator->is_valid &&
+                            !filter_result_iterator->reference.empty()) {
+                            // The doc_id must be valid otherwise it would've been filtered out upstream.
+                            filter_result_iterator->skip_to(doc_id);
+                            kv.reference_filter_results = std::move(filter_result_iterator->reference);
+                            filter_result_iterator->reset();
+                        }
+
                         topster->add(&kv);
                         vec_search_ids.push_back(doc_id);
                     }
@@ -4202,17 +4220,17 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
 
         if(field_infix == always || (field_infix == fallback && all_result_ids_len == 0)) {
             std::vector<uint32_t> infix_ids;
+            filter_result_t filtered_infix_ids;
             search_infix(query_tokens[0].value, field_name, infix_ids, max_extra_prefix, max_extra_suffix);
 
             if(!infix_ids.empty()) {
                 gfx::timsort(infix_ids.begin(), infix_ids.end());
                 infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
 
-                // TODO: Need to pass reference info
-                uint32_t *raw_infix_ids = nullptr;
-                size_t raw_infix_ids_length = 0;
+                auto& raw_infix_ids = filtered_infix_ids.docs;
+                auto& raw_infix_ids_length = filtered_infix_ids.count;
 
-                if(curated_ids_sorted.size() != 0) {
+                if(!curated_ids_sorted.empty()) {
                     raw_infix_ids_length = ArrayUtils::exclude_scalar(&infix_ids[0], infix_ids.size(), &curated_ids_sorted[0],
                                                                       curated_ids_sorted.size(), &raw_infix_ids);
                     infix_ids.clear();
@@ -4222,15 +4240,13 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
                 }
 
                 if(filter_result_iterator->is_valid) {
-                    uint32_t *filtered_raw_infix_ids = nullptr;
-
-                    raw_infix_ids_length = filter_result_iterator->and_scalar(raw_infix_ids, raw_infix_ids_length,
-                                                                             filtered_raw_infix_ids);
+                    filter_result_t result;
+                    filter_result_iterator->and_scalar(raw_infix_ids, raw_infix_ids_length, result);
                     if(raw_infix_ids != &infix_ids[0]) {
                         delete [] raw_infix_ids;
                     }
 
-                    raw_infix_ids = filtered_raw_infix_ids;
+                    filtered_infix_ids = std::move(result);
                 }
 
                 bool field_is_array = search_schema.at(the_fields[field_id].name).is_array();
@@ -4258,6 +4274,9 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
                     }
 
                     KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
+                    for (const auto& item: filtered_infix_ids.reference_filter_results) {
+                        kv.reference_filter_results[item.first] = item.second[i];
+                    }
                     int ret = actual_topster->add(&kv);
 
                     if(group_limit != 0 && ret < 2) {
@@ -4276,8 +4295,8 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
                 delete[] all_result_ids;
                 all_result_ids = new_all_result_ids;
 
-                if(raw_infix_ids != &infix_ids[0]) {
-                    delete [] raw_infix_ids;
+                if (raw_infix_ids == &infix_ids[0]) {
+                    raw_infix_ids = nullptr;
                 }
 
                 searched_queries.push_back({});

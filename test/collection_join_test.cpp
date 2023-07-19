@@ -1025,7 +1025,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
                 "name": "Products",
                 "fields": [
                     {"name": "product_id", "type": "string"},
-                    {"name": "product_name", "type": "string"},
+                    {"name": "product_name", "type": "string", "infix": true},
                     {"name": "product_description", "type": "string"},
                     {"name": "embedding", "type":"float[]", "embed":{"from": ["product_description"], "model_config": {"model_name": "ts/e5-small"}}}
                 ]
@@ -1260,6 +1260,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
 
+    // Exclude token search
     req_params = {
             {"collection", "Products"},
             {"q", "-shampoo"},
@@ -1278,6 +1279,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
 
+    // Phrase search
     req_params = {
             {"collection", "Products"},
             {"q", R"("soap")"},
@@ -1296,6 +1298,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
 
+    // Combining normal and reference filter
     req_params = {
             {"collection", "Products"},
             {"q", "*"},
@@ -1316,6 +1319,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(140, res_obj["hits"][0]["document"].at("product_price"));
 
+    // Multiple references
     req_params = {
             {"collection", "Products"},
             {"q", "soap"},
@@ -1340,6 +1344,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price").at(0));
     ASSERT_EQ(140, res_obj["hits"][0]["document"].at("product_price").at(1));
 
+    // Vector search
     req_params = {
             {"collection", "Products"},
             {"q", "natural products"},
@@ -1357,5 +1362,71 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
-    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price").at(0));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+
+    // Hybrid search - Both text match and vector match
+    req_params = {
+            {"collection", "Products"},
+            {"q", "soap"},
+            {"query_by", "product_name, embedding"},
+            {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
+            {"include_fields", "product_name, $Customers(product_price)"},
+            {"exclude_fields", ""}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("text_match_score"));
+    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("vector_distance"));
+
+    // Hybrid search - Only vector match
+    req_params = {
+            {"collection", "Products"},
+            {"q", "natural products"},
+            {"query_by", "product_name, embedding"},
+            {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
+            {"include_fields", "product_name, $Customers(product_price)"},
+            {"exclude_fields", ""}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ(0, res_obj["hits"][0]["hybrid_search_info"].at("text_match_score"));
+    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("vector_distance"));
+
+    // Infix search
+    req_params = {
+            {"collection", "Products"},
+            {"q", "ap"},
+            {"query_by", "product_name"},
+            {"infix", "always"},
+            {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
+            {"include_fields", "product_name, $Customers(product_price)"},
+            {"exclude_fields", ""}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
 }

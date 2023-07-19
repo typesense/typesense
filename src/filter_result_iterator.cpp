@@ -1411,6 +1411,72 @@ uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t&
     return filter_ids.size();
 }
 
+void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& lenA, filter_result_t& result) {
+    if (!is_valid) {
+        return;
+    }
+
+    if (filter_result.reference_filter_results.empty()) {
+        if (is_filter_result_initialized) {
+            result.count = ArrayUtils::and_scalar(A, lenA, filter_result.docs, filter_result.count, &result.docs);
+            return;
+        }
+
+        std::vector<uint32_t> filter_ids;
+        for (uint32_t i = 0; i < lenA; i++) {
+            auto _result = valid(A[i]);
+
+            if (_result == -1) {
+                break;
+            }
+
+            if (_result == 1) {
+                filter_ids.push_back(A[i]);
+            }
+        }
+
+        if (filter_ids.empty()) {
+            return;
+        }
+
+        result.count = filter_ids.size();
+        result.docs = new uint32_t[filter_ids.size()];
+        std::copy(filter_ids.begin(), filter_ids.end(), result.docs);
+        return;
+    }
+
+    if (!is_filter_result_initialized) {
+        compute_result();
+    }
+
+    std::vector<uint32_t> match_indexes;
+    for (uint32_t i = 0; i < lenA; i++) {
+        auto _result = valid(A[i]);
+
+        if (_result == -1) {
+            break;
+        }
+
+        if (_result == 1) {
+            match_indexes.push_back(result_index);
+        }
+    }
+
+    result.count = match_indexes.size();
+    result.docs = new uint32_t[match_indexes.size()];
+    for (auto const& item: filter_result.reference_filter_results) {
+        result.reference_filter_results[item.first] = new reference_filter_result_t[match_indexes.size()];
+    }
+
+    for (uint32_t i = 0; i < match_indexes.size(); i++) {
+        auto const& match_index = match_indexes[i];
+        result.docs[i] = filter_result.docs[match_index];
+        for (auto const& item: filter_result.reference_filter_results) {
+            result.reference_filter_results[item.first][i] = item.second[match_index];
+        }
+    }
+}
+
 filter_result_iterator_t::filter_result_iterator_t(const std::string collection_name, const Index *const index,
                                                    const filter_node_t *const filter_node)  :
         collection_name(collection_name),

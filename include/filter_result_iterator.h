@@ -37,8 +37,21 @@ struct single_filter_result_t {
 
     single_filter_result_t() = default;
 
-    single_filter_result_t(uint32_t seq_id, std::map<std::string, reference_filter_result_t> reference_filter_results) :
+    single_filter_result_t(uint32_t seq_id, std::map<std::string, reference_filter_result_t>&& reference_filter_results) :
                             seq_id(seq_id), reference_filter_results(std::move(reference_filter_results)) {}
+
+    single_filter_result_t(const single_filter_result_t& obj) {
+        if (&obj == this)
+            return;
+
+        seq_id = obj.seq_id;
+
+        // Copy every collection's reference.
+        for (const auto &item: obj.reference_filter_results) {
+            auto& ref_coll_name = item.first;
+            reference_filter_results[ref_coll_name] = item.second;
+        }
+    }
 };
 
 struct filter_result_t {
@@ -231,6 +244,8 @@ public:
     /// Performs AND with the contents of A and allocates a new array of results.
     /// \return size of the results array
     uint32_t and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results);
+
+    void and_scalar(const uint32_t* A, const uint32_t& lenA, filter_result_t& result);
 
     static void add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
                                uint32_t* phrase_result_ids, const uint32_t& phrase_result_count);
