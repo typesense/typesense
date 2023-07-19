@@ -4,13 +4,11 @@
 #include <collection_manager.h>
 #include <core_api.h>
 #include "core_api_utils.h"
-#include "stopwords_manager.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    StopwordsManager& stopwordsManager = StopwordsManager::get_instance();
     std::atomic<bool> quit = false;
 
     std::vector<std::string> query_fields;
@@ -24,8 +22,6 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
-
-        stopwordsManager.init(store);
     }
 
     virtual void SetUp() {

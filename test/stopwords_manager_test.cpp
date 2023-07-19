@@ -380,3 +380,65 @@ TEST_F(StopwordsManagerTest, StopwordsValidation) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title", "type": "string" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    auto stopword_value = R"(
+        {"stopwords": ["Pop", "Indie", "Rock", "Metal", "Folk"], "locale": "en"}
+    )"_json;
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+    req->params["collection"] = "coll1";
+    req->params["name"] = "genre";
+    req->body = stopword_value.dump();
+
+    auto result = put_upsert_stopword(req, res);
+    if(!result) {
+        LOG(ERROR) << res->body;
+        FAIL();
+    }
+
+    auto stopword_config = stopwordsManager.get_stopwords();
+    ASSERT_TRUE(stopword_config.find("genre") != stopword_config.end());
+
+    ASSERT_EQ(5, stopword_config["genre"].size());
+    ASSERT_TRUE(stopword_config["genre"].find("pop") != stopword_config["genre"].end());
+    ASSERT_TRUE(stopword_config["genre"].find("indie") != stopword_config["genre"].end());
+    ASSERT_TRUE(stopword_config["genre"].find("rock") != stopword_config["genre"].end());
+    ASSERT_TRUE(stopword_config["genre"].find("metal") != stopword_config["genre"].end());
+    ASSERT_TRUE(stopword_config["genre"].find("folk") != stopword_config["genre"].end());
+
+    //dispose collection manager and reload all stopwords
+    collectionManager.dispose();
+    delete store;
+    stopword_config.clear();
+
+    std::string state_dir_path = "/tmp/typesense_test/stopwords_manager";
+    system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+    store = new Store(state_dir_path);
+
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    stopword_config = stopwordsManager.get_stopwords();
+    ASSERT_TRUE(stopword_config.find("genre") != stopword_config.end());
+
+    ASSERT_EQ(5, stopword_config["genre"].size());
+    ASSERT_TRUE(stopword_config["genre"].find("pop") != stopword_config["genre"].end());
+    ASSERT_TRUE(stopword_config["genre"].find("indie") != stopword_config["genre"].end());
+    ASSERT_TRUE(stopword_config["genre"].find("rock") != stopword_config["genre"].end());
+    ASSERT_TRUE(stopword_config["genre"].find("metal") != stopword_config["genre"].end());
+    ASSERT_TRUE(stopword_config["genre"].find("folk") != stopword_config["genre"].end());
+}
