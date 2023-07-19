@@ -36,9 +36,7 @@ public:
 
     Option<bool> get_stopword(const std::string&, spp::sparse_hash_set<std::string>&) const;
 
-    Option<bool> upsert_stopword(const std::string&, const nlohmann::json&);
+    Option<bool> upsert_stopword(const std::string&, const nlohmann::json&, bool write_to_store=false);
 
     Option<bool> delete_stopword(const std::string&);
-
-    void load_stopword_config(const std::string&, const nlohmann::json&);
 };

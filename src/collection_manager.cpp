@@ -298,7 +298,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         nlohmann::json stopword_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
 
         if(!stopword_obj.is_discarded() && stopword_obj.is_object()) {
-            StopwordsManager::get_instance().load_stopword_config(stopword_name, stopword_obj);
+            StopwordsManager::get_instance().upsert_stopword(stopword_name, stopword_obj);
         } else {
             LOG(INFO) << "Invalid object for stopword " << stopword_name;
         }

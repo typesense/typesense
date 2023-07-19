@@ -1946,32 +1946,9 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
     const std::string & stopword_name = req->params["name"];
 
-    const char* STOPWORD_VALUES = "stopwords";
-    const char* STOPWORD_LOCALE = "locale";
-
-    if(req_json.count(STOPWORD_VALUES) == 0){
-        res->set_400(std::string("Parameter `") + STOPWORD_VALUES + "` is required");
-        return false;
-    }
-
-    if((!req_json[STOPWORD_VALUES].is_array()) || (!req_json[STOPWORD_VALUES][0].is_string())) {
-        res->set_400(std::string("Parameter `") + STOPWORD_VALUES + "` is required as string array value");
-        return false;
-    }
-
-    if(req_json.count(STOPWORD_LOCALE) == 0) {
-        res->set_400(std::string("Parameter `") + STOPWORD_LOCALE + "` is required");
-        return false;
-    }
-
-    if(!req_json[STOPWORD_LOCALE].is_string()) {
-        res->set_400(std::string("Parameter `") + STOPWORD_LOCALE + "` is required as string value");
-        return false;
-    }
-
-    Option<bool> success_op = stopwordManager.upsert_stopword(stopword_name, req_json);
+    Option<bool> success_op = stopwordManager.upsert_stopword(stopword_name, req_json, true);
     if(!success_op.ok()) {
-        res->set_500(success_op.error());
+        res->set(success_op.code(), success_op.error());
         return false;
     }
 
