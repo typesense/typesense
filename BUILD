@@ -212,8 +212,8 @@ cp $BUILD_TMPDIR/_deps/pytorch_cpuinfo-build/libcpuinfo.a $INSTALLDIR/lib/_deps/
 """
 
 __POSTFIX_WITH_CUDA = __POSTFIX + """
-cp $BUILD_TMPDIR/libonnxruntime_providers_shared.so $EXT_BUILD_ROOT/bazel-out/k8-fastbuild/bin
-cp $BUILD_TMPDIR/libonnxruntime_providers_cuda.so $EXT_BUILD_ROOT/bazel-out/k8-fastbuild/bin
+cp $BUILD_TMPDIR/libonnxruntime_providers_shared.so $INSTALLDIR/../../bin
+cp $BUILD_TMPDIR/libonnxruntime_providers_cuda.so $INSTALLDIR/../../bin
 """
 
 
