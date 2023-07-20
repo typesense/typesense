@@ -16,6 +16,7 @@
 #include "ratelimit_manager.h"
 #include "event_manager.h"
 #include "http_proxy.h"
+#include "include/stopwords_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -1889,6 +1890,102 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     res->set_200(res_json.dump());
     return true;
 }
+
+bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    StopwordsManager& stopwordManager = StopwordsManager::get_instance();
+    const spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>>& stopwords = stopwordManager.get_stopwords();
+    nlohmann::json res_json = nlohmann::json::object();
+    res_json["stopwords"] = nlohmann::json::array();
+
+    for(const auto& stopwords_kv: stopwords) {
+        nlohmann::json stopword;
+        stopword["name"] = stopwords_kv.first;
+        for(const auto& val : stopwords_kv.second) {
+            stopword["value"].push_back(val);
+        }
+        res_json["stopwords"].push_back(stopword);
+    }
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string & stopword_name = req->params["stopword_name"];
+    StopwordsManager& stopwordManager = StopwordsManager::get_instance();
+
+    spp::sparse_hash_set<std::string> stopwords;
+    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
+
+    if(!stopword_op.ok()) {
+        res->set(stopword_op.code(), stopword_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = stopword_name;
+    for(const auto& stopword : stopwords) {
+        res_json["value"].push_back(stopword);
+    }
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    StopwordsManager& stopwordManager = StopwordsManager::get_instance();
+    const std::string & stopword_name = req->params["name"];
+
+    Option<bool> success_op = stopwordManager.upsert_stopword(stopword_name, req_json, true);
+    if(!success_op.ok()) {
+        res->set(success_op.code(), success_op.error());
+        return false;
+    }
+
+    req_json["name"] = stopword_name;
+
+    res->set_200(req_json.dump());
+    return true;
+}
+
+bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string & stopword_name = req->params["name"];
+    StopwordsManager& stopwordManager = StopwordsManager::get_instance();
+
+    spp::sparse_hash_set<std::string> stopwords;
+    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
+    if(!stopword_op.ok()) {
+        res->set(stopword_op.code(), stopword_op.error());
+        return false;
+    }
+
+    Option<bool> delete_op = stopwordManager.delete_stopword(stopword_name);
+
+    if(!delete_op.ok()) {
+        res->set_500(delete_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = stopword_name;
+    for(const auto& stopword : stopwords) {
+        res_json["value"].push_back(stopword);
+    }
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
 bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
 

@@ -392,7 +392,7 @@ public:
     void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
-                            const std::string& locale, const bool already_segmented) const;
+                            const std::string& locale, const bool already_segmented, const std::string& stopword_set="") const;
 
     // PUBLIC OPERATIONS
 
@@ -467,7 +467,8 @@ public:
                                   facet_index_type_t facet_index_type = HASH,
                                   const size_t vector_query_hits = 250,
                                   const size_t remote_embedding_timeout_ms = 30000,
-                                  const size_t remote_embedding_num_try = 2) const;
+                                  const size_t remote_embedding_num_try = 2,
+                                  const std::string& stopwords_set="") const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

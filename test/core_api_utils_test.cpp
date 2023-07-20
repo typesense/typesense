@@ -1138,8 +1138,6 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
     ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
 }
 
-
-
 TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {
     nlohmann::json body;
 

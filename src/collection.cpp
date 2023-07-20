@@ -18,6 +18,7 @@
 #include "thread_local_vars.h"
 #include "vector_query_ops.h"
 #include "text_embedder_manager.h"
+#include "stopwords_manager.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -574,9 +575,9 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             res["document"] = json_out[index_record.position];
             res["error"] = index_record.indexed.error();
             if (!index_record.embedding_res.empty()) {
-                    res["embedding_error"] = nlohmann::json::object();
-                    res["error"] = index_record.embedding_res["error"];
-                    res["embedding_error"] = index_record.embedding_res;
+                res["embedding_error"] = nlohmann::json::object();
+                res["error"] = index_record.embedding_res["error"];
+                res["embedding_error"] = index_record.embedding_res;
             }
             res["code"] = index_record.indexed.code();
         }
@@ -741,7 +742,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                               std::vector<sort_by>& sort_fields_std,
-                                                              const bool is_wildcard_query, 
+                                                              const bool is_wildcard_query,
                                                               const bool is_vector_query,
                                                               const bool is_group_by_query) const {
 
@@ -804,8 +805,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 if(!field_it.value().is_geopoint()) {
                     // check for null value order
                     const std::string& sort_params_str = sort_field_std.name.substr(paran_start + 1,
-                                                                                     sort_field_std.name.size() -
-                                                                                     paran_start - 2);
+                                                                                    sort_field_std.name.size() -
+                                                                                    paran_start - 2);
 
                     std::vector<std::string> param_parts;
                     StringUtils::split(sort_params_str, param_parts, ":");
@@ -918,7 +919,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
             sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found && sort_field_std.name != sort_field_const::vector_distance) {
-                
+
             const auto field_it = search_schema.find(sort_field_std.name);
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
                 std::string error = "Could not find a field named `" + sort_field_std.name +
@@ -936,7 +937,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             std::string error = "sort_by vector_distance is only supported for vector queries, semantic search and hybrid search.";
             return Option<bool>(404, error);
         }
-        
+
         StringUtils::toupper(sort_field_std.order);
 
         if(sort_field_std.order != sort_field_const::asc && sort_field_std.order != sort_field_const::desc) {
@@ -1110,8 +1111,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t page_offset,
                                   facet_index_type_t facet_index_type,
                                   const size_t vector_query_hits,
-                                  const size_t remote_embedding_timeout_ms, 
-                                  const size_t remote_embedding_num_try) const {
+                                  const size_t remote_embedding_timeout_ms,
+                                  const size_t remote_embedding_num_try,
+                                  const std::string& stopwords_set) const {
 
     std::shared_lock lock(mutex);
 
@@ -1538,7 +1540,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         field_query_tokens.emplace_back(query_tokens_t{});
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
-                           false);
+                           false, stopwords_set);
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
             field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
@@ -1550,7 +1552,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query);
+                           field_locale, pre_segmented_query, stopwords_set);
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -2479,12 +2481,20 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
-                                    const std::string& locale, const bool already_segmented) const {
+                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
     } else {
         std::vector<std::string> tokens;
+        spp::sparse_hash_set<std::string> stopwords_list;
+        if(!stopwords_set.empty()) {
+            const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwords_list);
+            if (!stopword_op.ok()) {
+                LOG(ERROR) << stopword_op.error();
+                LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
+            }
+        }
 
         if(already_segmented) {
             StringUtils::split(query, tokens, " ");
@@ -2494,6 +2504,10 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             custom_symbols.push_back('"');
 
             Tokenizer(query, true, false, locale, custom_symbols, token_separators).tokenize(tokens);
+        }
+
+        for (const auto val: stopwords_list) {
+            tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
         }
 
         bool exclude_operator_prior = false;
@@ -2579,8 +2593,13 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         }
 
         if(q_include_tokens.empty()) {
-            // this can happen if the only query token is an exclusion token
-            q_include_tokens.emplace_back("*");
+            if(!stopwords_set.empty()) {
+                //this can happen when all tokens in the include are stopwords
+                q_include_tokens.emplace_back("##hrhdh##");
+            } else {
+                // this can happen if the only query token is an exclusion token
+                q_include_tokens.emplace_back("*");
+            }
         }
     }
 }
@@ -3818,7 +3837,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                     index->remove(seq_id, rec.doc, del_fields, true);
                 }
             }
-            
+
             Index::batch_memory_index(index, iter_batch, default_sorting_field, schema_additions, embedding_fields,
                                       fallback_field_type, token_separators, symbols_to_index, true, 200, false);
 
@@ -3938,7 +3957,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         }
     }
 
-    
+
 
     return Option<bool>(true);
 }
@@ -4338,7 +4357,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 if(!flag) {
                     return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
                 }
-            } 
+            }
         }
     }
 
