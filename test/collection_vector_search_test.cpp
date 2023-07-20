@@ -302,6 +302,22 @@ TEST_F(CollectionVectorTest, IndexGreaterThan1KVectors) {
     ASSERT_EQ(1500, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionVectorTest, InsertDocWithEmptyVectorAndDelete) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "vec", "type": "float[]", "num_dim": 4, "optional": true}
+        ]
+    })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["vec"] = {};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    ASSERT_TRUE(coll1->remove("0").ok());
+}
+
 TEST_F(CollectionVectorTest, VecSearchWithFiltering) {
     nlohmann::json schema = R"({
         "name": "coll1",
