@@ -2,6 +2,7 @@
 
 #include <string>
 #include <map>
+#include <utility>
 #include <vector>
 #include "option.h"
 #include "posting_list.h"
@@ -29,6 +30,30 @@ struct reference_filter_result_t {
     }
 };
 
+struct single_filter_result_t {
+    uint32_t seq_id = 0;
+    // Collection name -> Reference filter result
+    std::map<std::string, reference_filter_result_t> reference_filter_results = {};
+
+    single_filter_result_t() = default;
+
+    single_filter_result_t(uint32_t seq_id, std::map<std::string, reference_filter_result_t>&& reference_filter_results) :
+                            seq_id(seq_id), reference_filter_results(std::move(reference_filter_results)) {}
+
+    single_filter_result_t(const single_filter_result_t& obj) {
+        if (&obj == this)
+            return;
+
+        seq_id = obj.seq_id;
+
+        // Copy every collection's reference.
+        for (const auto &item: obj.reference_filter_results) {
+            auto& ref_coll_name = item.first;
+            reference_filter_results[ref_coll_name] = item.second;
+        }
+    }
+};
+
 struct filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
@@ -38,6 +63,24 @@ struct filter_result_t {
     filter_result_t() = default;
 
     filter_result_t(uint32_t count, uint32_t* docs) : count(count), docs(docs) {}
+
+    filter_result_t(const filter_result_t& obj) {
+        if (&obj == this)
+            return;
+
+        count = obj.count;
+        docs = new uint32_t[count];
+        memcpy(docs, obj.docs, count * sizeof(uint32_t));
+
+        // Copy every collection's references.
+        for (const auto &item: obj.reference_filter_results) {
+            auto& ref_coll_name = item.first;
+            reference_filter_results[ref_coll_name] = new reference_filter_result_t[count];
+            for (uint32_t i = 0; i < count; i++) {
+                reference_filter_results[ref_coll_name][i] = item.second[i];
+            }
+        }
+    }
 
     filter_result_t& operator=(const filter_result_t& obj) noexcept {
         if (&obj == this)
@@ -131,6 +174,9 @@ private:
 
     explicit filter_result_iterator_t(uint32_t approx_filter_ids_length);
 
+    /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
+    void get_n_ids(const uint32_t& n, filter_result_t& result);
+
 public:
     uint32_t seq_id = 0;
     /// Collection name -> references
@@ -174,15 +220,12 @@ public:
     /// operation.
     void next();
 
-    /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
-    void get_n_ids(const uint32_t& n, std::vector<uint32_t>& results);
-
     /// Collects n doc ids while advancing the iterator. The ids present in excluded_result_ids are ignored. The
     /// iterator may become invalid during this operation.
-    void get_n_ids(const uint32_t &n,
+    void get_n_ids(const uint32_t& n,
                    uint32_t& excluded_result_index,
                    uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                   std::vector<uint32_t> &results);
+                   filter_result_t& result);
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
@@ -201,6 +244,8 @@ public:
     /// Performs AND with the contents of A and allocates a new array of results.
     /// \return size of the results array
     uint32_t and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results);
+
+    void and_scalar(const uint32_t* A, const uint32_t& lenA, filter_result_t& result);
 
     static void add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
                                uint32_t* phrase_result_ids, const uint32_t& phrase_result_count);

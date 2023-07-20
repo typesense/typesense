@@ -1411,6 +1411,72 @@ uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t&
     return filter_ids.size();
 }
 
+void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& lenA, filter_result_t& result) {
+    if (!is_valid) {
+        return;
+    }
+
+    if (filter_result.reference_filter_results.empty()) {
+        if (is_filter_result_initialized) {
+            result.count = ArrayUtils::and_scalar(A, lenA, filter_result.docs, filter_result.count, &result.docs);
+            return;
+        }
+
+        std::vector<uint32_t> filter_ids;
+        for (uint32_t i = 0; i < lenA; i++) {
+            auto _result = valid(A[i]);
+
+            if (_result == -1) {
+                break;
+            }
+
+            if (_result == 1) {
+                filter_ids.push_back(A[i]);
+            }
+        }
+
+        if (filter_ids.empty()) {
+            return;
+        }
+
+        result.count = filter_ids.size();
+        result.docs = new uint32_t[filter_ids.size()];
+        std::copy(filter_ids.begin(), filter_ids.end(), result.docs);
+        return;
+    }
+
+    if (!is_filter_result_initialized) {
+        compute_result();
+    }
+
+    std::vector<uint32_t> match_indexes;
+    for (uint32_t i = 0; i < lenA; i++) {
+        auto _result = valid(A[i]);
+
+        if (_result == -1) {
+            break;
+        }
+
+        if (_result == 1) {
+            match_indexes.push_back(result_index);
+        }
+    }
+
+    result.count = match_indexes.size();
+    result.docs = new uint32_t[match_indexes.size()];
+    for (auto const& item: filter_result.reference_filter_results) {
+        result.reference_filter_results[item.first] = new reference_filter_result_t[match_indexes.size()];
+    }
+
+    for (uint32_t i = 0; i < match_indexes.size(); i++) {
+        auto const& match_index = match_indexes[i];
+        result.docs[i] = filter_result.docs[match_index];
+        for (auto const& item: filter_result.reference_filter_results) {
+            result.reference_filter_results[item.first][i] = item.second[match_index];
+        }
+    }
+}
+
 filter_result_iterator_t::filter_result_iterator_t(const std::string collection_name, const Index *const index,
                                                    const filter_node_t *const filter_node)  :
         collection_name(collection_name),
@@ -1488,52 +1554,66 @@ filter_result_iterator_t &filter_result_iterator_t::operator=(filter_result_iter
     return *this;
 }
 
-void filter_result_iterator_t::get_n_ids(const uint32_t& n, std::vector<uint32_t>& results) {
-    if (is_filter_result_initialized) {
-        for (uint32_t count = 0; count < n && result_index < filter_result.count; count++) {
-            results.push_back(filter_result.docs[result_index++]);
-        }
-
-        is_valid = result_index < filter_result.count;
+void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t& result) {
+    if (!is_filter_result_initialized) {
         return;
     }
 
-    for (uint32_t count = 0; count < n && is_valid; count++) {
-        results.push_back(seq_id);
-        next();
+    auto result_length = result.count = std::min(n, filter_result.count - result_index);
+    result.docs = new uint32_t[result_length];
+    for (const auto &item: filter_result.reference_filter_results) {
+        result.reference_filter_results[item.first] = new reference_filter_result_t[result_length];
     }
+
+    for (uint32_t i = 0; i < result_length; i++, result_index++) {
+        result.docs[i] = filter_result.docs[result_index];
+        for (const auto &item: filter_result.reference_filter_results) {
+            result.reference_filter_results[item.first][i] = item.second[result_index];
+        }
+    }
+
+    is_valid = result_index < filter_result.count;
 }
 
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
-                                         uint32_t & excluded_result_index,
+                                         uint32_t& excluded_result_index,
                                          uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                                         std::vector<uint32_t>& results) {
+                                         filter_result_t& result) {
     if (excluded_result_ids == nullptr || excluded_result_ids_size == 0 ||
         excluded_result_index >= excluded_result_ids_size) {
-        return get_n_ids(n, results);
+        return get_n_ids(n, result);
     }
 
-    if (is_filter_result_initialized) {
-        for (uint32_t count = 0; count < n && result_index < filter_result.count;) {
-            auto id = filter_result.docs[result_index++];
-
-            if (!ArrayUtils::skip_index_to_id(excluded_result_index, excluded_result_ids, excluded_result_ids_size, id)) {
-                results.push_back(id);
-                count++;
-            }
-        }
-
-        is_valid = result_index < filter_result.count;
+    // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_result.
+    if (!is_filter_result_initialized) {
         return;
     }
 
-    for (uint32_t count = 0; count < n && is_valid;) {
-        if (!ArrayUtils::skip_index_to_id(excluded_result_index, excluded_result_ids, excluded_result_ids_size, seq_id)) {
-            results.push_back(seq_id);
+    std::vector<uint32_t> match_indexes;
+    for (uint32_t count = 0; count < n && result_index < filter_result.count; result_index++) {
+        auto id = filter_result.docs[result_index];
+
+        if (!ArrayUtils::skip_index_to_id(excluded_result_index, excluded_result_ids, excluded_result_ids_size, id)) {
+            match_indexes.push_back(result_index);
             count++;
         }
-        next();
     }
+
+    result.count = match_indexes.size();
+    result.docs = new uint32_t[match_indexes.size()];
+    for (auto const& item: filter_result.reference_filter_results) {
+        result.reference_filter_results[item.first] = new reference_filter_result_t[match_indexes.size()];
+    }
+
+    for (uint32_t i = 0; i < match_indexes.size(); i++) {
+        auto const& match_index = match_indexes[i];
+        result.docs[i] = filter_result.docs[match_index];
+        for (auto const& item: filter_result.reference_filter_results) {
+            result.reference_filter_results[item.first][i] = item.second[match_index];
+        }
+    }
+
+    is_valid = result_index < filter_result.count;
 }
 
 filter_result_iterator_t::filter_result_iterator_t(uint32_t approx_filter_ids_length) :

@@ -220,6 +220,61 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
     return true;
 }
 
+bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded,
+                            single_filter_result_t& filter_result) {
+    is_excluded = false;
+
+    // decide if this result id should be excluded
+    if(istate.excluded_result_ids_size != 0) {
+        if (std::binary_search(istate.excluded_result_ids,
+                               istate.excluded_result_ids + istate.excluded_result_ids_size, id)) {
+            is_excluded = true;
+            return false;
+        }
+    }
+
+    // decide if this result be matched with filter results
+    if(istate.filter_ids_length != 0) {
+        if(istate.filter_ids_index >= istate.filter_ids_length) {
+            return false;
+        }
+
+        // Returns iterator to the first element that is >= to value or last if no such element is found.
+        size_t found_index = std::lower_bound(istate.filter_ids + istate.filter_ids_index,
+                                              istate.filter_ids + istate.filter_ids_length, id) - istate.filter_ids;
+
+        if(found_index == istate.filter_ids_length) {
+            // all elements are lesser than lowest value (id), so we can stop looking
+            istate.filter_ids_index = found_index + 1;
+            return false;
+        } else {
+            if(istate.filter_ids[found_index] == id) {
+                filter_result.seq_id = id;
+                istate.filter_ids_index = found_index + 1;
+                return true;
+            }
+
+            istate.filter_ids_index = found_index;
+        }
+
+        return false;
+    }
+
+    if (istate.fit != nullptr && istate.fit->approx_filter_ids_length > 0) {
+        if (istate.fit->valid(id) == 1) {
+            filter_result.seq_id = id;
+            filter_result.reference_filter_results = std::move(istate.fit->reference);
+            istate.fit->next();
+            return true;
+        }
+
+        return false;
+    }
+
+    filter_result.seq_id = id;
+    return true;
+}
+
 or_iterator_t::or_iterator_t(std::vector<posting_list_t::iterator_t>& its): its(std::move(its)) {
     curr_index = 0;
 

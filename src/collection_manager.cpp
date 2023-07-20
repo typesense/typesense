@@ -676,6 +676,50 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
     return Option<bool>(true);
 }
 
+void initialize_include_fields_vec(const std::string& filter_query, std::vector<std::string>& include_fields_vec) {
+    if (filter_query.empty()) {
+        return;
+    }
+
+    std::set<std::string> reference_collection_names;
+    StringUtils::get_reference_collection_names(filter_query, reference_collection_names);
+    if (reference_collection_names.empty()) {
+        return;
+    }
+
+    bool non_reference_include_found = false;
+    for (auto include_field: include_fields_vec) {
+        if (include_field[0] != '$') {
+            non_reference_include_found = true;
+            continue;
+        }
+
+        auto open_paren_pos = include_field.find('(');
+        if (open_paren_pos == std::string::npos) {
+            continue;
+        }
+
+        auto reference_collection_name = include_field.substr(1, open_paren_pos - 1);
+        StringUtils::trim(reference_collection_name);
+        if (reference_collection_name.empty()) {
+            continue;
+        }
+
+        // Referenced collection in filter_query is already mentioned in include_fields.
+        reference_collection_names.erase(reference_collection_name);
+    }
+
+    // Get all the fields of the referenced collection in the filter but not mentioned in include_fields.
+    for (const auto &reference_collection_name: reference_collection_names) {
+        include_fields_vec.emplace_back("$" + reference_collection_name + "(*)");
+    }
+
+    // Since no field of the collection is mentioned in include_fields, get all the fields.
+    if (!include_fields_vec.empty() && !non_reference_include_found) {
+        include_fields_vec.emplace_back("*");
+    }
+}
+
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
                                           nlohmann::json& embedded_params,
                                           std::string& results_json_str,
@@ -822,7 +866,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD;
 
     std::vector<std::string> search_fields;
-    std::string simple_filter_query;
+    std::string filter_query;
     std::vector<std::string> facet_fields;
     std::vector<sort_by> sort_fields;
     size_t per_page = 10;
@@ -902,7 +946,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
-        {FILTER, &simple_filter_query},
+        {FILTER, &filter_query},
         {VECTOR_QUERY, &vector_query},
         {FACET_QUERY, &simple_facet_query},
         {HIGHLIGHT_FIELDS, &highlight_fields},
@@ -1027,6 +1071,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
+    initialize_include_fields_vec(filter_query, include_fields_vec);
+
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
     exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
 
@@ -1069,7 +1115,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
-    Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
+    Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, filter_query, facet_fields,
                                                           sort_fields, num_typos,
                                                           per_page,
                                                           page,

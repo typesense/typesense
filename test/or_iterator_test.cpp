@@ -59,8 +59,9 @@ TEST(OrIteratorTest, IntersectTwoListsWith3SubLists) {
 
     std::vector<uint32_t> results;
 
-    or_iterator_t::intersect(or_its, istate, [&results](uint32_t id, std::vector<or_iterator_t>& its) {
-        results.push_back(id);
+    or_iterator_t::intersect(or_its, istate,
+                             [&results](const single_filter_result_t& filter_result, std::vector<or_iterator_t>& its) {
+        results.push_back(filter_result.seq_id);
     });
 
 
@@ -136,8 +137,9 @@ TEST(OrIteratorTest, IntersectTwoListsWith4SubLists) {
 
     std::vector<uint32_t> results;
 
-    or_iterator_t::intersect(or_its, istate, [&results](uint32_t id, std::vector<or_iterator_t>& its) {
-        results.push_back(id);
+    or_iterator_t::intersect(or_its, istate,
+                             [&results](const single_filter_result_t& filter_result, std::vector<or_iterator_t>& its) {
+        results.push_back(filter_result.seq_id);
     });
 
     std::vector<uint32_t> expected_results = {3199, 6414, 13357};
@@ -202,8 +204,9 @@ TEST(OrIteratorTest, IntersectAndFilterThreeIts) {
     result_iter_state_t istate(nullptr, 0, &filter_ids[0], filter_ids.size());
 
     std::vector<uint32_t> results;
-    or_iterator_t::intersect(or_its, istate, [&results](uint32_t id, std::vector<or_iterator_t>& its) {
-        results.push_back(id);
+    or_iterator_t::intersect(or_its, istate,
+                             [&results](const single_filter_result_t& filter_result, std::vector<or_iterator_t>& its) {
+        results.push_back(filter_result.seq_id);
     });
 
     ASSERT_EQ(1, results.size());
@@ -249,8 +252,9 @@ TEST(OrIteratorTest, IntersectAndFilterTwoIts) {
     result_iter_state_t istate(nullptr, 0, &filter_ids[0], filter_ids.size());
 
     std::vector<uint32_t> results;
-    or_iterator_t::intersect(or_its, istate, [&results](uint32_t id, std::vector<or_iterator_t>& its) {
-        results.push_back(id);
+    or_iterator_t::intersect(or_its, istate,
+                             [&results](const single_filter_result_t& filter_result, std::vector<or_iterator_t>& its) {
+        results.push_back(filter_result.seq_id);
     });
 
     ASSERT_EQ(1, results.size());

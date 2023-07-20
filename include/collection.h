@@ -373,7 +373,7 @@ public:
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                           const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0,
-                          const reference_filter_result_t* reference_filter_result = nullptr);
+                          const std::map<std::string, reference_filter_result_t>& reference_filter_results = {});
 
     const Index* _get_index() const;
 
