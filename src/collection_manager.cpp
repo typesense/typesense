@@ -676,13 +676,61 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
     return Option<bool>(true);
 }
 
+void CollectionManager::_get_reference_collection_names(const std::string& filter_query,
+                                                        std::set<std::string>& reference_collection_names) {
+    auto size = filter_query.size();
+    for (uint32_t i = 0; i < size;) {
+        auto c = filter_query[i];
+        if (c == ' ' || c == '(' || c == ')') {
+            i++;
+        } else if (c == '&' || c == '|') {
+            i += 2;
+        } else {
+            // Reference filter would start with $ symbol.
+            if (c == '$') {
+                auto open_paren_pos = filter_query.find('(', ++i);
+                if (open_paren_pos == std::string::npos) {
+                    return;
+                }
+
+                auto reference_collection_name = filter_query.substr(i, open_paren_pos - i);
+                StringUtils::trim(reference_collection_name);
+                if (!reference_collection_name.empty()) {
+                    reference_collection_names.insert(reference_collection_name);
+                }
+
+                i = open_paren_pos;
+                int parenthesis_count = 1;
+                while (++i < size && parenthesis_count > 0) {
+                    if (filter_query[i] == '(') {
+                        parenthesis_count++;
+                    } else if (filter_query[i] == ')') {
+                        parenthesis_count--;
+                    }
+                }
+            } else {
+                while (filter_query[++i] != ':');
+                bool in_backtick = false;
+                do {
+                    c = filter_query[++i];
+                    if (c == '`') {
+                        in_backtick = !in_backtick;
+                    }
+                } while (i < size && (in_backtick || (c != '(' && c != ')' &&
+                                                      !(c == '&' && filter_query[i + 1] == '&') &&
+                                                      !(c == '|' && filter_query[i + 1] == '|'))));
+            }
+        }
+    }
+}
+
 void initialize_include_fields_vec(const std::string& filter_query, std::vector<std::string>& include_fields_vec) {
     if (filter_query.empty()) {
         return;
     }
 
     std::set<std::string> reference_collection_names;
-    StringUtils::get_reference_collection_names(filter_query, reference_collection_names);
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
     if (reference_collection_names.empty()) {
         return;
     }
