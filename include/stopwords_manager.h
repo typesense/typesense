@@ -39,4 +39,6 @@ public:
     Option<bool> upsert_stopword(const std::string&, const nlohmann::json&, bool write_to_store=false);
 
     Option<bool> delete_stopword(const std::string&);
+
+    void dispose();
 };

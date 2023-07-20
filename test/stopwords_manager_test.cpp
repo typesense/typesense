@@ -422,13 +422,14 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
 
     //dispose collection manager and reload all stopwords
     collectionManager.dispose();
+    stopwordsManager.dispose();
     delete store;
     stopword_config.clear();
 
     std::string state_dir_path = "/tmp/typesense_test/stopwords_manager";
-    system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     store = new Store(state_dir_path);
 
+    stopwordsManager.init(store);
     collectionManager.init(store, 1.0, "auth_key", quit);
     collectionManager.load(8, 1000);
 

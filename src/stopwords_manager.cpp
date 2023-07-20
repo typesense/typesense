@@ -89,3 +89,8 @@ Option<bool> StopwordsManager::delete_stopword(const std::string& stopword_name)
     stopword_configs.erase(stopword_name);
     return Option<bool>(true);
 }
+
+void StopwordsManager::dispose() {
+    std::unique_lock lock(mutex);
+    stopword_configs.clear();
+}
