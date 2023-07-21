@@ -737,14 +737,14 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
         return tokenize_op;
     }
 
-    if (tokens.size() > 100) {
-        return Option<bool>(400, "Filter expression is not valid.");
-    }
-
     std::queue<std::string> postfix;
     Option<bool> toPostfix_op = toPostfix(tokens, postfix);
     if (!toPostfix_op.ok()) {
         return toPostfix_op;
+    }
+
+    if (postfix.size() > 100) {
+        return Option<bool>(400, "`filter_by` has too many operations.");
     }
 
     Option<bool> toParseTree_op = toParseTree(postfix,

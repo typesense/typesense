@@ -582,54 +582,6 @@ size_t StringUtils::split_facet(const std::string &s, std::vector<std::string> &
     return std::min(end_index, s.size());
 }
 
-void StringUtils::get_reference_collection_names(const std::string& filter_query,
-                                                 std::set<std::string>& reference_collection_names) {
-    auto size = filter_query.size();
-    for (uint32_t i = 0; i < size;) {
-        auto c = filter_query[i];
-        if (c == ' ' || c == '(' || c == ')') {
-            i++;
-        } else if (c == '&' || c == '|') {
-            i += 2;
-        } else {
-            // Reference filter would start with $ symbol.
-            if (c == '$') {
-                auto open_paren_pos = filter_query.find('(', ++i);
-                if (open_paren_pos == std::string::npos) {
-                    return;
-                }
-
-                auto reference_collection_name = filter_query.substr(i, open_paren_pos - i);
-                StringUtils::trim(reference_collection_name);
-                if (!reference_collection_name.empty()) {
-                    reference_collection_names.insert(reference_collection_name);
-                }
-
-                i = open_paren_pos;
-                int parenthesis_count = 1;
-                while (++i < size && parenthesis_count > 0) {
-                    if (filter_query[i] == '(') {
-                        parenthesis_count++;
-                    } else if (filter_query[i] == ')') {
-                        parenthesis_count--;
-                    }
-                }
-            } else {
-                while (filter_query[++i] != ':');
-                bool in_backtick = false;
-                do {
-                    c = filter_query[++i];
-                    if (c == '`') {
-                        in_backtick = !in_backtick;
-                    }
-                } while (i < size && (in_backtick || (c != '(' && c != ')' &&
-                                                      !(c == '&' && filter_query[i + 1] == '&') &&
-                                                      !(c == '|' && filter_query[i + 1] == '|'))));
-            }
-        }
-    }
-}
-
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();
