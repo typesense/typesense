@@ -398,7 +398,8 @@ public:
 
     nlohmann::json get_summary_json() const;
 
-    size_t batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size = 200, const bool generate_embeddings = true);
+    size_t batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
+                                 const bool generate_embeddings);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
@@ -407,7 +408,8 @@ public:
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                             const index_operation_t& operation=CREATE, const std::string& id="",
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
-                            const bool& return_doc=false, const bool& return_id=false, const size_t remote_embedding_batch_size=200);
+                            const bool& return_doc=false, const bool& return_id=false,
+                            const size_t remote_embedding_batch_size=200);
 
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
@@ -465,7 +467,6 @@ public:
                                   const size_t facet_sample_threshold = 0,
                                   const size_t page_offset = 0,
                                   facet_index_type_t facet_index_type = HASH,
-                                  const size_t vector_query_hits = 250,
                                   const size_t remote_embedding_timeout_ms = 30000,
                                   const size_t remote_embedding_num_try = 2,
                                   const std::string& stopwords_set="") const;

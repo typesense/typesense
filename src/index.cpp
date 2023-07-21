@@ -2347,7 +2347,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
         if (!vector_query.field_name.empty()) {
-            auto k = std::max<size_t>(vector_query.k, fetch_size);
+            auto k = vector_query.k == 0 ? std::max<size_t>(vector_query.k, fetch_size) : vector_query.k;
+
             if(vector_query.query_doc_given) {
                 // since we will omit the query doc from results
                 k++;
@@ -2684,7 +2685,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 std::vector<std::pair<float, size_t>> dist_labels;
                 // use k as 100 by default for ensuring results stability in pagination
                 size_t default_k = 100;
-                auto k = std::max<size_t>(vector_query.k, default_k);
+                auto k = vector_query.k == 0 ? std::max<size_t>(fetch_size, default_k) : vector_query.k;
 
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());

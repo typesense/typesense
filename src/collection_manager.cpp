@@ -746,7 +746,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *MAX_FACET_VALUES = "max_facet_values";
 
     const char *VECTOR_QUERY = "vector_query";
-    const char *VECTOR_QUERY_HITS = "vector_query_hits";
 
     const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
     const char* REMOTE_EMBEDDING_NUM_TRY = "remote_embedding_num_try";
@@ -910,7 +909,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
-    size_t vector_query_hits = 250;
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_try = 2;
@@ -940,7 +938,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FILTER_CURATED_HITS, &filter_curated_hits_option},
         {FACET_SAMPLE_PERCENT, &facet_sample_percent},
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
-        {VECTOR_QUERY_HITS, &vector_query_hits},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRY, &remote_embedding_num_try},
     };
@@ -1159,7 +1156,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           facet_sample_threshold,
                                                           offset,
                                                           HASH,
-                                                          vector_query_hits,
                                                           remote_embedding_timeout_ms,
                                                           remote_embedding_num_try,
                                                           stopwords_set
@@ -1393,7 +1389,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_override_json: collection_override_jsons) {
         nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
         override_t override;
-        auto parse_op = override_t::parse(collection_override, "", override);
+        auto parse_op = override_t::parse(collection_override, "", override, "", collection->get_symbols_to_index(),
+                                          collection->get_token_separators());
         if(parse_op.ok()) {
             collection->add_override(override, false);
         } else {
@@ -1467,7 +1464,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         // batch must match atleast the number of shards
          if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
-            size_t num_indexed = collection->batch_index_in_memory(index_records, false);
+            size_t num_indexed = collection->batch_index_in_memory(index_records, 200, false);
             batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {

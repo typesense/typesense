@@ -29,6 +29,7 @@ struct vector_query_t {
 
 class VectorQueryOps {
 public:
-    static Option<bool> parse_vector_query_str(std::string vector_query_str, vector_query_t& vector_query,
+    static Option<bool> parse_vector_query_str(const std::string& vector_query_str, vector_query_t& vector_query,
+                                               const bool is_wildcard_query,
                                                const Collection* coll);
 };

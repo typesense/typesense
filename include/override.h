@@ -45,7 +45,12 @@ struct override_t {
 
     override_t() = default;
 
-    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id, override_t& override);
+    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id,
+                              override_t& override,
+                              const std::string& locale = "",
+                              const std::vector<char>& symbols_to_index = {},
+                              const std::vector<char>& token_separators = {}
+                              );
 
     nlohmann::json to_json() const;
 };

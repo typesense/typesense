@@ -2,8 +2,10 @@
 #include "string_utils.h"
 #include "collection.h"
 
-Option<bool> VectorQueryOps::parse_vector_query_str(std::string vector_query_str, vector_query_t& vector_query,
-                                            const Collection* coll) {
+Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_query_str,
+                                                    vector_query_t& vector_query,
+                                                    const bool is_wildcard_query,
+                                                    const Collection* coll) {
     // FORMAT:
     // field_name([0.34, 0.66, 0.12, 0.68], exact: false, k: 10)
     size_t i = 0;
@@ -156,7 +158,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(std::string vector_query_str
                 }
             }
 
-            if(!vector_query.query_doc_given && vector_query.values.empty()) {
+            if(is_wildcard_query && !vector_query.query_doc_given && vector_query.values.empty()) {
                 return Option<bool>(400, "When a vector query value is empty, an `id` parameter must be present.");
             }
 

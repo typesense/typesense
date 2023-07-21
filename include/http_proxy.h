@@ -45,5 +45,6 @@ class HttpProxy {
 
 
         // lru cache for http requests
+        std::shared_mutex mutex;
         LRU::TimedCache<uint64_t, http_proxy_res_t> cache;
 };

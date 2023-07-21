@@ -506,7 +506,7 @@ bool Collection::is_exceeding_memory_threshold() const {
 void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
                              size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size) {
 
-    batch_index_in_memory(index_records, remote_embedding_batch_size);
+    batch_index_in_memory(index_records, remote_embedding_batch_size, true);
 
     // store only documents that were indexed in-memory successfully
     for(auto& index_record: index_records) {
@@ -644,10 +644,18 @@ void Collection::curate_results(string& actual_query, const string& filter_query
         }
     }
 
-    std::string query = actual_query;
 
     if(enable_overrides && !overrides.empty()) {
-        StringUtils::tolowercase(query);
+        std::string query;
+
+        if(actual_query == "*") {
+            query = "*";
+        } else {
+            std::vector<std::string> tokens;
+            Tokenizer tokenizer(actual_query, true, false, "", symbols_to_index, token_separators);
+            tokenizer.tokenize(tokens);
+            query = StringUtils::join(tokens, " ");
+        }
 
         for(const auto& override_kv: overrides) {
             const auto& override = override_kv.second;
@@ -1110,7 +1118,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t facet_sample_threshold,
                                   const size_t page_offset,
                                   facet_index_type_t facet_index_type,
-                                  const size_t vector_query_hits,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_try,
                                   const std::string& stopwords_set) const {
@@ -1171,7 +1178,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     vector_query_t vector_query;
     if(!vector_query_str.empty()) {
-        auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query, this);
+        bool is_wildcard_query = (raw_query == "*" || raw_query.empty());
+
+        auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query,
+                                                                      is_wildcard_query, this);
         if(!parse_vector_op.ok()) {
             return Option<nlohmann::json>(400, parse_vector_op.error());
         }
@@ -1181,18 +1191,17 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
         }
 
-        if(vector_field_it.value().num_dim != vector_query.values.size()) {
+        if(is_wildcard_query && vector_field_it.value().num_dim != vector_query.values.size()) {
             return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
                                                std::to_string(vector_field_it.value().num_dim) + " dimensions.");
         }
     }
 
-
-
     // validate search fields
     std::vector<std::string> processed_search_fields;
     std::vector<uint32_t> query_by_weights;
-    bool has_embedding_query = false;
+    size_t num_embed_fields = 0;
+
     for(size_t i = 0; i < raw_search_fields.size(); i++) {
         const std::string& field_name = raw_search_fields[i];
         if(field_name == "id") {
@@ -1211,7 +1220,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             auto search_field = search_schema.at(expanded_search_field);
 
             if(search_field.num_dim > 0) {
-                if(!vector_query.field_name.empty()) {
+                num_embed_fields++;
+
+                if(num_embed_fields > 1 ||
+                    (!vector_query.field_name.empty() && search_field.name != vector_query.field_name)) {
                     std::string error = "Only one embedding field is allowed in the query.";
                     return Option<nlohmann::json>(400, error);
                 }
@@ -1231,6 +1243,14 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 if(!embedder_op.ok()) {
                     return Option<nlohmann::json>(400, embedder_op.error());
                 }
+
+                auto remote_embedding_timeout_us = remote_embedding_timeout_ms * 1000;
+                if((std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > remote_embedding_timeout_us) {
+                    std::string error = "Request timed out.";
+                    return Option<nlohmann::json>(500, error);
+                }
+
                 auto embedder = embedder_op.get();
 
                 if(embedder->is_remote()) {
@@ -1256,10 +1276,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     }
                 }
                 std::vector<float> embedding = embedding_op.embedding;
-                vector_query._reset();
+                // params could have been set for an embed field, so we take a backup and restore
                 vector_query.values = embedding;
                 vector_query.field_name = field_name;
-                vector_query.k = vector_query_hits;
                 continue;
             }
 
@@ -1270,9 +1289,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         }
     }
 
-    std::string real_raw_query = raw_query;
-    if(!vector_query.field_name.empty() && processed_search_fields.size() == 0) {
-        raw_query = "*";
+    if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
+        std::string error = "Vector query could not find any embedded fields.";
+        return Option<nlohmann::json>(400, error);
     }
 
     if(!query_by_weights.empty() && processed_search_fields.size() != query_by_weights.size()) {
@@ -1966,7 +1985,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 wrapper_doc["geo_distance_meters"] = geo_distances;
             }
 
-            if(!vector_query.field_name.empty() && query == "*") {
+            if(!vector_query.field_name.empty()) {
                 wrapper_doc["vector_distance"] = field_order_kv->vector_distance;
             }
 
@@ -2170,7 +2189,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     result["request_params"] = nlohmann::json::object();
     result["request_params"]["collection_name"] = name;
     result["request_params"]["per_page"] = per_page;
-    result["request_params"]["q"] = real_raw_query;
+    result["request_params"]["q"] = raw_query;
 
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
