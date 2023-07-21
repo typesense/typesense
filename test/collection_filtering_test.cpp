@@ -2144,6 +2144,7 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
 
     auto search_op = coll->search("Jeremy", {"name"}, extreme_filter,
                                   {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
+    LOG(INFO) << search_op.error();
     ASSERT_TRUE(search_op.ok());
     ASSERT_EQ(1, search_op.get()["hits"].size());
 
