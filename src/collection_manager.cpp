@@ -76,6 +76,20 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             }
         }
 
+        if(field_obj.count(fields::embed) != 0 && !field_obj[fields::embed].empty()) {
+            size_t num_dim = 0;
+            auto& model_config = field_obj[fields::embed][fields::model_config];
+
+            auto res = TextEmbedderManager::validate_and_init_model(model_config, num_dim);
+            if(!res.ok()) {
+                const std::string& model_name = model_config["model_name"].get<std::string>();
+                LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
+                continue;
+            }
+
+            LOG(INFO) << "Model init done.";
+        }
+
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],

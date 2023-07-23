@@ -261,6 +261,9 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::reference] = coll_field.reference;
         }
 
+        if(!coll_field.embed.empty()) {
+            field_json[fields::embed] = coll_field.embed;
+        }
 
         fields_arr.push_back(field_json);
     }

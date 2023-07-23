@@ -57,7 +57,7 @@ OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::
 
 }
 
-Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims) {
+Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims) {
     auto validate_properties = validate_string_properties(model_config, {"model_name", "api_key"});
     
     if (!validate_properties.ok()) {
@@ -260,7 +260,7 @@ GoogleEmbedder::GoogleEmbedder(const std::string& google_api_key) : google_api_k
 
 }
 
-Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims) {
+Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims) {
     auto validate_properties = validate_string_properties(model_config, {"model_name", "api_key"});
     
     if (!validate_properties.ok()) {
@@ -380,7 +380,7 @@ GCPEmbedder::GCPEmbedder(const std::string& project_id, const std::string& model
     this->model_name = TextEmbedderManager::get_model_name_without_namespace(model_name);
 }
 
-Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims)  {
+Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims)  {
     auto validate_properties = validate_string_properties(model_config, {"model_name", "project_id", "access_token", "refresh_token", "client_id", "client_secret"});
 
     if (!validate_properties.ok()) {

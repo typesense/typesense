@@ -1650,17 +1650,18 @@ TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
     ASSERT_EQ("Property `embed` must contain a `from` property.", field_op.error());
 }
 
-
 TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
-
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    nlohmann::json schema = R"({
+        "name": "obj_coll",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"],
+                "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
 
-    field embedding = field("embedding", field_types::FLOAT_ARRAY, false);
-    embedding.embed["from"].push_back("name");
-    embedding.embed["model_config"]["model_name"] = "ts/e5-small";
-    std::vector<field> fields = {field("name", field_types::STRING, false),
-                                 embedding};
-    auto obj_coll_op = collectionManager.create_collection("obj_coll", 1, fields, "", 0, field_types::AUTO);
+    auto obj_coll_op = collectionManager.create_collection(schema);
 
     ASSERT_TRUE(obj_coll_op.ok());
     Collection* obj_coll = obj_coll_op.get();

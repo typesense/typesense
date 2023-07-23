@@ -673,55 +673,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
-    if(field_json.count(fields::embed) != 0) {
-        // If the model path is not specified, use the default model and set the number of dimensions to 384 (number of dimensions of the default model)
-        field_json[fields::num_dim] = static_cast<unsigned int>(384);
-
-        auto& embed_json = field_json[fields::embed];
-
-        if(embed_json.count(fields::from) == 0) {
-            return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` not found.");
-        }
-
-        if(embed_json.count(fields::model_config) == 0) {
-            return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "` not found.");
-        }
-
-        auto& model_config = embed_json[fields::model_config];
-        
-        if(model_config.count(fields::model_name) == 0) {
-            return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::model_name + "`not found");
-        }
-
-        unsigned int num_dim = 0;
-        if(!model_config[fields::model_name].is_string()) {
-            return Option<bool>(400, "Property `" + fields::embed + "."  + fields::model_config + "." + fields::model_name + "` must be a string.");
-        }
-        if(model_config[fields::model_name].get<std::string>().empty()) {
-            return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::model_name + "` cannot be empty.");
-        }
-
-        if(model_config.count(fields::indexing_prefix) != 0) {
-            if(!model_config[fields::indexing_prefix].is_string()) {
-                return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::indexing_prefix + "` must be a string.");
-            }
-        }
-
-        if(model_config.count(fields::query_prefix) != 0) {
-            if(!model_config[fields::query_prefix].is_string()) {
-                return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::query_prefix + "` must be a string.");
-            }
-        }
-
-        auto res = TextEmbedder::is_model_valid(model_config, num_dim);
-        if(!res.ok()) {
-            return Option<bool>(res.code(), res.error());
-        }
-        field_json[fields::num_dim] = num_dim;
-    } else {
-        field_json[fields::embed] = nlohmann::json::object();
-    }
-
     auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
 
     if(field_json.count(fields::num_dim) == 0) {
@@ -1045,6 +996,120 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
     for(auto& field_name: nested_fields_vec) {
         nested_fields.erase_prefix(field_name + ".");
     }
+}
+
+Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::json &fields_json, string &fallback_field_type,
+                                          std::vector<field> &the_fields) {
+    size_t num_auto_detect_fields = 0;
+
+    for(nlohmann::json & field_json: fields_json) {
+        if(field_json.count(fields::embed) != 0) {
+            if(!field_json[fields::embed].is_object()) {
+                return Option<bool>(400, "Property `" + fields::embed + "` must be an object.");
+            }
+
+            auto& embed_json = field_json[fields::embed];
+
+            if(field_json[fields::embed].count(fields::from) == 0) {
+                return Option<bool>(400, "Property `" + fields::embed + "` must contain a `" + fields::from + "` property.");
+            }
+
+            if(!field_json[fields::embed][fields::from].is_array()) {
+                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must be an array.");
+            }
+
+            if(field_json[fields::embed][fields::from].empty()) {
+                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must have at least one element.");
+            }
+
+            for(auto& embed_from_field : field_json[fields::embed][fields::from]) {
+                if(!embed_from_field.is_string()) {
+                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must contain only field names as strings.");
+                }
+
+                bool flag = false;
+                for(const auto& field : fields_json) {
+                    if(field[fields::name] == embed_from_field) {
+                        if(field[fields::type] != field_types::STRING && field[fields::type] != field_types::STRING_ARRAY) {
+                            return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
+                        }
+                        flag = true;
+                        break;
+                    }
+                }
+                if(!flag) {
+                    for(const auto& field : the_fields) {
+                        if(field.name == embed_from_field) {
+                            if(field.type != field_types::STRING && field.type != field_types::STRING_ARRAY) {
+                                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
+                            }
+                            flag = true;
+                            break;
+                        }
+                    }
+                }
+
+                if(!flag) {
+                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
+                }
+            }
+
+            if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
+                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` is only allowed on a float array field.");
+            }
+
+            if(embed_json.count(fields::model_config) == 0) {
+                return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "` not found.");
+            }
+
+            auto& model_config = embed_json[fields::model_config];
+
+            if(model_config.count(fields::model_name) == 0) {
+                return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::model_name + "`not found");
+            }
+
+            if(!model_config[fields::model_name].is_string()) {
+                return Option<bool>(400, "Property `" + fields::embed + "."  + fields::model_config + "." + fields::model_name + "` must be a string.");
+            }
+            if(model_config[fields::model_name].get<std::string>().empty()) {
+                return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::model_name + "` cannot be empty.");
+            }
+
+            if(model_config.count(fields::indexing_prefix) != 0) {
+                if(!model_config[fields::indexing_prefix].is_string()) {
+                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::indexing_prefix + "` must be a string.");
+                }
+            }
+
+            if(model_config.count(fields::query_prefix) != 0) {
+                if(!model_config[fields::query_prefix].is_string()) {
+                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::query_prefix + "` must be a string.");
+                }
+            }
+
+            size_t num_dim = 0;
+            auto res = TextEmbedderManager::validate_and_init_model(model_config, num_dim);
+            if(!res.ok()) {
+                return Option<bool>(res.code(), res.error());
+            }
+
+            LOG(INFO) << "Model init done.";
+            embed_json[fields::num_dim] = num_dim;
+            field_json[fields::num_dim] = num_dim;
+        }
+
+        auto op = json_field_to_field(enable_nested_fields,
+                                      field_json, the_fields, fallback_field_type, num_auto_detect_fields);
+        if(!op.ok()) {
+            return op;
+        }
+    }
+
+    if(num_auto_detect_fields > 1) {
+        return Option<bool>(400,"There can be only one field named `.*`.");
+    }
+
+    return Option<bool>(true);
 }
 
 void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
