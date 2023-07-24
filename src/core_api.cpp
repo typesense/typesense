@@ -1816,7 +1816,7 @@ bool get_presets(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
 }
 
 bool get_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const std::string & preset_name = req->params["preset_name"];
+    const std::string & preset_name = req->params["name"];
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
     nlohmann::json preset;
