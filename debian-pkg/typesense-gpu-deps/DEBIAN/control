@@ -1,4 +1,4 @@
-Package: typesense-gpu
+Package: typesense-gpu-deps
 Version: $VERSION
 Maintainer: Typesense Inc. <contact@typesense.org>
 Description: Typesense GPU Dependencies

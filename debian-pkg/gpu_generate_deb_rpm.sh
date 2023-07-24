@@ -27,6 +27,8 @@ cp -r $CURR_DIR/typesense-gpu-deps /tmp/typesense-gpu-deb-build
 
 rm -rf /tmp/typesense-gpu-deps-$TSV && mkdir /tmp/typesense-gpu-deps-$TSV
 tar -xzf $CURR_DIR/../bazel-bin/typesense-gpu-deps-$TSV-linux-${ARCH}.tar.gz -C /tmp/typesense-gpu-deps-$TSV
+mkdir -p /tmp/typesense-gpu-deb-build/typesense-gpu-deps/usr/lib/
+cp /tmp/typesense-gpu-deps-$TSV/*.so /tmp/typesense-gpu-deb-build/typesense-gpu-deps/usr/lib/
 
 rm -rf /tmp/typesense-gpu-deps-$TSV /tmp/typesense-gpu-deps-$TSV.tar.gz
 
@@ -47,30 +49,6 @@ sed -i 's#%dir "/usr/bin/"##' `find /tmp/typesense-gpu-rpm-build/*/*.spec -maxde
 sed -i 's/%config/%config(noreplace)/g' `find /tmp/typesense-gpu-rpm-build/*/*.spec -maxdepth 10 -type f`
 
 SPEC_FILE="/tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV}/typesense-gpu-deps-${TSV}-1.spec"
-SPEC_FILE_COPY="/tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV}/typesense-gpu-deps-${TSV}-copy.spec"
-
-cp $SPEC_FILE $SPEC_FILE_COPY
-
-PRE_LINE=`grep -n "%pre" $SPEC_FILE_COPY | cut -f1 -d:`
-START_LINE=`expr $PRE_LINE - 1`
-
-head -$START_LINE $SPEC_FILE_COPY > $SPEC_FILE
-
-echo "%prep" >> $SPEC_FILE
-echo "cat >/tmp/find_requires.sh <<EOF
-#!/bin/sh
-%{__find_requires} | grep -v GLIBC_PRIVATE
-exit 0
-EOF" >> $SPEC_FILE
-
-echo "chmod +x /tmp/find_requires.sh" >> $SPEC_FILE
-echo "%define _use_internal_dependency_generator 0" >> $SPEC_FILE
-echo "%define __find_requires /tmp/find_requires.sh" >> $SPEC_FILE
-
-tail -n+$START_LINE $SPEC_FILE_COPY >> $SPEC_FILE
-
-rm $SPEC_FILE_COPY
-
 cd /tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV} && \
   rpmbuild --target=${RPM_ARCH} --buildroot /tmp/typesense-gpu-rpm-build/typesense-gpu-deps-${TSV} -bb \
   $SPEC_FILE
