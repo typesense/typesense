@@ -136,6 +136,7 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
 std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
     std::vector<embedding_res_t> outputs;
     if(!is_remote()) {
+        std::lock_guard<std::mutex> lock(mutex_);
         for(int i = 0; i < inputs.size(); i += 8) {
             auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 8, static_cast<int>(inputs.size())));
             auto encoded_inputs = batch_encode(input_batch);
