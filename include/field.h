@@ -52,7 +52,6 @@ namespace fields {
     static const std::string reference = "reference";
     static const std::string embed = "embed";
     static const std::string from = "from";
-    static const std::string embed_from = "embed_from";
     static const std::string model_name = "model_name";
     static const std::string range_index = "range_index";
 
@@ -427,80 +426,12 @@ struct field {
     static Option<bool> json_fields_to_fields(bool enable_nested_fields,
                                               nlohmann::json& fields_json,
                                               std::string& fallback_field_type,
-                                              std::vector<field>& the_fields) {
+                                              std::vector<field>& the_fields);
 
-        size_t num_auto_detect_fields = 0;
-
-        for(nlohmann::json & field_json: fields_json) {
-            if(field_json.count(fields::embed) != 0) {
-                
-                if(!field_json[fields::embed].is_object()) {
-                    return Option<bool>(400, "Property `" + fields::embed + "` must be an object.");
-                }
-
-                if(field_json[fields::embed].count(fields::from) == 0) {
-                    return Option<bool>(400, "Property `" + fields::embed + "` must contain a `" + fields::from + "` property.");
-                }
-
-                if(!field_json[fields::embed][fields::from].is_array()) {
-                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must be an array.");
-                }
-
-                if(field_json[fields::embed][fields::from].empty()) {
-                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must have at least one element.");
-                }
-
-                for(auto& embed_from_field : field_json[fields::embed][fields::from]) {
-                    if(!embed_from_field.is_string()) {
-                        return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must contain only field names as strings.");
-                    }
-                }
-
-                if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
-                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` is only allowed on a float array field.");
-                }
-
-                for(auto& embed_from_field : field_json[fields::embed][fields::from]) {
-                    bool flag = false;
-                    for(const auto& field : fields_json) {
-                        if(field[fields::name] == embed_from_field) {
-                            if(field[fields::type] != field_types::STRING && field[fields::type] != field_types::STRING_ARRAY) {
-                                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
-                            }
-                            flag = true;
-                            break;
-                        }
-                    }
-                    if(!flag) {
-                        for(const auto& field : the_fields) {
-                            if(field.name == embed_from_field) {
-                                if(field.type != field_types::STRING && field.type != field_types::STRING_ARRAY) {
-                                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
-                                }
-                                flag = true;
-                                break;
-                            }
-                        }
-                    }
-                    if(!flag) {
-                        return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
-                    }
-                } 
-            }
-
-            auto op = json_field_to_field(enable_nested_fields,
-                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields);
-            if(!op.ok()) {
-                return op;
-            }
-        }
-
-        if(num_auto_detect_fields > 1) {
-            return Option<bool>(400,"There can be only one field named `.*`.");
-        }
-
-        return Option<bool>(true);
-    }
+    static Option<bool> validate_and_init_embed_fields(const std::vector<std::pair<size_t, size_t>>& embed_json_field_indices,
+                                                       const tsl::htrie_map<char, field>& search_schema,
+                                                       nlohmann::json& fields_json,
+                                                       std::vector<field>& fields_vec);
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
                             const field& the_field, const std::string& flat_name,

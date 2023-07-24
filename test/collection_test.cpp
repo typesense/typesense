@@ -4817,15 +4817,13 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
 }
 
 TEST_F(CollectionTest, CreateModelDirIfNotExists) {
-    system("mkdir -p /tmp/typesense_test/models");
-    system("rm -rf /tmp/typesense_test/models");
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    system("mkdir -p /tmp/typesense_test/new_models_dir");
+    system("rm -rf /tmp/typesense_test/new_models_dir");
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/new_models_dir");
 
     // check if model dir is created
-    ASSERT_TRUE(std::filesystem::exists("/tmp/typesense_test/models"));
+    ASSERT_TRUE(std::filesystem::exists("/tmp/typesense_test/new_models_dir"));
 }
-
-
 
 TEST_F(CollectionTest, EmbedStringArrayField) {
     nlohmann::json schema = R"({

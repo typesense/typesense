@@ -36,6 +36,8 @@ public:
     TextEmbedderManager& operator=(const TextEmbedderManager&) = delete;
 
     Option<TextEmbedder*> get_text_embedder(const nlohmann::json& model_config);
+    Option<bool> init_text_embedder(const nlohmann::json& model_config, size_t& num_dim);
+
     void delete_text_embedder(const std::string& model_path);
     void delete_all_text_embedders();
 
@@ -61,10 +63,15 @@ public:
     static const std::string get_model_namespace(const std::string& model_name);
     static const std::string get_model_subdir(const std::string& model_name);
     static const bool check_md5(const std::string& file_path, const std::string& target_md5);
-    Option<bool> download_public_model(const std::string& model_name);
+    Option<bool> download_public_model(const text_embedding_model& model);
 
-    const bool is_public_model(const std::string& model_name);
-    static const bool is_remote_model(const std::string& model_name);
+    Option<bool> init_public_model(const std::string& model_name);
+    bool is_public_model(const std::string& model_name);
+    static bool is_remote_model(const std::string& model_name);
+
+    static Option<bool> validate_and_init_remote_model(const nlohmann::json& model_config, size_t& num_dims);
+    static Option<bool> validate_and_init_local_model(const nlohmann::json& model_config, size_t& num_dims);
+    static Option<bool> validate_and_init_model(const nlohmann::json& model_config, size_t& num_dims);
 
 private:
     TextEmbedderManager() = default;
@@ -73,8 +80,6 @@ private:
     std::unordered_map<std::string, text_embedding_model> public_models;
     std::mutex text_embedders_mutex;
 
-    
     static Option<std::string> get_namespace(const std::string& model_name);
-
 };
 

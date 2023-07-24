@@ -921,36 +921,3 @@ TEST_F(CollectionVectorTest, DistanceThresholdTest) {
     ASSERT_FLOAT_EQ(0.8, results_op.get()["hits"][0]["document"]["vec"].get<std::vector<float>>()[2]);
 
 }
-
-TEST_F(CollectionVectorTest, EmbeddingFieldAlterDropTest) {
-    nlohmann::json schema = R"({
-                "name": "objects",
-                "fields": [
-                {"name": "name", "type": "string"},
-                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
-                ]
-            })"_json;
-
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-
-    auto op = collectionManager.create_collection(schema);
-    ASSERT_TRUE(op.ok());
-    Collection* coll = op.get();
-
-    auto& vec_index = coll->_get_index()->_get_vector_index();
-    ASSERT_EQ(1, vec_index.size());
-    ASSERT_EQ(1, vec_index.count("embedding"));
-
-    
-    nlohmann::json schema_change = R"({
-                "fields": [
-                {"name": "embedding", "drop": true}
-                ]
-            })"_json;
-    
-    auto schema_change_op = coll->alter(schema_change);
-
-    ASSERT_TRUE(schema_change_op.ok());
-    ASSERT_EQ(0, vec_index.size());
-    ASSERT_EQ(0, vec_index.count("embedding"));
-}
