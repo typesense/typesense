@@ -276,7 +276,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         collection_symlinks[parts[0]] = iter->value().ToString();
         iter->Next();
     }
-
     delete iter;
 
     // load presets
@@ -299,6 +298,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         iter->Next();
     }
+    delete iter;
 
     //load stopwords
     std::string stopword_prefix_key = std::string(StopwordsManager::STOPWORD_PREFIX) + "_";
@@ -319,7 +319,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         iter->Next();
     }
-
+    delete iter;
 
     // restore query suggestions configs
     std::vector<std::string> analytics_config_jsons;
@@ -331,8 +331,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
         AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
     }
-
-    delete iter;
 
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";
 

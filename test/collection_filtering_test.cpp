@@ -2236,3 +2236,33 @@ TEST_F(CollectionFilteringTest, LargeFilterToken) {
     results = coll->search("*", query_fields, "uri:" + token, {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
 }
+
+TEST_F(CollectionFilteringTest, NonIndexedFiltering) {
+    nlohmann::json json =
+            R"({
+                "name": "NonIndexedCollection",
+                "fields": [
+                    {"name": "uri", "type": "string"},
+                    {"name": "non_index", "type": "string", "index": false, "optional": true}
+                ]
+            })"_json;
+
+    auto op = collectionManager.create_collection(json);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    json.clear();
+    json = R"({
+                "uri": "token",
+                "non_index": "foo"
+            })"_json;
+    auto add_op = coll->add(json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_EQ(1, search_op.get()["hits"].size());
+
+    search_op = coll->search("*", {}, "non_index:= bar", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Cannot filter on non-indexed field `non_index`.", search_op.error());
+}

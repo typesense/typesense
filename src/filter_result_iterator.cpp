@@ -654,6 +654,7 @@ void filter_result_iterator_t::init() {
     }
 
     if (!index->field_is_indexed(a_filter.field_name)) {
+        status = Option<bool>(400, "Cannot filter on non-indexed field `" + a_filter.field_name + "`.");
         is_valid = false;
         return;
     }
