@@ -907,7 +907,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             }
 
             if(std::regex_match(the_field.name, std::regex(dynamic_field.name))) {
-                detected_type = dynamic_field.type;
+                detected_type = obj.is_object() ? field_types::OBJECT : dynamic_field.type;
                 found_dynamic_field = true;
                 break;
             }

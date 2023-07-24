@@ -4549,6 +4549,15 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                     new_field = dynamic_field;
                     new_field.name = fname;
                     found_dynamic_field = true;
+
+                    if(kv->is_object() && dynamic_field.name.find(".*") == kv.key().size()) {
+                        // e.g. { name => price.*, type: float } to match price.USD, price.UK etc.
+                        // top-level price field should be treated as type `object` and NOT `float`.
+                        new_field.nested = true;
+                        new_field.type = field_types::OBJECT;
+                        new_field.sort = false;
+                    }
+
                     break;
                 }
             }
