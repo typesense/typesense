@@ -4175,8 +4175,11 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     }
 
     std::unordered_map<std::string, field> new_dynamic_fields;
+    std::vector<std::pair<size_t, size_t>> embed_json_field_indices;
+    int json_array_index = -1;
 
     for(const auto& kv: schema_changes["fields"].items()) {
+        json_array_index++;
         const std::string& field_name = kv.value()["name"].get<std::string>();
         const auto& field_it = search_schema.find(field_name);
         auto found_field = (field_it != search_schema.end());
@@ -4302,6 +4305,10 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     }
                 }
 
+                if(!f.embed.empty() && !diff_fields.empty()) {
+                    embed_json_field_indices.emplace_back(json_array_index, diff_fields.size()-1);
+                }
+
             } else {
                 // partial update is not supported for now
                 return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "
@@ -4310,63 +4317,10 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         }
     }
 
-    for(const auto& kv: schema_changes["fields"].items()) {
-        // validate embedding fields externally
-        auto& field_json = kv.value();
-        if(field_json.count(fields::embed) != 0 && !field_json[fields::embed].empty()) {
-            if(!field_json[fields::embed].is_object()) {
-                return Option<bool>(400, "Property `" + fields::embed + "` must be an object.");
-            }
-
-            if(field_json[fields::embed].count(fields::from) == 0) {
-                return Option<bool>(400, "Property `" + fields::embed + "` must contain a `" + fields::from + "` property.");
-            }
-
-            if(!field_json[fields::embed][fields::from].is_array()) {
-                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must be an array.");
-            }
-
-            if(field_json[fields::embed][fields::from].empty()) {
-                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must have at least one element.");
-            }
-
-            for(auto& embed_from_field : field_json[fields::embed][fields::from]) {
-                if(!embed_from_field.is_string()) {
-                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must contain only field names as strings.");
-                }
-            }
-
-            if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
-                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` is only allowed on a float array field.");
-            }
-
-            for(auto& embed_from_field : field_json[fields::embed][fields::from]) {
-                bool flag = false;
-                for(const auto& field : search_schema) {
-                    if(field.name == embed_from_field) {
-                        if(field.type != field_types::STRING && field.type != field_types::STRING_ARRAY) {
-                            return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
-                        }
-                        flag = true;
-                        break;
-                    }
-                }
-                if(!flag) {
-                    for(const auto& other_kv: schema_changes["fields"].items()) {
-                        if(other_kv.value()["name"] == embed_from_field) {
-                            if(other_kv.value()[fields::type] != field_types::STRING && other_kv.value()[fields::type] != field_types::STRING_ARRAY) {
-                                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
-                            }
-                            flag = true;
-                            break;
-                        }
-                    }
-                }
-                if(!flag) {
-                    return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` can only refer to string or string array fields.");
-                }
-            } 
-        }
+    auto validation_op = field::validate_and_init_embed_fields(embed_json_field_indices, search_schema,
+                                                               schema_changes["fields"], diff_fields);
+    if(!validation_op.ok()) {
+        return validation_op;
     }
 
     if(num_auto_detect_fields > 1) {

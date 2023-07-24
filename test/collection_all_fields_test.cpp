@@ -1688,14 +1688,17 @@ TEST_F(CollectionAllFieldsTest, WrongDataTypeForEmbedFrom) {
     field_json["embed"]["model_config"] = nlohmann::json::object();
     field_json["embed"]["model_config"]["model_name"] = "ts/e5-small";
 
-    std::vector<field> fields;
-    std::string fallback_field_type;
-    auto arr = nlohmann::json::array();
-    arr.push_back(field_json);
-    field_json["name"] = "age";
-    field_json["type"] = "int32";
-    arr.push_back(field_json);
-    auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
-    ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `embed.from` can only refer to string or string array fields.", field_op.error());
+    nlohmann::json schema = R"({
+        "name": "obj_coll",
+        "fields": [
+            {"name": "age", "type": "int32"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["age"],
+                "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    auto obj_coll_op = collectionManager.create_collection(schema);
+
+    ASSERT_FALSE(obj_coll_op.ok());
+    ASSERT_EQ("Property `embed.from` can only refer to string or string array fields.", obj_coll_op.error());
 }
