@@ -2070,24 +2070,31 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 auto & facet_count = kv.second;
 
                 std::string value;
+                const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
+                nlohmann::json document;
+                const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
+                if(!document_op.ok()) {
+                    LOG(ERROR) << "Facet fetch error. " << document_op.error();
+                    continue;
+                }
+
                 if(a_facet.is_intersected) {
                     value = kv.first;
                     //LOG(INFO) << "used intersection";
                 } else {
                     // fetch actual facet value from representative doc id
                     //LOG(INFO) << "used hashes";
-                    const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
-                    nlohmann::json document;
-                    const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
-                    if(!document_op.ok()) {
-                        LOG(ERROR) << "Facet fetch error. " << document_op.error();
-                        continue;
-                    }
                     bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
                     if(!facet_found) {
                         continue;
                     }
                 }
+
+                if(the_field.nested) {
+                    auto parent = the_field.name.substr(0, the_field.name.find("."));
+                    value = document[parent].dump();
+                }
+
                 std::unordered_map<std::string, size_t> ftoken_pos;
                 std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
                 //LOG(INFO) << "working on hash_tokens for hash " << kv.first << " with size " << ftokens.size();

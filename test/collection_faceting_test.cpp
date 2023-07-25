@@ -1629,3 +1629,58 @@ TEST_F(CollectionFacetingTest, FloatFieldValueTruncation) {
 
     ASSERT_EQ("300", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 }
+
+TEST_F(CollectionFacetingTest, FacetingObjectTest) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "value.color", "type": "string", "optional": false, "facet": true },
+          {"name": "value.r", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.g", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.b", "type": "int32", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "value": {
+            "color": "red",
+            "r": 255,
+            "g": 0,
+            "b": 0
+        }
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "value": {
+            "color": "blue",
+            "r": 0,
+            "g": 0,
+            "b": 255
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", {},
+                                 "", {"value.color"}, {}, {2}, 10, 1,
+                                 FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(),
+                                 10, "value.color : blue");
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+    LOG (INFO) << results.dump();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+}
