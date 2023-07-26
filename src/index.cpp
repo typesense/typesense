@@ -6136,7 +6136,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
             if(!del_field.is_single_geopoint()) {
                 spp::sparse_hash_map<uint32_t, int64_t*>* geo_array_map = geo_array_index[del_field.name];
                 for(auto& kv: *geo_array_map) {
-                    delete kv.second;
+                    delete [] kv.second;
                 }
                 delete geo_array_map;
                 geo_array_index.erase(del_field.name);
