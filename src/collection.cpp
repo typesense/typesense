@@ -1124,7 +1124,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_try,
                                   const std::string& stopwords_set,
-                                  bool facet_return_parent) const {
+                                  const std::vector<std::string>& facet_return_parent) const {
 
     std::shared_lock lock(mutex);
 
@@ -2091,7 +2091,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     }
                 }
 
-                if(facet_return_parent && the_field.nested) {
+                if(the_field.nested &&
+                    (std::find(facet_return_parent.begin(), facet_return_parent.end(), the_field.name) != facet_return_parent.end())) {
                     value = get_facet_parent(the_field.name, document);
                 }
 

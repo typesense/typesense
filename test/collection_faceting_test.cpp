@@ -1682,7 +1682,7 @@ TEST_F(CollectionFacetingTest, FacetingReturnParent) {
                                  2, 2, false, "",
                                  true, 0, max_score, 100,
                                  0, 0, HASH, 30000,
-                                 2, "",true);
+                                 2, "", {"value.color"});
 
     if(!search_op.ok()) {
         LOG(ERROR) << search_op.error();
@@ -1694,7 +1694,7 @@ TEST_F(CollectionFacetingTest, FacetingReturnParent) {
     ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["value"]);
 
-    //not passing facet_return_parent will only return facet value, not immediate parent
+    //not passing facet_fields in facet_return_parent list will only return facet value, not immediate parent for those field
     search_op = coll1->search("*", {},"", {"value.color"},
                                    {}, {2}, 10, 1,FREQUENCY, {true},
                                    1, spp::sparse_hash_set<std::string>(),
@@ -1708,7 +1708,7 @@ TEST_F(CollectionFacetingTest, FacetingReturnParent) {
                                    2, 2, false, "",
                                    true, 0, max_score, 100,
                                    0, 0, HASH, 30000,
-                                   2, "",false);
+                                   2, "", {"value.r", "value.g", "value.b"});
 
     if(!search_op.ok()) {
         LOG(ERROR) << search_op.error();
@@ -1719,6 +1719,36 @@ TEST_F(CollectionFacetingTest, FacetingReturnParent) {
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
+
+    search_op = coll1->search("*", {},"", {"value.color", "value.r"},
+                              {}, {2}, 10, 1,FREQUENCY, {true},
+                              1, spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(),10, "",
+                              30, 4, "",
+                              Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                              3, "<mark>", "</mark>", {},
+                              UINT32_MAX, true, false, true,
+                              "", false, 6000*1000, 4, 7,
+                              fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                              2, 2, false, "",
+                              true, 0, max_score, 100,
+                              0, 0, HASH, 30000,
+                              2, "", {"value.r", "value.g", "value.b"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+    ASSERT_EQ(2, results["facet_counts"].size());
+
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
+
+    ASSERT_EQ(2, results["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][1]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][1]["counts"][1]["value"]);
 }
 
 TEST_F(CollectionFacetingTest, FacetingReturnParentDeepNested) {
@@ -1772,7 +1802,7 @@ TEST_F(CollectionFacetingTest, FacetingReturnParentDeepNested) {
                                    2, 2, false, "",
                                    true, 0, max_score, 100,
                                    0, 0, HASH, 30000,
-                                   2, "",true);
+                                   2, "", {"product.specification.detail.width"});
 
     if(!search_op.ok()) {
         LOG(ERROR) << search_op.error();

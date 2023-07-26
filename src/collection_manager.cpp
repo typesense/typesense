@@ -805,6 +805,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
     const char *MAX_FACET_VALUES = "max_facet_values";
 
+    const char *FACET_RETURN_PARENT = "facet_return_parent";
+
     const char *VECTOR_QUERY = "vector_query";
 
     const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
@@ -933,6 +935,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t offset = 0;
     token_ordering token_order = NOT_SET;
 
+    std::vector<std::string> facet_return_parent;
+
     std::string vector_query;
 
     std::vector<std::string> include_fields_vec;
@@ -1029,6 +1033,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {GROUP_BY, &group_by_fields},
         {INCLUDE_FIELDS, &include_fields_vec},
         {EXCLUDE_FIELDS, &exclude_fields_vec},
+        {FACET_RETURN_PARENT, &facet_return_parent},
     };
 
     std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
@@ -1218,7 +1223,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           HASH,
                                                           remote_embedding_timeout_ms,
                                                           remote_embedding_num_try,
-                                                          stopwords_set
+                                                          stopwords_set,
+                                                          facet_return_parent
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

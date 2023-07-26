@@ -477,7 +477,7 @@ public:
                                   const size_t remote_embedding_timeout_ms = 30000,
                                   const size_t remote_embedding_num_try = 2,
                                   const std::string& stopwords_set="",
-                                  bool facet_return_parent = false) const;
+                                  const std::vector<std::string>& facet_return_parent = {}) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
