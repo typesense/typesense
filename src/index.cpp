@@ -21,7 +21,6 @@
 #include <or_iterator.h>
 #include <timsort.hpp>
 #include "logger.h"
-#include <collection_manager.h>
 #include "validator.h"
 
 #define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
