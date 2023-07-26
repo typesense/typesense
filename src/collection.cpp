@@ -1123,7 +1123,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   facet_index_type_t facet_index_type,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_try,
-                                  const std::string& stopwords_set) const {
+                                  const std::string& stopwords_set,
+                                  bool facet_return_parent) const {
 
     std::shared_lock lock(mutex);
 
@@ -2090,9 +2091,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     }
                 }
 
-                if(the_field.nested) {
-                    auto parent = the_field.name.substr(0, the_field.name.find("."));
-                    value = document[parent].dump();
+                if(facet_return_parent && the_field.nested) {
+                    value = get_facet_parent(the_field.name, document);
                 }
 
                 std::unordered_map<std::string, size_t> ftoken_pos;
@@ -2804,6 +2804,36 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
     }
 
     return true;
+}
+
+std::string Collection::get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const {
+    std::vector<std::string> tokens;
+    StringUtils::split(facet_field_name, tokens, ".");
+    std::vector<nlohmann::json> level_docs;
+
+    auto doc = document[tokens[0]];
+    level_docs.push_back(doc);
+    for(auto i = 1; i < tokens.size()-1; ++i) { //just to ignore last token which uis our facet field
+        if(doc.contains(tokens[i])) {
+            doc = doc[tokens[i]];
+            level_docs.push_back(doc);
+        } else {
+            LOG(ERROR) << tokens[i] << " not found in document";
+        }
+    }
+    bool parent_found = false;
+    for(auto i = level_docs.size()-1; i >0; --i) {
+        if(level_docs[i].size() > 1) {
+            doc = level_docs[i];
+            parent_found = true;
+            break;
+        }
+    }
+
+    if(!parent_found) {
+        doc = level_docs[0]; //return the top most root
+    }
+    return doc.dump();
 }
 
 bool Collection::is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const {

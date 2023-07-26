@@ -1630,7 +1630,7 @@ TEST_F(CollectionFacetingTest, FloatFieldValueTruncation) {
     ASSERT_EQ("300", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 }
 
-TEST_F(CollectionFacetingTest, FacetingObjectTest) {
+TEST_F(CollectionFacetingTest, FacetingReturnParent) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "enable_nested_fields": true,
@@ -1669,18 +1669,119 @@ TEST_F(CollectionFacetingTest, FacetingObjectTest) {
     add_op = coll1->add(doc2.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    auto search_op = coll1->search("*", {},
-                                 "", {"value.color"}, {}, {2}, 10, 1,
-                                 FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
-                                 spp::sparse_hash_set<std::string>(),
-                                 10, "value.color : blue");
+    auto search_op = coll1->search("*", {},"", {"value.color"},
+                                   {}, {2}, 10, 1,FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                 "", false, 6000*1000, 4, 7,
+                                 fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                 2, 2, false, "",
+                                 true, 0, max_score, 100,
+                                 0, 0, HASH, 30000,
+                                 2, "",true);
 
     if(!search_op.ok()) {
         LOG(ERROR) << search_op.error();
         FAIL();
     }
     auto results = search_op.get();
-    LOG (INFO) << results.dump();
     ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["value"]);
+
+    //not passing facet_return_parent will only return facet value, not immediate parent
+    search_op = coll1->search("*", {},"", {"value.color"},
+                                   {}, {2}, 10, 1,FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000*1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, HASH, 30000,
+                                   2, "",false);
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
 }
+
+TEST_F(CollectionFacetingTest, FacetingReturnParentDeepNested) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "product.specification.detail.width", "type": "int32", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+       "product" : {
+            "specification": {
+                "detail" : {
+                    "width": 25
+                }
+            }
+        }
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "product" : {
+            "specification": {
+                "detail" : {
+                    "width": 30
+                }
+            }
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", {},"", {"product.specification.detail.width"},
+                                   {}, {2}, 10, 1,FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000*1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, HASH, 30000,
+                                   2, "",true);
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":30}}}", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":25}}}", results["facet_counts"][0]["counts"][1]["value"]);
+}
+
