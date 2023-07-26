@@ -3430,6 +3430,23 @@ void Collection::remove_document(const nlohmann::json & document, const uint32_t
         store->remove(get_doc_id_key(id));
         store->remove(get_seq_id_key(seq_id));
     }
+
+    if (referenced_in.empty()) {
+        return;
+    }
+
+    CollectionManager& collectionManager = CollectionManager::get_instance();
+    // Cascade delete all the references.
+    for (const auto &item: referenced_in) {
+        auto ref_coll = collectionManager.get_collection(item.first);
+        if (ref_coll != nullptr) {
+            filter_result_t filter_result;
+            ref_coll->get_filter_ids(item.second + ":=" + id, filter_result);
+            for (uint32_t i = 0; i < filter_result.count; i++) {
+                ref_coll->remove(std::to_string(filter_result.docs[i]));
+            }
+        }
+    }
 }
 
 Option<std::string> Collection::remove(const std::string & id, const bool remove_from_store) {
@@ -4691,10 +4708,17 @@ Index* Collection::init_index() {
 
         if(!field.reference.empty()) {
             auto dot_index = field.reference.find('.');
-            auto collection_name = field.reference.substr(0, dot_index);
-            auto field_name = field.reference.substr(dot_index + 1);
+            auto ref_coll_name = field.reference.substr(0, dot_index);
+            auto ref_field_name = field.reference.substr(dot_index + 1);
 
-            reference_fields.emplace(field.name, reference_pair(collection_name, field_name));
+            reference_fields.emplace(field.name, reference_pair(ref_coll_name, ref_field_name));
+
+            auto& collectionManager = CollectionManager::get_instance();
+            auto ref_coll = collectionManager.get_collection(ref_coll_name);
+            if (ref_coll != nullptr) {
+                // Passing reference helper field helps perform operation on doc_id instead of field value.
+                ref_coll->referenced_in.emplace(name, field.name + REFERENCE_HELPER_FIELD_SUFFIX);
+            }
         }
     }
 

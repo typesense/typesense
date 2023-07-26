@@ -133,6 +133,11 @@ private:
     /// "field name" -> reference_pair(referenced_collection_name, referenced_field_name)
     spp::sparse_hash_map<std::string, reference_pair> reference_fields;
 
+    /// Contains the info where the current collection is referenced.
+    /// Useful to perform operations such as cascading delete.
+    /// collection_name -> field_name
+    spp::sparse_hash_map<std::string, std::string> referenced_in;
+
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
