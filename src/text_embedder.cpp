@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <filesystem>
+#include <dlfcn.h>
 
 TextEmbedder::TextEmbedder(const std::string& model_name) {
     // create environment
@@ -12,6 +13,14 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
     auto providers = Ort::GetAvailableProviders();
     for(auto& provider : providers) {
         if(provider == "CUDAExecutionProvider") {
+
+            // check existence of so file
+            void* handle = dlopen("libonnxruntime_providers_cuda.so", RTLD_NOW | RTLD_GLOBAL);
+            if(!handle) {
+                LOG(ERROR) << "Cannot load libonnxruntime_providers_cuda.so";
+                continue;
+            }
+
             LOG(INFO) << "Using CUDAExecutionProvider";
             OrtCUDAProviderOptions cuda_options;
             session_options.AppendExecutionProvider_CUDA(cuda_options);
