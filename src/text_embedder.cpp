@@ -15,9 +15,8 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
         if(provider == "CUDAExecutionProvider") {
 
             // check existence of so file
-            void* handle = dlopen("libonnxruntime_providers_cuda.so", RTLD_NOW | RTLD_GLOBAL);
+            void* handle = dlopen("libonnxruntime_providers_cuda.so", RTLD_LAZY);
             if(!handle) {
-                LOG(ERROR) << "Cannot load libonnxruntime_providers_cuda.so";
                 continue;
             }
 
