@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <filesystem>
+#include <dlfcn.h>
 
 TextEmbedder::TextEmbedder(const std::string& model_name) {
     // create environment
@@ -12,6 +13,16 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
     auto providers = Ort::GetAvailableProviders();
     for(auto& provider : providers) {
         if(provider == "CUDAExecutionProvider") {
+
+            // check existence of shared lib
+            void* handle = dlopen("libonnxruntime_providers_shared.so", RTLD_NOW | RTLD_GLOBAL);
+            if(!handle) {
+                LOG(INFO) << "ONNX shared libs: off";
+                continue;
+            }
+
+            dlclose(handle);
+
             LOG(INFO) << "Using CUDAExecutionProvider";
             OrtCUDAProviderOptions cuda_options;
             session_options.AppendExecutionProvider_CUDA(cuda_options);
