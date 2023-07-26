@@ -1088,6 +1088,37 @@ TEST_F(CollectionSchemaChangeTest, IndexFalseToTrue) {
     ASSERT_EQ(1, res_op.get()["facet_counts"].size());
 }
 
+TEST_F(CollectionSchemaChangeTest, DropGeoPointArrayField) {
+    // when a value is `null` initially, and is altered, subsequent updates should not fail
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "geoloc", "type": "geopoint[]"}
+        ]
+    })"_json;
+
+    auto coll_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_create_op.ok());
+    Collection* coll1 = coll_create_op.get();
+
+    nlohmann::json doc = R"({
+        "geoloc": [[10, 20]]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "geoloc", "drop": true},
+            {"name": "_geoloc", "type": "geopoint[]", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+}
+
 TEST_F(CollectionSchemaChangeTest, AddingFieldWithExistingNullValue) {
     // when a value is `null` initially, and is altered, subsequent updates should not fail
     nlohmann::json schema = R"({
