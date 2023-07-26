@@ -3204,19 +3204,18 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         auto result = result_it->second;
                         // old_score + (1 / rank_of_document) * WEIGHT)
                         result->vector_distance = vec_result.second;
-                        result->scores[result->match_score_index] = float_to_int64_t(
+                        int64_t match_score = float_to_int64_t(
                                 (int64_t_to_float(result->scores[result->match_score_index])) +
                                 ((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT));
+                        int64_t match_score_index = -1;
+                        int64_t scores[3] = {0};
+                        
+                        compute_sort_scores(sort_fields_std, sort_order, field_values, geopoint_indices, doc_id, 0, match_score, scores, match_score_index, vec_result.second);
 
-                        for(size_t i = 0;i < 3; i++) {
-                            if(field_values[i] == &vector_distance_sentinel_value) {
-                                result->scores[i] = float_to_int64_t(vec_result.second);
-                            }
-
-                            if(sort_order[i] == -1) {
-                                result->scores[i] = -result->scores[i];
-                            }
+                        for(int i = 0; i < 3; i++) {
+                            result->scores[i] = scores[i];
                         }
+                        result->match_score_index = match_score_index;
 
                     } else {
                         // Result has been found only in vector search: we have to add it to both KV and result_ids
