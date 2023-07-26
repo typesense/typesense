@@ -14,10 +14,10 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
     for(auto& provider : providers) {
         if(provider == "CUDAExecutionProvider") {
 
-            // check existence of cuda
-            void* handle = dlopen("libcudnn.so", RTLD_NOW | RTLD_GLOBAL);
+            // check existence of shared lib
+            void* handle = dlopen("libonnxruntime_providers_shared.so", RTLD_NOW | RTLD_GLOBAL);
             if(!handle) {
-                LOG(ERROR) << "Error loading CUDA: " << dlerror();
+                LOG(INFO) << "ONNX shared libs: off";
                 continue;
             }
 
