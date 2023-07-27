@@ -901,9 +901,9 @@ void filter_result_iterator_t::init() {
 
                 S2Error error;
                 if (loop->FindValidationError(&error)) {
-                    LOG(ERROR) << "Query vertex is bad, skipping. Error: " << error;
+                    status = Option<bool>(400, "Polygon (" + filter_value + ") is invalid: " + error.text());
                     delete loop;
-                    continue;
+                    break;
                 } else {
                     query_region = loop;
                 }
