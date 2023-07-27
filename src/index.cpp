@@ -6495,6 +6495,9 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
             auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
             for(const auto& field_name : embed_from) {
                 auto field_it = search_schema.find(field_name);
+                if(document->count(field_name) == 0) {
+                        continue;
+                }
                 if(field_it.value().type == field_types::STRING) {
                     text += (*document)[field_name].get<std::string>() + " ";
                 } else if(field_it.value().type == field_types::STRING_ARRAY) {
@@ -6511,7 +6514,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         if(texts_to_embed.empty()) {
             continue;
         }
-        
+
         TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
         auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
 

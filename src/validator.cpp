@@ -677,7 +677,7 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                 return Option<bool>(400, "Field `" + field.name + "` has invalid fields to create embeddings from.");
             }
             if(doc_field_it == document.end()) {
-                if(error_if_field_not_found) {
+                if(error_if_field_not_found && schema_field_it->optional == false) {
                     return Option<bool>(400, "Field `" + field_name + "` is needed to create embedding.");
                 } else {
                     continue;
