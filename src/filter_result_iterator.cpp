@@ -888,10 +888,16 @@ void filter_result_iterator_t::init() {
                 std::vector<S2Point> vertices;
                 double sum = 0.0;
 
-                for (size_t point_index = 0; point_index < size_t(num_verts);
-                     point_index++) {
+                for (size_t point_index = 0; point_index < size_t(num_verts); point_index++) {
                     double lat = std::stod(filter_value_parts[point_index * 2]);
                     double lon = std::stod(filter_value_parts[point_index * 2 + 1]);
+                    if (point_index + 1 == size_t(num_verts) &&
+                        lat == std::stod(filter_value_parts[0]) &&
+                        lon == std::stod(filter_value_parts[1])) {
+                        // The last geopoint is same as the first one.
+                        break;
+                    }
+
                     S2Point vertex = S2LatLng::FromDegrees(lat, lon).ToPoint();
                     vertices.emplace_back(vertex);
                 }

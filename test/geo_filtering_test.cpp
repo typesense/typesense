@@ -484,13 +484,13 @@ TEST_F(GeoFilteringTest, GeoPolygonFiltering) {
 
     search_op = coll1->search("*", {}, "loc: (10, 20, 11, 12, 14, 16, 10, 20)", {}, {}, {0}, 10, 1,
                               FREQUENCY);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Polygon is invalid: Edge 3 is degenerate (duplicate vertex)", search_op.error());
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, search_op.get()["found"].get<size_t>());
 
     search_op = coll1->search("*", {}, "loc: [([10, 20, 30, 40, 50, 30]), ([10, 20, 11, 12, 14, 16, 10, 20])]", {}, {},
                               {0}, 10, 1, FREQUENCY);
-    ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Polygon at position 2 is invalid: Edge 3 is degenerate (duplicate vertex)", search_op.error());
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, search_op.get()["found"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }
