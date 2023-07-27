@@ -385,6 +385,8 @@ public:
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value) const;
 
+    std::string get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const;
+
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs, 
                     const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
                     const std::vector<sort_by>& sort_by_fields);
@@ -474,7 +476,8 @@ public:
                                   facet_index_type_t facet_index_type = HASH,
                                   const size_t remote_embedding_timeout_ms = 30000,
                                   const size_t remote_embedding_num_try = 2,
-                                  const std::string& stopwords_set="") const;
+                                  const std::string& stopwords_set="",
+                                  const std::vector<std::string>& facet_return_parent = {}) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

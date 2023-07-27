@@ -1123,7 +1123,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   facet_index_type_t facet_index_type,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_try,
-                                  const std::string& stopwords_set) const {
+                                  const std::string& stopwords_set,
+                                  const std::vector<std::string>& facet_return_parent) const {
 
     std::shared_lock lock(mutex);
 
@@ -2063,6 +2064,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             }
         } else {
             auto the_field = search_schema.at(a_facet.field_name);
+            bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
+                                                  the_field.name) != facet_return_parent.end();
 
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
@@ -2070,24 +2073,30 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 auto & facet_count = kv.second;
 
                 std::string value;
+                const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
+                nlohmann::json document;
+                const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
+                if(!document_op.ok()) {
+                    LOG(ERROR) << "Facet fetch error. " << document_op.error();
+                    continue;
+                }
+
                 if(a_facet.is_intersected) {
                     value = kv.first;
                     //LOG(INFO) << "used intersection";
                 } else {
                     // fetch actual facet value from representative doc id
                     //LOG(INFO) << "used hashes";
-                    const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
-                    nlohmann::json document;
-                    const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
-                    if(!document_op.ok()) {
-                        LOG(ERROR) << "Facet fetch error. " << document_op.error();
-                        continue;
-                    }
                     bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
                     if(!facet_found) {
                         continue;
                     }
                 }
+
+                if(the_field.nested && should_return_parent) {
+                    value = get_facet_parent(the_field.name, document);
+                }
+
                 std::unordered_map<std::string, size_t> ftoken_pos;
                 std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
                 //LOG(INFO) << "working on hash_tokens for hash " << kv.first << " with size " << ftokens.size();
@@ -2797,6 +2806,36 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
     }
 
     return true;
+}
+
+std::string Collection::get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const {
+    std::vector<std::string> tokens;
+    StringUtils::split(facet_field_name, tokens, ".");
+    std::vector<nlohmann::json> level_docs;
+
+    auto doc = document[tokens[0]];
+    level_docs.push_back(doc);
+    for(auto i = 1; i < tokens.size()-1; ++i) { //just to ignore last token which uis our facet field
+        if(doc.contains(tokens[i])) {
+            doc = doc[tokens[i]];
+            level_docs.push_back(doc);
+        } else {
+            LOG(ERROR) << tokens[i] << " not found in document";
+        }
+    }
+    bool parent_found = false;
+    for(auto i = level_docs.size()-1; i >0; --i) {
+        if(level_docs[i].size() > 1) {
+            doc = level_docs[i];
+            parent_found = true;
+            break;
+        }
+    }
+
+    if(!parent_found) {
+        doc = level_docs[0]; //return the top most root
+    }
+    return doc.dump();
 }
 
 bool Collection::is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const {
