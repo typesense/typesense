@@ -841,8 +841,8 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
     res_op = coll1->search("*", {}, "loc: (28.7040592, 77.10249019999999, 28.7040592, "
                                     "77.10249019999999, 28.7040592, 77.10249019999999, 28.7040592, 77.10249019999999)",
                            {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
-    ASSERT_TRUE(res_op.ok());
-    ASSERT_EQ(0, res_op.get()["found"].get<size_t>());
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Polygon is invalid: Edge 0 is degenerate (duplicate vertex)", res_op.error());
 
     // badly formatted exclusion filter
 

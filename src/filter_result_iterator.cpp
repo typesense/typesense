@@ -901,9 +901,12 @@ void filter_result_iterator_t::init() {
 
                 S2Error error;
                 if (loop->FindValidationError(&error)) {
-                    LOG(ERROR) << "Query vertex is bad, skipping. Error: " << error;
                     delete loop;
-                    continue;
+                    status = Option<bool>(400, "Polygon" + (a_filter.values.size() > 1 ?
+                                                                " at position " + std::to_string(fi + 1) : "")
+                                                                + " is invalid: " + error.text());
+                    is_valid = false;
+                    return;
                 } else {
                     query_region = loop;
                 }
