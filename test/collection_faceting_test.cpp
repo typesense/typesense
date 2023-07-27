@@ -1708,7 +1708,7 @@ TEST_F(CollectionFacetingTest, FacetingReturnParent) {
                                    2, 2, false, "",
                                    true, 0, max_score, 100,
                                    0, 0, HASH, 30000,
-                                   2, "", {"value.r", "value.g", "value.b"});
+                                   2, "", {});
 
     if(!search_op.ok()) {
         LOG(ERROR) << search_op.error();
@@ -1733,7 +1733,7 @@ TEST_F(CollectionFacetingTest, FacetingReturnParent) {
                               2, 2, false, "",
                               true, 0, max_score, 100,
                               0, 0, HASH, 30000,
-                              2, "", {"value.r", "value.g", "value.b"});
+                              2, "", {"value.r"});
 
     if(!search_op.ok()) {
         LOG(ERROR) << search_op.error();

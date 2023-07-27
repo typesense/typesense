@@ -2064,6 +2064,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             }
         } else {
             auto the_field = search_schema.at(a_facet.field_name);
+            bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
+                                                  the_field.name) != facet_return_parent.end();
 
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
@@ -2091,8 +2093,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     }
                 }
 
-                if(the_field.nested &&
-                    (std::find(facet_return_parent.begin(), facet_return_parent.end(), the_field.name) != facet_return_parent.end())) {
+                if(the_field.nested && should_return_parent) {
                     value = get_facet_parent(the_field.name, document);
                 }
 
