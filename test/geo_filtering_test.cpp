@@ -480,14 +480,17 @@ TEST_F(GeoFilteringTest, GeoPolygonFiltering) {
     auto search_op = coll1->search("*", {}, "loc: (10, 20, 11, 12, 14, 16, 10, 20, 11, 40)", {}, {}, {0}, 10, 1,
                                    FREQUENCY);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Polygon (10, 20, 11, 12, 14, 16, 10, 20, 11, 40) is invalid: Edge 2 has duplicate vertex with edge 4",
-              search_op.error());
+    ASSERT_EQ("Polygon is invalid: Edge 2 has duplicate vertex with edge 4", search_op.error());
 
     search_op = coll1->search("*", {}, "loc: (10, 20, 11, 12, 14, 16, 10, 20)", {}, {}, {0}, 10, 1,
                               FREQUENCY);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Polygon (10, 20, 11, 12, 14, 16, 10, 20) is invalid: Edge 3 is degenerate (duplicate vertex)",
-              search_op.error());
+    ASSERT_EQ("Polygon is invalid: Edge 3 is degenerate (duplicate vertex)", search_op.error());
+
+    search_op = coll1->search("*", {}, "loc: [([10, 20, 30, 40, 50, 30]), ([10, 20, 11, 12, 14, 16, 10, 20])]", {}, {},
+                              {0}, 10, 1, FREQUENCY);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Polygon at position 2 is invalid: Edge 3 is degenerate (duplicate vertex)", search_op.error());
 
     collectionManager.drop_collection("coll1");
 }

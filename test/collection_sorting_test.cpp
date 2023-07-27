@@ -842,8 +842,7 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
                                     "77.10249019999999, 28.7040592, 77.10249019999999, 28.7040592, 77.10249019999999)",
                            {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Polygon (28.7040592, 77.10249019999999, 28.7040592, 77.10249019999999, 28.7040592, 77.10249019999999,"
-              " 28.7040592, 77.10249019999999) is invalid: Edge 0 is degenerate (duplicate vertex)", res_op.error());
+    ASSERT_EQ("Polygon is invalid: Edge 0 is degenerate (duplicate vertex)", res_op.error());
 
     // badly formatted exclusion filter
 
