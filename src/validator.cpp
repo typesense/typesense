@@ -669,7 +669,9 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                                           const tsl::htrie_map<char, field> & search_schema,
                                           const bool& error_if_field_not_found) {
     for(const auto& field : embedding_fields) {
-        auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
+        const auto& embed_from = field.embed[fields::from].get<std::vector<std::string>>();
+        // flag to check if all fields to embed from are optional and null
+        bool all_optional_and_null = true;
         for(const auto& field_name : embed_from) {
             auto schema_field_it = search_schema.find(field_name);
             auto doc_field_it = document.find(field_name);
@@ -677,12 +679,13 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                 return Option<bool>(400, "Field `" + field.name + "` has invalid fields to create embeddings from.");
             }
             if(doc_field_it == document.end()) {
-                if(error_if_field_not_found) {
+                if(error_if_field_not_found && !schema_field_it->optional) {
                     return Option<bool>(400, "Field `" + field_name + "` is needed to create embedding.");
                 } else {
                     continue;
                 }
             }
+            all_optional_and_null = false;
             if((schema_field_it.value().type == field_types::STRING && !doc_field_it.value().is_string()) || 
                 (schema_field_it.value().type == field_types::STRING_ARRAY && !doc_field_it.value().is_array())) {
                 return Option<bool>(400, "Field `" + field_name + "` has malformed data.");
@@ -694,6 +697,9 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                     }
                 }
             }
+        }
+        if(all_optional_and_null && !field.optional) {
+            return Option<bool>(400, "No valid fields found to create embedding for `" + field.name + "`, please provide at least one valid field or make the embedding field optional.");
         }
     }
 

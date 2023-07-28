@@ -988,3 +988,51 @@ TEST_F(CollectionVectorTest, HybridSearchSortByGeopoint) {
     ASSERT_EQ("butterball", search_res["hits"][1]["document"]["name"].get<std::string>());
     ASSERT_EQ("butterfly", search_res["hits"][2]["document"]["name"].get<std::string>());
 }
+
+
+TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "text", "type": "string", "optional": true},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["text"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    nlohmann::json doc = R"({
+    })"_json;
+
+    auto add_op = coll->add(doc.dump());
+
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("No valid fields found to create embedding for `embedding`, please provide at least one valid field or make the embedding field optional.", add_op.error());
+
+    doc["text"] = "butter";
+    add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    // drop the embedding field and reindex
+
+    nlohmann::json alter_schema = R"({
+        "fields": [
+        {"name": "embedding", "drop": true},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["text"], "model_config": {"model_name": "ts/e5-small"}}, "optional": true}
+        ]
+    })"_json;
+
+    auto update_op = coll->alter(alter_schema);
+    ASSERT_TRUE(update_op.ok());
+
+
+    doc = R"({
+    })"_json;
+    add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+}
