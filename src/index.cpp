@@ -6492,10 +6492,11 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 continue;
             }
             std::string text = indexing_prefix;
-            auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
+            const auto& embed_from = field.embed[fields::from].get<std::vector<std::string>>();
             for(const auto& field_name : embed_from) {
                 auto field_it = search_schema.find(field_name);
-                if(document->count(field_name) == 0) {
+                auto doc_field_it = document->find(field_name);
+                if(doc_field_it == document->end()) {
                         continue;
                 }
                 if(field_it.value().type == field_types::STRING) {
