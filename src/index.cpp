@@ -6500,9 +6500,9 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                         continue;
                 }
                 if(field_it.value().type == field_types::STRING) {
-                    text += (*document)[field_name].get<std::string>() + " ";
+                    text += doc_field_it->get<std::string>() + " ";
                 } else if(field_it.value().type == field_types::STRING_ARRAY) {
-                    for(const auto& val : (*document)[field_name]) {
+                    for(const auto& val : *(doc_field_it)) {
                         text += val.get<std::string>() + " ";
                     }
                 }
