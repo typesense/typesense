@@ -1120,7 +1120,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t facet_sample_threshold,
                                   const size_t page_offset,
                                   const size_t remote_embedding_timeout_ms,
-                                  const size_t remote_embedding_num_try) const {
+                                  const size_t remote_embedding_num_tries) const {
 
     std::shared_lock lock(mutex);
 
@@ -1260,14 +1260,14 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                         return Option<nlohmann::json>(400, error);
                     }
 
-                    if(remote_embedding_num_try == 0) {
-                        std::string error = "`remote-embedding-num-try` must be greater than 0.";
+                    if(remote_embedding_num_tries == 0) {
+                        std::string error = "`remote_embedding_num_tries` must be greater than 0.";
                         return Option<nlohmann::json>(400, error);
                     }
                 }
 
                 std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + raw_query;
-                auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_try);
+                auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
                 if(!embedding_op.success) {
                     if(!embedding_op.error["error"].get<std::string>().empty()) {
                         return Option<nlohmann::json>(400, embedding_op.error["error"].get<std::string>());
