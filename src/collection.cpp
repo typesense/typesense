@@ -2711,7 +2711,7 @@ Option<std::string> Collection::get_reference_field(const std::string & collecti
     for (auto const& pair: reference_fields) {
         auto reference_pair = pair.second;
         if (reference_pair.collection == collection_name) {
-            reference_field_name = reference_pair.field;
+            reference_field_name = pair.first;
             break;
         }
     }
