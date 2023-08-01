@@ -125,13 +125,12 @@ void compact_posting_list_t::erase(const uint32_t id) {
             }
 
             length -= shift_offset;
+            ids_length--;
             break;
         }
 
         i += num_existing_offsets + 2;
     }
-
-    ids_length--;
 }
 
 compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, const uint32_t* ids, const uint32_t* offset_index,

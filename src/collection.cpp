@@ -1122,7 +1122,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t page_offset,
                                   facet_index_type_t facet_index_type,
                                   const size_t remote_embedding_timeout_ms,
-                                  const size_t remote_embedding_num_try,
+                                  const size_t remote_embedding_num_tries,
                                   const std::string& stopwords_set,
                                   const std::vector<std::string>& facet_return_parent) const {
 
@@ -1264,14 +1264,14 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                         return Option<nlohmann::json>(400, error);
                     }
 
-                    if(remote_embedding_num_try == 0) {
-                        std::string error = "`remote-embedding-num-try` must be greater than 0.";
+                    if(remote_embedding_num_tries == 0) {
+                        std::string error = "`remote_embedding_num_tries` must be greater than 0.";
                         return Option<nlohmann::json>(400, error);
                     }
                 }
 
                 std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + raw_query;
-                auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_try);
+                auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
                 if(!embedding_op.success) {
                     if(!embedding_op.error["error"].get<std::string>().empty()) {
                         return Option<nlohmann::json>(400, embedding_op.error["error"].get<std::string>());
@@ -1962,17 +1962,13 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             if(field_order_kv->match_score_index == CURATED_RECORD_IDENTIFIER) {
                 wrapper_doc["curated"] = true;
             } else if(field_order_kv->match_score_index >= 0) {
-                if(vector_query.field_name.empty()) {
-                    wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
-
-                    wrapper_doc["text_match_info"] = nlohmann::json::object();
-                    populate_text_match_info(wrapper_doc["text_match_info"],
-                                            field_order_kv->scores[field_order_kv->match_score_index], match_type);
-                } else {
+                wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
+                wrapper_doc["text_match_info"] = nlohmann::json::object();
+                populate_text_match_info(wrapper_doc["text_match_info"],
+                                        field_order_kv->scores[field_order_kv->match_score_index], match_type);
+                if(!vector_query.field_name.empty()) {
                     wrapper_doc["hybrid_search_info"] = nlohmann::json::object();
                     wrapper_doc["hybrid_search_info"]["rank_fusion_score"] = Index::int64_t_to_float(field_order_kv->scores[field_order_kv->match_score_index]);
-                    wrapper_doc["hybrid_search_info"]["text_match_score"] =  field_order_kv->text_match_score;
-                    wrapper_doc["hybrid_search_info"]["vector_distance"] = field_order_kv->vector_distance;
                 }
             }
 

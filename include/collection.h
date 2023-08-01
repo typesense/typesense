@@ -475,7 +475,7 @@ public:
                                   const size_t page_offset = 0,
                                   facet_index_type_t facet_index_type = HASH,
                                   const size_t remote_embedding_timeout_ms = 30000,
-                                  const size_t remote_embedding_num_try = 2,
+                                  const size_t remote_embedding_num_tries = 2,
                                   const std::string& stopwords_set="",
                                   const std::vector<std::string>& facet_return_parent = {}) const;
 

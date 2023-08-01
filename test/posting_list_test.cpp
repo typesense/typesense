@@ -1204,7 +1204,14 @@ TEST_F(PostingListTest, CompactPostingListErase) {
 
     compact_posting_list_t* list = compact_posting_list_t::create(3, ids, offset_index, 9, offsets);
 
-    list->erase(3); // erase non-existing ID
+    list->erase(3); // erase non-existing small ID
+
+    ASSERT_EQ(15, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
+
+    list->erase(3000); // erase non-existing large ID
 
     ASSERT_EQ(15, list->length);
     ASSERT_EQ(15, list->capacity);

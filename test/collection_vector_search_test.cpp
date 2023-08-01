@@ -921,3 +921,118 @@ TEST_F(CollectionVectorTest, DistanceThresholdTest) {
     ASSERT_FLOAT_EQ(0.8, results_op.get()["hits"][0]["document"]["vec"].get<std::vector<float>>()[2]);
 
 }
+
+
+TEST_F(CollectionVectorTest, HybridSearchSortByGeopoint) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "location", "type": "geopoint"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto coll = op.get();
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+    doc["location"] = {80.0, 150.0};
+
+    auto add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    doc["name"] = "butterball";
+    doc["location"] = {40.0, 100.0};
+
+    add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    doc["name"] = "butterfly";
+    doc["location"] = {130.0, 200.0};
+
+    add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+
+    std::vector<sort_by> sort_by_list = {{"location(10.0, 10.0)", "asc"}};
+
+    auto search_res_op = coll->search("butter", {"name", "embedding"}, "", {}, sort_by_list, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10);
+
+    ASSERT_TRUE(search_res_op.ok());
+
+    auto search_res = search_res_op.get();
+
+    ASSERT_EQ("butterfly", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterball", search_res["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butter", search_res["hits"][2]["document"]["name"].get<std::string>());
+
+
+    search_res_op = coll->search("butter", {"name", "embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10);
+
+    ASSERT_TRUE(search_res_op.ok());
+
+    search_res = search_res_op.get();
+
+
+    ASSERT_EQ("butter", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterball", search_res["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterfly", search_res["hits"][2]["document"]["name"].get<std::string>());
+}
+
+
+TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "text", "type": "string", "optional": true},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["text"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    nlohmann::json doc = R"({
+    })"_json;
+
+    auto add_op = coll->add(doc.dump());
+
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("No valid fields found to create embedding for `embedding`, please provide at least one valid field or make the embedding field optional.", add_op.error());
+
+    doc["text"] = "butter";
+    add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    // drop the embedding field and reindex
+
+    nlohmann::json alter_schema = R"({
+        "fields": [
+        {"name": "embedding", "drop": true},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["text"], "model_config": {"model_name": "ts/e5-small"}}, "optional": true}
+        ]
+    })"_json;
+
+    auto update_op = coll->alter(alter_schema);
+    ASSERT_TRUE(update_op.ok());
+
+
+    doc = R"({
+    })"_json;
+    add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+}

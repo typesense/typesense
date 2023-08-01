@@ -4871,8 +4871,7 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
     doc["names"].push_back("butterball");
 
     auto add_op = coll->add(doc.dump());
-    ASSERT_FALSE(add_op.ok());
-    ASSERT_EQ("Field `category` is needed to create embedding.", add_op.error());
+    ASSERT_TRUE(add_op.ok());
 }
 
 TEST_F(CollectionTest, WrongTypeInEmbedFrom) {

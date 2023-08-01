@@ -2742,20 +2742,18 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         auto result = result_it->second;
                         // old_score + (1 / rank_of_document) * WEIGHT)
                         result->vector_distance = vec_result.second;
-                        result->scores[result->match_score_index] = float_to_int64_t(
+                        int64_t match_score = float_to_int64_t(
                                 (int64_t_to_float(result->scores[result->match_score_index])) +
                                 ((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT));
+                        int64_t match_score_index = -1;
+                        int64_t scores[3] = {0};
+                        
+                        compute_sort_scores(sort_fields_std, sort_order, field_values, geopoint_indices, doc_id, 0, match_score, scores, match_score_index, vec_result.second);
 
-                        for(size_t i = 0;i < 3; i++) {
-                            if(field_values[i] == &vector_distance_sentinel_value) {
-                                result->scores[i] = float_to_int64_t(vec_result.second);
-                            }
-
-                            if(sort_order[i] == -1) {
-                                result->scores[i] = -result->scores[i];
-                            }
+                        for(int i = 0; i < 3; i++) {
+                            result->scores[i] = scores[i];
                         }
-                      
+                        result->match_score_index = match_score_index;
                     } else {
                         // Result has been found only in vector search: we have to add it to both KV and result_ids
                         // (1 / rank_of_document) * WEIGHT)
@@ -5699,7 +5697,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
             if(!del_field.is_single_geopoint()) {
                 spp::sparse_hash_map<uint32_t, int64_t*>* geo_array_map = geo_array_index[del_field.name];
                 for(auto& kv: *geo_array_map) {
-                    delete kv.second;
+                    delete [] kv.second;
                 }
                 delete geo_array_map;
                 geo_array_index.erase(del_field.name);
@@ -6057,13 +6055,17 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 continue;
             }
             std::string text = indexing_prefix;
-            auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
+            const auto& embed_from = field.embed[fields::from].get<std::vector<std::string>>();
             for(const auto& field_name : embed_from) {
                 auto field_it = search_schema.find(field_name);
+                auto doc_field_it = document->find(field_name);
+                if(doc_field_it == document->end()) {
+                        continue;
+                }
                 if(field_it.value().type == field_types::STRING) {
-                    text += (*document)[field_name].get<std::string>() + " ";
+                    text += doc_field_it->get<std::string>() + " ";
                 } else if(field_it.value().type == field_types::STRING_ARRAY) {
-                    for(const auto& val : (*document)[field_name]) {
+                    for(const auto& val : *(doc_field_it)) {
                         text += val.get<std::string>() + " ";
                     }
                 }
@@ -6076,7 +6078,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         if(texts_to_embed.empty()) {
             continue;
         }
-        
+
         TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
         auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
 

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <filesystem>
+#include <dlfcn.h>
 
 TextEmbedder::TextEmbedder(const std::string& model_name) {
     // create environment
@@ -12,6 +13,16 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
     auto providers = Ort::GetAvailableProviders();
     for(auto& provider : providers) {
         if(provider == "CUDAExecutionProvider") {
+
+            // check existence of shared lib
+            void* handle = dlopen("libonnxruntime_providers_shared.so", RTLD_NOW | RTLD_GLOBAL);
+            if(!handle) {
+                LOG(INFO) << "ONNX shared libs: off";
+                continue;
+            }
+
+            dlclose(handle);
+
             LOG(INFO) << "Using CUDAExecutionProvider";
             OrtCUDAProviderOptions cuda_options;
             session_options.AppendExecutionProvider_CUDA(cuda_options);
@@ -83,9 +94,9 @@ std::vector<float> TextEmbedder::mean_pooling(const std::vector<std::vector<floa
     return pooled_output;
 }
 
-embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_try) {
+embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
     if(is_remote()) {
-        return remote_embedder_->Embed(text, remote_embedder_timeout_ms, remote_embedding_num_try);
+        return remote_embedder_->Embed(text, remote_embedder_timeout_ms, remote_embedding_num_tries);
     } else {
         // Cannot run same model in parallel, so lock the mutex
         std::lock_guard<std::mutex> lock(mutex_);
@@ -136,6 +147,7 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
 std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
     std::vector<embedding_res_t> outputs;
     if(!is_remote()) {
+        std::lock_guard<std::mutex> lock(mutex_);
         for(int i = 0; i < inputs.size(); i += 8) {
             auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 8, static_cast<int>(inputs.size())));
             auto encoded_inputs = batch_encode(input_batch);

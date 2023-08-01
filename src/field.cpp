@@ -608,8 +608,6 @@ Option<bool> field::validate_and_init_embed_fields(const std::vector<std::pair<s
         const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
                                     "` can only refer to string or string array fields.";
 
-        LOG(INFO) << "field_json: " << field_json;
-
         for(auto& field_name : field_json[fields::embed][fields::from].get<std::vector<std::string>>()) {
             auto embed_field = std::find_if(fields_json.begin(), fields_json.end(), [&field_name](const nlohmann::json& x) {
                 return x["name"].get<std::string>() == field_name;
