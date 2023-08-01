@@ -200,7 +200,8 @@ void BatchedIndexer::run() {
                                                                     config.get_disk_used_max_percentage(),
                                                                     config.get_memory_used_max_percentage());
 
-                        if (resource_check != cached_resource_stat_t::OK && orig_req->http_method != "DELETE") {
+                        if (resource_check != cached_resource_stat_t::OK &&
+                            orig_req->http_method != "DELETE"  && found_rpath->handler != post_health) {
                             const std::string& err_msg = "Rejecting write: running out of resource type: " +
                                                           std::string(magic_enum::enum_name(resource_check));
                             LOG(ERROR) << err_msg;
