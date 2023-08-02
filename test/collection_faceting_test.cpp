@@ -1055,6 +1055,78 @@ TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
     ASSERT_EQ("companyRank", wildcard_facets[1].field_name);
 }
 
+TEST_F(CollectionFacetingTest, FacetByNestedArrayField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "data", "type": "object", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "data": {"details": [{"name": "Foo"}, {"name": "Foo"}]}
+    })"_json;
+
+    auto doc2 = R"({
+        "data": {"details": [{"name": "Foo"}, {"name": "Foo"}]}
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump(), CREATE).ok());
+
+    auto results = coll1->search("*", {}, "", {"data.details.name"}, {}, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("data.details.name", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("Foo", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+}
+
+TEST_F(CollectionFacetingTest, FacetByArrayField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "data", "type": "string[]", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "data": ["Foo", "Foo"]
+    })"_json;
+
+    auto doc2 = R"({
+        "data": ["Foo", "Foo"]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump(), CREATE).ok());
+
+    auto results = coll1->search("*", {}, "", {"data"}, {}, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("data", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("Foo", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+}
+
 TEST_F(CollectionFacetingTest, FacetParseTest){
     std::vector<field> fields = {
             field("score", field_types::INT32, true),

@@ -1155,6 +1155,7 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
         token_to_offsets[last_token].push_back(0);
     }
 }
+
 void Index::initialize_facet_indexes(const field& facet_field) {
     facet_index_v4->initialize(facet_field.name);
 }
