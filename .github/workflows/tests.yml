@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build_and_test:
+  test:
     runs-on: ubuntu-20.04
 
     steps:
@@ -39,11 +39,12 @@ jobs:
       - name: Restore bazel cache
         uses: actions/cache/restore@v3
         with:
-          path: "~/.cache/bazel"
-          key: ${{ runner.os }}-bazel
-
-      - name: Build
-        run: bazel build //:typesense-server
+          path: |
+            ~/.cache/bazel
+          # Source: https://github.com/actions/cache/blob/67b839edb68371cc5014f6cea11c9aa77238de78/examples.md#linux-2
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'WORKSPACE', 'WORKSPACE.bazel', 'MODULE.bazel') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
 
       - name: Run tests
         run: bazel test //:typesense-test
@@ -60,5 +61,9 @@ jobs:
         uses: actions/cache/save@v3
         if: always()
         with:
-          path: "~/.cache/bazel"
-          key: ${{ runner.os }}-bazel
+          path: |
+            ~/.cache/bazel
+          # Source: https://github.com/actions/cache/blob/67b839edb68371cc5014f6cea11c9aa77238de78/examples.md#linux-2
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'WORKSPACE', 'WORKSPACE.bazel', 'MODULE.bazel') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
