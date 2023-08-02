@@ -1379,9 +1379,17 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     RETURN_CIRCUIT_BREAKER
                 }
 
+                std::set<uint32_t> unique_facet_hashes;
+
                 for(size_t j = 0; j < facet_hashes.size(); j++) {
 
                     const auto& fhash = facet_hashes[j];
+
+                    if(unique_facet_hashes.count(fhash) == 0) {
+                        unique_facet_hashes.insert(fhash);
+                    } else {
+                        continue;
+                    }
 
                     if(should_compute_stats) {
                         compute_facet_stats(a_facet, fhash, facet_field.type);
