@@ -43,6 +43,8 @@ jobs:
             ~/.cache/bazel
           # Source: https://github.com/actions/cache/blob/67b839edb68371cc5014f6cea11c9aa77238de78/examples.md#linux-2
           key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'WORKSPACE', 'WORKSPACE.bazel', 'MODULE.bazel') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
 
       - name: Build Typesense
         run: bazel build //:typesense-server
@@ -66,5 +68,3 @@ jobs:
             ~/.cache/bazel
           # Source: https://github.com/actions/cache/blob/67b839edb68371cc5014f6cea11c9aa77238de78/examples.md#linux-2
           key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'WORKSPACE', 'WORKSPACE.bazel', 'MODULE.bazel') }}
-          restore-keys: |
-            ${{ runner.os }}-bazel-
