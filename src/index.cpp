@@ -1056,6 +1056,8 @@ void Index::tokenize_string_array_with_facets(const std::vector<std::string>& st
                                               std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
                                               std::vector<uint64_t>& facet_hashes) {
 
+    std::set<uint64_t> facet_hash_set;  // required to deal with repeating phrases
+
     for(size_t array_index = 0; array_index < strings.size(); array_index++) {
         const std::string& str = strings[array_index];
         std::set<std::string> token_set;  // required to deal with repeating tokens
@@ -1089,8 +1091,9 @@ void Index::tokenize_string_array_with_facets(const std::vector<std::string>& st
             }
         }
 
-        if(is_facet) {
+        if(is_facet && facet_hash_set.count(facet_hash) == 0) {
             facet_hashes.push_back(facet_hash);
+            facet_hash_set.insert(facet_hash);
         }
 
         if(token_set.empty()) {
