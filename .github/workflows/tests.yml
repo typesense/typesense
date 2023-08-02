@@ -36,11 +36,11 @@ jobs:
       - name: Set up Bazel
         uses: bazelbuild/setup-bazelisk@v2
 
-      - name: Mount bazel cache
-        uses: actions/cache@v3
+      - name: Restore bazel cache
+        uses: actions/cache@v3/restore
         with:
           path: "~/.cache/bazel"
-          key: bazel
+          key: ${{ runner.os }}-bazel
 
       - name: Build
         run: bazel build //:typesense-server
@@ -55,3 +55,10 @@ jobs:
         with:
           name: typesense-server
           path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
+
+      - name: Save bazel cache
+        uses: actions/cache@v3/save
+        if: always()
+        with:
+          path: "~/.cache/bazel"
+          key: ${{ runner.os }}-bazel
