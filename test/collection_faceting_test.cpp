@@ -1876,3 +1876,120 @@ TEST_F(CollectionFacetingTest, FacetingReturnParentObject) {
     ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["value"]);
 }
+
+TEST_F(CollectionFacetingTest, FacetSortByOtherFieldVal) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "car", "type": "object", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "car": {
+            "speed": 130,
+            "brand": "Tata",
+            "type": "Hatchback"
+        }
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "car": {
+            "speed": 140,
+            "brand": "Hyundai",
+            "type": "Sedan"
+        }
+    })"_json;
+
+    nlohmann::json doc3 = R"({
+        "car": {
+            "speed": 120,
+            "brand": "Maruti",
+            "type": "Sedan"
+        }
+    })"_json;
+
+    nlohmann::json doc4 = R"({
+        "car": {
+            "speed": 135,
+            "brand": "Toyota",
+            "type": "Hatchback"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+    add_op = coll1->add(doc3.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+    add_op = coll1->add(doc4.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    //sort cars brands by top speed in asc order
+    facet_sort_by facet_sort_param{"car.speed", "asc"};
+    auto search_op = coll1->search("*", {},"", {"car.brand"},
+                                   {}, {2}, 10, 1,FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000*1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, HASH, 30000,
+                                   2, "", {}, facet_sort_param);
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(4, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Maruti", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Tata", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Toyota", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Hyundai", results["facet_counts"][0]["counts"][3]["value"]);
+
+    //sort cars brands by top speed in desc order
+    facet_sort_param.param = "car.speed";
+    facet_sort_param.order = "desc";
+
+    search_op = coll1->search("*", {},"", {"car.brand"},
+                                   {}, {2}, 10, 1,FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000*1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, HASH, 30000,
+                                   2, "", {}, facet_sort_param);
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+
+    results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(4, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Hyundai", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Toyota", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Tata", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Maruti", results["facet_counts"][0]["counts"][3]["value"]);
+}

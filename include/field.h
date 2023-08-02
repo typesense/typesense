@@ -539,6 +539,19 @@ struct sort_by {
     }
 };
 
+struct facet_sort_by {
+   std::string param;
+   std::string order;
+
+   facet_sort_by() {
+       param.clear();
+       order.clear();
+   }
+
+   facet_sort_by(const std::string& _param, const std::string& _order)
+   :param(_param), order(_order) {}
+};
+
 class GeoPoint {
     constexpr static const double EARTH_RADIUS = 3958.75;
     constexpr static const double METER_CONVERT = 1609.00;
@@ -572,6 +585,7 @@ struct facet_count_t {
     // used to fetch the actual document and value for representation
     uint32_t doc_id = 0;
     uint32_t array_pos = 0;
+    float sort_field_val = 0.0f;
 };
 
 struct facet_stats_t {
@@ -646,6 +660,7 @@ struct facet_value_t {
     std::string value;
     std::string highlighted;
     uint32_t count;
+    float sort_field_val = 0.0f;
 };
 
 struct facet_hash_values_t {

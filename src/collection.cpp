@@ -1124,7 +1124,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_try,
                                   const std::string& stopwords_set,
-                                  const std::vector<std::string>& facet_return_parent) const {
+                                  const std::vector<std::string>& facet_return_parent,
+                                  const facet_sort_by& facet_sort_param) const {
 
     std::shared_lock lock(mutex);
 
@@ -1418,6 +1419,14 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 std::string error = "Could not find a facet field named `" + facet_query.field_name + "` in the schema.";
                 return Option<nlohmann::json>(404, error);
             }
+        }
+    }
+
+    //validate facet_sort_by fields
+    if(!facet_sort_param.param.empty()) {
+        const auto &res = validate_facet_sort_by_field(facet_sort_param);
+        if (!res.ok()) {
+            return Option<nlohmann::json>(res.code(), res.error());
         }
     }
 
@@ -2067,6 +2076,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
                                                   the_field.name) != facet_return_parent.end();
 
+            if(!facet_sort_param.param.empty()) {
+                max_facets = facet_counts.size();
+            }
+
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
                 auto & kv = facet_counts[fi];
@@ -2090,6 +2103,9 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
                     if(!facet_found) {
                         continue;
+                    }
+                    if(!facet_sort_param.param.empty()) {
+                        facet_count.sort_field_val = document[facet_sort_param.param].get<float>();
                     }
                 }
 
@@ -2166,12 +2182,27 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     highlightedss << value[i];
                     i++;
                 }
-                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
+                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count, facet_count.sort_field_val};
                 facet_values.emplace_back(facet_value);
             }
         }
-        
-        std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
+
+        if(!facet_sort_param.param.empty()) {
+            bool is_asc = facet_sort_param.order == "asc";
+            std::stable_sort(facet_values.begin(), facet_values.end(), [&](const auto& fv1, const auto& fv2) {
+                if(is_asc) {
+                    return fv1.sort_field_val < fv2.sort_field_val;
+                }
+                return fv1.sort_field_val > fv2.sort_field_val;
+            });
+
+            if(facet_values.size() > max_facet_values) {
+                facet_values.erase(facet_values.begin() + max_facet_values, facet_values.end());
+            }
+
+        } else {
+            std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
+        }
 
         for(const auto & facet_count: facet_values) {
             nlohmann::json facet_value_count = nlohmann::json::object();
@@ -4969,6 +5000,31 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
            return Option<bool>(404, error);
        }
        facets.emplace_back(facet(facet_field));
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::validate_facet_sort_by_field(const facet_sort_by& facet_sort_params) const {
+    if (search_schema.count(facet_sort_params.param) == 0) {
+        std::string error = "Could not find a facet field named `" + facet_sort_params.param + "` in the schema.";
+        return Option<bool>(404, error);
+    }
+
+    const field &a_field = search_schema.at(facet_sort_params.param);
+    if (!a_field.nested) {
+        std::string error = "Field for `facet_sort_by` should be nested from same facet field";
+        return Option<bool>(400, error);
+    }
+
+    if(a_field.is_string()) {
+        std::string error = "Field for `facet_sort_by` should not be string";
+        return Option<bool>(400, error);
+    }
+
+    if ((facet_sort_params.order != "asc") && (facet_sort_params.order != "desc")) {
+        std::string error = "Sort order for field `facet_sort_by` should be asc/desc";
+        return Option<bool>(400, error);
     }
 
     return Option<bool>(true);
