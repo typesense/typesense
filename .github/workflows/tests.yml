@@ -37,7 +37,7 @@ jobs:
         uses: bazelbuild/setup-bazelisk@v2
 
       - name: Restore bazel cache
-        uses: actions/cache@v3/restore
+        uses: actions/cache/restore@v3
         with:
           path: "~/.cache/bazel"
           key: ${{ runner.os }}-bazel
@@ -57,7 +57,7 @@ jobs:
           path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
 
       - name: Save bazel cache
-        uses: actions/cache@v3/save
+        uses: actions/cache/save@v3
         if: always()
         with:
           path: "~/.cache/bazel"
