@@ -1111,7 +1111,7 @@ TEST_F(CollectionFacetingTest, FacetByArrayField) {
     })"_json;
 
     auto doc2 = R"({
-        "data": ["Foo", "Foo"]
+        "data": ["Foo", "Foo", "Bazinga"]
     })"_json;
 
     ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
@@ -1124,9 +1124,23 @@ TEST_F(CollectionFacetingTest, FacetByArrayField) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ("data", results["facet_counts"][0]["field_name"]);
-    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
     ASSERT_EQ("Foo", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][1]["count"].get<size_t>());
+    ASSERT_EQ("Bazinga", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+
+    results = coll1->search("*", {}, "", {"data"}, {}, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "data:baz", 30, 4).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("data", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("Bazinga", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 }
 
 TEST_F(CollectionFacetingTest, FacetParseTest){
