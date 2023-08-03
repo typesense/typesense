@@ -103,11 +103,11 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
     std::string& coll_name = req->params["collection"];
 
     if(coll_name.empty()) {
-        route_path* rpath;
-        server->get_route(req->route_hash, &rpath);
+        route_path* rpath = nullptr;
+        bool route_found = server->get_route(req->route_hash, &rpath);
 
         // ensure that collection creation is sent to the same queue as writes to that collection
-        if(rpath->handler == post_create_collection) {
+        if(route_found && rpath->handler == post_create_collection) {
             nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
 
             if(!obj.is_discarded() && obj.is_object() &&
@@ -200,22 +200,25 @@ void BatchedIndexer::run() {
                                                                     config.get_disk_used_max_percentage(),
                                                                     config.get_memory_used_max_percentage());
 
-                        if (resource_check != cached_resource_stat_t::OK && orig_req->http_method != "DELETE") {
+                        if (resource_check != cached_resource_stat_t::OK &&
+                            orig_req->http_method != "DELETE"  && found_rpath->handler != post_health) {
                             const std::string& err_msg = "Rejecting write: running out of resource type: " +
                                                           std::string(magic_enum::enum_name(resource_check));
                             LOG(ERROR) << err_msg;
                             orig_res->set_422(err_msg);
+                            orig_res->final = true;
                             async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
                             server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
-                            break;
+                            goto end;
                         }
 
                         else if(route_found) {
                             if(skip_writes && found_rpath->handler != post_config) {
                                 orig_res->set(422, "Skipping write.");
+                                orig_res->final = true;
                                 async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
                                 server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
-                                break;
+                                goto end;
                             }
 
                             async_res = found_rpath->async_res;
@@ -226,6 +229,7 @@ void BatchedIndexer::run() {
                                 LOG(ERROR) << "Raw error: " << e.what();
                                 // bad request gets a response immediately
                                 orig_res->set_400("Bad request.");
+                                orig_res->final = true;
                                 async_res = false;
                             }
                             prev_body = orig_req->body;
@@ -240,9 +244,11 @@ void BatchedIndexer::run() {
                         }
 
                         if(!route_found) {
-                            break;
+                            goto end;
                         }
                     }
+
+                    end:
 
                     queued_writes--;
                     orig_req_res.next_chunk_index++;

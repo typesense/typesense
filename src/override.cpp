@@ -1,7 +1,12 @@
 #include <string_utils.h>
 #include "override.h"
+#include "tokenizer.h"
 
-Option<bool> override_t::parse(const nlohmann::json& override_json, const std::string& id, override_t& override) {
+Option<bool> override_t::parse(const nlohmann::json& override_json, const std::string& id,
+                               override_t& override,
+                               const std::string& locale,
+                               const std::vector<char>& symbols_to_index,
+                               const std::vector<char>& token_separators) {
     if(!override_json.is_object()) {
         return Option<bool>(400, "Bad JSON.");
     }
@@ -108,6 +113,17 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
     override.rule.query = json_rule.count("query") == 0 ? "" : json_rule["query"].get<std::string>();
     override.rule.match = json_rule.count("match") == 0 ? "" : json_rule["match"].get<std::string>();
 
+    if(!override.rule.query.empty()) {
+        auto symbols = symbols_to_index;
+        symbols.push_back('{');
+        symbols.push_back('}');
+        symbols.push_back('*');
+        Tokenizer tokenizer(override.rule.query, true, false, locale, symbols, token_separators);
+        std::vector<std::string> tokens;
+        tokenizer.tokenize(tokens);
+        override.rule.normalized_query = StringUtils::join(tokens, " ");
+    }
+
     if(json_rule.count("filter_by") != 0) {
         if(!override_json["rule"]["filter_by"].is_string()) {
             return Option<bool>(400, "Override `rule.filter_by` must be a string.");
@@ -172,15 +188,15 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
 
     // we have to also detect if it is a dynamic query rule
     size_t i = 0;
-    while(i < override.rule.query.size()) {
-        if(override.rule.query[i] == '{') {
+    while(i < override.rule.normalized_query.size()) {
+        if(override.rule.normalized_query[i] == '{') {
             // look for closing curly
             i++;
-            while(i < override.rule.query.size()) {
-                if(override.rule.query[i] == '}') {
+            while(i < override.rule.normalized_query.size()) {
+                if(override.rule.normalized_query[i] == '}') {
                     override.rule.dynamic_query = true;
                     // remove spaces around curlies
-                    override.rule.query = StringUtils::trim_curly_spaces(override.rule.query);
+                    override.rule.normalized_query = StringUtils::trim_curly_spaces(override.rule.normalized_query);
                     break;
                 }
                 i++;

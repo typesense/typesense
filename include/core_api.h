@@ -33,6 +33,8 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
 
 bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
@@ -117,6 +119,8 @@ bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_pt
 
 bool post_compact_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool post_reset_peers(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Rate Limiting
 
 bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
@@ -128,6 +132,28 @@ bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_active_throttles(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_limit_exceed_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_throttle(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_exceed(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+// Analytics
+
+bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_upsert_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Misc helpers
 
@@ -141,3 +167,10 @@ bool is_doc_import_route(uint64_t route_hash);
 bool is_doc_write_route(uint64_t route_hash);
 
 bool is_doc_del_route(uint64_t route_hash);
+
+Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata);
+
+void init_api(uint32_t cache_num_entries);
+
+
+bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

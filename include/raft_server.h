@@ -126,6 +126,7 @@ private:
     std::string raft_dir_path;
 
     std::string ext_snapshot_path;
+    std::atomic<bool> ext_snapshot_succeeded;
 
     int election_timeout_interval_ms;
 
@@ -138,6 +139,8 @@ private:
 
     const uint64_t snapshot_interval_s;     // frequency of actual snapshotting
     uint64_t last_snapshot_ts;              // when last snapshot ran
+
+    butil::EndPoint peering_endpoint;
 
 public:
 
@@ -163,11 +166,14 @@ public:
     void read(const std::shared_ptr<http_res>& response);
 
     // updates cluster membership
-    void refresh_nodes(const std::string & nodes);
+    void refresh_nodes(const std::string & nodes, const size_t raft_counter,
+                       const std::atomic<bool>& reset_peers_on_error);
 
     void refresh_catchup_status(bool log_msg);
 
     bool trigger_vote();
+
+    bool reset_peers();
 
     bool has_leader_term() const {
         return leader_term.load(butil::memory_order_acquire) > 0;
@@ -200,6 +206,8 @@ public:
 
     void set_ext_snapshot_path(const std::string &snapshot_path);
 
+    bool get_ext_snapshot_succeeded();
+
     const std::string& get_ext_snapshot_path() const;
 
     // for timed snapshots
@@ -228,6 +236,8 @@ public:
     bool is_leader();
 
     nlohmann::json get_status();
+
+    std::string get_leader_url() const;
 
 private:
 

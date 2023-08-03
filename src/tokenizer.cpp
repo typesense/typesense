@@ -60,8 +60,12 @@ void Tokenizer::init(const std::string& input) {
     }
 
     else if(locale == "ja") {
-        normalized_text = JapaneseLocalizer::get_instance().normalize(input);
-        text = normalized_text;
+        if(normalize) {
+            normalized_text = JapaneseLocalizer::get_instance().normalize(input);
+            text = normalized_text;
+        } else {
+            text = input;
+        }
     } else if(is_cyrillic(locale)) {
         // init transliterator but will only transliterate during tokenization
         UErrorCode translit_status = U_ZERO_ERROR;
@@ -133,6 +137,12 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 } else {
                     LOG(ERROR) << "Unicode error during parsing: " << errcode;
                 }
+            } else if(normalize && locale == "ja") {
+                auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
+                raw_text.toUTF8String(word);
+                char* normalized_word = JapaneseLocalizer::get_instance().normalize(word);
+                word.assign(normalized_word, strlen(normalized_word));
+                free(normalized_word);
             } else {
                 unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(word);
             }
@@ -332,5 +342,17 @@ bool Tokenizer::is_cyrillic(const std::string& locale) {
 void Tokenizer::decr_token_counter() {
     if(token_counter > 0) {
         token_counter--;
+    }
+}
+
+bool Tokenizer::should_skip_char(char c) {
+    return is_ascii_char(c) && get_stream_mode(c) != INDEX;
+}
+
+void Tokenizer::normalize_ascii(std::string& text) {
+    for(size_t i = 0; i < text.size(); i++) {
+        if(is_ascii_char(text[i])) {
+            text[i] = std::tolower(text[i]);
+        }
     }
 }

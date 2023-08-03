@@ -5,6 +5,7 @@
 #include <string>
 #include <sstream>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <shared_mutex>
 #include <option.h>
@@ -356,6 +357,11 @@ public:
     rocksdb::Status delete_range(const std::string& begin_key, const std::string& end_key) {
         std::shared_lock lock(mutex);
         return db->DeleteRange(rocksdb::WriteOptions(), db->DefaultColumnFamily(), begin_key, end_key);
+    }
+
+    rocksdb::Status compact_range(const rocksdb::Slice& begin_key, const rocksdb::Slice& end_key) {
+        std::shared_lock lock(mutex);
+        return db->CompactRange(rocksdb::CompactRangeOptions(), &begin_key, &end_key);
     }
 
     // Only for internal tests

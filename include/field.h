@@ -6,9 +6,11 @@
 #include "option.h"
 #include "string_utils.h"
 #include "logger.h"
+#include "store.h"
 #include <sparsepp.h>
 #include <tsl/htrie_map.h>
 #include "json.hpp"
+#include "text_embedder_manager.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -47,6 +49,17 @@ namespace fields {
     static const std::string nested_array = "nested_array";
     static const std::string num_dim = "num_dim";
     static const std::string vec_dist = "vec_dist";
+    static const std::string reference = "reference";
+    static const std::string embed = "embed";
+    static const std::string from = "from";
+    static const std::string model_name = "model_name";
+
+    // Some models require additional parameters to be passed to the model during indexing/querying
+    // For e.g. e5-small model requires prefix "passage:" for indexing and "query:" for querying
+    static const std::string indexing_prefix = "indexing_prefix";
+    static const std::string query_prefix = "query_prefix";
+    static const std::string api_key = "api_key";
+    static const std::string model_config = "model_config";
 }
 
 enum vector_distance_type_t {
@@ -72,17 +85,20 @@ struct field {
     int nested_array;
 
     size_t num_dim;
+    nlohmann::json embed;
     vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
+
+    std::string reference;      // Foo.bar (reference to bar field in Foo collection).
 
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine) :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine, std::string reference = "", const nlohmann::json& embed = nlohmann::json()) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference), embed(embed) {
 
         set_computed_defaults(sort, infix);
     }
@@ -296,6 +312,10 @@ struct field {
             field_val[fields::infix] = field.infix;
 
             field_val[fields::locale] = field.locale;
+            
+            if(field.embed.count(fields::from) != 0) {
+                field_val[fields::embed] = field.embed;
+            }
 
             field_val[fields::nested] = field.nested;
             if(field.nested) {
@@ -305,6 +325,10 @@ struct field {
             if(field.num_dim > 0) {
                 field_val[fields::num_dim] = field.num_dim;
                 field_val[fields::vec_dist] = field.vec_dist == ip ? "ip" : "cosine";
+            }
+
+            if (!field.reference.empty()) {
+                field_val[fields::reference] = field.reference;
             }
 
             fields_json.push_back(field_val);
@@ -355,7 +379,7 @@ struct field {
             }
         }
 
-        if(!default_sorting_field.empty() && !found_default_sorting_field && !fields.empty()) {
+        if(!default_sorting_field.empty() && !found_default_sorting_field) {
             return Option<bool>(400, "Default sorting field is defined as `" + default_sorting_field +
                                      "` but is not found in the schema.");
         }
@@ -397,34 +421,26 @@ struct field {
     static Option<bool> json_fields_to_fields(bool enable_nested_fields,
                                               nlohmann::json& fields_json,
                                               std::string& fallback_field_type,
-                                              std::vector<field>& the_fields) {
+                                              std::vector<field>& the_fields);
 
-        size_t num_auto_detect_fields = 0;
-
-        for(nlohmann::json & field_json: fields_json) {
-            auto op = json_field_to_field(enable_nested_fields,
-                                          field_json, the_fields, fallback_field_type, num_auto_detect_fields);
-            if(!op.ok()) {
-                return op;
-            }
-        }
-
-        if(num_auto_detect_fields > 1) {
-            return Option<bool>(400,"There can be only one field named `.*`.");
-        }
-
-        return Option<bool>(true);
-    }
+    static Option<bool> validate_and_init_embed_fields(const std::vector<std::pair<size_t, size_t>>& embed_json_field_indices,
+                                                       const tsl::htrie_map<char, field>& search_schema,
+                                                       nlohmann::json& fields_json,
+                                                       std::vector<field>& fields_vec);
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
                             const field& the_field, const std::string& flat_name,
+                            const std::unordered_map<std::string, field>& dyn_fields,
                             std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                       std::vector<std::string>& path_parts, size_t path_index, bool has_array,
-                                      bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields);
+                                      bool has_obj_array,
+                                      const std::unordered_map<std::string, field>& dyn_fields,
+                                      std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields,
+                                    const std::unordered_map<std::string, field>& dyn_fields,
                                     bool missing_is_ok, std::vector<field>& flattened_fields);
 
     static void compact_nested_fields(tsl::htrie_map<char, field>& nested_fields);
@@ -436,6 +452,13 @@ struct filter {
     std::string field_name;
     std::vector<std::string> values;
     std::vector<NUM_COMPARATOR> comparators;
+    // Would be set when `field: != ...` is encountered with a string field or `field: != [ ... ]` is encountered in the
+    // case of int and float fields. During filtering, all the results of matching the field against the values are
+    // aggregated and then this flag is checked if negation on the aggregated result is required.
+    bool apply_not_equals = false;
+
+    // Would store `Foo` in case of a filter expression like `$Foo(bar := baz)`
+    std::string referenced_collection_name = "";
 
     static const std::string RANGE_OPERATOR() {
         return "..";
@@ -473,6 +496,10 @@ struct filter {
             num_comparator = GREATER_THAN_EQUALS;
         }
 
+        else if(comp_and_value.compare(0, 2, "!=") == 0) {
+            num_comparator = NOT_EQUALS;
+        }
+
         else if(comp_and_value.compare(0, 1, "<") == 0) {
             num_comparator = LESS_THAN;
         }
@@ -491,7 +518,7 @@ struct filter {
 
         if(num_comparator == LESS_THAN || num_comparator == GREATER_THAN) {
             comp_and_value = comp_and_value.substr(1);
-        } else if(num_comparator == LESS_THAN_EQUALS || num_comparator == GREATER_THAN_EQUALS) {
+        } else if(num_comparator == LESS_THAN_EQUALS || num_comparator == GREATER_THAN_EQUALS || num_comparator == NOT_EQUALS) {
             comp_and_value = comp_and_value.substr(2);
         }
 
@@ -505,7 +532,7 @@ struct filter {
                                                     std::string& processed_filter_val,
                                                     NUM_COMPARATOR& num_comparator);
 
-    static Option<bool> parse_filter_query(const std::string& simple_filter_query,
+    static Option<bool> parse_filter_query(const std::string& filter_query,
                                            const tsl::htrie_map<char, field>& search_schema,
                                            const Store* store,
                                            const std::string& doc_id_prefix,
@@ -516,8 +543,8 @@ struct filter_node_t {
     filter filter_exp;
     FILTER_OPERATOR filter_operator;
     bool isOperator;
-    filter_node_t* left;
-    filter_node_t* right;
+    filter_node_t* left = nullptr;
+    filter_node_t* right = nullptr;
 
     filter_node_t(filter filter_exp)
             : filter_exp(std::move(filter_exp)),
@@ -539,6 +566,82 @@ struct filter_node_t {
     }
 };
 
+struct reference_filter_result_t {
+    uint32_t count = 0;
+    uint32_t* docs = nullptr;
+
+    reference_filter_result_t& operator=(const reference_filter_result_t& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = new uint32_t[count];
+        memcpy(docs, obj.docs, count * sizeof(uint32_t));
+
+        return *this;
+    }
+
+    ~reference_filter_result_t() {
+        delete[] docs;
+    }
+};
+
+struct filter_result_t {
+    uint32_t count = 0;
+    uint32_t* docs = nullptr;
+    // Collection name -> Reference filter result
+    std::map<std::string, reference_filter_result_t*> reference_filter_results;
+
+    filter_result_t() = default;
+
+    filter_result_t(uint32_t count, uint32_t* docs) : count(count), docs(docs) {}
+
+    filter_result_t& operator=(const filter_result_t& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = new uint32_t[count];
+        memcpy(docs, obj.docs, count * sizeof(uint32_t));
+
+        // Copy every collection's references.
+        for (const auto &item: obj.reference_filter_results) {
+            reference_filter_results[item.first] = new reference_filter_result_t[count];
+
+            for (uint32_t i = 0; i < count; i++) {
+                reference_filter_results[item.first][i] = item.second[i];
+            }
+        }
+
+        return *this;
+    }
+
+    filter_result_t& operator=(filter_result_t&& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = obj.docs;
+        reference_filter_results = std::map(obj.reference_filter_results);
+
+        obj.docs = nullptr;
+        obj.reference_filter_results.clear();
+
+        return *this;
+    }
+
+    ~filter_result_t() {
+        delete[] docs;
+        for (const auto &item: reference_filter_results) {
+            delete[] item.second;
+        }
+    }
+
+    static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
+
+    static void or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
+};
+
 namespace sort_field_const {
     static const std::string name = "name";
     static const std::string order = "order";
@@ -548,11 +651,14 @@ namespace sort_field_const {
     static const std::string text_match = "_text_match";
     static const std::string eval = "_eval";
     static const std::string seq_id = "_seq_id";
+    static const std::string group_found = "_group_found";
 
     static const std::string exclude_radius = "exclude_radius";
     static const std::string precision = "precision";
 
     static const std::string missing_values = "missing_values";
+
+    static const std::string vector_distance = "_vector_distance";
 }
 
 struct sort_by {
@@ -563,7 +669,7 @@ struct sort_by {
     };
 
     struct eval_t {
-        filter_node_t* filter_tree_root;
+        filter_node_t* filter_tree_root = nullptr;
         uint32_t* ids = nullptr;
         uint32_t  size = 0;
     };
@@ -663,8 +769,38 @@ struct facet {
 
     facet_stats_t stats;
 
-    explicit facet(const std::string& field_name): field_name(field_name) {
+    //dictionary of key=>pair(range_id, range_val)
+    std::map<int64_t, std::string> facet_range_map;
 
+    bool is_range_query;
+
+    bool sampled = false;
+
+    bool is_wildcard_match = false;
+
+    bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair)
+    {
+        if(facet_range_map.empty())
+        {
+            LOG (ERROR) << "Facet range is not defined!!!";
+        }
+        auto it = facet_range_map.lower_bound(key);
+
+        if(it != facet_range_map.end())
+        {
+            range_pair.first = it->first;
+            range_pair.second = it->second;
+            return true;
+        }
+
+        return false;
+    }
+
+    explicit facet(const std::string& field_name, 
+        std::map<int64_t, std::string> facet_range = {}, bool is_range_q = false)
+        :field_name(field_name){
+            facet_range_map = facet_range;
+            is_range_query = is_range_q;
     }
 };
 

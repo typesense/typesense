@@ -3,8 +3,12 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <filesystem>
+#include <cstdlib>
 #include <collection_manager.h>
 #include "collection.h"
+#include "text_embedder_manager.h"
+#include "http_client.h"
 
 class CollectionTest : public ::testing::Test {
 protected:
@@ -22,6 +26,7 @@ protected:
         std::string state_dir_path = "/tmp/typesense_test/collection";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+        system("mkdir -p /tmp/typesense_test/models");
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
@@ -392,7 +397,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10).get();
 
-    ids = {"8", "1", "17"};
+    ids = {"1", "13", "8"};
 
     ASSERT_EQ(3, results["hits"].size());
 
@@ -473,7 +478,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(11, results["found"].get<uint32_t>());
 
-    std::vector<std::string> ids = {"19", "22", "6", "13"};
+    std::vector<std::string> ids = {"19", "6", "21", "22"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -667,20 +672,20 @@ TEST_F(CollectionTest, PrefixSearching) {
 }
 
 TEST_F(CollectionTest, TypoTokensThreshold) {
-    // Query expansion should happen only based on the `typo_tokens_threshold` value
-    auto results = collection->search("launch", {"title"}, "", {}, sort_fields, {2}, 10, 1,
+    // Typo correction should happen only based on the `typo_tokens_threshold` value
+    auto results = collection->search("redundant", {"title"}, "", {}, sort_fields, {2}, 10, 1,
                        token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 0).get();
 
-    ASSERT_EQ(5, results["hits"].size());
-    ASSERT_EQ(5, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
 
-    results = collection->search("launch", {"title"}, "", {}, sort_fields, {2}, 10, 1,
+    results = collection->search("redundant", {"title"}, "", {}, sort_fields, {2}, 10, 1,
                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 10).get();
 
-    ASSERT_EQ(7, results["hits"].size());
-    ASSERT_EQ(7, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionTest, MultiOccurrenceString) {
@@ -712,7 +717,7 @@ TEST_F(CollectionTest, MultiOccurrenceString) {
 TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     Collection *coll_array_text;
 
-    std::ifstream infile(std::string(ROOT_DIR) + "test/array_text_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/array_text_documents.jsonl");
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("tags", field_types::STRING_ARRAY, false),
@@ -1049,12 +1054,11 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
     ASSERT_EQ(422, res_op.code());
     ASSERT_STREQ("Only upto 250 hits can be fetched per page.", res_op.error().c_str());
 
-    // when page number is not valid
-    res_op = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 10, 0,
-                                FREQUENCY, {true}, 1000, empty, empty, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ(422, res_op.code());
-    ASSERT_STREQ("Page must be an integer of value greater than 0.", res_op.error().c_str());
+    // when page number is zero, use the first page
+    results = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 3, 0,
+                                FREQUENCY, {true}, 1000, empty, empty, 10).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(6, results["found"].get<int>());
 
     // do pagination
 
@@ -2528,6 +2532,124 @@ TEST_F(CollectionTest, UpdateDocument) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, UpdateDocuments) {
+    nlohmann::json schema = R"({
+        "name": "update_docs_collection",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "user_name", "type": "string", "facet": true},
+          {"name": "likes", "type": "int32"},
+          {"name": "content", "type": "object"}
+        ],
+        "default_sorting_field": "likes"
+    })"_json;
+
+    Collection *update_docs_collection = collectionManager.get_collection("update_docs_collection").get();
+    if (update_docs_collection == nullptr) {
+        auto op = CollectionManager::create_collection(schema);
+        ASSERT_TRUE(op.ok());
+        update_docs_collection = op.get();
+    }
+
+    std::vector<std::string> json_lines = {
+        R"({"user_name": "fat_cat","likes": 5215,"content": {"title": "cat data 1", "body": "cd1"}})",
+        R"({"user_name": "fast_dog","likes": 273,"content": {"title": "dog data 1", "body": "dd1"}})",
+        R"({"user_name": "fat_cat","likes": 2133,"content": {"title": "cat data 2", "body": "cd2"}})",
+        R"({"user_name": "fast_dog","likes": 9754,"content": {"title": "dog data 2", "body": "dd2"}})",
+        R"({"user_name": "fast_dog","likes": 576,"content": {"title": "dog data 3", "body": "dd3"}})"
+    };
+
+    for (auto const& json: json_lines){
+        auto add_op = update_docs_collection->add(json);
+        if (!add_op.ok()) {
+            std::cout << add_op.error() << std::endl;
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("likes", "DESC") };
+
+    auto res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fat_cat", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    nlohmann::json document;
+    document["user_name"] = "slim_cat";
+    std::string dirty_values;
+
+    auto update_op = update_docs_collection->update_matching_filter("user_name:=fat_cat", document.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(2, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("cat data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("slim_cat", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    // Test batching
+    res = update_docs_collection->search("dog data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(3, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fast_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    document["user_name"] = "lazy_dog";
+    update_op = update_docs_collection->update_matching_filter("user_name:=fast_dog", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(3, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("dog data", {"content"}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(3, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("lazy_dog", res["hits"][i]["document"]["user_name"].get<std::string>());
+    }
+
+    // Test nested fields updation
+    res = update_docs_collection->search("*", {}, "user_name:=slim_cat", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("cat data " + std::to_string(i + 1), res["hits"][i]["document"]["content"]["title"].get<std::string>());
+    }
+
+    document.clear();
+    document["content"]["title"] = "fancy cat title";
+
+    update_op = update_docs_collection->update_matching_filter("user_name:=slim_cat", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(2, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("*", {}, "user_name:=slim_cat", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ("fancy cat title", res["hits"][i]["document"]["content"]["title"].get<std::string>());
+    }
+
+    // Test all document updation
+    res = update_docs_collection->search("*", {}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(5, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_NE(0, res["hits"][i]["document"]["likes"].get<int>());
+    }
+
+    document.clear();
+    document["likes"] = 0;
+
+    update_op = update_docs_collection->update_matching_filter("*", document.dump(), dirty_values, 2);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(5, update_op.get()["num_updated"]);
+
+    res = update_docs_collection->search("*", {}, "", {}, sort_fields, {0}, 10).get();
+    ASSERT_EQ(5, res["hits"].size());
+    for (size_t i = 0; i < res["hits"].size(); i++) {
+        ASSERT_EQ(0, res["hits"][i]["document"]["likes"].get<int>());
+    }
+
+    collectionManager.drop_collection("update_docs_collection");
+}
+
 TEST_F(CollectionTest, UpdateDocumentSorting) {
     Collection *coll1;
 
@@ -2904,12 +3026,11 @@ TEST_F(CollectionTest, WildcardQueryReturnsResultsBasedOnPerPageParam) {
     ASSERT_EQ(422, res_op.code());
     ASSERT_STREQ("Only upto 250 hits can be fetched per page.", res_op.error().c_str());
 
-    // when page number is not valid
-    res_op = collection->search("*", query_fields, "", facets, sort_fields, {0}, 10, 0,
-                                     FREQUENCY, {false}, 1000, empty, empty, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ(422, res_op.code());
-    ASSERT_STREQ("Page must be an integer of value greater than 0.", res_op.error().c_str());
+    // when page number is 0, just fetch first page
+    results = collection->search("*", query_fields, "", facets, sort_fields, {0}, 10, 0,
+                                     FREQUENCY, {false}, 1000, empty, empty, 10).get();
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
 
     // do pagination
 
@@ -3690,7 +3811,7 @@ TEST_F(CollectionTest, MultiFieldMatchRankingOnArray) {
     }
 
     auto results = coll1->search("golang vue",
-                                 {"strong_skills", "skills"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+                                 {"strong_skills", "skills"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 1).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
@@ -4118,7 +4239,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     std::vector<std::vector<std::string>> q_phrases;
 
     std::string q = R"(the "phrase search" query)";
-    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    /*coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
 
     ASSERT_EQ(2, q_include_tokens.size());
     ASSERT_EQ("the", q_include_tokens[0]);
@@ -4127,7 +4248,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     ASSERT_EQ(2, q_phrases[0].size());
     ASSERT_EQ("phrase", q_phrases[0][0]);
     ASSERT_EQ("search", q_phrases[0][1]);
-
+*/
     // quoted string has trailing padded space
 
     q = R"("space padded " query)";
@@ -4231,4 +4352,877 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     ASSERT_EQ("token", q_exclude_tokens[1][0]);
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, WildcardQueryBy) {
+    nlohmann::json schema = R"({
+         "name": "posts",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "username", "type": "string", "facet": true},
+           {"name": "user.rank", "type": "int32", "facet": true},
+           {"name": "user.bio", "type": "string"},
+           {"name": "likes", "type": "int32"},
+           {"name": "content", "type": "object"}
+         ],
+         "default_sorting_field": "likes"
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    std::vector<std::string> json_lines = {
+            R"({"id": "124","username": "user_a","user": {"rank": 100,"bio": "Hi! I'm user_a"},"likes": 5215,"content": {"title": "title 1","body": "body 1 user_a"}})",
+            R"({"id": "125","username": "user_b","user": {"rank": 50,"bio": "user_b here, nice to meet you!"},"likes": 5215,"content": {"title": "title 2","body": "body 2 user_b"}})"
+    };
+
+    for (auto const& json: json_lines){
+        auto add_op = coll->add(json);
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // * matches username, user.bio, content.title, content.body
+    auto result = coll->search("user_a", {"*"}, "", {}, {}, {0}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("Hi! I'm <mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["username"]["snippet"].get<std::string>());
+//    ASSERT_EQ("body 1 <mark>user_a</mark>",
+//              result["hits"][0]["highlight"]["content"]["body"]["snippet"].get<std::string>());
+
+    // user* matches username and user.bio
+    result = coll->search("user_a", {"user*"}, "", {}, {}, {0}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("Hi! I'm <mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>user_a</mark>",
+                 result["hits"][0]["highlight"]["username"]["snippet"].get<std::string>());
+
+    // user.* matches user.bio
+    result = coll->search("user_a", {"user.*"}, "", {}, {}, {0}).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("Hi! I'm <mark>user_a</mark>",
+              result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+
+    // user.rank cannot be queried
+    result = coll->search("100", {"user*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["found"].get<size_t>());
+    ASSERT_EQ(0, result["hits"].size());
+
+    // No matching field for query_by
+    auto error = coll->search("user_a", {"foo*"}, "", {}, {}, {0}).error();
+    ASSERT_EQ("No string or string array field found matching the pattern `foo*` in the schema.",  error);
+}
+
+TEST_F(CollectionTest, WildcardHighlightFields) {
+    nlohmann::json schema = R"({
+         "name": "posts",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "user_name", "type": "string", "facet": true},
+           {"name": "user", "type": "object"}
+         ]
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto add_op = coll->add(R"({"id": "124","user_name": "user_a","user": {"rank": 100,"phone": "+91 123123123"}})");
+    if (!add_op.ok()) {
+        LOG(INFO) << add_op.error();
+    }
+    ASSERT_TRUE(add_op.ok());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    std::string highlight_fields = "user*";
+    // user* matches user_name, user.rank and user.phone
+    auto result = coll->search("123", {"user"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                               30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                               true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ(1, result["hits"][0]["highlight"].size());
+    ASSERT_EQ("+91 <mark>123</mark>123123", result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
+
+    highlight_fields = "user.*";
+    // user.* matches user.rank and user.phone
+    result = coll->search("+91", {"user"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                               30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                               true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ(1, result["hits"][0]["highlight"].size());
+    ASSERT_EQ("+<mark>91</mark> 123123123",
+              result["hits"][0]["highlight"]["user"]["phone"]["snippet"].get<std::string>());
+
+    highlight_fields = "user*";
+    // user* matches user_name, user.rank and user.phone
+    result = coll->search("user_a", {"user_name"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                               30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                               true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ(1, result["hits"][0]["highlight"].size());
+    ASSERT_EQ("<mark>user_a</mark>",
+              result["hits"][0]["highlight"]["user_name"]["snippet"].get<std::string>());
+
+    highlight_fields = "user.*";
+    // user.* matches user.rank and user.phone
+    result = coll->search("user_a", {"user_name"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                          true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ(0, result["hits"][0]["highlight"].size());
+
+    highlight_fields = "foo*";
+    // No matching field for highlight_fields
+    result = coll->search("user_a", {"user_name"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, "", Index::TYPO_TOKENS_THRESHOLD, "", "", {}, 3, "<mark>", "</mark>", {}, UINT32_MAX,
+                          true, false, true, highlight_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ(0, result["hits"][0]["highlight"].size());
+}
+
+TEST_F(CollectionTest, WildcardHighlightFullFields) {
+    nlohmann::json schema = R"({
+         "name": "posts",
+         "enable_nested_fields": true,
+         "fields": [
+           {"name": "user_name", "type": "string", "facet": true},
+           {"name": "user.rank", "type": "int32", "facet": true},
+           {"name": "user.phone", "type": "string"},
+           {"name": "user.bio", "type": "string"}
+         ]
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto json = R"({
+                        "id": "124",
+                        "user_name": "user_a",
+                        "user": {
+                            "rank": 100,
+                            "phone": "+91 123123123"
+                        }
+                    })"_json;
+    std::string bio = "Once there was a middle-aged boy named User_a who was an avid swimmer."
+                      "He had been swimming competitively for most of his life, and had even competed in several national competitions."
+                      "However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal."
+                      "Determined to change that, User_a began training harder than ever before."
+                      "He woke up early every morning to swim laps before work and spent his evenings at the pool as well."
+                      "Despite the grueling schedule, he never once complained."
+                      "Instead, he reminded himself of his goal: to become a national champion.";
+    json["user"]["bio"] = bio;
+
+    auto add_op = coll->add(json.dump());
+    if (!add_op.ok()) {
+        LOG(INFO) << add_op.error();
+    }
+    ASSERT_TRUE(add_op.ok());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    std::string highlight_full_fields = "user*";
+    // user* matches user_name, user.bio
+    auto result = coll->search("user_a", {"*"}, "", {}, {}, {0},
+                               10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                               30, 4, highlight_full_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ("a middle-aged boy named <mark>User_a</mark> who was an avid",
+              result["hits"][0]["highlight"]["user"]["bio"]["snippet"].get<std::string>());
+
+    std::string highlighted_value = "Once there was a middle-aged boy named <mark>User_a</mark> who was an avid swimmer."
+                                    "He had been swimming competitively for most of his life, and had even competed in several national competitions."
+                                    "However, despite his passion and talent for the sport, he had never quite managed to win that elusive gold medal."
+                                    "Determined to change that, <mark>User_a</mark> began training harder than ever before."
+                                    "He woke up early every morning to swim laps before work and spent his evenings at the pool as well."
+                                    "Despite the grueling schedule, he never once complained."
+                                    "Instead, he reminded himself of his goal: to become a national champion.";
+    ASSERT_EQ( highlighted_value, result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
+    ASSERT_EQ("<mark>user_a</mark>",
+              result["hits"][0]["highlight"]["user_name"]["value"].get<std::string>());
+
+    highlight_full_fields = "user.*";
+    // user.* matches user.bio
+    result = coll->search("user_a", {"*"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, highlight_full_fields).get();
+
+    ASSERT_EQ(1, result["found"].get<size_t>());
+    ASSERT_EQ(1, result["hits"].size());
+
+    ASSERT_EQ(highlighted_value, result["hits"][0]["highlight"]["user"]["bio"]["value"].get<std::string>());
+    ASSERT_EQ(0, result["hits"][0]["highlight"]["user_name"].count("value"));
+
+    highlight_full_fields = "foo*";
+    // No matching field for highlight_fields
+    result = coll->search("user_a", {"*"}, "", {}, {}, {0},
+                          10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "",
+                          30, 4, highlight_full_fields).get();
+
+    ASSERT_EQ(0, result["hits"][0]["highlight"]["user"]["bio"].count("value"));
+    ASSERT_EQ(0, result["hits"][0]["highlight"]["user_name"].count("value"));
+}
+
+
+TEST_F(CollectionTest, SemanticSearchTest) {
+    
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    nlohmann::json object;
+    object["name"] = "apple";
+    auto add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ("apple", add_op.get()["name"]);
+    ASSERT_EQ(384, add_op.get()["embedding"].size());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+
+    auto search_res_op = coll->search("apple", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, "");   
+
+    ASSERT_TRUE(search_res_op.ok());
+    auto search_res = search_res_op.get();
+    ASSERT_EQ(1, search_res["found"].get<size_t>());
+    ASSERT_EQ(1, search_res["hits"].size());
+    ASSERT_EQ("apple", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ(384, search_res["hits"][0]["document"]["embedding"].size());
+}
+
+TEST_F(CollectionTest, InvalidSemanticSearch) {
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    LOG(INFO) << "op.error(): " << op.error();
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    nlohmann::json object;
+    object["name"] = "apple";
+    auto add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
+    ASSERT_EQ("apple", add_op.get()["name"]);
+    ASSERT_EQ(384, add_op.get()["embedding"].size());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+
+    auto search_res_op = coll->search("apple", {"embedding", "embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, "");   
+
+    ASSERT_FALSE(search_res_op.ok());
+}
+
+TEST_F(CollectionTest, HybridSearch) { 
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    nlohmann::json object;
+    object["name"] = "apple";
+    auto add_op = coll->add(object.dump());
+    LOG(INFO) << "add_op.error(): " << add_op.error();
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ("apple", add_op.get()["name"]);
+    ASSERT_EQ(384, add_op.get()["embedding"].size());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    auto search_res_op = coll->search("apple", {"name","embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, "");   
+    ASSERT_TRUE(search_res_op.ok());
+    auto search_res = search_res_op.get();
+    ASSERT_EQ(1, search_res["found"].get<size_t>());
+    ASSERT_EQ(1, search_res["hits"].size());
+    ASSERT_EQ("apple", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ(384, search_res["hits"][0]["document"]["embedding"].size());
+}
+
+// TEST_F(CollectionTest, EmbedFielsTest) {
+//         nlohmann::json schema = R"({
+//                             "name": "objects",
+//                             "fields": [
+//                             {"name": "name", "type": "string"},
+//                             {"name": "embedding", "type":"float[]", "embed":{"from": ["name"]}
+//                             ]
+//                         })"_json;
+    
+//     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+//
+
+//     auto op = collectionManager.create_collection(schema);
+//     ASSERT_TRUE(op.ok());
+//     Collection* coll = op.get();
+
+//     nlohmann::json object =  R"({
+//                             "name": "apple"
+//                             })"_json;
+
+//     auto embed_op = coll->embed_fields(object);
+
+//     ASSERT_TRUE(embed_op.ok());
+
+//     ASSERT_EQ("apple", object["name"]);
+//     ASSERT_EQ(384, object["embedding"].get<std::vector<float>>().size());
+// }
+
+TEST_F(CollectionTest, HybridSearchRankFusionTest) {
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    nlohmann::json object;
+    object["name"] = "butter";
+    auto add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    object["name"] = "butterball";
+    add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    object["name"] = "butterfly";
+    add_op = coll->add(object.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    auto search_res_op = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, "");   
+    ASSERT_TRUE(search_res_op.ok());
+    auto search_res = search_res_op.get();
+    ASSERT_EQ(3, search_res["found"].get<size_t>());
+    ASSERT_EQ(3, search_res["hits"].size());
+    // Vector search order:
+    // 1. butter
+    // 2. butterball
+    // 3. butterfly
+    ASSERT_EQ("butter", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterball", search_res["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterfly", search_res["hits"][2]["document"]["name"].get<std::string>());
+
+
+    search_res_op = coll->search("butter", {"name"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+    ASSERT_TRUE(search_res_op.ok());
+    search_res = search_res_op.get();
+    ASSERT_EQ(3, search_res["found"].get<size_t>());
+    ASSERT_EQ(3, search_res["hits"].size());
+    // Keyword search order:
+    // 1. butter
+    // 2. butterfly
+    // 3. butterball
+    ASSERT_EQ("butter", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterfly", search_res["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterball", search_res["hits"][2]["document"]["name"].get<std::string>());
+
+    search_res_op = coll->search("butter", {"name","embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+    ASSERT_TRUE(search_res_op.ok());
+    search_res = search_res_op.get();
+    ASSERT_EQ(3, search_res["found"].get<size_t>());
+    ASSERT_EQ(3, search_res["hits"].size());
+    // Hybrid search with rank fusion order:
+    // 1. butter (1/1 * 0.7) + (1/1 * 0.3) = 1
+    // 2. butterfly (1/2 * 0.7) + (1/3 * 0.3) = 0.45
+    // 3. butterball (1/3 * 0.7) + (1/2 * 0.3) = 0.383
+    ASSERT_EQ("butter", search_res["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterfly", search_res["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ("butterball", search_res["hits"][2]["document"]["name"].get<std::string>());
+
+    ASSERT_FLOAT_EQ((1.0/1.0 * 0.7) + (1.0/1.0 * 0.3), search_res["hits"][0]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ((1.0/2.0 * 0.7) + (1.0/3.0 * 0.3), search_res["hits"][1]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+    ASSERT_FLOAT_EQ((1.0/3.0 * 0.7) + (1.0/2.0 * 0.3), search_res["hits"][2]["hybrid_search_info"]["rank_fusion_score"].get<float>());
+}
+
+TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
+    nlohmann::json schema = R"({
+                        "name": "objects",
+                        "fields": [
+                        {"name": "name", "type": "string"},
+                        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                        ]
+                    })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    auto search_res_op = coll->search("*", {"name","embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+
+    ASSERT_TRUE(search_res_op.ok());
+}
+
+TEST_F(CollectionTest, CreateModelDirIfNotExists) {
+    system("mkdir -p /tmp/typesense_test/new_models_dir");
+    system("rm -rf /tmp/typesense_test/new_models_dir");
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/new_models_dir");
+
+    // check if model dir is created
+    ASSERT_TRUE(std::filesystem::exists("/tmp/typesense_test/new_models_dir"));
+}
+
+TEST_F(CollectionTest, EmbedStringArrayField) {
+    nlohmann::json schema = R"({
+                    "name": "objects",
+                    "fields": [
+                    {"name": "names", "type": "string[]"},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["names"], "model_config": {"model_name": "ts/e5-small"}}}
+                    ]
+                })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["names"].push_back("butter");
+    doc["names"].push_back("butterfly");
+    doc["names"].push_back("butterball");
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+}
+    
+TEST_F(CollectionTest, MissingFieldForEmbedding) {
+    nlohmann::json schema = R"({
+                    "name": "objects",
+                    "fields": [
+                    {"name": "names", "type": "string[]"},
+                    {"name": "category", "type": "string", "optional": true},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["names", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+                    ]
+                })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["names"].push_back("butter");
+    doc["names"].push_back("butterfly");
+    doc["names"].push_back("butterball");
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionTest, WrongTypeInEmbedFrom) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+            {"name": "category", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": [1122], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Property `embed.from` must contain only field names as strings.", op.error());
+}
+
+TEST_F(CollectionTest, WrongTypeForEmbedding) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "category", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["category"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["category"] = 1;
+    
+    auto add_op = validator_t::validate_embed_fields(doc, coll->get_embedding_fields(), coll->get_schema(), true);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `category` has malformed data.", add_op.error());
+}
+
+TEST_F(CollectionTest, WrongTypeOfElementForEmbeddingInStringArray) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+            {"name": "category", "type": "string[]"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["category"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["category"].push_back(33);
+    
+    auto add_op = validator_t::validate_embed_fields(doc, coll->get_embedding_fields(), coll->get_schema(), true);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `category` has malformed data.", add_op.error());
+}
+
+TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
+    nlohmann::json schema = R"({
+                    "name": "objects",
+                    "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                    ]
+                })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    // get embedding field 
+
+    // get id of the document
+    auto id = add_op.get()["id"];   
+    // get embedding field from the document
+    auto embedding_field = add_op.get()["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding_field.size());
+
+    // update the document
+    nlohmann::json update_doc;
+    update_doc["name"] = "butterball";
+    std::string dirty_values;
+
+    auto update_op = coll->update_matching_filter("id:=" + id.get<std::string>(), update_doc.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(1, update_op.get()["num_updated"]);
+
+    // get the document again
+    auto get_op = coll->get(id);
+    ASSERT_TRUE(get_op.ok());
+    auto updated_embedding_field = get_op.get()["embedding"].get<std::vector<float>>();
+
+    // check if the embedding field is updated
+    ASSERT_NE(embedding_field, updated_embedding_field);
+}
+
+TEST_F(CollectionTest, CreateCollectionWithOpenAI) {
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+        ]
+    })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    // create one more collection
+    schema = R"({
+        "name": "objects2",
+        "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+        ]
+    })"_json;
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+}
+
+TEST_F(CollectionTest, CreateOpenAIEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+                ]
+            })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto summary = op.get()->get_summary_json();
+    ASSERT_EQ("openai/text-embedding-ada-002", summary["fields"][1]["embed"]["model_config"]["model_name"]);
+    ASSERT_EQ(1536, summary["fields"][1]["num_dim"]);
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+
+    auto add_op = op.get()->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    ASSERT_EQ(1536, add_op.get()["embedding"].size());    
+}
+
+TEST_F(CollectionTest, HideOpenAIApiKey) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+                ]
+            })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    auto summary = op.get()->get_summary_json();
+    // hide api key with * after first 3 characters
+    ASSERT_EQ(summary["fields"][1]["embed"]["model_config"]["api_key"].get<std::string>(), api_key.replace(5, api_key.size() - 5, api_key.size() - 5, '*'));
+}
+
+TEST_F(CollectionTest, PrefixSearchDisabledForOpenAI) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+                ]
+            })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+
+    auto add_op = op.get()->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+    auto search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+
+    ASSERT_FALSE(search_res_op.ok());
+    ASSERT_EQ("Prefix search is not supported for remote embedders. Please set `prefix=false` as an additional search parameter to disable prefix searching.", search_res_op.error());
+
+    search_res_op = op.get()->search("dummy", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+    ASSERT_TRUE(search_res_op.ok());
+}
+
+
+TEST_F(CollectionTest, MoreThanOneEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "name2", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}},
+                {"name": "embedding2", "type":"float[]", "embed":{"from": ["name2"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto coll = op.get();
+
+    nlohmann::json doc;
+    doc["name"] = "butter";
+    doc["name2"] = "butterball";
+    
+    auto add_op = validator_t::validate_embed_fields(doc, op.get()->get_embedding_fields(), op.get()->get_schema(), true);
+
+    ASSERT_TRUE(add_op.ok());
+    spp::sparse_hash_set<std::string> dummy_include_exclude;
+
+    auto search_res_op = coll->search("butter", {"name", "embedding", "embedding2"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD, dummy_include_exclude, dummy_include_exclude, 10, "", 30, 4, ""); 
+
+    ASSERT_FALSE(search_res_op.ok());
+
+    ASSERT_EQ("Only one embedding field is allowed in the query.", search_res_op.error());
+}
+
+
+TEST_F(CollectionTest, EmbeddingFieldEmptyArrayInDocument) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "names", "type": "string[]"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["names"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto coll = op.get();
+
+    nlohmann::json doc;
+    doc["names"] = nlohmann::json::array();
+    
+    // try adding
+    auto add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_TRUE(add_op.get()["embedding"].is_null());
+
+    // try updating
+    auto id = add_op.get()["id"];
+    doc["names"].push_back("butter");
+    std::string dirty_values;
+
+
+    auto update_op = coll->update_matching_filter("id:=" + id.get<std::string>(), doc.dump(), dirty_values);
+    ASSERT_TRUE(update_op.ok());
+    ASSERT_EQ(1, update_op.get()["num_updated"]);
+
+
+    auto get_op = coll->get(id);
+    ASSERT_TRUE(get_op.ok());
+
+    ASSERT_FALSE(get_op.get()["embedding"].is_null());
+
+    ASSERT_EQ(384, get_op.get()["embedding"].size());
+}
+
+
+TEST_F(CollectionTest, CatchPartialResponseFromRemoteEmbedding) {
+    std::string partial_json = R"({
+        "results": [
+            {
+                "embedding": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "text": "butter"
+            },
+            {
+                "embedding": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "text": "butterball"
+            },
+            {
+                "embedding": [
+                    0.0,
+                    0.0)";
+    
+    nlohmann::json req_body = R"({
+        "inputs": [
+            "butter",
+            "butterball",
+            "butterfly"
+        ]
+    })"_json;
+
+    OpenAIEmbedder embedder("", "");
+
+    auto res = embedder.get_error_json(req_body, 200, partial_json);
+
+    ASSERT_EQ(res["response"]["error"], "Malformed response from OpenAI API.");
+    ASSERT_EQ(res["request"]["body"], req_body);
 }

@@ -11,7 +11,7 @@
 #include "string_utils.h"
 #include "logger.h"
 #include "app_metrics.h"
-#include "config.h"
+#include "tsconfig.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -205,8 +205,52 @@ public:
     virtual ~req_state_t() = default;
 };
 
+struct stream_response_state_t {
+private:
+
+    h2o_req_t* req = nullptr;
+
+public:
+
+    bool is_req_early_exit = false;
+
+    bool is_res_start = true;
+    h2o_send_state_t send_state = H2O_SEND_STATE_IN_PROGRESS;
+
+    std::string res_body;
+    h2o_iovec_t res_buff;
+
+    std::string res_content_type;
+    int status = 0;
+    const char* reason = nullptr;
+
+    h2o_generator_t* generator = nullptr;
+
+    void set_response(uint32_t status_code, const std::string& content_type, std::string& body) {
+        std::string().swap(res_body);
+        res_body = std::move(body);
+        res_buff = h2o_iovec_t{.base = res_body.data(), .len = res_body.size()};
+
+        if(is_res_start) {
+            res_content_type = std::move(content_type);
+            status = (int)status_code;
+            reason = http_res::get_status_reason(status_code);
+            is_res_start = false;
+        }
+    }
+
+    void set_req(h2o_req_t* _req) {
+        req = _req;
+    }
+
+    h2o_req_t* get_req() {
+        return req;
+    }
+};
+
 struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
+    static constexpr const char* USER_HEADER = "x-typesense-user-id";
     static constexpr const char* AGENT_HEADER = "user-agent";
 
     h2o_req_t* _req;
@@ -244,13 +288,15 @@ struct http_req {
 
     int64_t log_index;
 
-    std::atomic<bool> is_http_v1;
     std::atomic<bool> is_diposed;
     std::string client_ip = "0.0.0.0";
 
+    // stores http lib related datastructures to avoid race conditions between indexing and http write threads
+    stream_response_state_t res_state;
+
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0), is_http_v1(true),
+                chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0),
                 is_diposed(false) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -272,7 +318,6 @@ struct http_req {
         if(_req != nullptr) {
             const auto& tv = _req->processed_at.at;
             conn_ts = (tv.tv_sec * 1000 * 1000) + tv.tv_usec;
-            is_http_v1 = (_req->version < 0x200);
         } else {
             conn_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count();
@@ -405,7 +450,7 @@ struct http_req {
 struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
-    bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&);
+    bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&) = nullptr;
     bool async_req;
     bool async_res;
     std::string action;

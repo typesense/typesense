@@ -1,9 +1,11 @@
 #include "typesense_server_utils.h"
 #include "core_api.h"
-#include "config.h"
+#include "tsconfig.h"
 #include "stackprinter.h"
 #include "backward.hpp"
+#include "butil/at_exit.h"
 
+#ifndef ASAN_BUILD
 extern "C" {
 #include "jemalloc.h"
 }
@@ -12,6 +14,7 @@ extern "C" {
 extern "C" {
     extern void je_zone_register();
 }
+#endif
 #endif
 
 void master_server_routes() {
@@ -30,6 +33,7 @@ void master_server_routes() {
 
     server->get("/collections/:collection/documents/:id", get_fetch_document);
     server->patch("/collections/:collection/documents/:id", patch_update_document);
+    server->patch("/collections/:collection/documents", patch_update_documents);
     server->del("/collections/:collection/documents/:id", del_remove_document);
 
     server->get("/collections/:collection/overrides", get_overrides);
@@ -64,6 +68,14 @@ void master_server_routes() {
     server->put("/presets/:name", put_upsert_preset);
     server->del("/presets/:name", del_preset);
 
+    // analytics
+    server->get("/analytics/rules", get_analytics_rules);
+    server->get("/analytics/rules/:name", get_analytics_rule);
+    server->post("/analytics/rules", post_create_analytics_rules);
+    server->put("/analytics/rules/:name", put_upsert_analytics_rules);
+    server->del("/analytics/rules/:name", del_analytics_rules);
+    server->post("/analytics/events", post_create_event);
+
     // meta
     server->get("/metrics.json", get_metrics_json);
     server->get("/stats.json", get_stats_json);
@@ -76,14 +88,21 @@ void master_server_routes() {
     server->post("/operations/vote", post_vote, false, false);
     server->post("/operations/cache/clear", post_clear_cache, false, false);
     server->post("/operations/db/compact", post_compact_db, false, false);
+    server->post("/operations/reset_peers", post_reset_peers, false, false);
 
     server->get("/limits", get_rate_limits);
+    server->get("/limits/active", get_active_throttles);
+    server->get("/limits/exceeds", get_limit_exceed_counts);
     server->get("/limits/:id", get_rate_limit);
     server->post("/limits", post_rate_limit);
     server->put("/limits/:id", put_rate_limit);
     server->del("/limits/:id", del_rate_limit);
-
+    server->del("/limits/active/:id", del_throttle);
+    server->del("/limits/exceeds/:id", del_exceed);
     server->post("/config", post_config, false, false);
+
+    // for proxying remote embedders
+    server->post("/proxy", post_proxy);
 }
 
 void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;
@@ -103,6 +122,7 @@ void crash_callback(int sig, backward::StackTrace& st) {
 }
 
 int main(int argc, char **argv) {
+#ifndef ASAN_BUILD
     #ifdef __APPLE__
     // On OS X, je_zone_register registers jemalloc with the system allocator.
     // We have to force the presence of these symbols on macOS by explicitly calling this method.
@@ -111,6 +131,9 @@ int main(int argc, char **argv) {
     // - https://github.com/ClickHouse/ClickHouse/pull/11897
     je_zone_register();
     #endif
+#endif
+
+    butil::AtExitManager exit_manager;
 
     Config& config = Config::get_instance();
 
@@ -126,6 +149,7 @@ int main(int argc, char **argv) {
     Option<bool> config_validitation = config.is_valid();
 
     if(!config_validitation.ok()) {
+        std::cerr << "Typesense " << TYPESENSE_VERSION << std::endl;
         std::cerr << "Invalid configuration: " << config_validitation.error() << std::endl;
         std::cerr << "Command line " << options.usage() << std::endl;
         std::cerr << "You can also pass these arguments as environment variables such as "
@@ -156,6 +180,8 @@ int main(int argc, char **argv) {
     // we can install new signal handlers only after overriding above
     signal(SIGINT, catch_interrupt);
     signal(SIGTERM, catch_interrupt);
+
+    init_api(config.get_cache_num_entries());
 
     return run_server(config, TYPESENSE_VERSION, &master_server_routes);
 }

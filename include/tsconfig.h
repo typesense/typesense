@@ -57,9 +57,17 @@ private:
     int disk_used_max_percentage;
     int memory_used_max_percentage;
 
+    uint32_t cache_num_entries = 1000;
+
     std::atomic<bool> skip_writes;
 
     std::atomic<int> log_slow_searches_time_ms;
+
+    std::atomic<bool> reset_peers_on_error;
+
+    bool enable_search_analytics;
+
+    uint32_t analytics_flush_interval;
 
 protected:
 
@@ -76,6 +84,7 @@ protected:
         this->log_slow_requests_time_ms = -1;
         this->num_collections_parallel_load = 0;  // will be set dynamically if not overridden
         this->num_documents_parallel_load = 1000;
+        this->cache_num_entries = 1000;
         this->thread_pool_size = 0; // will be set dynamically if not overridden
         this->ssl_refresh_interval_seconds = 8 * 60 * 60;
         this->enable_access_logging = false;
@@ -83,6 +92,10 @@ protected:
         this->memory_used_max_percentage = 100;
         this->skip_writes = false;
         this->log_slow_searches_time_ms = 30 * 1000;
+        this->reset_peers_on_error = false;
+
+        this->enable_search_analytics = false;
+        this->analytics_flush_interval = 3600;  // in seconds
     }
 
     Config(Config const&) {
@@ -161,6 +174,10 @@ public:
         this->skip_writes = skip_writes;
     }
 
+    void set_reset_peers_on_error(bool reset_peers_on_error) {
+        this->reset_peers_on_error = reset_peers_on_error;
+    }
+
     // getters
 
     std::string get_data_dir() const {
@@ -170,6 +187,7 @@ public:
     std::string get_log_dir() const {
         return this->log_dir;
     }
+
 
     std::string get_api_key() const {
         return this->api_key;
@@ -256,12 +274,24 @@ public:
         return this->log_slow_searches_time_ms;
     }
 
+    const std::atomic<bool>& get_reset_peers_on_error() const {
+        return reset_peers_on_error;
+    }
+
     size_t get_num_collections_parallel_load() const {
         return this->num_collections_parallel_load;
     }
 
     size_t get_num_documents_parallel_load() const {
         return this->num_documents_parallel_load;
+    }
+
+    size_t get_cache_num_entries() const {
+        return this->cache_num_entries;
+    }
+
+    size_t get_analytics_flush_interval() const {
+        return this->analytics_flush_interval;
     }
 
     size_t get_thread_pool_size() const {
@@ -274,6 +304,10 @@ public:
 
     bool get_enable_access_logging() const {
         return this->enable_access_logging;
+    }
+
+    bool get_enable_search_analytics() const {
+        return this->enable_search_analytics;
     }
 
     int get_disk_used_max_percentage() const {
@@ -387,6 +421,14 @@ public:
             this->num_documents_parallel_load = std::stoi(get_env("TYPESENSE_NUM_DOCUMENTS_PARALLEL_LOAD"));
         }
 
+        if(!get_env("TYPESENSE_CACHE_NUM_ENTRIES").empty()) {
+            this->cache_num_entries = std::stoi(get_env("TYPESENSE_CACHE_NUM_ENTRIES"));
+        }
+
+        if(!get_env("TYPESENSE_ANALYTICS_FLUSH_INTERVAL").empty()) {
+            this->analytics_flush_interval = std::stoi(get_env("TYPESENSE_ANALYTICS_FLUSH_INTERVAL"));
+        }
+
         if(!get_env("TYPESENSE_THREAD_POOL_SIZE").empty()) {
             this->thread_pool_size = std::stoi(get_env("TYPESENSE_THREAD_POOL_SIZE"));
         }
@@ -400,6 +442,7 @@ public:
         }
 
         this->enable_access_logging = ("TRUE" == get_env("TYPESENSE_ENABLE_ACCESS_LOGGING"));
+        this->enable_search_analytics = ("TRUE" == get_env("TYPESENSE_ENABLE_SEARCH_ANALYTICS"));
 
         if(!get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE").empty()) {
             this->disk_used_max_percentage = std::stoi(get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE"));
@@ -410,6 +453,7 @@ public:
         }
 
         this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
+        this->reset_peers_on_error = ("TRUE" == get_env("TYPESENSE_RESET_PEERS_ON_ERROR"));
     }
 
     void load_config_file(cmdline::parser & options) {
@@ -540,6 +584,14 @@ public:
             this->num_documents_parallel_load = (int) reader.GetInteger("server", "num-documents-parallel-load", 1000);
         }
 
+        if(reader.Exists("server", "cache-num-entries")) {
+            this->cache_num_entries = (int) reader.GetInteger("server", "cache-num-entries", 1000);
+        }
+
+        if(reader.Exists("server", "analytics-flush-interval")) {
+            this->analytics_flush_interval = (int) reader.GetInteger("server", "analytics-flush-interval", 3600);
+        }
+
         if(reader.Exists("server", "thread-pool-size")) {
             this->thread_pool_size = (int) reader.GetInteger("server", "thread-pool-size", 0);
         }
@@ -551,6 +603,11 @@ public:
         if(reader.Exists("server", "enable-access-logging")) {
             auto enable_access_logging_str = reader.Get("server", "enable-access-logging", "false");
             this->enable_access_logging = (enable_access_logging_str == "true");
+        }
+
+        if(reader.Exists("server", "enable-search-analytics")) {
+            auto enable_search_analytics_str = reader.Get("server", "enable-search-analytics", "false");
+            this->enable_search_analytics = (enable_search_analytics_str == "true");
         }
 
         if(reader.Exists("server", "disk-used-max-percentage")) {
@@ -565,6 +622,12 @@ public:
             auto skip_writes_str = reader.Get("server", "skip-writes", "false");
             this->skip_writes = (skip_writes_str == "true");
         }
+
+        if(reader.Exists("server", "reset-peers-on-error")) {
+            auto reset_peers_on_error_str = reader.Get("server", "reset-peers-on-error", "false");
+            this->reset_peers_on_error = (reset_peers_on_error_str == "true");
+        }
+
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -579,6 +642,7 @@ public:
         if(options.exist("api-key")) {
             this->api_key = options.get<std::string>("api-key");
         }
+
 
         // @deprecated
         if(options.exist("search-only-api-key")) {
@@ -674,6 +738,14 @@ public:
             this->num_documents_parallel_load = options.get<uint32_t>("num-documents-parallel-load");
         }
 
+        if(options.exist("cache-num-entries")) {
+            this->cache_num_entries = options.get<uint32_t>("cache-num-entries");
+        }
+
+        if(options.exist("analytics-flush-interval")) {
+            this->analytics_flush_interval = options.get<uint32_t>("analytics-flush-interval");
+        }
+
         if(options.exist("thread-pool-size")) {
             this->thread_pool_size = options.get<uint32_t>("thread-pool-size");
         }
@@ -697,6 +769,15 @@ public:
         if(options.exist("skip-writes")) {
             this->skip_writes = options.get<bool>("skip-writes");
         }
+
+        if(options.exist("reset-peers-on-error")) {
+            this->reset_peers_on_error = options.get<bool>("reset-peers-on-error");
+        }
+
+        if(options.exist("enable-search-analytics")) {
+            this->enable_search_analytics = options.get<bool>("enable-search-analytics");
+        }
+
     }
 
     void set_cors_domains(std::string& cors_domains_value) {
@@ -725,4 +806,8 @@ public:
     }
 
     Option<bool> update_config(const nlohmann::json& req_json);
+
+    static Option<std::string> fetch_file_contents(const std::string & file_path);
+
+    static Option<std::string> fetch_nodes_config(const std::string& path_to_nodes);
 };

@@ -2,6 +2,8 @@
 #include <vector>
 #include <json.hpp>
 #include <app_metrics.h>
+#include <analytics_manager.h>
+#include <event_manager.h>
 #include "collection_manager.h"
 #include "batched_indexer.h"
 #include "logger.h"
@@ -54,6 +56,17 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::num_dim] = 0;
         }
 
+        if (field_obj.count(fields::reference) == 0) {
+            field_obj[fields::reference] = "";
+        }
+
+        if(field_obj.count(fields::embed) == 0) {
+            field_obj[fields::embed] = nlohmann::json::object();
+        }
+
+        if(field_obj.count(fields::model_config) == 0) {
+            field_obj[fields::model_config] = nlohmann::json::object();
+        }
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
         if(field_obj.count(fields::vec_dist) != 0) {
@@ -63,10 +76,25 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             }
         }
 
+        if(field_obj.count(fields::embed) != 0 && !field_obj[fields::embed].empty()) {
+            size_t num_dim = 0;
+            auto& model_config = field_obj[fields::embed][fields::model_config];
+
+            auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+            if(!res.ok()) {
+                const std::string& model_name = model_config["model_name"].get<std::string>();
+                LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
+                continue;
+            }
+
+            field_obj[fields::num_dim] = num_dim;
+            LOG(INFO) << "Model init done.";
+        }
+
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -196,7 +224,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     for(size_t coll_index = 0; coll_index < num_collections; coll_index++) {
         const auto& collection_meta_json = collection_meta_jsons[coll_index];
         nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
-
         if(collection_meta.is_discarded()) {
             LOG(ERROR) << "Error while parsing collection meta, json: " << collection_meta_json;
             return Option<bool>(500, "Error while parsing collection meta.");
@@ -271,6 +298,17 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         }
 
         iter->Next();
+    }
+
+    // restore query suggestions configs
+    std::vector<std::string> analytics_config_jsons;
+    store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
+                     std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
+                     analytics_config_jsons);
+
+    for(const auto& analytics_config_json: analytics_config_jsons) {
+        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
+        AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
     }
 
     delete iter;
@@ -453,6 +491,7 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         const std::string& del_end_prefix = std::to_string(collection->get_collection_id()) + "`";
         store->delete_range(del_key_prefix, del_end_prefix);
         store->flush();
+        store->compact_range(del_key_prefix, del_end_prefix);
 
         // delete overrides
         const std::string& del_override_prefix =
@@ -657,12 +696,17 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *VECTOR_QUERY = "vector_query";
 
+    const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
+    const char* REMOTE_EMBEDDING_NUM_TRIES = "remote_embedding_num_tries";
+
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
 
     const char *LIMIT_HITS = "limit_hits";
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
+    const char *OFFSET = "offset";
+    const char *LIMIT = "limit";
     const char *RANK_TOKENS_BY = "rank_tokens_by";
     const char *INCLUDE_FIELDS = "include_fields";
     const char *EXCLUDE_FIELDS = "exclude_fields";
@@ -703,6 +747,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *ENABLE_HIGHLIGHT_V1 = "enable_highlight_v1";
 
+    const char *FACET_SAMPLE_PERCENT = "facet_sample_percent";
+    const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -713,8 +760,30 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         AuthManager::add_item_to_params(req_params, item, true);
     }
 
+    const auto preset_it = req_params.find("preset");
+
+    if(preset_it != req_params.end()) {
+        nlohmann::json preset;
+        const auto& preset_op = CollectionManager::get_instance().get_preset(preset_it->second, preset);
+
+        if(preset_op.ok()) {
+            if(!preset.is_object()) {
+                return Option<bool>(400, "Search preset is not an object.");
+            }
+
+            for(const auto& search_item: preset.items()) {
+                // overwrite = false since req params will contain embedded params and so has higher priority
+                bool populated = AuthManager::add_item_to_params(req_params, search_item, false);
+                if(!populated) {
+                    return Option<bool>(400, "One or more search parameters are malformed.");
+                }
+            }
+        }
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req_params["collection"]);
+    const std::string& orig_coll_name = req_params["collection"];
+    auto collection = collectionManager.get_collection(orig_coll_name);
 
     if(collection == nullptr) {
         return Option<bool>(404, "Not found.");
@@ -727,7 +796,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     // end check for mandatory params
-
 
     const std::string& raw_query = req_params[QUERY];
     std::vector<uint32_t> num_typos = {2};
@@ -742,7 +810,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::vector<std::string> facet_fields;
     std::vector<sort_by> sort_fields;
     size_t per_page = 10;
-    size_t page = 1;
+    size_t page = 0;
+    size_t offset = 0;
     token_ordering token_order = NOT_SET;
 
     std::string vector_query;
@@ -782,6 +851,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
 
+    size_t remote_embedding_timeout_ms = 5000;
+    size_t remote_embedding_num_tries = 2;
+
+    size_t facet_sample_percent = 100;
+    size_t facet_sample_threshold = 0;
+
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
         {MIN_LEN_2TYPO, &min_len_2typo},
@@ -792,7 +867,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {SNIPPET_THRESHOLD, &snippet_threshold},
         {HIGHLIGHT_AFFIX_NUM_TOKENS, &highlight_affix_num_tokens},
         {PAGE, &page},
+        {OFFSET, &offset},
         {PER_PAGE, &per_page},
+        {LIMIT, &per_page},
         {GROUP_LIMIT, &group_limit},
         {SEARCH_CUTOFF_MS, &search_cutoff_ms},
         {MAX_EXTRA_PREFIX, &max_extra_prefix},
@@ -800,6 +877,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {MAX_CANDIDATES, &max_candidates},
         {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
         {FILTER_CURATED_HITS, &filter_curated_hits_option},
+        {FACET_SAMPLE_PERCENT, &facet_sample_percent},
+        {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
+        {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
+        {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -898,7 +979,19 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
             auto find_str_list_it = str_list_values.find(key);
             if(find_str_list_it != str_list_values.end()) {
-                StringUtils::split(val, *find_str_list_it->second, ",");
+
+                if(key == FACET_BY){
+                    StringUtils::split_facet(val, *find_str_list_it->second);
+                }
+                else if(key == INCLUDE_FIELDS){
+                    auto op = StringUtils::split_include_fields(val, *find_str_list_it->second);
+                    if (!op.ok()) {
+                        return op;
+                    }
+                }
+                else{
+                    StringUtils::split(val, *find_str_list_it->second, ",");
+                }
                 continue;
             }
 
@@ -997,7 +1090,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           vector_query,
                                                           enable_highlight_v1,
                                                           start_ts,
-                                                          match_type
+                                                          match_type,
+                                                          facet_sample_percent,
+                                                          facet_sample_threshold,
+                                                          offset,
+                                                          remote_embedding_timeout_ms,
+                                                          remote_embedding_num_tries
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1012,11 +1110,24 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     nlohmann::json result = result_op.get();
 
+    if(Config::get_instance().get_enable_search_analytics()) {
+        if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
+            std::string analytics_query = raw_query;
+            AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query,
+                                                            true, req_params["x-typesense-user-id"]);
+        }
+    }
+
     if(exclude_fields.count("search_time_ms") == 0) {
         result["search_time_ms"] = timeMillis;
     }
 
-    result["page"] = page;
+    if(page == 0 && offset != 0) {
+        result["offset"] = offset;
+    } else {
+        result["page"] = (page == 0) ? 1 : page;
+    }
+
     results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
     //LOG(INFO) << "Time taken: " << timeMillis << "ms";
@@ -1130,6 +1241,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
 
+    if(default_sorting_field == "id") {
+        return Option<Collection *>(400, "Invalid `default_sorting_field` value: cannot be `id`.");
+    }
+
     std::string fallback_field_type;
     std::vector<field> fields;
     auto parse_op = field::json_fields_to_fields(req_json[ENABLE_NESTED_FIELDS].get<bool>(),
@@ -1211,9 +1326,10 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_override_json: collection_override_jsons) {
         nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
         override_t override;
-        auto parse_op = override_t::parse(collection_override, "", override);
+        auto parse_op = override_t::parse(collection_override, "", override, "", collection->get_symbols_to_index(),
+                                          collection->get_token_separators());
         if(parse_op.ok()) {
-            collection->add_override(override);
+            collection->add_override(override, false);
         } else {
             LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
         }
@@ -1227,7 +1343,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-        collection->add_synonym(collection_synonym);
+        collection->add_synonym(collection_synonym, false);
     }
 
     // Fetch records from the store and re-create memory index
@@ -1265,10 +1381,10 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
         if(collection->get_enable_nested_fields()) {
             std::vector<field> flattened_fields;
-            field::flatten_doc(document, collection->get_nested_fields(), true, flattened_fields);
+            field::flatten_doc(document, collection->get_nested_fields(), {}, true, flattened_fields);
         }
 
-        auto dirty_values = DIRTY_VALUES::DROP;
+        auto dirty_values = DIRTY_VALUES::COERCE_OR_DROP;
 
         num_valid_docs++;
 
@@ -1285,7 +1401,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         // batch must match atleast the number of shards
          if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
-            size_t num_indexed = collection->batch_index_in_memory(index_records);
+            size_t num_indexed = collection->batch_index_in_memory(index_records, 200, false);
             batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {

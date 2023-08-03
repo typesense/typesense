@@ -60,7 +60,7 @@ TEST(TopsterTest, MaxIntValues) {
 TEST(TopsterTest, StableSorting) {
     // evaluate if the positions of the documents in Topster<1000> is the same in Topster 250, 500 and 750
 
-    std::ifstream infile(std::string(ROOT_DIR)+"test/resources/record_values.txt");
+    std::ifstream infile("test/resources/record_values.txt");
     std::string line;
     std::vector<std::pair<uint64_t, int64_t>> records;
 

@@ -21,6 +21,10 @@ struct StringUtils {
 
     ~StringUtils();
 
+    static size_t split_facet(const std::string& s, std::vector<std::string> & result,
+                      const bool keep_empty = false, const size_t start_index = 0,
+                      const size_t max_values = (std::numeric_limits<size_t>::max()-1));
+
     // Adapted from: http://stackoverflow.com/a/236180/131050
     static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,
                         const bool keep_empty = false, const bool trim_space = true,
@@ -328,4 +332,6 @@ struct StringUtils {
     static size_t get_num_chars(const std::string& text);
 
     static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
+
+    static Option<bool> split_include_fields(const std::string& include_fields, std::vector<std::string>& tokens);
 };

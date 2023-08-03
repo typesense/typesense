@@ -124,6 +124,7 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("tags", field_types::STRING_ARRAY, true),
                                  field("age", field_types::INT32, false),
+                                 field("in_stock", field_types::BOOL, false),
                                  field("average", field_types::INT32, false) };
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
@@ -140,6 +141,19 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
     ASSERT_FALSE(collection_op.ok());
     ASSERT_EQ("Default sorting field is defined as `NOT-DEFINED` but is not found in the schema.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
+
+    // must be able to use boolean field as default sorting field
+    collection_op = collectionManager.create_collection("sample_collection", 4, fields, "in_stock");
+    ASSERT_TRUE(collection_op.ok());
+    auto coll = collection_op.get();
+    nlohmann::json doc;
+    doc["name"] = "Example";
+    doc["tags"] = {"example"};
+    doc["age"] = 100;
+    doc["in_stock"] = true;
+    doc["average"] = 45;
+
+    ASSERT_TRUE(coll->add(doc.dump()).ok());
 }
 
 TEST_F(CollectionSortingTest, NoDefaultSortingField) {
@@ -1622,7 +1636,7 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
     nlohmann::json doc1;
     doc1["id"] = "0";
     doc1["title"] = "Mark Antony";
-    doc1["description"] = "Marriage Counsellor";
+    doc1["description"] = "Counsellor";
     doc1["points"] = 100;
 
     nlohmann::json doc2;
@@ -1639,47 +1653,51 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
         sort_by("points", "DESC"),
     };
 
-    auto results = coll1->search("mark", {"title", "description"},
-                                 "", {}, sort_fields, {2, 2}, 10,
-                                 1, FREQUENCY, {true, true},
+    auto results = coll1->search("mark", {"title"},
+                                 "", {}, sort_fields, {2}, 10,
+                                 1, FREQUENCY, {true},
                                  10, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {3, 1}, 1000, true).get();
+                                 "<mark>", "</mark>", {3}, 1000, true).get();
 
     // when there are more buckets than results, no bucketing will happen
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
-    // bucketing by 1 produces original text match
+    // bucketing by 1 makes the text match score the same
     sort_fields = {
         sort_by("_text_match(buckets: 1)", "DESC"),
         sort_by("points", "DESC"),
     };
 
-    results = coll1->search("mark", {"title", "description"},
-                            "", {}, sort_fields, {2, 2}, 10,
-                            1, FREQUENCY, {true, true},
+    results = coll1->search("mark", {"title"},
+                            "", {}, sort_fields, {2}, 10,
+                            1, FREQUENCY, {true},
                             10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {3, 1}, 1000, true).get();
+                            "<mark>", "</mark>", {3}, 1000, true).get();
 
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
-    // likewise with bucket 0
+    size_t score1 = std::stoul(results["hits"][0]["text_match_info"]["score"].get<std::string>());
+    size_t score2 = std::stoul(results["hits"][1]["text_match_info"]["score"].get<std::string>());
+    ASSERT_TRUE(score1 < score2);
+
+    // bucketing by 0 produces original text match
     sort_fields = {
         sort_by("_text_match(buckets: 0)", "DESC"),
         sort_by("points", "DESC"),
     };
 
-    results = coll1->search("mark", {"title", "description"},
-                            "", {}, sort_fields, {2, 2}, 10,
-                            1, FREQUENCY, {true, true},
+    results = coll1->search("mark", {"title"},
+                            "", {}, sort_fields, {2}, 10,
+                            1, FREQUENCY, {true},
                             10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {3, 1}, 1000, true).get();
+                            "<mark>", "</mark>", {3}, 1000, true).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -1688,46 +1706,46 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
     // don't allow bad parameter name
     sort_fields[0] = sort_by("_text_match(foobar: 0)", "DESC");
 
-    auto res_op = coll1->search("mark", {"title", "description"},
-                            "", {}, sort_fields, {2, 2}, 10,
-                            1, FREQUENCY, {true, true},
+    auto res_op = coll1->search("mark", {"title"},
+                            "", {}, sort_fields, {2}, 10,
+                            1, FREQUENCY, {true},
                             10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {3, 1}, 1000, true);
+                            "<mark>", "</mark>", {3}, 1000, true);
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid sorting parameter passed for _text_match.", res_op.error());
 
     // handle bad syntax
     sort_fields[0] = sort_by("_text_match(foobar:", "DESC");
-    res_op = coll1->search("mark", {"title", "description"},
-                                "", {}, sort_fields, {2, 2}, 10,
-                                1, FREQUENCY, {true, true},
+    res_op = coll1->search("mark", {"title"},
+                                "", {}, sort_fields, {2}, 10,
+                                1, FREQUENCY, {true},
                                 10, spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                                "<mark>", "</mark>", {3, 1}, 1000, true);
+                                "<mark>", "</mark>", {3}, 1000, true);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a field named `_text_match(foobar:` in the schema for sorting.", res_op.error());
 
     // handle bad value
     sort_fields[0] = sort_by("_text_match(buckets: x)", "DESC");
-    res_op = coll1->search("mark", {"title", "description"},
-                           "", {}, sort_fields, {2, 2}, 10,
-                           1, FREQUENCY, {true, true},
+    res_op = coll1->search("mark", {"title"},
+                           "", {}, sort_fields, {2}, 10,
+                           1, FREQUENCY, {true},
                            10, spp::sparse_hash_set<std::string>(),
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                           "<mark>", "</mark>", {3, 1}, 1000, true);
+                           "<mark>", "</mark>", {3}, 1000, true);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid value passed for _text_match `buckets` configuration.", res_op.error());
 
     // handle negative value
     sort_fields[0] = sort_by("_text_match(buckets: -1)", "DESC");
-    res_op = coll1->search("mark", {"title", "description"},
-                           "", {}, sort_fields, {2, 2}, 10,
-                           1, FREQUENCY, {true, true},
+    res_op = coll1->search("mark", {"title"},
+                           "", {}, sort_fields, {2}, 10,
+                           1, FREQUENCY, {true},
                            10, spp::sparse_hash_set<std::string>(),
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                           "<mark>", "</mark>", {3, 1}, 1000, true);
+                           "<mark>", "</mark>", {3}, 1000, true);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid value passed for _text_match `buckets` configuration.", res_op.error());
 
@@ -1938,6 +1956,32 @@ TEST_F(CollectionSortingTest, DisallowSortingOnNonIndexedIntegerField) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, WildcardSearchSequenceIdSort) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "category", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["category"] = "Shoes";
+
+    for(size_t i = 0; i < 30; i++) {
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("_seq_id", "DESC"),
+    };
+
+    auto res = coll1->search("*", {"category"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(10, res["hits"].size());
+    ASSERT_EQ(30, res["found"].get<size_t>());
+}
+
 TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     std::string coll_schema = R"(
         {
@@ -2012,6 +2056,15 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     auto res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Error parsing eval expression in sort_by clause.", res_op.error());
+
+    // when eval condition is empty
+    sort_fields = {
+        sort_by("_eval()", "DESC"),
+        sort_by("points", "DESC"),
+    };
+    res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("The eval expression in sort_by is empty.", res_op.error());
 
     // more bad syntax!
     sort_fields = {
@@ -2124,6 +2177,23 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, DisallowIdAsDefaultSortingField) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "default_sorting_field": "id",
+            "fields": [
+              {"name": "id", "type": "string" }
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    auto coll_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("Invalid `default_sorting_field` value: cannot be `id`.", coll_op.error());
+}
+
 TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
     std::string coll_schema = R"(
         {
@@ -2175,4 +2245,146 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
     for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
+}
+
+
+TEST_F(CollectionSortingTest, AscendingVectorDistance) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "title", "type": "string" },
+              {"name": "points", "type": "float[]", "num_dim": 2}
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::vector<float>> points = {
+        {3.0, 4.0},
+        {9.0, 21.0},
+        {8.0, 15.0},
+        {1.0, 1.0},
+        {5.0, 7.0}
+    };
+
+    for(size_t i = 0; i < points.size(); i++) {
+        nlohmann::json doc;
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = points[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("_vector_distance", "asc"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "points:([8.0, 15.0])").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    std::vector<std::string> expected_ids = {"2", "1", "4", "0", "3"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+}
+
+
+TEST_F(CollectionSortingTest, DescendingVectorDistance) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "title", "type": "string" },
+              {"name": "points", "type": "float[]", "num_dim": 2}
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::vector<float>> points = {
+        {3.0, 4.0},
+        {9.0, 21.0},
+        {8.0, 15.0},
+        {1.0, 1.0},
+        {5.0, 7.0}
+    };
+
+    for(size_t i = 0; i < points.size(); i++) {
+        nlohmann::json doc;
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = points[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    } 
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("_vector_distance", "DESC"),
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "points:([8.0, 15.0])").get();
+    
+    ASSERT_EQ(5, results["hits"].size());
+    std::vector<std::string> expected_ids = {"3", "0", "4", "1", "2"};
+
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+}
+
+
+TEST_F(CollectionSortingTest, InvalidVectorDistanceSorting) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "title", "type": "string" },
+              {"name": "points", "type": "float[]", "num_dim": 2}
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::vector<float>> points = {
+        {1.0, 1.0},
+        {2.0, 2.0},
+        {3.0, 3.0},
+        {4.0, 4.0},
+        {5.0, 5.0},
+    };
+
+    for(size_t i = 0; i < points.size(); i++) {
+        nlohmann::json doc;
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = points[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("_vector_distance", "desc"),
+    };
+
+
+
+    auto results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
+
+    ASSERT_FALSE(results.ok());
+
+    ASSERT_EQ("sort_by vector_distance is only supported for vector queries, semantic search and hybrid search.", results.error());
 }

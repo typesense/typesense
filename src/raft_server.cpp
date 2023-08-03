@@ -9,6 +9,7 @@
 #include <http_client.h>
 #include "rocksdb/utilities/checkpoint.h"
 #include "thread_local_vars.h"
+#include "core_api.h"
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -17,6 +18,7 @@ namespace braft {
     DECLARE_int32(raft_max_append_entries_cache_size);
 
     DECLARE_int32(raft_max_byte_count_per_rpc);
+    DECLARE_int32(raft_rpc_channel_connect_timeout_ms);
 }
 
 void ReplicationClosure::Run() {
@@ -34,6 +36,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     this->election_timeout_interval_ms = election_timeout_ms;
     this->raft_dir_path = raft_dir;
+    this->peering_endpoint = peering_endpoint;
 
     braft::NodeOptions node_options;
 
@@ -79,6 +82,8 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     // flag controls snapshot download size of each RPC
     braft::FLAGS_raft_max_byte_count_per_rpc = snapshot_max_byte_count_per_rpc;
+
+    braft::FLAGS_raft_rpc_channel_connect_timeout_ms = 2000;
 
     // automatic snapshot is disabled since it caused issues during slow follower catch-ups
     node_options.snapshot_interval_s = -1;
@@ -189,7 +194,8 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(raft_dir_path,
                                   config->get_disk_used_max_percentage(), config->get_memory_used_max_percentage());
 
-    if (resource_check != cached_resource_stat_t::OK && request->http_method != "DELETE") {
+    if (resource_check != cached_resource_stat_t::OK &&
+        request->http_method != "DELETE" && request->path_without_query != "/health") {
         response->set_422("Rejecting write: running out of resource type: " +
                           std::string(magic_enum::enum_name(resource_check)));
         response->final = true;
@@ -199,6 +205,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
 
     if(config->get_skip_writes() && request->path_without_query != "/config") {
         response->set_422("Skipping writes.");
+        response->final = true;
         auto req_res = new async_req_res_t(request, response, true);
         return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
     }
@@ -290,7 +297,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             if(path_parts.back().rfind("import", 0) == 0) {
                 // imports are handled asynchronously
                 response->proxied_stream = true;
-                long status = HttpClient::post_response_async(url, request, response, server);
+                long status = HttpClient::post_response_async(url, request, response, server, true);
 
                 if(status == 500) {
                     response->content_type_header = res_headers["content-type"];
@@ -301,23 +308,32 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
                 }
             } else {
                 std::string api_res;
-                long status = HttpClient::post_response(url, request->body, api_res, res_headers);
+                long status = HttpClient::post_response(url, request->body, api_res, res_headers, {}, 10*1000, true);
                 response->content_type_header = res_headers["content-type"];
                 response->set_body(status, api_res);
             }
         } else if(request->http_method == "PUT") {
             std::string api_res;
-            long status = HttpClient::put_response(url, request->body, api_res, res_headers);
+            long status = HttpClient::put_response(url, request->body, api_res, res_headers, 10*1000, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else if(request->http_method == "DELETE") {
             std::string api_res;
-            long status = HttpClient::delete_response(url, api_res, res_headers);
+            // timeout: 0 since delete can take a long time
+            long status = HttpClient::delete_response(url, api_res, res_headers, 0, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else if(request->http_method == "PATCH") {
             std::string api_res;
-            long status = HttpClient::patch_response(url, request->body, api_res, res_headers);
+            route_path* rpath = nullptr;
+            bool route_found = server->get_route(request->route_hash, &rpath);
+
+            long timeout_ms = 10 * 1000;
+            if(route_found && rpath->handler == patch_update_collection) {
+                timeout_ms = 0;  // patching a collection can take a long time
+            }
+
+            long status = HttpClient::patch_response(url, request->body, api_res, res_headers, timeout_ms, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else {
@@ -424,8 +440,10 @@ void* ReplicationState::save_snapshot(void* arg) {
         const butil::FilePath& src_snapshot_dir = butil::FilePath(sa->state_dir_path + "/snapshot");
         const butil::FilePath& src_meta_dir = butil::FilePath(sa->state_dir_path + "/meta");
 
-        butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
-        butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
+        bool snapshot_copied = butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
+        bool meta_copied = butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
+
+        sa->replication_state->ext_snapshot_succeeded = snapshot_copied && meta_copied;
 
         // notify on demand closure that external snapshotting is done
         sa->replication_state->notify();
@@ -528,7 +546,8 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     return init_db_status;
 }
 
-void ReplicationState::refresh_nodes(const std::string & nodes) {
+void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raft_counter,
+                                     const std::atomic<bool>& reset_peers_on_error) {
     std::shared_lock lock(node_mutex);
 
     if(!node) {
@@ -565,8 +584,8 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
             std::vector<braft::PeerId> latest_nodes;
             new_conf.list_peers(&latest_nodes);
 
-            if(latest_nodes.size() == 1) {
-                LOG(WARNING) << "Single-node with no leader. Resetting peers.";
+            if(latest_nodes.size() == 1 || (raft_counter > 0 && reset_peers_on_error)) {
+                LOG(WARNING) << "Node with no leader. Resetting peers of size: " << latest_nodes.size();
                 node->reset_peers(new_conf);
             } else {
                 LOG(WARNING) << "Multi-node with no leader: refusing to reset peers.";
@@ -659,7 +678,7 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
 
     std::string api_res;
     std::map<std::string, std::string> res_headers;
-    long status_code = HttpClient::get_response(url, api_res, res_headers);
+    long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 5*1000, true);
     if(status_code == 200) {
         // compare leader's applied log with local applied to see if we are lagging
         nlohmann::json leader_status = nlohmann::json::parse(api_res);
@@ -752,7 +771,7 @@ void ReplicationState::do_dummy_write() {
 
     std::string api_res;
     std::map<std::string, std::string> res_headers;
-    long status_code = HttpClient::post_response(url, "", api_res, res_headers);
+    long status_code = HttpClient::post_response(url, "", api_res, res_headers, {}, 4000, true);
 
     LOG(INFO) << "Dummy write to " << url << ", status = " << status_code << ", response = " << api_res;
 }
@@ -763,6 +782,35 @@ bool ReplicationState::trigger_vote() {
     if(node) {
         auto status = node->vote(election_timeout_interval_ms);
         LOG(INFO) << "Triggered vote. Ok? " << status.ok() << ", status: " << status;
+        return status.ok();
+    }
+
+    return false;
+}
+
+bool ReplicationState::reset_peers() {
+    std::shared_lock lock(node_mutex);
+
+    if(node) {
+        const Option<std::string> & refreshed_nodes_op = Config::fetch_nodes_config(config->get_nodes());
+        if(!refreshed_nodes_op.ok()) {
+            LOG(WARNING) << "Error while fetching peer configuration: " << refreshed_nodes_op.error();
+            return false;
+        }
+
+        const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint,
+                                                                            Config::get_instance().get_api_port(),
+                                                                            refreshed_nodes_op.get());
+
+        braft::Configuration peer_config;
+        peer_config.parse_from(nodes_config);
+
+        std::vector<braft::PeerId> peers;
+        peer_config.list_peers(&peers);
+
+        auto status = node->reset_peers(peer_config);
+        LOG(INFO) << "Reset peers. Ok? " << status.ok() << ", status: " << status;
+        LOG(INFO) << "New peer config is: " << peer_config;
         return status.ok();
     }
 
@@ -890,7 +938,7 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
             std::string url = get_node_url_path(peer_addr, "/health", protocol);
             std::string api_res;
             std::map<std::string, std::string> res_headers;
-            long status_code = HttpClient::get_response(url, api_res, res_headers);
+            long status_code = HttpClient::get_response(url, api_res, res_headers, {}, 5*1000, true);
             bool peer_healthy = (status_code == 200);
 
             //LOG(INFO) << "do_snapshot, status_code: " << status_code;
@@ -912,6 +960,30 @@ void ReplicationState::do_snapshot(const std::string& nodes) {
     std::shared_lock lock(node_mutex);
     node->snapshot(snapshot_closure);
     last_snapshot_ts = current_ts;
+}
+
+bool ReplicationState::get_ext_snapshot_succeeded() {
+    return ext_snapshot_succeeded;
+}
+
+std::string ReplicationState::get_leader_url() const {
+    std::shared_lock lock(node_mutex);
+
+    if(!node) {
+        LOG(ERROR) << "Could not get leader url as node is not initialized!";
+        return "";
+    }
+
+    if(node->leader_id().is_empty()) {
+        LOG(ERROR) << "Could not get leader url, as node does not have a leader!";
+        return "";
+    }
+
+    const std::string & leader_addr = node->leader_id().to_string();
+    lock.unlock();
+
+    const std::string protocol = api_uses_ssl ? "https" : "http";
+    return get_node_url_path(leader_addr, "/", protocol);
 }
 
 void TimedSnapshotClosure::Run() {
@@ -938,12 +1010,17 @@ void OnDemandSnapshotClosure::Run() {
     nlohmann::json response;
     uint32_t status_code;
 
-    if(status().ok()) {
+    if(status().ok() && replication_state->get_ext_snapshot_succeeded()) {
         LOG(INFO) << "On demand snapshot succeeded!";
         status_code = 201;
         response["success"] = true;
     } else {
-        LOG(ERROR) << "On demand snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
+        LOG(ERROR) << "On demand snapshot failed, error: ";
+        if(replication_state->get_ext_snapshot_succeeded()) {
+            LOG(ERROR) << status().error_str() << ", code: " << status().error_code();
+        } else {
+            LOG(ERROR) << "Copy failed.";
+        }
         status_code = 500;
         response["success"] = false;
         response["error"] = status().error_str();

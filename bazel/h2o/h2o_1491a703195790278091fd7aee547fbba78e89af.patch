@@ -1,0 +1,799 @@
+
+
+--- CMakeLists.txt
++++ CMakeLists.txt
+@@ -41,10 +41,6 @@ INCLUDE(CMakePushCheckState)
+ INCLUDE(ExternalProject)
+ INCLUDE(deps/picotls/cmake/dtrace-utils.cmake)
+ 
+-CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_SOURCE_DIR}/include/h2o/version.h)
+-CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/libh2o.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libh2o.pc @ONLY)
+-CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/libh2o-evloop.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libh2o-evloop.pc @ONLY)
+-
+ SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+ 
+ FIND_PACKAGE(PkgConfig)
+@@ -714,13 +710,11 @@ SET_TARGET_PROPERTIES(examples-websocket-evloop PROPERTIES
+ TARGET_LINK_LIBRARIES(examples-websocket-evloop libh2o-evloop ${WSLAY_LIBRARIES} ${EXTRA_LIBS})
+ 
+ IF (LIBUV_FOUND AND BROTLI_FOUND AND NOT WITHOUT_LIBS)
+-    INSTALL(TARGETS libh2o DESTINATION ${CMAKE_INSTALL_LIBDIR})
+ ELSE ()
+     SET_TARGET_PROPERTIES(libh2o PROPERTIES EXCLUDE_FROM_ALL 1)
+ ENDIF ()
+ IF (BROTLI_FOUND AND NOT WITHOUT_LIBS)
+     INSTALL(TARGETS libh2o-evloop DESTINATION ${CMAKE_INSTALL_LIBDIR})
+-    INSTALL(TARGETS h2o-httpclient DESTINATION ${CMAKE_INSTALL_BINDIR})
+ ELSE ()
+     SET_TARGET_PROPERTIES(libh2o-evloop PROPERTIES EXCLUDE_FROM_ALL 1)
+     SET_TARGET_PROPERTIES(h2o-httpclient PROPERTIES EXCLUDE_FROM_ALL 1)
+@@ -784,16 +778,10 @@ IF (WITH_MRUBY)
+ ENDIF (WITH_MRUBY)
+ TARGET_LINK_LIBRARIES(h2o ${EXTRA_LIBS})
+ 
+-INSTALL(TARGETS h2o
+-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+-
+ IF (NOT WITHOUT_LIBS)
+     INSTALL(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} FILES_MATCHING PATTERN "*.h")
+     IF (LIBUV_FOUND)
+-        INSTALL(FILES "${CMAKE_BINARY_DIR}/libh2o.pc" DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+     ENDIF ()
+-    INSTALL(FILES "${CMAKE_BINARY_DIR}/libh2o-evloop.pc" DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+ ENDIF ()
+ 
+ INSTALL(PROGRAMS share/h2o/annotate-backtrace-symbols share/h2o/fastcgi-cgi share/h2o/fetch-ocsp-response share/h2o/kill-on-close share/h2o/setuidgid share/h2o/start_server DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/h2o)
+@@ -1051,8 +1039,6 @@ IF (WITH_H2OLOG)
+         PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/h2olog"
+         PRIVATE "${LIBBCC_INCLUDE_DIRS}"
+     )
+-
+-    INSTALL(TARGETS h2olog RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+ ENDIF (WITH_H2OLOG)
+ 
+ # gitrev
+
+
+
+--- deps/brotli/BUILD
++++ /dev/null
+@@ -1,224 +0,0 @@
+-# Description:
+-#   Brotli is a generic-purpose lossless compression algorithm.
+-
+-package(
+-    default_visibility = ["//visibility:public"],
+-)
+-
+-licenses(["notice"])  # MIT
+-
+-exports_files(["LICENSE"])
+-
+-# >>> JNI headers
+-
+-config_setting(
+-    name = "darwin",
+-    values = {"cpu": "darwin"},
+-    visibility = ["//visibility:public"],
+-)
+-
+-config_setting(
+-    name = "darwin_x86_64",
+-    values = {"cpu": "darwin_x86_64"},
+-    visibility = ["//visibility:public"],
+-)
+-
+-config_setting(
+-    name = "windows",
+-    values = {"cpu": "x64_windows"},
+-    visibility = ["//visibility:public"],
+-)
+-
+-config_setting(
+-    name = "windows_msvc",
+-    values = {"cpu": "x64_windows_msvc"},
+-    visibility = ["//visibility:public"],
+-)
+-
+-config_setting(
+-    name = "windows_msys",
+-    values = {"cpu": "x64_windows_msys"},
+-    visibility = ["//visibility:public"],
+-)
+-
+-genrule(
+-    name = "copy_link_jni_header",
+-    srcs = ["@openjdk_linux//:jni_h"],
+-    outs = ["jni/jni.h"],
+-    cmd = "cp -f $< $@",
+-)
+-
+-genrule(
+-    name = "copy_link_jni_md_header",
+-    srcs = select({
+-        ":darwin": ["@openjdk_macos//:jni_md_h"],
+-        ":darwin_x86_64": ["@openjdk_macos//:jni_md_h"],
+-        ":windows_msys": ["@openjdk_win//:jni_md_h"],
+-        ":windows_msvc": ["@openjdk_win//:jni_md_h"],
+-        ":windows": ["@openjdk_win//:jni_md_h"],
+-        "//conditions:default": ["@openjdk_linux//:jni_md_h"],
+-    }),
+-    outs = ["jni/jni_md.h"],
+-    cmd = "cp -f $< $@",
+-)
+-
+-cc_library(
+-    name = "jni_inc",
+-    hdrs = [
+-        ":jni/jni.h",
+-        ":jni/jni_md.h",
+-    ],
+-    includes = ["jni"],
+-)
+-
+-# <<< JNI headers
+-
+-STRICT_C_OPTIONS = [
+-    "--pedantic-errors",
+-    "-Wall",
+-    "-Wconversion",
+-    "-Werror",
+-    "-Wextra",
+-    "-Wlong-long",
+-    "-Wmissing-declarations",
+-    "-Wmissing-prototypes",
+-    "-Wno-strict-aliasing",
+-    "-Wshadow",
+-    "-Wsign-compare",
+-]
+-
+-filegroup(
+-    name = "public_headers",
+-    srcs = glob(["c/include/brotli/*.h"]),
+-)
+-
+-filegroup(
+-    name = "common_headers",
+-    srcs = glob(["c/common/*.h"]),
+-)
+-
+-filegroup(
+-    name = "common_sources",
+-    srcs = glob(["c/common/*.c"]),
+-)
+-
+-filegroup(
+-    name = "dec_headers",
+-    srcs = glob(["c/dec/*.h"]),
+-)
+-
+-filegroup(
+-    name = "dec_sources",
+-    srcs = glob(["c/dec/*.c"]),
+-)
+-
+-filegroup(
+-    name = "enc_headers",
+-    srcs = glob(["c/enc/*.h"]),
+-)
+-
+-filegroup(
+-    name = "enc_sources",
+-    srcs = glob(["c/enc/*.c"]),
+-)
+-
+-cc_library(
+-    name = "brotli_inc",
+-    hdrs = [":public_headers"],
+-    copts = STRICT_C_OPTIONS,
+-    includes = ["c/include"],
+-)
+-
+-cc_library(
+-    name = "brotlicommon",
+-    srcs = [":common_sources"],
+-    hdrs = [":common_headers"],
+-    copts = STRICT_C_OPTIONS,
+-    deps = [":brotli_inc"],
+-)
+-
+-cc_library(
+-    name = "brotlidec",
+-    srcs = [":dec_sources"],
+-    hdrs = [":dec_headers"],
+-    copts = STRICT_C_OPTIONS,
+-    deps = [":brotlicommon"],
+-)
+-
+-cc_library(
+-    name = "brotlienc",
+-    srcs = [":enc_sources"],
+-    hdrs = [":enc_headers"],
+-    copts = STRICT_C_OPTIONS,
+-    linkopts = ["-lm"],
+-    deps = [":brotlicommon"],
+-)
+-
+-cc_binary(
+-    name = "brotli",
+-    srcs = ["c/tools/brotli.c"],
+-    copts = STRICT_C_OPTIONS,
+-    linkstatic = 1,
+-    deps = [
+-        ":brotlidec",
+-        ":brotlienc",
+-    ],
+-)
+-
+-########################################################
+-# WARNING: do not (transitively) depend on this target!
+-########################################################
+-cc_binary(
+-    name = "brotli_jni.dll",
+-    srcs = [
+-        ":common_headers",
+-        ":common_sources",
+-        ":dec_headers",
+-        ":dec_sources",
+-        ":enc_headers",
+-        ":enc_sources",
+-        "//java/org/brotli/wrapper/common:jni_src",
+-        "//java/org/brotli/wrapper/dec:jni_src",
+-        "//java/org/brotli/wrapper/enc:jni_src",
+-    ],
+-    deps = [
+-        ":brotli_inc",
+-        ":jni_inc",
+-    ],
+-    linkshared = 1,
+-)
+-
+-########################################################
+-# WARNING: do not (transitively) depend on this target!
+-########################################################
+-cc_binary(
+-    name = "brotli_jni_no_dictionary_data.dll",
+-    srcs = [
+-        ":common_headers",
+-        ":common_sources",
+-        ":dec_headers",
+-        ":dec_sources",
+-        ":enc_headers",
+-        ":enc_sources",
+-        "//java/org/brotli/wrapper/common:jni_src",
+-        "//java/org/brotli/wrapper/dec:jni_src",
+-        "//java/org/brotli/wrapper/enc:jni_src",
+-    ],
+-    defines = [
+-        "BROTLI_EXTERNAL_DICTIONARY_DATA=",
+-    ],
+-    deps = [
+-        ":brotli_inc",
+-        ":jni_inc",
+-    ],
+-    linkshared = 1,
+-)
+-
+-filegroup(
+-    name = "dictionary",
+-    srcs = ["c/common/dictionary.bin"],
+-)
+-
+-load("@io_bazel_rules_go//go:def.bzl", "go_prefix")
+-
+-go_prefix("github.com/google/brotli")
+
+
+
+--- deps/brotli/go/cbrotli/BUILD
++++ /dev/null
+@@ -1,26 +0,0 @@
+-package(default_visibility = ["//visibility:public"])
+-
+-licenses(["notice"])  # MIT
+-
+-load("@io_bazel_rules_go//go:def.bzl", "go_prefix", "cgo_library", "go_test")
+-
+-go_prefix("github.com/google/brotli")
+-
+-cgo_library(
+-    name = "cbrotli",
+-    srcs = [
+-        "reader.go",
+-        "writer.go",
+-    ],
+-    cdeps = [
+-        "//:brotlidec",
+-        "//:brotlienc",
+-    ],
+-)
+-
+-go_test(
+-    name = "cbrotli_test",
+-    size = "small",
+-    srcs = ["cbrotli_test.go"],
+-    library = ":cbrotli",
+-)
+
+
+
+--- deps/brotli/java/org/brotli/dec/BUILD
++++ /dev/null
+@@ -1,55 +0,0 @@
+-# Description:
+-#   Java port of Brotli decoder.
+-
+-package(default_visibility = ["//visibility:public"])
+-
+-licenses(["notice"])  # MIT
+-
+-java_library(
+-    name = "dec",
+-    srcs = glob(
+-        ["*.java"],
+-        exclude = ["*Test*.java"],
+-    ),
+-    proguard_specs = ["proguard.cfg"],
+-)
+-
+-java_library(
+-    name = "test_lib",
+-    testonly = 1,
+-    srcs = glob(["*Test*.java"]),
+-    deps = [
+-        ":dec",
+-        "@junit_junit//jar",
+-    ],
+-)
+-
+-java_test(
+-    name = "BitReaderTest",
+-    test_class = "org.brotli.dec.BitReaderTest",
+-    runtime_deps = [":test_lib"],
+-)
+-
+-java_test(
+-    name = "DecodeTest",
+-    test_class = "org.brotli.dec.DecodeTest",
+-    runtime_deps = [":test_lib"],
+-)
+-
+-java_test(
+-    name = "DictionaryTest",
+-    test_class = "org.brotli.dec.DictionaryTest",
+-    runtime_deps = [":test_lib"],
+-)
+-
+-java_test(
+-    name = "SynthTest",
+-    test_class = "org.brotli.dec.SynthTest",
+-    runtime_deps = [":test_lib"],
+-)
+-
+-java_test(
+-    name = "TransformTest",
+-    test_class = "org.brotli.dec.TransformTest",
+-    runtime_deps = [":test_lib"],
+-)
+
+
+
+--- deps/brotli/java/org/brotli/integration/BUILD
++++ /dev/null
+@@ -1,73 +0,0 @@
+-# Description:
+-#   Integration test runner + corpus for Java port of Brotli decoder.
+-
+-java_library(
+-    name = "brotli_jni_test_base",
+-    srcs = ["BrotliJniTestBase.java"],
+-    visibility = [
+-        "//java/org/brotli/wrapper/common:__pkg__",
+-        "//java/org/brotli/wrapper/dec:__pkg__",
+-        "//java/org/brotli/wrapper/enc:__pkg__",
+-    ],
+-)
+-
+-java_library(
+-    name = "bundle_helper",
+-    srcs = ["BundleHelper.java"],
+-    visibility = [
+-        "//java/org/brotli/wrapper/dec:__pkg__",
+-        "//java/org/brotli/wrapper/enc:__pkg__",
+-    ],
+-)
+-
+-java_library(
+-    name = "bundle_checker",
+-    srcs = ["BundleChecker.java"],
+-    deps = [
+-        ":bundle_helper",
+-        "//java/org/brotli/dec",
+-    ],
+-)
+-
+-java_binary(
+-    name = "bundle_checker_bin",
+-    main_class = "org.brotli.integration.BundleChecker",
+-    runtime_deps = [":bundle_checker"],
+-)
+-
+-java_test(
+-    name = "bundle_checker_data_test",
+-    args = ["java/org/brotli/integration/test_data.zip"],
+-    data = ["test_data.zip"],
+-    main_class = "org.brotli.integration.BundleChecker",
+-    use_testrunner = 0,
+-    runtime_deps = [":bundle_checker"],
+-)
+-
+-java_test(
+-    name = "bundle_checker_fuzz_test",
+-    args = [
+-        "-s",
+-        "java/org/brotli/integration/fuzz_data.zip",
+-    ],
+-    data = ["fuzz_data.zip"],
+-    main_class = "org.brotli.integration.BundleChecker",
+-    use_testrunner = 0,
+-    runtime_deps = [":bundle_checker"],
+-)
+-
+-filegroup(
+-    name = "test_data",
+-    srcs = ["test_data.zip"],
+-    visibility = [
+-        "//java/org/brotli/wrapper/dec:__pkg__",
+-    ],
+-)
+-
+-filegroup(
+-    name = "test_corpus",
+-    srcs = ["test_corpus.zip"],
+-    visibility = [
+-        "//java/org/brotli/wrapper/enc:__pkg__",
+-    ],
+-)
+
+
+
+--- deps/brotli/java/org/brotli/wrapper/common/BUILD
++++ /dev/null
+@@ -1,64 +0,0 @@
+-package(default_visibility = ["//visibility:public"])
+-
+-licenses(["notice"])  # MIT
+-
+-filegroup(
+-    name = "jni_src",
+-    srcs = ["common_jni.cc"],
+-)
+-
+-filegroup(
+-    name = "brotli_jni_no_dictionary_data",
+-    srcs = ["//:brotli_jni_no_dictionary_data.dll"],
+-)
+-
+-java_library(
+-    name = "common",
+-    srcs = glob(
+-        ["*.java"],
+-        exclude = ["*Test*.java"],
+-    ),
+-)
+-
+-java_test(
+-    name = "SetZeroDictionaryTest",
+-    size = "small",
+-    srcs = ["SetZeroDictionaryTest.java"],
+-    data = [
+-        ":brotli_jni_no_dictionary_data",  # Bazel JNI workaround
+-    ],
+-    jvm_flags = [
+-        "-DBROTLI_JNI_LIBRARY=$(location :brotli_jni_no_dictionary_data)",
+-    ],
+-    deps = [
+-        ":common",
+-        "//java/org/brotli/integration:brotli_jni_test_base",
+-        "//java/org/brotli/wrapper/dec",
+-        "@junit_junit//jar",
+-    ],
+-)
+-
+-filegroup(
+-    name = "rfc_dictionary",
+-    srcs = ["//:dictionary"],
+-)
+-
+-java_test(
+-    name = "SetRfcDictionaryTest",
+-    size = "small",
+-    srcs = ["SetRfcDictionaryTest.java"],
+-    data = [
+-        ":rfc_dictionary",
+-        ":brotli_jni_no_dictionary_data",  # Bazel JNI workaround
+-    ],
+-    jvm_flags = [
+-        "-DRFC_DICTIONARY=$(location :rfc_dictionary)",
+-        "-DBROTLI_JNI_LIBRARY=$(location :brotli_jni_no_dictionary_data)",
+-    ],
+-    deps = [
+-        ":common",
+-        "//java/org/brotli/integration:brotli_jni_test_base",
+-        "//java/org/brotli/wrapper/dec",
+-        "@junit_junit//jar",
+-    ],
+-)
+
+
+
+--- deps/brotli/java/org/brotli/wrapper/dec/BUILD
++++ /dev/null
+@@ -1,86 +0,0 @@
+-package(default_visibility = ["//visibility:public"])
+-
+-licenses(["notice"])  # MIT
+-
+-filegroup(
+-    name = "jni_src",
+-    srcs = ["decoder_jni.cc"],
+-)
+-
+-java_library(
+-    name = "dec",
+-    srcs = glob(
+-        ["*.java"],
+-        exclude = ["*Test*.java"],
+-    ),
+-)
+-
+-filegroup(
+-    name = "brotli_jni",
+-    srcs = ["//:brotli_jni.dll"],
+-)
+-
+-filegroup(
+-    name = "test_bundle",
+-    srcs = ["//java/org/brotli/integration:test_data"],
+-)
+-
+-java_test(
+-    name = "BrotliDecoderChannelTest",
+-    size = "large",
+-    srcs = ["BrotliDecoderChannelTest.java"],
+-    data = [
+-        ":brotli_jni",  # Bazel JNI workaround
+-        ":test_bundle",
+-    ],
+-    jvm_flags = [
+-        "-DBROTLI_JNI_LIBRARY=$(location :brotli_jni)",
+-        "-DTEST_BUNDLE=$(location :test_bundle)",
+-    ],
+-    deps = [
+-        ":dec",
+-        "//java/org/brotli/integration:brotli_jni_test_base",
+-        "//java/org/brotli/integration:bundle_helper",
+-        "@junit_junit//jar",
+-    ],
+-)
+-
+-java_test(
+-    name = "BrotliInputStreamTest",
+-    size = "large",
+-    srcs = ["BrotliInputStreamTest.java"],
+-    data = [
+-        ":brotli_jni",  # Bazel JNI workaround
+-        ":test_bundle",
+-    ],
+-    jvm_flags = [
+-        "-DBROTLI_JNI_LIBRARY=$(location :brotli_jni)",
+-        "-DTEST_BUNDLE=$(location :test_bundle)",
+-    ],
+-    deps = [
+-        ":dec",
+-        "//java/org/brotli/integration:brotli_jni_test_base",
+-        "//java/org/brotli/integration:bundle_helper",
+-        "@junit_junit//jar",
+-    ],
+-)
+-
+-java_test(
+-    name = "DecoderTest",
+-    size = "large",
+-    srcs = ["DecoderTest.java"],
+-    data = [
+-        ":brotli_jni",  # Bazel JNI workaround
+-        ":test_bundle",
+-    ],
+-    jvm_flags = [
+-        "-DBROTLI_JNI_LIBRARY=$(location :brotli_jni)",
+-        "-DTEST_BUNDLE=$(location :test_bundle)",
+-    ],
+-    deps = [
+-        ":dec",
+-        "//java/org/brotli/integration:brotli_jni_test_base",
+-        "//java/org/brotli/integration:bundle_helper",
+-        "@junit_junit//jar",
+-    ],
+-)
+
+
+
+--- deps/brotli/java/org/brotli/wrapper/enc/BUILD
++++ /dev/null
+@@ -1,92 +0,0 @@
+-package(default_visibility = ["//visibility:public"])
+-
+-licenses(["notice"])  # MIT
+-
+-filegroup(
+-    name = "jni_src",
+-    srcs = ["encoder_jni.cc"],
+-)
+-
+-filegroup(
+-    name = "brotli_jni",
+-    srcs = ["//:brotli_jni.dll"],
+-)
+-
+-java_library(
+-    name = "enc",
+-    srcs = glob(
+-        ["*.java"],
+-        exclude = ["*Test*.java"],
+-    ),
+-)
+-
+-filegroup(
+-    name = "test_bundle",
+-    srcs = ["//java/org/brotli/integration:test_corpus"],
+-)
+-
+-java_test(
+-    name = "BrotliEncoderChannelTest",
+-    size = "large",
+-    srcs = ["BrotliEncoderChannelTest.java"],
+-    data = [
+-        ":brotli_jni",  # Bazel JNI workaround
+-        ":test_bundle",
+-    ],
+-    jvm_flags = [
+-        "-DBROTLI_JNI_LIBRARY=$(location :brotli_jni)",
+-        "-DTEST_BUNDLE=$(location :test_bundle)",
+-    ],
+-    shard_count = 15,
+-    deps = [
+-        ":enc",
+-        "//java/org/brotli/integration:brotli_jni_test_base",
+-        "//java/org/brotli/integration:bundle_helper",
+-        "//java/org/brotli/wrapper/dec",
+-        "@junit_junit//jar",
+-    ],
+-)
+-
+-java_test(
+-    name = "BrotliOutputStreamTest",
+-    size = "large",
+-    srcs = ["BrotliOutputStreamTest.java"],
+-    data = [
+-        ":brotli_jni",  # Bazel JNI workaround
+-        ":test_bundle",
+-    ],
+-    jvm_flags = [
+-        "-DBROTLI_JNI_LIBRARY=$(location :brotli_jni)",
+-        "-DTEST_BUNDLE=$(location :test_bundle)",
+-    ],
+-    shard_count = 15,
+-    deps = [
+-        ":enc",
+-        "//java/org/brotli/integration:brotli_jni_test_base",
+-        "//java/org/brotli/integration:bundle_helper",
+-        "//java/org/brotli/wrapper/dec",
+-        "@junit_junit//jar",
+-    ],
+-)
+-
+-java_test(
+-    name = "EncoderTest",
+-    size = "large",
+-    srcs = ["EncoderTest.java"],
+-    data = [
+-        ":brotli_jni",  # Bazel JNI workaround
+-        ":test_bundle",
+-    ],
+-    jvm_flags = [
+-        "-DBROTLI_JNI_LIBRARY=$(location :brotli_jni)",
+-        "-DTEST_BUNDLE=$(location :test_bundle)",
+-    ],
+-    shard_count = 15,
+-    deps = [
+-        ":enc",
+-        "//java/org/brotli/integration:brotli_jni_test_base",
+-        "//java/org/brotli/integration:bundle_helper",
+-        "//java/org/brotli/wrapper/dec",
+-        "@junit_junit//jar",
+-    ],
+-)
+
+
+
+--- deps/brotli/js/BUILD
++++ /dev/null
+@@ -1,41 +0,0 @@
+-package(
+-    default_visibility = ["//visibility:public"],
+-)
+-
+-licenses(["notice"])  # MIT
+-
+-load("@io_bazel_rules_closure//closure:defs.bzl", "closure_js_library")
+-
+-# Not a real polyfill. Do NOT use for anything, but tests.
+-closure_js_library(
+-    name = "polyfill",
+-    srcs = ["polyfill.js"],
+-    suppress = [
+-        "JSC_MISSING_JSDOC",
+-        "JSC_TYPE_MISMATCH",
+-        "JSC_UNKNOWN_EXPR_TYPE",
+-    ],
+-)
+-
+-# Do NOT use this artifact; it is for test purposes only.
+-closure_js_library(
+-    name = "decode",
+-    srcs = ["decode.js"],
+-    suppress = [
+-        "JSC_DUP_VAR_DECLARATION",
+-        "JSC_USELESS_BLOCK",
+-    ],
+-    deps = [":polyfill"],
+-)
+-
+-load("@io_bazel_rules_closure//closure:defs.bzl", "closure_js_test")
+-
+-closure_js_test(
+-    name = "all_tests",
+-    srcs = ["decode_test.js"],
+-    deps = [
+-        ":decode",
+-        ":polyfill",
+-        "@io_bazel_rules_closure//closure/library:testing",
+-    ],
+-)
+
+
+
+--- deps/brotli/research/BUILD
++++ /dev/null
+@@ -1,29 +0,0 @@
+-# Description: brotli research tools.
+-
+-package(default_visibility = ["//visibility:public"])
+-
+-licenses(["notice"])  # MIT
+-
+-cc_library(
+-    name = "dm",
+-    srcs = ["deorummolae.cc"],
+-    hdrs = [
+-        "deorummolae.h",
+-        "esaxx/sais.hxx",
+-    ],
+-)
+-
+-cc_library(
+-    name = "sieve",
+-    srcs = ["sieve.cc"],
+-    hdrs = ["sieve.h"],
+-)
+-
+-cc_binary(
+-    name = "dictionary_generator",
+-    srcs = ["dictionary_generator.cc"],
+-    deps = [
+-        ":dm",
+-        ":sieve",
+-    ],
+-)

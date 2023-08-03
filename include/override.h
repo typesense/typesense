@@ -9,6 +9,7 @@ struct override_t {
 
     struct rule_t {
         std::string query;
+        std::string normalized_query;       // not actually stored, used for lowercasing etc.
         std::string match;
         bool dynamic_query = false;
         std::string filter_by;
@@ -44,7 +45,12 @@ struct override_t {
 
     override_t() = default;
 
-    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id, override_t& override);
+    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id,
+                              override_t& override,
+                              const std::string& locale = "",
+                              const std::vector<char>& symbols_to_index = {},
+                              const std::vector<char>& token_separators = {}
+                              );
 
     nlohmann::json to_json() const;
 };

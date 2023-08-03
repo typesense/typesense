@@ -15,12 +15,14 @@
 #endif
 
 #include "string_utils.h"
-#include "jemalloc.h"
 
+#ifndef ASAN_BUILD
+#include "jemalloc.h"
 #if __APPLE__
 #define impl_mallctl je_mallctl
 #else
 #define impl_mallctl mallctl
+#endif
 #endif
 
 uint64_t SystemMetrics::non_proc_mem_last_access = 0;
@@ -41,6 +43,7 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     sz = sizeof(size_t);
     uint64_t epoch = 1;
 
+#ifndef ASAN_BUILD
     // See: http://jemalloc.net/jemalloc.3.html#stats.active
 
     impl_mallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
@@ -52,6 +55,7 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     impl_mallctl("stats.metadata", &metadata, &sz, nullptr, 0);
     impl_mallctl("stats.mapped", &mapped, &sz, nullptr, 0);
     impl_mallctl("stats.retained", &retained, &sz, nullptr, 0);
+#endif
 
     result["typesense_memory_active_bytes"] = std::to_string(active);
     result["typesense_memory_allocated_bytes"] = std::to_string(allocated);
@@ -114,8 +118,10 @@ uint64_t SystemMetrics::get_memory_active_bytes() {
     sz = sizeof(size_t);
     uint64_t epoch = 1;
 
+#ifndef ASAN_BUILD
     impl_mallctl("epoch", &epoch, &sz, &epoch, sz);
     impl_mallctl("stats.active", &memory_active_bytes, &sz, nullptr, 0);
+#endif
     return memory_active_bytes;
 }
 

@@ -1,0 +1,7 @@
+Package: typesense-gpu-deps
+Version: $VERSION
+Maintainer: Typesense Inc. <contact@typesense.org>
+Description: Typesense GPU Dependencies
+Homepage: https://typesense.org
+Architecture: $ARCH
+Depends: curl

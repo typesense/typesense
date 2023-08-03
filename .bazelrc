@@ -1,0 +1,17 @@
+build --incompatible_strict_action_env
+build --action_env=BAZEL_CXXOPTS="-std=c++17"
+build --define=TYPESENSE_VERSION=\"nightly\"
+build --cxxopt="-std=c++17"
+build --strip=never
+build --define=BRPC_WITH_GLOG=true
+build --jobs=6
+
+test --jobs=6
+test --define=BRPC_WITH_GLOG=true
+
+run --jobs=6
+run --define=BRPC_WITH_GLOG=true
+
+build --enable_platform_specific_config
+
+build:linux --action_env=BAZEL_LINKLIBS="-l%:libstdc++.a -l%:libgcc.a"

@@ -774,6 +774,109 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicLargeText) {
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 }
 
+TEST_F(CollectionLocaleTest, SearchOnJapaneseLargeText) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, "ja"),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "王獣を倒すと入手した折れた角。追放された後、この世に存在すべきではないもの。\n獣域ウルブズの中で帝王と呼ばれていても、"
+                   "魔獣たちの系譜では、その兄たちの万分の一にも満たないだろう。\n「黄"
+                   "金」が無数の獣域ウルブズを捨て紙のように圧縮して偶然にできた異形の魔獣。その角には、黒いウルブズを命じて自分のため"
+                   "に空間を溶かす権威が秘めている。";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("王獣を", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_STREQ("<mark>王</mark><mark>獣</mark><mark>を</mark><mark>倒す</mark>と入手した折",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    results = coll1->search("業果材", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_STREQ("に空間を溶かす<mark>権威</mark><mark>が</mark><mark>秘</mark>めている。",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionLocaleTest, SearchOnArabicText) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, ""),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::string data = "جهينة";
+    std::string q = "جوهينة";
+
+    auto dchars = data.c_str();
+    auto qchars = q.c_str();
+
+    nlohmann::json doc;
+    doc["title"] = "جهينة";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("جوهينة", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_STREQ("<mark>جهينة</mark>",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionLocaleTest, SearchOnArabicTextWithTypo) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, ""),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    std::string q = "دوني";
+    std::string title1 = "سوني";
+    std::string title2 = "داوني";
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "ينوس";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "ينواد";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("ينود", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {false}, 1,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 10).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionLocaleTest, HighlightOfAllQueryTokensShouldConsiderUnicodePoints) {
+    // For perfomance reasons, we highlight all query tokens in a text only on smaller text
+    // Here, "small" threshold must be defined using unicode points and not raw string size.
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, ""),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "رجلا منهم اجتهد اربعين ليله ثم دعا فلم يستجب له فاتي عيسي ابن مريم عليه السلام يشكو اليه ما هو فيه ويساله الدعاء له فتطهر عيسي وصلي ثم";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("لة ثم دعا فلم يستجب له فأتى عيسى ابن مريم عليه السلام يشكو إل", {"title"}, "", {}, {},
+                                 {2}, 10, 1, FREQUENCY, {true}, 1).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(17, results["hits"][0]["highlights"][0]["matched_tokens"].size());
+}
+
+TEST_F(CollectionLocaleTest, SearchInGermanLocaleShouldBeTypoTolerant) {
+    nlohmann::json coll_json = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title_de", "type": "string", "locale": "de"}
+            ]
+        })"_json;
+
+    auto coll1 = collectionManager.create_collection(coll_json).get();
+
+    nlohmann::json doc;
+    doc["title_de"] = "mülltonne";
+    doc["title_en"] = "trash bin";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("mulltonne", {"title_de"}, "", {}, {},
+                                 {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
 /*
 TEST_F(CollectionLocaleTest, TranslitPad) {
     UErrorCode translit_status = U_ZERO_ERROR;

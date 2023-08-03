@@ -62,7 +62,10 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
 
     // single document match
 
-    coll1->get_filter_ids("points: 99", deletion_state.index_ids);
+    filter_result_t filter_results;
+    coll1->get_filter_ids("points: 99", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -79,7 +82,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("points:< 11", deletion_state.index_ids);
+    coll1->get_filter_ids("points:< 11", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -104,7 +109,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("points:< 20", deletion_state.index_ids);
+    coll1->get_filter_ids("points:< 20", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -135,7 +142,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("id:[0, 1, 2]", deletion_state.index_ids);
+    coll1->get_filter_ids("id:[0, 1, 2]", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -153,7 +162,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
 
-    coll1->get_filter_ids("id: 10", deletion_state.index_ids);
+    coll1->get_filter_ids("id :10", filter_results);
+    deletion_state.index_ids.emplace_back(filter_results.count, filter_results.docs);
+    filter_results.docs = nullptr;
     for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
         deletion_state.offsets.push_back(0);
     }
@@ -170,7 +181,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     deletion_state.num_removed = 0;
 
     // bad filter query
-    auto op = coll1->get_filter_ids("bad filter", deletion_state.index_ids);
+    auto op = coll1->get_filter_ids("bad filter", filter_results);
     ASSERT_FALSE(op.ok());
     ASSERT_STREQ("Could not parse the filter query.", op.error().c_str());
 
@@ -240,6 +251,40 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
     req->embedded_params_vec[0].erase("limit_multi_searches");
     ASSERT_TRUE(post_multi_search(req, res));
 
+}
+
+TEST_F(CoreAPIUtilsTest, SearchEmbeddedPresetKey) {
+    nlohmann::json preset_value = R"(
+        {"per_page": 100}
+    )"_json;
+
+    Option<bool> success_op = collectionManager.upsert_preset("apple", preset_value);
+    ASSERT_TRUE(success_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json embedded_params;
+    embedded_params["preset"] = "apple";
+    req->embedded_params_vec.push_back(embedded_params);
+    req->params["collection"] = "foo";
+
+    get_search(req, res);
+    ASSERT_EQ("100", req->params["per_page"]);
+
+    // with multi search
+
+    req->params.clear();
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "users";
+    search["filter_by"] = "age: > 100";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    ASSERT_EQ("100", req->params["per_page"]);
 }
 
 TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
@@ -576,7 +621,6 @@ TEST_F(CoreAPIUtilsTest, PresetSingleSearch) {
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
-    Collection* coll1 = op.get();
 
     auto preset_value = R"(
         {"collection":"preset_coll", "per_page": "12"}
@@ -606,6 +650,162 @@ TEST_F(CoreAPIUtilsTest, PresetSingleSearch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CoreAPIUtilsTest, SearchPagination) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "name", "type": "string" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    for(size_t i = 0; i < 20; i++) {
+        nlohmann::json doc;
+        doc["name"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+        coll1->add(doc.dump(), CREATE);
+    }
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json body;
+
+    // without any pagination params, default is top 10 records by sort order
+
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+
+    req->body = body.dump();
+    nlohmann::json embedded_params;
+    req->embedded_params_vec.push_back(embedded_params);
+
+    post_multi_search(req, res);
+    nlohmann::json results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(19, results["hits"][0]["document"]["points"].get<size_t>());
+    ASSERT_EQ(1, results["page"].get<size_t>());
+
+    // when offset is used we should expect the same but "offset" should be returned in response
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["offset"] = "1";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(18, results["hits"][0]["document"]["points"].get<size_t>());
+    ASSERT_EQ(1, results["offset"].get<size_t>());
+
+    // use limit to restrict page size
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["offset"] = "1";
+    search["limit"] = "5";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(18, results["hits"][0]["document"]["points"].get<size_t>());
+    ASSERT_EQ(1, results["offset"].get<size_t>());
+
+    // when page is -1
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["page"] = "-1";
+    search["limit"] = "5";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(400, results["code"].get<size_t>());
+    ASSERT_EQ("Parameter `page` must be an unsigned integer.", results["error"].get<std::string>());
+
+    // when offset is -1
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["offset"] = "-1";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(400, results["code"].get<size_t>());
+    ASSERT_EQ("Parameter `offset` must be an unsigned integer.", results["error"].get<std::string>());
+
+    // when page is 0 and offset is NOT sent, we will treat as page=1
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["page"] = "0";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(1, results["page"].get<size_t>());
+    ASSERT_EQ(0, results.count("offset"));
+
+    // when both page and offset are sent, use page
+    search.clear();
+    req->params.clear();
+    body["searches"] = nlohmann::json::array();
+    search["collection"] = "coll1";
+    search["q"] = "title";
+    search["page"] = "2";
+    search["offset"] = "30";
+    search["query_by"] = "name";
+    search["sort_by"] = "points:desc";
+    body["searches"].push_back(search);
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+    results = nlohmann::json::parse(res->body)["results"][0];
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(2, results["page"].get<size_t>());
+    ASSERT_EQ(0, results.count("offset"));
+
+}
+
 TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     Collection *coll1;
     std::vector<field> fields = {field("title", field_types::STRING, false),
@@ -628,7 +828,10 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     std::string res_body;
 
     export_state_t export_state;
-    coll1->get_filter_ids("points:>=0", export_state.index_ids);
+    filter_result_t filter_result;
+    coll1->get_filter_ids("points:>=0", filter_result);
+    export_state.index_ids.emplace_back(filter_result.count, filter_result.docs);
+    filter_result.docs = nullptr;
     for(size_t i=0; i<export_state.index_ids.size(); i++) {
         export_state.offsets.push_back(0);
     }
@@ -646,6 +849,47 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     ASSERT_EQ('}', export_state.res_body->back());
 }
 
+TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {
+    // format <length of api key>:<api key><ip address>
+    std::string valid_metadata = "4:abcd127.0.0.1";
+    std::string invalid_ip = "4:abcd127.0.0.1:1234";
+    std::string invalid_api_key = "3:abcd127.0.0.1";
+    std::string no_length = "abcd127.0.0.1";
+    std::string no_colon = "4abcd127.0.0.1";
+    std::string no_ip = "4:abcd";
+    std::string only_length = "4:";
+    std::string only_colon = ":";
+    std::string only_ip = "127.0.0.1";
+
+    Option<std::pair<std::string, std::string>> res = get_api_key_and_ip(valid_metadata);
+    EXPECT_TRUE(res.ok());
+    EXPECT_EQ("abcd", res.get().first);
+    EXPECT_EQ("127.0.0.1", res.get().second);
+
+    res = get_api_key_and_ip(invalid_ip);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(invalid_api_key);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(no_length);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(no_colon);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(no_ip);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(only_length);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(only_colon);
+    EXPECT_FALSE(res.ok());
+
+    res = get_api_key_and_ip(only_ip);
+    EXPECT_FALSE(res.ok());
+}
 TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -687,7 +931,7 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFields) {
 
     // exclude fields
 
-    delete dynamic_cast<deletion_state_t*>(req->data);
+    delete dynamic_cast<export_state_t*>(req->data);
     req->data = nullptr;
     res->body.clear();
     req->params.erase("include_fields");
@@ -748,7 +992,7 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFieldsWithFilter) {
 
     // exclude fields
 
-    delete dynamic_cast<deletion_state_t*>(req->data);
+    delete dynamic_cast<export_state_t*>(req->data);
     req->data = nullptr;
     res->body.clear();
     req->params.erase("include_fields");
@@ -765,4 +1009,154 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFieldsWithFilter) {
     ASSERT_EQ(1, doc["name"].count("first"));
 
     collectionManager.drop_collection("coll1");
+}
+
+
+
+TEST_F(CoreAPIUtilsTest, TestProxy) {
+    std::string res;
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+
+    std::string url = "https://typesense.org";
+
+    long expected_status_code = HttpClient::get_instance().get_response(url, res, res_headers, headers);
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json body;
+    body["url"] = url;
+    body["method"] = "GET";
+    body["headers"] = headers;
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(expected_status_code, resp->status_code);
+    ASSERT_EQ(res, resp->body);
+}
+
+
+TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
+    nlohmann::json body;
+    
+
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    // test with url as empty string
+    body["url"] = "";
+    body["method"] = "GET";
+    body["headers"] = nlohmann::json::object();
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("URL and method must be non-empty strings.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with url as integer
+    body["url"] = 123;
+    body["method"] = "GET";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("URL and method must be non-empty strings.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with no url parameter
+    body.erase("url");
+    body["method"] = "GET";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Missing required fields.", nlohmann::json::parse(resp->body)["message"]);
+
+
+    // test with invalid method
+    body["url"] = "https://typesense.org";
+    body["method"] = "INVALID";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Parameter `method` must be one of GET, POST, PUT, DELETE.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with method as integer
+    body["method"] = 123;
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("URL and method must be non-empty strings.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with no method parameter
+    body.erase("method");
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Missing required fields.", nlohmann::json::parse(resp->body)["message"]);
+
+
+    // test with body as integer
+    body["method"] = "POST";
+    body["body"] = 123;
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Body must be a string.", nlohmann::json::parse(resp->body)["message"]);
+
+
+    // test with headers as integer
+    body["body"] = "";
+    body["headers"] = 123;
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
+}
+
+
+
+TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {
+    nlohmann::json body;
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    // test with url as empty string
+    body["url"] = "https://typesense.org/docs/";
+    body["method"] = "GET";
+    body["headers"] = nlohmann::json::object();
+    body["headers"]["timeout_ms"] = "1";
+    body["headers"]["num_retry"] = "1";
+
+    req->body = body.dump();
+
+    post_proxy(req, resp);
+
+    ASSERT_EQ(408, resp->status_code);
+    ASSERT_EQ("Server error on remote server. Please try again later.", nlohmann::json::parse(resp->body)["message"]);
 }

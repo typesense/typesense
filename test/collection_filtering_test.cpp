@@ -353,6 +353,16 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
     nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "tagzz: gold", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
 
+    // compound filter expression containing an unknown field
+    results = coll_array_fields->search("Jeremy", query_fields,
+               "(age:>0 ||  timestamps:> 0) || tagzz: gold", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // unbalanced paranthesis
+    results = coll_array_fields->search("Jeremy", query_fields,
+                                        "(age:>0 ||  timestamps:> 0) || ", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     // searching using a string for a numeric field
     results = coll_array_fields->search("Jeremy", query_fields, "age: abcdef", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
@@ -598,6 +608,18 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    // not equals
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= 24", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"3", "1", "4", "2"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
     // multiple filters
     results = coll_array_fields->search("Jeremy", query_fields, "years:<2005 && years:>1987", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
@@ -625,6 +647,42 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     // alternative `:=` syntax
     results = coll_array_fields->search("Jeremy", query_fields, "age:= [21, 24, 63]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
+
+    // individual comparators can still be applied.
+    results = coll_array_fields->search("Jeremy", query_fields, "age: [!=21, >30]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"3", "1", "4", "0"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
+    // negate multiple search values (works like SQL's NOT IN) against a single int field
+    results = coll_array_fields->search("Jeremy", query_fields, "age:!= [21, 24, 63]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"1", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
+    // individual comparators can still be applied.
+    results = coll_array_fields->search("Jeremy", query_fields, "age: != [<30, >60]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"1", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
 
     // multiple search values against an int32 array field - also use extra padding between symbols
     results = coll_array_fields->search("Jeremy", query_fields, "years : [ 2015, 1985 , 1999]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
@@ -753,6 +811,17 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str()); //?
     }
 
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:!=0", facets, sort_fields_asc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"0", "4", "2", "1"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str()); //?
+    }
+
     // Searching on a float field, sorted desc by rating
     results = coll_array_fields->search("Jeremy", query_fields, "rating:>0.0", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(4, results["hits"].size());
@@ -800,6 +869,30 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
         std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // negate multiple search values (works like SQL's NOT IN operator) against a single float field
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:!= [1.09, 7.812]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"1", "4", "3"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
+    // individual comparators can still be applied.
+    results = coll_array_fields->search("Jeremy", query_fields, "rating: != [<5.4, >9]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"2", "4"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
     }
 
     // multiple search values against a float array field - also use extra padding between symbols
@@ -897,7 +990,7 @@ TEST_F(CollectionFilteringTest, FilterOnNegativeNumericalFields) {
 TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
     Collection *coll_array_fields;
 
-    std::ifstream infile(std::string(ROOT_DIR) + "test/numeric_array_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {
             field("name", field_types::STRING, false),
             field("age", field_types::INT32, false),
@@ -1008,6 +1101,13 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+
+    results = coll1->search("*", {}, "loc: (48.90615, 2.34358, 1 km) || "
+                                     "loc: (48.8462, 2.34515, 1 km)",
+                             {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
     // pick location close to none of the spots
     results = coll1->search("*",
                             {}, "loc: (48.910544830985785, 2.337218333651177, 2 km)",
@@ -1034,6 +1134,14 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("5", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("3", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // when geo query had NaN
+    auto gop = coll1->search("*", {}, "loc: (NaN, nan, 1 mi)",
+                                       {}, {}, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(gop.ok());
+    ASSERT_EQ("Value of filter field `loc`: must be in the `(-44.50, 170.29, 0.75 km)` or "
+              "(56.33, -65.97, 23.82, -127.82) format.", gop.error());
 
     // when geo field is formatted as string, show meaningful error
     nlohmann::json bad_doc;
@@ -2452,4 +2560,133 @@ TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithSymbolsToIndex) {
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
+    nlohmann::json schema_json =
+            R"({
+                "name": "ComplexFilterQueryCollection",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "age", "type": "int32"},
+                    {"name": "years", "type": "int32[]"},
+                    {"name": "rating", "type": "float"}
+                ]
+            })"_json;
+
+    auto op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll->add(json_line);
+        ASSERT_TRUE(add_op.ok());
+    }
+    infile.close();
+
+    std::vector<sort_by> sort_fields_desc = {sort_by("rating", "DESC")};
+    nlohmann::json results = coll->search("Jeremy", {"name"}, "(rating:>=0 && years:>2000) && age:>50",
+                                          {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll->search("Jeremy", {"name"}, "(age:>50 || rating:>5) && years:<2000",
+                                          {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    std::vector<std::string> ids = {"4", "3"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = coll->search("Jeremy", {"name"}, "(age:<50 && rating:10) || (years:>2000 && rating:<5)",
+                                          {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    ids = {"0"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = coll->search("Jeremy", {"name"}, "years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
+                           {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    ids = {"2"};
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    std::string extreme_filter = "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))) ||"
+                                 "(years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5)))";
+
+    auto search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+                                  {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, search_op.get()["hits"].size());
+
+    extreme_filter += "|| (years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5)))";
+    search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+                             {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("`filter_by` has too many operations.", search_op.error());
+
+    collectionManager.drop_collection("ComplexFilterQueryCollection");
+}
+
+TEST_F(CollectionFilteringTest, LargeFilterToken) {
+    nlohmann::json json =
+            R"({
+                "name": "LargeFilterTokenCollection",
+                "fields": [
+                    {"name": "uri", "type": "string"}
+                ],
+                "symbols_to_index": [
+                    "/",
+                    "-"
+                ]
+            })"_json;
+
+    auto op = collectionManager.create_collection(json);
+    ASSERT_TRUE(op.ok());
+    auto coll = op.get();
+
+    json.clear();
+    std::string token = "rade/aols/insolvenzrecht/persoenliche-risiken-fuer-organe-von-kapitalgesellschaften-gmbh-"
+                        "geschaeftsfuehrer-ag-vorstand";
+    json["uri"] = token;
+    auto add_op = coll->add(json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll->search("*", query_fields, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll->search("*", query_fields, "uri:" + token, {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    token.erase(100); // Max token length that's indexed is 100, we'll still get a match.
+    results = coll->search("*", query_fields, "uri:" + token, {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    token.erase(99);
+    results = coll->search("*", query_fields, "uri:" + token, {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
 }

@@ -1302,7 +1302,7 @@ void posting_list_t::get_phrase_matches(std::vector<iterator_t>& its, bool field
 
             for(auto& kv: array_token_positions) {
                 const auto& token_positions = kv.second;
-                if(has_phrase_match(token_positions)) {
+                if(token_positions.size() == its.size() && has_phrase_match(token_positions)) {
                     phrase_ids[phrase_id_index] = ids[i];
                     phrase_id_index++;
                     break;

@@ -278,13 +278,21 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
 
     // japanese
     tokens.clear();
-    Tokenizer("退屈", false, false, "ja").tokenize(tokens);
+    Tokenizer("退屈", true, false, "ja").tokenize(tokens);
     ASSERT_EQ(2, tokens.size());
     ASSERT_EQ("た", tokens[0]);
     ASSERT_EQ("いくつ", tokens[1]);
 
     tokens.clear();
-    Tokenizer("ア退屈であ", false, false, "ja").tokenize(tokens);
+    Tokenizer("魈", true, false, "ja").tokenize(tokens);
+    ASSERT_EQ(0, tokens.size());
+
+    tokens.clear();
+    Tokenizer("「業果材", true, false, "ja").tokenize(tokens);
+    ASSERT_EQ(6, tokens.size());
+
+    tokens.clear();
+    Tokenizer("ア退屈であ", true, false, "ja").tokenize(tokens);
     ASSERT_EQ(5, tokens.size());
     ASSERT_EQ("あ", tokens[0]);
     ASSERT_EQ("た", tokens[1]);
@@ -293,7 +301,7 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("あ", tokens[4]);
 
     tokens.clear();
-    Tokenizer("怠惰な犬", false, false, "ja").tokenize(tokens);
+    Tokenizer("怠惰な犬", true, false, "ja").tokenize(tokens);
     ASSERT_EQ(4, tokens.size());
     ASSERT_EQ("たい", tokens[0]);
     ASSERT_EQ("だ", tokens[1]);
@@ -301,7 +309,7 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("いぬ", tokens[3]);
 
     tokens.clear();
-    Tokenizer("今ぶり拍治ルツ", false, false, "ja").tokenize(tokens);
+    Tokenizer("今ぶり拍治ルツ", true, false, "ja").tokenize(tokens);
     ASSERT_EQ(9, tokens.size());
     ASSERT_EQ("いま", tokens[0]);
     ASSERT_EQ("ぶり", tokens[1]);
@@ -314,7 +322,7 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("つ", tokens[8]);
 
     tokens.clear();  // 配管
-    Tokenizer("配管", false, false, "ja").tokenize(tokens);
+    Tokenizer("配管", true, false, "ja").tokenize(tokens);
 }
 
 TEST(TokenizerTest, ShouldTokenizeLocaleTextWithEnglishText) {

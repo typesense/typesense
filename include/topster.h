@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <algorithm>
 #include <unordered_map>
+#include <field.h>
 
 struct KV {
     int8_t match_score_index{};
@@ -13,13 +14,20 @@ struct KV {
     uint64_t key{};
     uint64_t distinct_key{};
     int64_t scores[3]{};  // match score + 2 custom attributes
+    
+    // only to be used in hybrid search
+    float vector_distance = 2.0f;
+    int64_t text_match_score = 0;
+
+    reference_filter_result_t* reference_filter_result = nullptr;
 
     // to be used only in final aggregation
     uint64_t* query_indices = nullptr;
 
-    KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, uint8_t match_score_index, const int64_t *scores):
+    KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, uint8_t match_score_index, const int64_t *scores,
+       reference_filter_result_t* reference_filter_result = nullptr):
             match_score_index(match_score_index), query_index(queryIndex), array_index(0), key(key),
-            distinct_key(distinct_key) {
+            distinct_key(distinct_key), reference_filter_result(reference_filter_result) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
         this->scores[2] = scores[2];
@@ -39,6 +47,9 @@ struct KV {
 
         query_indices = kv.query_indices;
         kv.query_indices = nullptr;
+
+        vector_distance = kv.vector_distance;
+        text_match_score = kv.text_match_score;
     }
 
     KV& operator=(KV&& kv) noexcept  {
@@ -56,6 +67,9 @@ struct KV {
             delete[] query_indices;
             query_indices = kv.query_indices;
             kv.query_indices = nullptr;
+
+            vector_distance = kv.vector_distance;
+            text_match_score = kv.text_match_score;
         }
 
         return *this;
@@ -76,6 +90,9 @@ struct KV {
             delete[] query_indices;
             query_indices = kv.query_indices;
             kv.query_indices = nullptr;
+
+            vector_distance = kv.vector_distance;
+            text_match_score = kv.text_match_score;
         }
 
         return *this;
@@ -98,6 +115,8 @@ struct Topster {
     KV** kvs;
 
     std::unordered_map<uint64_t, KV*> kv_map;
+
+    spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
 
     spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
     size_t distinct;
@@ -144,23 +163,33 @@ struct Topster {
         (*b)->array_index = a_index;
     }
 
-    bool add(KV* kv) {
+    int add(KV* kv) {
         /*LOG(INFO) << "kv_map size: " << kv_map.size() << " -- kvs[0]: " << kvs[0]->scores[kvs[0]->match_score_index];
         for(auto& mkv: kv_map) {
             LOG(INFO) << "kv key: " << mkv.first << " => " << mkv.second->scores[mkv.second->match_score_index];
         }*/
 
+        int ret = 1;
+       
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
 
         if(!distinct && less_than_min_heap) {
             // for non-distinct, if incoming value is smaller than min-heap ignore
-            return false;
+            return 0;
         }
 
         bool SIFT_DOWN = true;
 
         if(distinct) {
+            const auto& doc_seq_id_exists = 
+                (group_doc_seq_ids.find(kv->key) != group_doc_seq_ids.end());
+        
+            if(doc_seq_id_exists) {
+                ret = 2;
+            }
+            group_doc_seq_ids.emplace(kv->key);
+            
             // Grouping cannot be a streaming operation, so aggregate the KVs associated with every group.
             auto kvs_it = group_kv_map.find(kv->distinct_key);
             if(kvs_it != group_kv_map.end()) {
@@ -171,7 +200,7 @@ struct Topster {
                 group_kv_map.insert({kv->distinct_key, g_topster});
             }
             
-            return true;
+            return ret;
 
         } else { // not distinct
             //LOG(INFO) << "Searching for key: " << kv->key;
@@ -193,7 +222,7 @@ struct Topster {
 
                 bool smaller_than_existing = is_smaller(kv, existing_kv);
                 if(smaller_than_existing) {
-                    return false;
+                    return 0;
                 }
 
                 SIFT_DOWN = true;
@@ -256,7 +285,7 @@ struct Topster {
             }
         }
 
-        return true;
+        return ret;
     }
 
     static bool is_greater(const struct KV* i, const struct KV* j) {

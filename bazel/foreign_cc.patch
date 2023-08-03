@@ -1,0 +1,309 @@
+--- foreign_cc/private/configure_script.bzl
++++ foreign_cc/private/configure_script.bzl
+@@ -70,7 +70,7 @@
+         ).lstrip())
+ 
+     script.append("##mkdirs## $$BUILD_TMPDIR$$/$$INSTALL_PREFIX$$")
+-    script.append("{env_vars} {prefix}\"{configure}\" --prefix=$$BUILD_TMPDIR$$/$$INSTALL_PREFIX$$ {user_options}".format(
++    script.append("{env_vars} {prefix}\"{configure}\" {user_options} --prefix=$$BUILD_TMPDIR$$/$$INSTALL_PREFIX$$".format(
+         env_vars = get_make_env_vars(workspace_name, tools, flags, env_vars, deps, inputs),
+         prefix = configure_prefix,
+         configure = configure_path,
+
+
+--- foreign_cc/private/cc_toolchain_util.bzl
++++ foreign_cc/private/cc_toolchain_util.bzl
+@@ -253,6 +253,17 @@
+     # https://docs.bazel.build/versions/master/command-line-reference.html#flag--compilation_mode
+     return ctx.var.get("COMPILATION_MODE", "fastbuild") == "dbg"
+
++def pick_cpp_toolchain(cxx):
++    cxx_splitted = cxx.split("/")
++    if(cxx_splitted[-1].startswith("gcc")):
++        cxx_splitted[-1] = cxx_splitted[-1].replace("gcc", "g++")
++        cxx = "/".join(cxx_splitted)
++    if(cxx_splitted[-1].startswith("clang")):
++        cxx_splitted[-1] = cxx_splitted[-1].replace("clang", "clang++")
++        cxx = "/".join(cxx_splitted)
++
++    return cxx
++
+ def get_tools_info(ctx):
+     """Takes information about tools paths from cc_toolchain, returns CxxToolsInfo
+
+@@ -270,18 +281,18 @@
+             feature_configuration = feature_configuration,
+             action_name = ACTION_NAMES.c_compile,
+         ),
+-        cxx = cc_common.get_tool_for_action(
++        cxx = pick_cpp_toolchain(cc_common.get_tool_for_action(
+             feature_configuration = feature_configuration,
+             action_name = ACTION_NAMES.cpp_compile,
+-        ),
+-        cxx_linker_static = cc_common.get_tool_for_action(
++        )),
++        cxx_linker_static = pick_cpp_toolchain(cc_common.get_tool_for_action(
+             feature_configuration = feature_configuration,
+             action_name = ACTION_NAMES.cpp_link_static_library,
+-        ),
+-        cxx_linker_executable = cc_common.get_tool_for_action(
++        )),
++        cxx_linker_executable = pick_cpp_toolchain(cc_common.get_tool_for_action(
+             feature_configuration = feature_configuration,
+             action_name = ACTION_NAMES.cpp_link_executable,
+-        ),
++        )),
+     )
+
+ def get_flags_info(ctx, link_output_file = None):
+
+diff --git a/toolchains/built_toolchains.bzl b/toolchains/built_toolchains.bzl
+index 5e59e79..ddf63a5 100644
+--- toolchains/built_toolchains.bzl
++++ toolchains/built_toolchains.bzl
+@@ -28,6 +28,7 @@ _CMAKE_SRCS = {
+     "3.22.4": [["https://github.com/Kitware/CMake/releases/download/v3.22.4/cmake-3.22.4.tar.gz"], "cmake-3.22.4", "5c55d0b0bc4c191549e3502b8f99a4fe892077611df22b4178cc020626e22a47"],
+     "3.23.1": [["https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1.tar.gz"], "cmake-3.23.1", "33fd10a8ec687a4d0d5b42473f10459bb92b3ae7def2b745dc10b192760869f3"],
+     "3.23.2": [["https://github.com/Kitware/CMake/releases/download/v3.23.2/cmake-3.23.2.tar.gz"], "cmake-3.23.2", "f316b40053466f9a416adf981efda41b160ca859e97f6a484b447ea299ff26aa"],
++    "3.25.0": [["https://github.com/Kitware/CMake/releases/download/v3.25.0/cmake-3.25.0.tar.gz"], "cmake-3.25.0", "306463f541555da0942e6f5a0736560f70c487178b9d94a5ae7f34d0538cdd48"],
+ }
+
+ # buildifier: disable=unnamed-macro
+@@ -438,6 +439,18 @@ def _ninja_toolchain(version, register_toolchains):
+         native.register_toolchains(
+             "@rules_foreign_cc//toolchains:built_ninja_toolchain",
+         )
++    if version == "1.11.1":
++        maybe(
++            http_archive,
++            name = "ninja_build_src",
++            build_file_content = _ALL_CONTENT,
++            sha256 = "31747ae633213f1eda3842686f83c2aa1412e0f5691d1c14dbbcc67fe7400cea",
++            strip_prefix = "ninja-1.11.1",
++            urls = [
++                "https://github.com/ninja-build/ninja/archive/v1.11.1.tar.gz",
++            ],
++        )
++        return
+     if version == "1.11.0":
+         maybe(
+             http_archive,
+diff --git a/toolchains/prebuilt_toolchains.bzl b/toolchains/prebuilt_toolchains.bzl
+index dabfb95..d9c38b4 100644
+--- toolchains/prebuilt_toolchains.bzl
++++ toolchains/prebuilt_toolchains.bzl
+@@ -67,6 +67,115 @@ def prebuilt_toolchains(cmake_version, ninja_version, register_toolchains):
+     _make_toolchains(register_toolchains)
+
+ def _cmake_toolchains(version, register_toolchains):
++    if "3.25.0" == version:
++        maybe(
++            http_archive,
++            name = "cmake-3.25.0-linux-aarch64",
++            urls = [
++                "https://github.com/Kitware/CMake/releases/download/v3.25.0/cmake-3.25.0-linux-aarch64.tar.gz",
++            ],
++            sha256 = "27da36d6debe9b30f5c498554ae40cd621a55736f5f2ae2618ed95722a59965a",
++            strip_prefix = "cmake-3.25.0-linux-aarch64",
++            build_file_content = _CMAKE_BUILD_FILE.format(
++                bin = "cmake",
++                env = "{}",
++            ),
++        )
++
++        maybe(
++            http_archive,
++            name = "cmake-3.25.0-linux-x86_64",
++            urls = [
++                "https://github.com/Kitware/CMake/releases/download/v3.25.0/cmake-3.25.0-linux-x86_64.tar.gz",
++            ],
++            sha256 = "ac634d6f0a81d7089adc7be5acff66a6bee3b08615f9a947858ce92a9ef59c8b",
++            strip_prefix = "cmake-3.25.0-linux-x86_64",
++            build_file_content = _CMAKE_BUILD_FILE.format(
++                bin = "cmake",
++                env = "{}",
++            ),
++        )
++
++        maybe(
++            http_archive,
++            name = "cmake-3.25.0-macos-universal",
++            urls = [
++                "https://github.com/Kitware/CMake/releases/download/v3.25.0/cmake-3.25.0-macos-universal.tar.gz",
++            ],
++            sha256 = "c088e761534a2078cd9d0581d39f02d3f9ed05302e33135b55c6d619b263b4c3",
++            strip_prefix = "cmake-3.25.0-macos-universal/CMake.app/Contents",
++            build_file_content = _CMAKE_BUILD_FILE.format(
++                bin = "cmake",
++                env = "{}",
++            ),
++        )
++
++        maybe(
++            http_archive,
++            name = "cmake-3.25.0-windows-i386",
++            urls = [
++                "https://github.com/Kitware/CMake/releases/download/v3.25.0/cmake-3.25.0-windows-i386.zip",
++            ],
++            sha256 = "ddd115257a19ff3dd18fc63f32a00ae742f8b62d2e39bc354629903512f99783",
++            strip_prefix = "cmake-3.25.0-windows-i386",
++            build_file_content = _CMAKE_BUILD_FILE.format(
++                bin = "cmake.exe",
++                env = "{}",
++            ),
++        )
++
++        maybe(
++            http_archive,
++            name = "cmake-3.25.0-windows-x86_64",
++            urls = [
++                "https://github.com/Kitware/CMake/releases/download/v3.25.0/cmake-3.25.0-windows-x86_64.zip",
++            ],
++            sha256 = "b46030c10cab1170355952f9ac59f7e6dabc248070fc53f15dff11d4ed2910f8",
++            strip_prefix = "cmake-3.25.0-windows-x86_64",
++            build_file_content = _CMAKE_BUILD_FILE.format(
++                bin = "cmake.exe",
++                env = "{}",
++            ),
++        )
++
++        # buildifier: leave-alone
++        maybe(
++            prebuilt_toolchains_repository,
++            name = "cmake_3.25.0_toolchains",
++            repos = {
++                "cmake-3.25.0-linux-aarch64": [
++                    "@platforms//cpu:aarch64",
++                    "@platforms//os:linux",
++                ],
++                "cmake-3.25.0-linux-x86_64": [
++                    "@platforms//cpu:x86_64",
++                    "@platforms//os:linux",
++                ],
++                "cmake-3.25.0-macos-universal": [
++                    "@platforms//os:macos",
++                ],
++                "cmake-3.25.0-windows-i386": [
++                    "@platforms//cpu:x86_32",
++                    "@platforms//os:windows",
++                ],
++                "cmake-3.25.0-windows-x86_64": [
++                    "@platforms//cpu:x86_64",
++                    "@platforms//os:windows",
++                ],
++            },
++            tool = "cmake",
++        )
++
++        if register_toolchains:
++            native.register_toolchains(
++                "@cmake_3.25.0_toolchains//:cmake-3.25.0-linux-aarch64_toolchain",
++                "@cmake_3.25.0_toolchains//:cmake-3.25.0-linux-x86_64_toolchain",
++                "@cmake_3.25.0_toolchains//:cmake-3.25.0-macos-universal_toolchain",
++                "@cmake_3.25.0_toolchains//:cmake-3.25.0-windows-i386_toolchain",
++                "@cmake_3.25.0_toolchains//:cmake-3.25.0-windows-x86_64_toolchain",
++            )
++
++        return
+     if "3.23.2" == version:
+         maybe(
+             http_archive,
+@@ -4196,6 +4305,78 @@ def _cmake_toolchains(version, register_toolchains):
+     fail("Unsupported version: " + str(version))
+
+ def _ninja_toolchains(version, register_toolchains):
++    if "1.11.1" == version:
++        maybe(
++            http_archive,
++            name = "ninja_1.11.1_linux",
++            urls = [
++                "https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-linux.zip",
++            ],
++            sha256 = "b901ba96e486dce377f9a070ed4ef3f79deb45f4ffe2938f8e7ddc69cfb3df77",
++            strip_prefix = "",
++            build_file_content = _NINJA_BUILD_FILE.format(
++                bin = "ninja",
++                env = "{\"NINJA\": \"$(execpath :ninja_bin)\"}",
++            ),
++        )
++
++        maybe(
++            http_archive,
++            name = "ninja_1.11.1_mac",
++            urls = [
++                "https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-mac.zip",
++            ],
++            sha256 = "482ecb23c59ae3d4f158029112de172dd96bb0e97549c4b1ca32d8fad11f873e",
++            strip_prefix = "",
++            build_file_content = _NINJA_BUILD_FILE.format(
++                bin = "ninja",
++                env = "{\"NINJA\": \"$(execpath :ninja_bin)\"}",
++            ),
++        )
++
++        maybe(
++            http_archive,
++            name = "ninja_1.11.1_win",
++            urls = [
++                "https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-win.zip",
++            ],
++            sha256 = "524b344a1a9a55005eaf868d991e090ab8ce07fa109f1820d40e74642e289abc",
++            strip_prefix = "",
++            build_file_content = _NINJA_BUILD_FILE.format(
++                bin = "ninja.exe",
++                env = "{\"NINJA\": \"$(execpath :ninja_bin)\"}",
++            ),
++        )
++
++        # buildifier: leave-alone
++        maybe(
++            prebuilt_toolchains_repository,
++            name = "ninja_1.11.1_toolchains",
++            repos = {
++                "ninja_1.11.1_linux": [
++                    "@platforms//cpu:x86_64",
++                    "@platforms//os:linux",
++                ],
++                "ninja_1.11.1_mac": [
++                    "@platforms//cpu:x86_64",
++                    "@platforms//os:macos",
++                ],
++                "ninja_1.11.1_win": [
++                    "@platforms//cpu:x86_64",
++                    "@platforms//os:windows",
++                ],
++            },
++            tool = "ninja",
++        )
++
++        if register_toolchains:
++            native.register_toolchains(
++                "@ninja_1.11.1_toolchains//:ninja_1.11.1_linux_toolchain",
++                "@ninja_1.11.1_toolchains//:ninja_1.11.1_mac_toolchain",
++                "@ninja_1.11.1_toolchains//:ninja_1.11.1_win_toolchain",
++            )
++
++        return
+     if "1.11.0" == version:
+         maybe(
+             http_archive,
+diff --git a/toolchains/prebuilt_toolchains.py b/toolchains/prebuilt_toolchains.py
+index 5288b27..a193021 100755
+--- toolchains/prebuilt_toolchains.py
++++ toolchains/prebuilt_toolchains.py
+@@ -10,6 +10,7 @@ CMAKE_SHA256_URL_TEMPLATE = "https://cmake.org/files/v{minor}/cmake-{full}-SHA-2
+ CMAKE_URL_TEMPLATE = "https://github.com/Kitware/CMake/releases/download/v{full}/{file}"
+
+ CMAKE_VERSIONS = [
++    "3.25.0",
+     "3.23.2",
+     "3.23.1",
+     "3.22.4",
+@@ -116,6 +117,7 @@ NINJA_TARGETS = {
+ }
+
+ NINJA_VERSIONS = (
++    "1.11.1",
+     "1.10.2",
+     "1.10.1",
+     "1.10.0",

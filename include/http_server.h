@@ -40,44 +40,6 @@ struct h2o_custom_generator_t {
     }
 };
 
-struct stream_response_state_t {
-private:
-
-    h2o_req_t* req = nullptr;
-
-public:
-
-    bool is_req_early_exit = false;
-    bool is_req_http1 = true;
-
-    bool is_res_start = true;
-    h2o_send_state_t send_state = H2O_SEND_STATE_IN_PROGRESS;
-    h2o_iovec_t res_body{};
-
-    h2o_generator_t* generator = nullptr;
-
-    explicit stream_response_state_t(h2o_req_t* _req): req(_req) {
-        if(req != nullptr) {
-            is_res_start = (req->res.status == 0);
-        }
-    }
-
-    void set_response(uint32_t status_code, const std::string& content_type, const std::string& body) {
-        res_body = h2o_strdup(&req->pool, body.c_str(), SIZE_MAX);
-
-        if(is_res_start) {
-            req->res.status = status_code;
-            req->res.reason = http_res::get_status_reason(status_code);
-            h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
-                           content_type.c_str(), content_type.size());
-        }
-    }
-
-    h2o_req_t* get_req() {
-        return req;
-    }
-};
-
 struct deferred_req_res_t {
     const std::shared_ptr<http_req> req;
     const std::shared_ptr<http_res> res;
@@ -104,13 +66,9 @@ public:
     // used to manage lifecycle of async actions
     const bool destroy_after_use;
 
-    // stores http lib related datastructures to avoid race conditions between indexing and http write threads
-    stream_response_state_t res_state;
-
     async_req_res_t(const std::shared_ptr<http_req>& h_req, const std::shared_ptr<http_res>& h_res,
                     const bool destroy_after_use) :
-            req(h_req), res(h_res), destroy_after_use(destroy_after_use),
-            res_state((std::shared_lock(res->mres), h_req->is_diposed ? nullptr : h_req->_req)) {
+            req(h_req), res(h_res), destroy_after_use(destroy_after_use) {
 
         std::shared_lock lk(res->mres);
 
@@ -118,14 +76,11 @@ public:
             return;
         }
 
-        // ***IMPORTANT***
-        // We limit writing to fields of `res_state.req` to prevent race conditions with http thread
-        // Check `HttpServer::stream_response()` for overlapping writes.
-
         h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(res->generator.load());
+        auto& res_state = req->res_state;
 
+        res_state.set_req(h_req->is_diposed ? nullptr : h_req->_req);
         res_state.is_req_early_exit = (res_generator->rpath->async_req && res->final && !req->last_chunk_aggregate);
-        res_state.is_req_http1 = req->is_http_v1;
         res_state.send_state = res->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
         res_state.generator = (res_generator == nullptr) ? nullptr : &res_generator->h2o_generator;
         res_state.set_response(res->status_code, res->content_type_header, res->body);
@@ -141,6 +96,10 @@ public:
 
     void res_notify() {
         return res->notify();
+    }
+
+    stream_response_state_t& get_res_state() {
+        return req->res_state;
     }
 };
 
@@ -235,7 +194,7 @@ private:
 
     static int send_response(h2o_req_t *req, int status_code, const std::string & message);
 
-    static int async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream);
+    static int async_req_cb(void *ctx, int is_end_stream);
 
     static bool is_write_request(const std::string& root_resource, const std::string& http_method);
 
@@ -325,6 +284,8 @@ public:
     void do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
     bool trigger_vote();
+
+    bool reset_peers();
 
     void persist_applying_index();
 

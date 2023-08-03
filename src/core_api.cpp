@@ -2,6 +2,8 @@
 #include <thread>
 #include <cstdlib> 
 #include <app_metrics.h>
+#include <regex>
+#include <analytics_manager.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "string_utils.h"
@@ -12,11 +14,17 @@
 #include "core_api_utils.h"
 #include "lru/lru.hpp"
 #include "ratelimit_manager.h"
+#include "event_manager.h"
+#include "http_proxy.h"
 
 using namespace std::chrono_literals;
 
 std::shared_mutex mutex;
 LRU::Cache<uint64_t, cached_res_t> res_cache;
+
+void init_api(uint32_t cache_num_entries) {
+    res_cache.capacity(cache_num_entries);
+}
 
 bool handle_authentication(std::map<std::string, std::string>& req_params,
                            std::vector<nlohmann::json>& embedded_params_vec,
@@ -50,10 +58,8 @@ void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr
         return ;
     }
 
-    if(req->_req->res.status != 0) {
-        // not the first response chunk, so wait for previous chunk to finish
-        res->wait();
-    }
+    // wait for previous chunk to finish (if any)
+    res->wait();
 
     auto req_res = new async_req_res_t(req, res, true);
     server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
@@ -354,30 +360,10 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
                 return true;
             }
 
-            //LOG(INFO) << "Result found in cache but ttl lapsed.";
-        }
-    }
-
-    const auto preset_it = req->params.find("preset");
-
-    if(preset_it != req->params.end()) {
-        nlohmann::json preset;
-        const auto& preset_op = CollectionManager::get_instance().get_preset(preset_it->second, preset);
-
-        if(preset_op.ok()) {
-            if(!preset.is_object()) {
-                res->set_400("Search preset is not an object.");
-                return false;
-            }
-
-            for(const auto& search_item: preset.items()) {
-                // overwrite = false since req params will contain embedded params and so has higher priority
-                bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
-                if(!populated) {
-                    res->set_400("One or more search parameters are malformed.");
-                    return false;
-                }
-            }
+            // Result found in cache but ttl has lapsed.
+            lock.unlock();
+            std::unique_lock ulock(mutex);
+            res_cache.erase(req_hash);
         }
     }
 
@@ -446,6 +432,11 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
                 return true;
             }
+
+            // Result found in cache but ttl has lapsed.
+            lock.unlock();
+            std::unique_lock ulock(mutex);
+            res_cache.erase(req_hash);
         }
     }
 
@@ -511,7 +502,24 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
-    //LOG(INFO) << "REQ: " << req_json.dump(-1);
+    // Get API key and IP
+    if(!req->metadata.empty()) {
+        auto api_key_ip_op = get_api_key_and_ip(req->metadata);
+        if(!api_key_ip_op.ok()) {
+            res->set(api_key_ip_op.code(), api_key_ip_op.error());
+            return false;
+        }
+        const auto& api_key_ip = api_key_ip_op.get();
+        auto rate_limit_manager = RateLimitManager::getInstance();
+
+        // Check rate limiting first before doing any search, don't want to waste time if we're rate limited
+        for(size_t i = 0; i < searches.size(); i++) {
+            if(RateLimitManager::getInstance()->is_rate_limited({RateLimitedEntityType::api_key, api_key_ip.first}, {RateLimitedEntityType::ip, api_key_ip.second})) {
+                res->set(429, "Rate limit exceeded or blocked");
+                return false;
+            }
+        }
+    }
 
     for(size_t i = 0; i < searches.size(); i++) {
         auto& search_params = searches[i];
@@ -534,27 +542,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             if(!populated) {
                 res->set_400("One or more search parameters are malformed.");
                 return false;
-            }
-        }
-
-        if(search_params.count("preset") != 0) {
-            nlohmann::json preset;
-            auto preset_op = CollectionManager::get_instance().get_preset(search_params["preset"].get<std::string>(),
-                                                                          preset);
-            if(preset_op.ok()) {
-                if(!search_params.is_object()) {
-                    res->set_400("Search preset is not an object.");
-                    return false;
-                }
-
-                for(const auto& search_item: preset.items()) {
-                    // overwrite = false since req params will contain embedded params and so has higher priority
-                    bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
-                    if(!populated) {
-                        res->set_400("One or more search parameters are malformed.");
-                        return false;
-                    }
-                }
             }
         }
 
@@ -674,7 +661,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
             export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
-            auto filter_ids_op = collection->get_filter_ids(simple_filter_query, export_state->index_ids);
+            filter_result_t filter_result;
+            auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -683,6 +671,9 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 stream_response(req, res);
                 return false;
             }
+
+            export_state->index_ids.emplace_back(filter_result.count, filter_result.docs);
+            filter_result.docs = nullptr;
 
             for(size_t i=0; i<export_state->index_ids.size(); i++) {
                 export_state->offsets.push_back(0);
@@ -697,7 +688,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     if(export_state->it != nullptr) {
         rocksdb::Iterator* it = export_state->it;
         size_t batch_counter = 0;
-        res->body.clear();
+        std::string().swap(res->body);
 
         while(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
             if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
@@ -738,7 +729,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         }
     }
 
-    res->content_type_header = "application/octet-stream";
+    res->content_type_header = "text/plain; charset=utf8";
     res->status_code = 200;
 
     stream_response(req, res);
@@ -754,9 +745,14 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     const char *DIRTY_VALUES = "dirty_values";
     const char *RETURN_DOC = "return_doc";
     const char *RETURN_ID = "return_id";
+    const char *REMOTE_EMBEDDING_BATCH_SIZE = "remote_embedding_batch_size";
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "40";
+    }
+
+    if(req->params.count(REMOTE_EMBEDDING_BATCH_SIZE) == 0) {
+        req->params[REMOTE_EMBEDDING_BATCH_SIZE] = "200";
     }
 
     if(req->params.count(ACTION) == 0) {
@@ -805,10 +801,18 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     }
 
     const size_t IMPORT_BATCH_SIZE = std::stoi(req->params[BATCH_SIZE]);
+    const size_t REMOTE_EMBEDDING_BATCH_SIZE_VAL = std::stoi(req->params[REMOTE_EMBEDDING_BATCH_SIZE]);
 
     if(IMPORT_BATCH_SIZE == 0) {
         res->final = true;
         res->set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
+        stream_response(req, res);
+        return false;
+    }
+
+    if(REMOTE_EMBEDDING_BATCH_SIZE_VAL == 0) {
+        res->final = true;
+        res->set_400("Parameter `" + std::string(REMOTE_EMBEDDING_BATCH_SIZE) + "` must be a positive integer.");
         stream_response(req, res);
         return false;
     }
@@ -882,7 +886,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         const bool& return_doc = req->params[RETURN_DOC] == "true";
         const bool& return_id = req->params[RETURN_ID] == "true";
         nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
-                                                       dirty_values, return_doc, return_id);
+                                                       dirty_values, return_doc, return_id, REMOTE_EMBEDDING_BATCH_SIZE_VAL);
         //const std::string& import_summary_json = json_res->dump();
         //response_stream << import_summary_json << "\n";
 
@@ -937,14 +941,43 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
     const index_operation_t operation = get_index_operation(req->params[ACTION]);
     const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES_PARAM]);
 
-    Option<nlohmann::json> inserted_doc_op = collection->add(req->body, operation, "", dirty_values);
+    nlohmann::json document;
+    std::vector<std::string> json_lines = {req->body};
+    const nlohmann::json& inserted_doc_op = collection->add_many(json_lines, document, operation, "", dirty_values,
+                                                                 false, false);
 
-    if(!inserted_doc_op.ok()) {
-        res->set(inserted_doc_op.code(), inserted_doc_op.error());
+    if(!inserted_doc_op["success"].get<bool>()) {
+        nlohmann::json res_doc;
+
+        try {
+            res_doc = nlohmann::json::parse(json_lines[0]);
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "JSON error: " << e.what();
+            res->set_400("Bad JSON.");
+            return false;
+        }
+
+        res->status_code = res_doc["code"].get<size_t>();
+        // erase keys from res_doc except error and embedding_error
+        for(auto it = res_doc.begin(); it != res_doc.end(); ) {
+            if(it.key() != "error" && it.key() != "embedding_error") {
+                it = res_doc.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        // rename error to message if not empty and exists
+        if(res_doc.count("error") != 0 && !res_doc["error"].get<std::string>().empty()) {
+            res_doc["message"] = res_doc["error"];
+            res_doc.erase("error");
+        }
+
+        res->body = res_doc.dump();
         return false;
     }
 
-    res->set_201(inserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+    res->set_201(document.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
@@ -975,6 +1008,38 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
 
     res->set_201(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
+}
+
+bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const char *FILTER_BY = "filter_by";
+    std::string filter_query;
+    if(req->params.count(FILTER_BY) == 0) {
+        res->set_400("Parameter `" + std::string(FILTER_BY) + "` must be provided.");
+        return false;
+    } else {
+        filter_query = req->params[FILTER_BY];
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+    if(collection == nullptr) {
+        res->set_404();
+        return false;
+    }
+
+    const char* DIRTY_VALUES_PARAM = "dirty_values";
+    if(req->params.count(DIRTY_VALUES_PARAM) == 0) {
+        req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
+    }
+
+    auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM]);
+    if(update_op.ok()) {
+        res->set_200(update_op.get().dump());
+    } else {
+        res->set(update_op.code(), update_op.error());
+    }
+
+    return update_op.ok();
 }
 
 bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -1046,6 +1111,37 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
 
     const char *BATCH_SIZE = "batch_size";
     const char *FILTER_BY = "filter_by";
+    const char *TOP_K_BY = "top_k_by";
+
+    if(req->params.count(TOP_K_BY) != 0) {
+        std::vector<std::string> parts;
+        StringUtils::split(req->params[TOP_K_BY], parts, ":");
+
+        if(parts.size() != 2 || !StringUtils::is_uint32_t(parts[1])) {
+            req->last_chunk_aggregate = true;
+            res->final = true;
+            res->set_400("The `top_k_by` parameter is not valid.");
+            stream_response(req, res);
+            return false;
+        }
+
+        const std::string& field_name = parts[0];
+        const size_t k = std::stoull(parts[1]);
+        auto op = collection->truncate_after_top_k(field_name, k);
+
+        req->last_chunk_aggregate = true;
+        res->final = true;
+
+        if(!op.ok()) {
+            res->set_500(op.error());
+            stream_response(req, res);
+            return false;
+        }
+
+        res->set_200(R"({"ok": true})");
+        stream_response(req, res);
+        return true;
+    }
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "1000000000"; // 1 Billion
@@ -1090,7 +1186,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
-        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, deletion_state->index_ids);
+        filter_result_t filter_result;
+        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result);
 
         if(!filter_ids_op.ok()) {
             res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -1099,6 +1196,9 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
             stream_response(req, res);
             return false;
         }
+
+        deletion_state->index_ids.emplace_back(filter_result.count, filter_result.docs);
+        filter_result.docs = nullptr;
 
         for(size_t i=0; i<deletion_state->index_ids.size(); i++) {
             deletion_state->offsets.push_back(0);
@@ -1299,7 +1399,9 @@ bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     }
     
     override_t override;
-    Option<bool> parse_op = override_t::parse(req_json, override_id, override);
+    Option<bool> parse_op = override_t::parse(req_json, override_id, override, "",
+                                              collection->get_symbols_to_index(),
+                                              collection->get_token_separators());
     if(!parse_op.ok()) {
         res->set(parse_op.code(), parse_op.error());
         return false;
@@ -1540,6 +1642,17 @@ bool post_compact_db(const std::shared_ptr<http_req>& req, const std::shared_ptr
     return true;
 }
 
+bool post_reset_peers(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    res->status_code = 200;
+    res->content_type_header = "application/json";
+
+    nlohmann::json response;
+    response["success"] = server->reset_peers();
+    res->body = response.dump();
+
+    return true;
+}
+
 bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
@@ -1703,7 +1816,7 @@ bool get_presets(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
 }
 
 bool get_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const std::string & preset_name = req->params["preset_name"];
+    const std::string & preset_name = req->params["name"];
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
     nlohmann::json preset;
@@ -1789,6 +1902,10 @@ bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr
 bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
     // Convert param id to uint64_t
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
     uint64_t id = std::stoull(req->params["id"]);
     const auto& rule_option = rateLimitManager->find_rule_by_id(id);
 
@@ -1804,6 +1921,10 @@ bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
     nlohmann::json req_json;
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
     uint64_t id = std::stoull(req->params["id"]);
 
     try {
@@ -1827,6 +1948,10 @@ bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
 
 bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
     uint64_t id = std::stoull(req->params["id"]);
     const auto& rule_option = rateLimitManager->find_rule_by_id(id);
 
@@ -1836,7 +1961,9 @@ bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     }
 
     rateLimitManager->delete_rule_by_id(id);
-    res->set_200("OK");
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
     return true;
 }
 
@@ -1859,5 +1986,251 @@ bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr
     }
 
     res->set_200(add_rule_result.get().dump());
+    return true;
+}
+
+bool get_active_throttles(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    res->set_200(rateLimitManager->get_throttled_entities_json().dump());
+    return true;
+}
+
+bool del_throttle(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
+    uint64_t id = std::stoull(req->params["id"]);
+    bool res_ = rateLimitManager->delete_ban_by_id(id);
+    if(!res_) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool del_exceed(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
+    uint64_t id = std::stoull(req->params["id"]);
+    bool res_ = rateLimitManager->delete_throttle_by_id(id);
+    if(!res_) {
+        res->set_400("{\"message\": \"Invalid ID\"}");
+        return false;
+    }
+    nlohmann::json res_json;
+    res_json["id"] = id;
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool get_limit_exceed_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    res->set_200(rateLimitManager->get_exceeded_entities_json().dump());
+    return true;
+}
+
+Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata) {
+        // format <length of api_key>:<api_key><ip>
+    // length of api_key is a uint32_t
+    if(metadata.size() < 10) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    if(metadata.find(":") == std::string::npos) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    if(!StringUtils::is_uint32_t(metadata.substr(0, metadata.find(":")))) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    if(metadata.size() < std::stoul(metadata.substr(0, metadata.find(":"))) + metadata.find(":") + 7) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    uint32_t api_key_length = static_cast<uint32_t>(std::stoul(metadata.substr(0, metadata.find(":"))));
+
+    std::string api_key = metadata.substr(metadata.find(":") + 1, api_key_length);
+    std::string ip = metadata.substr(metadata.find(":") + 1 + api_key_length);
+
+    // validate IP address
+    std::regex ip_pattern("\\b(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\b");
+    if(!std::regex_match(ip, ip_pattern)) {
+        return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
+    }
+
+    return Option<std::pair<std::string,std::string>>(std::make_pair(api_key, ip));
+}
+
+bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    bool success = EventManager::get_instance().add_event(req_json);
+    if(success) {
+        res->set_201(R"({"ok": true)");
+        return true;
+    }
+
+    res->set_400(R"({"ok": false)");
+    return false;
+}
+
+bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto rules_op = AnalyticsManager::get_instance().list_rules();
+
+    if(!rules_op.ok()) {
+        res->set(rules_op.code(), rules_op.error());
+        return false;
+    }
+
+    res->set_200(rules_op.get().dump());
+    return true;
+}
+
+bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto rules_op = AnalyticsManager::get_instance().get_rule(req->params["name"]);
+
+    if(!rules_op.ok()) {
+        res->set(rules_op.code(), rules_op.error());
+        return false;
+    }
+
+    res->set_200(rules_op.get().dump());
+    return true;
+}
+
+bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto op = AnalyticsManager::get_instance().create_rule(req_json, false, true);
+
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+        return false;
+    }
+
+    res->set_201(req_json.dump());
+    return true;
+}
+
+bool put_upsert_analytics_rules(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    req_json["name"] = req->params["name"];
+    auto op = AnalyticsManager::get_instance().create_rule(req_json, true, true);
+
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+        return false;
+    }
+
+    res->set_200(req_json.dump());
+    return true;
+}
+
+bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto op = AnalyticsManager::get_instance().remove_rule(req->params["name"]);
+    if(!op.ok()) {
+        res->set(op.code(), op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = req->params["name"];
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    HttpProxy& proxy = HttpProxy::get_instance();
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    std::string body, url, method;
+    std::unordered_map<std::string, std::string> headers;
+
+    if(req_json.count("url") == 0 || req_json.count("method") == 0) {
+        res->set_400("Missing required fields.");
+        return false;
+    }
+
+    if(!req_json["url"].is_string() || !req_json["method"].is_string() || req_json["url"].get<std::string>().empty() || req_json["method"].get<std::string>().empty()) {
+        res->set_400("URL and method must be non-empty strings.");
+        return false;
+    }
+
+    try {        
+        if(req_json.count("body") != 0 && !req_json["body"].is_string()) {
+            res->set_400("Body must be a string.");
+            return false;
+        }
+        if(req_json.count("headers") != 0 && !req_json["headers"].is_object()) {
+            res->set_400("Headers must be a JSON object.");
+            return false;
+        }
+        if(req_json.count("body")) {
+            body = req_json["body"].get<std::string>();
+        }
+        url = req_json["url"].get<std::string>();
+        method = req_json["method"].get<std::string>();
+        if(req_json.count("headers")) {
+            headers = req_json["headers"].get<std::unordered_map<std::string, std::string>>();
+        }
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto response = proxy.send(url, method, body, headers);
+    
+    if(response.status_code != 200) {
+        int code = response.status_code;
+        res->set_body(code, response.body);
+        return false;
+    }
+
+    res->set_200(response.body);
     return true;
 }

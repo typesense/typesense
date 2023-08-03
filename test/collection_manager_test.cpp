@@ -36,7 +36,8 @@ protected:
                 {"name": "not_stored", "type": "string", "optional": true, "index": false},
                 {"name": "points", "type": "int32"},
                 {"name": "person", "type": "object", "optional": true},
-                {"name": "vec", "type": "float[]", "num_dim": 128, "optional": true}
+                {"name": "vec", "type": "float[]", "num_dim": 128, "optional": true},
+                {"name": "product_id", "type": "string", "reference": "Products.product_id", "optional": true}
             ],
             "default_sorting_field": "points",
             "symbols_to_index":["+"],
@@ -44,7 +45,9 @@ protected:
         })"_json;
 
         sort_fields = { sort_by("points", "DESC") };
-        collection1 = collectionManager.create_collection(schema).get();
+        auto op = collectionManager.create_collection(schema);
+        ASSERT_TRUE(op.ok());
+        collection1 = op.get();
     }
 
     virtual void SetUp() {
@@ -71,9 +74,11 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(0, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
-    ASSERT_EQ(2, collection1->get_sort_fields().size());
+    // product_id_sequence_id is also included
+    ASSERT_EQ(3, collection1->get_sort_fields().size());
     ASSERT_EQ("location", collection1->get_sort_fields()[0].name);
-    ASSERT_EQ("points", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("product_id_sequence_id", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("points", collection1->get_sort_fields()[2].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
     ASSERT_EQ(false, schema.at("not_stored").index);
@@ -210,6 +215,29 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "sort":false,
               "type":"float[]",
               "vec_dist":"cosine"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"product_id",
+              "nested":false,
+              "optional":true,
+              "sort":false,
+              "type":"string",
+              "reference":"Products.product_id"
+            },
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"product_id_sequence_id",
+              "nested":false,
+              "optional":true,
+              "sort":true,
+              "type":"int64"
             }
           ],
           "id":0,
@@ -336,7 +364,11 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     std::string json_line;
 
     while (std::getline(infile, json_line)) {
-        collection1->add(json_line);
+        auto op = collection1->add(json_line);
+        if (!op.ok()) {
+            LOG(INFO) << op.error();
+        }
+        ASSERT_TRUE(op.ok());
     }
 
     infile.close();
@@ -419,6 +451,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(4, results["hits"].size());
 
     tsl::htrie_map<char, field> schema = collection1->get_schema();
+    ASSERT_EQ(schema.count("product_id_sequence_id"), 1);
 
     // recreate collection manager to ensure that it restores the records from the disk backed store
     collectionManager.dispose();
@@ -442,9 +475,11 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(18, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
-    ASSERT_EQ(2, collection1->get_sort_fields().size());
+    // product_id_sequence_id is also included
+    ASSERT_EQ(3, collection1->get_sort_fields().size());
     ASSERT_EQ("location", collection1->get_sort_fields()[0].name);
-    ASSERT_EQ("points", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("product_id_sequence_id", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("points", collection1->get_sort_fields()[2].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
 
@@ -457,6 +492,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_TRUE(restored_schema.at("person").nested);
     ASSERT_EQ(2, restored_schema.at("person").nested_array);
     ASSERT_EQ(128, restored_schema.at("vec").num_dim);
+    ASSERT_EQ(restored_schema.count("product_id_sequence_id"), 1);
 
     ASSERT_TRUE(collection1->get_enable_nested_fields());
 
@@ -750,6 +786,55 @@ TEST_F(CollectionManagerTest, RestoreNestedDocsOnRestart) {
 
     res_op = restored_coll->search("foobar", {"person"}, "", {}, {}, {0}, 10, 1,
                            token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+    collectionManager2.drop_collection("coll1");
+}
+
+TEST_F(CollectionManagerTest, RestoreCoercedDocValuesOnRestart) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "product", "type": "object" },
+          {"name": "product.price", "type": "int64" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "product": {"price": 45.78}
+    })"_json;
+
+    auto create_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(create_op.ok());
+
+    auto res_op = coll1->search("*", {}, "product.price:>0", {}, {}, {0}, 10, 1,
+                                token_ordering::FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+
+    // create a new collection manager to ensure that it restores the records from the disk backed store
+    CollectionManager& collectionManager2 = CollectionManager::get_instance();
+    collectionManager2.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager2.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+
+    ASSERT_TRUE(load_op.ok());
+
+    auto restored_coll = collectionManager2.get_collection("coll1").get();
+    ASSERT_NE(nullptr, restored_coll);
+
+    res_op = restored_coll->search("*", {}, "product.price:>0", {}, {}, {0}, 10, 1,
+                                   token_ordering::FREQUENCY, {true});
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
 

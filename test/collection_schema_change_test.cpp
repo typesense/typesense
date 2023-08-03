@@ -542,7 +542,7 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
 
     nlohmann::json doc;
     doc["id"] = "0";
-    doc["title"] = "123";
+    doc["title"] = "Hello";
     doc["timestamp"] = 3433232;
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
@@ -562,7 +562,7 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
               "Existing data for field `title` cannot be coerced into an int32.", alter_op.error());
 
     // existing data should not have been touched
-    auto res = coll1->search("12", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    auto res = coll1->search("he", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
 
@@ -583,10 +583,10 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
     ASSERT_EQ(1, res["found"].get<size_t>());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ(1, res["facet_counts"].size());
-    ASSERT_EQ(3, res["facet_counts"][0].size());
+    ASSERT_EQ(4, res["facet_counts"][0].size());
     ASSERT_EQ("title", res["facet_counts"][0]["field_name"]);
     ASSERT_EQ(1, res["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("123", res["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("Hello", res["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 
     // migrate int32 to int64
     schema_changes = R"({
@@ -801,7 +801,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldNotExistingInDocuments) {
     ASSERT_TRUE(alter_op.ok());
 }
 
-TEST_F(CollectionSchemaChangeTest, ChangeFieldToCoercableTypeIsNotAllowed) {
+TEST_F(CollectionSchemaChangeTest, ChangeFieldToCoercableTypeIsAllowed) {
     // optional title field
     std::vector<field> fields = {field("title", field_types::STRING, false, true, true, "", 1, 1),
                                  field("points", field_types::INT32, true),};
@@ -823,9 +823,7 @@ TEST_F(CollectionSchemaChangeTest, ChangeFieldToCoercableTypeIsNotAllowed) {
     })"_json;
 
     auto alter_op = coll1->alter(schema_changes);
-    ASSERT_FALSE(alter_op.ok());
-    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
-              "Existing data for field `points` cannot be coerced into a string.", alter_op.error());
+    ASSERT_TRUE(alter_op.ok());
 }
 
 TEST_F(CollectionSchemaChangeTest, ChangeFromPrimitiveToDynamicField) {
@@ -1090,6 +1088,37 @@ TEST_F(CollectionSchemaChangeTest, IndexFalseToTrue) {
     ASSERT_EQ(1, res_op.get()["facet_counts"].size());
 }
 
+TEST_F(CollectionSchemaChangeTest, DropGeoPointArrayField) {
+    // when a value is `null` initially, and is altered, subsequent updates should not fail
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "geoloc", "type": "geopoint[]"}
+        ]
+    })"_json;
+
+    auto coll_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_create_op.ok());
+    Collection* coll1 = coll_create_op.get();
+
+    nlohmann::json doc = R"({
+        "geoloc": [[10, 20]]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "geoloc", "drop": true},
+            {"name": "_geoloc", "type": "geopoint[]", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+}
+
 TEST_F(CollectionSchemaChangeTest, AddingFieldWithExistingNullValue) {
     // when a value is `null` initially, and is altered, subsequent updates should not fail
     nlohmann::json schema = R"({
@@ -1140,7 +1169,7 @@ TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
 
     nlohmann::json doc;
     doc["id"] = "0";
-    doc["label"] = 1000;
+    doc["label"] = "hello";
     doc["title"] = "Foo";
     auto add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
@@ -1157,7 +1186,7 @@ TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
 
     // add new document with a string label
     doc["id"] = "1";
-    doc["label"] = "abcdef";
+    doc["label"] = 1000;
     doc["title"] = "Bar";
     add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
@@ -1173,7 +1202,7 @@ TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
     alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
     ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
-              "Existing data for field `label` cannot be coerced into a string.", alter_op.error());
+              "Existing data for field `label` cannot be coerced into an int64.", alter_op.error());
 
     // but should allow the problematic field to be dropped
     schema_changes = R"({
@@ -1411,6 +1440,70 @@ TEST_F(CollectionSchemaChangeTest, DropAndReAddNestedObject) {
     ASSERT_EQ(4, schema_map.size());
 }
 
+TEST_F(CollectionSchemaChangeTest, UpdateAfterNestedNullValue) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "lines", "optional": false, "type": "object[]"},
+            {"name": "lines.name", "optional": true, "type": "string[]"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc = R"(
+        {"id": "1", "lines": [{"name": null}]}
+     )"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE, "1", DIRTY_VALUES::DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    // add new field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "title", "type": "string", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+}
+
+TEST_F(CollectionSchemaChangeTest, AlterShouldBeAbleToHandleFieldValueCoercion) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "product", "optional": false, "type": "object"},
+            {"name": "product.price", "type": "int64"},
+            {"name": "title", "type": "string"},
+            {"name": "description", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc = R"(
+        {"id": "0", "product": {"price": 56.45}, "title": "Title 1", "description": "Description 1"}
+     )"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    // drop a field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "description", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+}
+
 TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -1445,4 +1538,228 @@ TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {
     auto res_op = coll1->search("*", {}, "location:(22.848641, 89.5406279, 50 km)", {}, {}, {0}, 3, 1, FREQUENCY, {true});
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(2, res_op.get()["found"].get<size_t>());
+}
+
+TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "names", "type": "string[]"}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+    
+
+    nlohmann::json update_schema = R"({
+                "fields": [
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["names"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    
+    auto res = coll->alter(update_schema);
+
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(1, coll->get_embedding_fields().size());
+
+    nlohmann::json doc;
+    doc["names"] = {"hello", "world"};
+    auto add_op = coll->add(doc.dump());
+
+    ASSERT_TRUE(add_op.ok());
+    auto added_doc = add_op.get();
+    
+    ASSERT_EQ(384, added_doc["embedding"].get<std::vector<float>>().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+            {"name": "names", "type": "string[]"},
+            {"name": "category", "type":"string"}, 
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["names","category"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    LOG(INFO) << "Created collection";
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "names", "drop": true}
+        ]
+    })"_json;
+
+
+    auto embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(2, embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>().size());
+
+    auto alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(1, embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>().size());
+    ASSERT_EQ("category", embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>()[0]);
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "category", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(0, embedding_fields.size());
+    ASSERT_EQ(0, coll->_get_index()->_get_vector_index().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
+    nlohmann::json schema = R"({
+                            "name": "objects",
+                            "fields": [
+                            {"name": "name", "type": "string"},
+                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                            ]
+                        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto embedding_fields_map = coll->get_embedding_fields();
+    ASSERT_EQ(1, embedding_fields_map.size());
+    auto embedding_field_it = embedding_fields_map.find("embedding");
+    ASSERT_TRUE(embedding_field_it != embedding_fields_map.end());
+    ASSERT_EQ("embedding", embedding_field_it.value().name);
+    ASSERT_EQ(1, embedding_field_it.value().embed[fields::from].get<std::vector<std::string>>().size());
+    ASSERT_EQ("name", embedding_field_it.value().embed[fields::from].get<std::vector<std::string>>()[0]);
+
+    // drop the embedding field
+    nlohmann::json schema_without_embedding = R"({
+                            "fields": [
+                            {"name": "embedding", "drop": true}
+                            ]
+                        })"_json;
+    auto update_op = coll->alter(schema_without_embedding);
+
+    ASSERT_TRUE(update_op.ok());
+
+    embedding_fields_map = coll->get_embedding_fields();
+    ASSERT_EQ(0, embedding_fields_map.size());
+}
+
+TEST_F(CollectionSchemaChangeTest, DropAndReindexEmbeddingField) {
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
+
+    // drop the embedding field and reindex
+    nlohmann::json alter_schema = R"({
+        "fields": [
+        {"name": "embedding", "drop": true},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+    
+    auto update_op = coll->alter(alter_schema);
+    ASSERT_TRUE(update_op.ok());
+
+    auto embedding_fields_map = coll->get_embedding_fields();
+
+    ASSERT_EQ(1, embedding_fields_map.size());
+
+    // try adding a document
+    nlohmann::json doc;
+    doc["name"] = "hello";
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    auto added_doc = add_op.get();
+    ASSERT_EQ(384, added_doc["embedding"].get<std::vector<float>>().size());
+
+    // alter with bad schema
+    alter_schema = R"({
+        "fields": [
+        {"name": "embedding", "drop": true},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["namez"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    update_op = coll->alter(alter_schema);
+    ASSERT_FALSE(update_op.ok());
+    ASSERT_EQ("Property `embed.from` can only refer to string or string array fields.", update_op.error());
+
+    // alter with bad model name
+    alter_schema = R"({
+        "fields": [
+        {"name": "embedding", "drop": true},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/x5-small"}}}
+        ]
+    })"_json;
+
+    update_op = coll->alter(alter_schema);
+    ASSERT_FALSE(update_op.ok());
+    ASSERT_EQ("Model not found", update_op.error());
+
+    // should still be able to add doc after aborted alter
+    add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    added_doc = add_op.get();
+    ASSERT_EQ(384, added_doc["embedding"].get<std::vector<float>>().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterDropTest) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto& vec_index = coll->_get_index()->_get_vector_index();
+    ASSERT_EQ(1, vec_index.size());
+    ASSERT_EQ(1, vec_index.count("embedding"));
+
+
+    nlohmann::json schema_change = R"({
+                "fields": [
+                {"name": "embedding", "drop": true}
+                ]
+            })"_json;
+
+    auto schema_change_op = coll->alter(schema_change);
+
+    ASSERT_TRUE(schema_change_op.ok());
+    ASSERT_EQ(0, vec_index.size());
+    ASSERT_EQ(0, vec_index.count("embedding"));
 }
