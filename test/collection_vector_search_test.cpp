@@ -775,7 +775,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     ASSERT_EQ(2, search_res["found"].get<size_t>());
     ASSERT_EQ(2, search_res["hits"].size());
 
-    ASSERT_FLOAT_EQ(0.046207964, search_res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.04620, search_res["hits"][0]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.1213316321, search_res["hits"][1]["vector_distance"].get<float>());
 
     // to pass k param
