@@ -56,8 +56,8 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
 }
 
 TextEmbedder::TextEmbedder(const nlohmann::json& model_config) {
-    auto model_name = model_config["model_name"].get<std::string>();
-    LOG(INFO) << "Initializing remote embedding model: " << model_name;
+    const std::string& model_name = model_config["model_name"].get<std::string>();
+    LOG(INFO) << "Initializing embedding model: " << model_name;
     auto model_namespace = TextEmbedderManager::get_model_namespace(model_name);
 
     if(model_namespace == "openai") {
