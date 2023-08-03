@@ -114,11 +114,6 @@ Option<bool> TextEmbedderManager::init_text_embedder(const nlohmann::json& model
 
             text_embedders.emplace(model_name, embedder);
         }
-    } else {
-        auto validate_op = text_embedder_it->second->validate(num_dim);
-        if(!validate_op.ok()) {
-            return validate_op;
-        }
     }
 
     return Option<bool>(true);

@@ -4984,12 +4984,12 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
 
 TEST_F(CollectionTest, CreateCollectionWithOpenAI) {
     nlohmann::json schema = R"({
-                "name": "objects",
-                "fields": [
-                {"name": "name", "type": "string"},
-                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
-                ]
-            })"_json;
+        "name": "objects",
+        "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+        ]
+    })"_json;
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
@@ -5001,8 +5001,19 @@ TEST_F(CollectionTest, CreateCollectionWithOpenAI) {
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
-}
 
+    // create one more collection
+    schema = R"({
+        "name": "objects2",
+        "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+        ]
+    })"_json;
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+}
 
 TEST_F(CollectionTest, CreateOpenAIEmbeddingField) {
     nlohmann::json schema = R"({
