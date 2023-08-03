@@ -1115,7 +1115,7 @@ Option<bool> field::validate_and_init_embed_fields(const std::vector<std::pair<s
 
         const auto& model_config = field_json[fields::embed][fields::model_config];
         size_t num_dim = 0;
-        auto res = TextEmbedderManager::validate_and_init_model(model_config, num_dim);
+        auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
         if(!res.ok()) {
             return Option<bool>(res.code(), res.error());
         }

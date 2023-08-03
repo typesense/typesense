@@ -80,13 +80,14 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             size_t num_dim = 0;
             auto& model_config = field_obj[fields::embed][fields::model_config];
 
-            auto res = TextEmbedderManager::validate_and_init_model(model_config, num_dim);
+            auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
             if(!res.ok()) {
                 const std::string& model_name = model_config["model_name"].get<std::string>();
                 LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
                 continue;
             }
 
+            field_obj[fields::num_dim] = num_dim;
             LOG(INFO) << "Model init done.";
         }
 
