@@ -49,8 +49,8 @@ jobs:
       - name: Build Typesense
         run: bazel build //:typesense-server
 
-#      - name: Run tests
-#        run: bazel test //:typesense-test
+      - name: Run tests
+        run: bazel test //:typesense-test
 
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
       - run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
