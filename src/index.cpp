@@ -1340,6 +1340,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 } 
             }                 
         } else {
+            //LOG(INFO) << "Using hashing to find facets";
             bool facet_hash_index_exists = facet_index_v4->has_hash_index(facet_field.name);
             if(!facet_hash_index_exists) {
                 continue;
