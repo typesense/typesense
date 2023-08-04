@@ -71,6 +71,6 @@ public:
     static Option<bool> validate_embed_fields(const nlohmann::json& document, 
                                         const tsl::htrie_map<char, field>& embedding_fields, 
                                         const tsl::htrie_map<char, field> & search_schema,
-                                        const bool& error_if_field_not_found);
+                                        const bool& is_update);
 
 };
