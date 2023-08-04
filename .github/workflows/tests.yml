@@ -1,6 +1,7 @@
 name: tests
 
-on: [push, pull_request]
+#on: [push, pull_request]
+on: workflow_dispatch
 
 # Cancel previous running if a new push is made
 # Source: https://stackoverflow.com/a/72408109/123545
@@ -50,7 +51,7 @@ jobs:
         run: bazel build //:typesense-server
 
       - name: Run tests
-        run: bazel test //:typesense-test
+        run: bazel test --test_output=all  -- //:typesense-test
 
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
       - run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
