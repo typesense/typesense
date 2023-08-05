@@ -1,7 +1,6 @@
 name: tests
 
-#on: [push, pull_request]
-on: workflow_dispatch
+on: [push, pull_request]
 
 # Cancel previous running if a new push is made
 # Source: https://stackoverflow.com/a/72408109/123545
@@ -21,40 +20,62 @@ jobs:
         run: |
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          
+
           sudo apt-get install -y g++-10 make git zlib1g-dev m4
-          
+
           # Define the compiler
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
-          
+
           sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
           sudo update-alternatives --set cc /usr/bin/gcc
-          
+
           sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
           sudo update-alternatives --set c++ /usr/bin/g++
 
       - name: Set up Bazel
         uses: bazelbuild/setup-bazelisk@v2
 
-      - name: Restore bazel cache
-        uses: actions/cache@v3
+      - name: Download bazel cache
+        uses: dawidd6/action-download-artifact@v2
         with:
-          path: |
-            ~/.cache/bazel
-          # Source: https://github.com/actions/cache/blob/67b839edb68371cc5014f6cea11c9aa77238de78/examples.md#linux-2
-          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'WORKSPACE', 'WORKSPACE.bazel', 'MODULE.bazel') }}
-          restore-keys: |
-            ${{ runner.os }}-bazel-
+          name: bazel-cache
+          search_artifacts: true
+          workflow_conclusion: ""
+          if_no_artifact_found: warn
+
+      - name: Uncompress bazel cache
+        run: |
+          mkdir -p ~/.cache/bazel
+          tar_file="bazel-cache.tar.gz" && \
+            [ -f "$tar_file" ] && \
+            tar -xzvf "$tar_file" -C ~/.cache/bazel && \
+            rm bazel-cache.tar.gz
+          exit 0
 
       - name: Build Typesense
         run: bazel build //:typesense-server
 
       - name: Run tests
-        run: bazel test --test_output=all  -- //:typesense-test
+        run: bazel test //:typesense-test
+
+      - name: Compress bazel cache
+        if: always()
+        run: |
+          tar -czvf bazel-cache.tar.gz -C ~/.cache/bazel .
+
+      - name: Save bazel cache
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: bazel-cache
+          path: bazel-cache.tar.gz
+          if-no-files-found: warn
+          retention-days: 10
 
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
-      - run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
+      - name: Set BAZEL_BIN_FULL_PATH
+        run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
       - name: Save build artifacts
         uses: actions/upload-artifact@v3
         with:
