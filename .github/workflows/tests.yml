@@ -1,7 +1,7 @@
 name: tests
 
-on: workflow_dispatch
-#on: [push, pull_request]
+#on: workflow_dispatch
+on: [push, pull_request]
 
 # Cancel previous running if a new push is made
 # Source: https://stackoverflow.com/a/72408109/123545
@@ -53,6 +53,13 @@ jobs:
             tar -xzvf "$tar_file" -C ~/.cache/bazel && \
             rm bazel-cache.tar.gz
           exit 0
+
+      - name: Build protobuf deps
+        run: |
+          bazel build @com_google_protobuf//:protobuf_headers
+          bazel build @com_google_protobuf//:protobuf_lite
+          bazel build @com_google_protobuf//:protobuf
+          bazel build @com_google_protobuf//:protoc
 
       - name: Build Typesense
         run: bazel build //:typesense-server
