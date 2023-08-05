@@ -36,10 +36,11 @@ jobs:
 #      - name: Set up Bazel
 #        uses: bazelbuild/setup-bazelisk@v2
 
-      - name: Restore bazel cache
+      - name: Download bazel cache
         uses: actions/download-artifact@v3
         with:
           name: bazel-cache.tar.gz
+        continue-on-error: true
 
       - name: Uncompress bazel cache
         run: |
