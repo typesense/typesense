@@ -41,6 +41,7 @@ jobs:
         with:
           name: bazel-cache
           search_artifacts: true
+          workflow_conclusion: ""
           if_no_artifact_found: warn
 
       - name: Uncompress bazel cache
