@@ -37,6 +37,11 @@ jobs:
         uses: bazelbuild/setup-bazelisk@v2
 
       - name: Restore bazel cache
+        uses: actions/download-artifact@v3
+        with:
+          path: ~/.cache/bazel
+
+      - name: Restore bazel cache
         uses: actions/cache@v3
         with:
           path: |
@@ -51,6 +56,13 @@ jobs:
 
       - name: Run tests
         run: bazel test //:typesense-test
+
+      - name: Save bazel cache
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          path: ~/.cache/bazel
+          if-no-files-found: warn
 
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
       - run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
