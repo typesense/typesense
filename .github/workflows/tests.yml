@@ -1,6 +1,7 @@
 name: tests
 
-on: [push, pull_request]
+on: workflow_dispatch
+#on: [push, pull_request]
 
 # Cancel previous running if a new push is made
 # Source: https://stackoverflow.com/a/72408109/123545
