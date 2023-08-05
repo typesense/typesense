@@ -1671,6 +1671,11 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& filter_
 }
 
 void filter_result_iterator_t::compute_result() {
+    if (filter_node == nullptr) {
+        LOG(INFO) << "filter_node is null";
+        return;
+    }
+
     if (filter_node->isOperator) {
         left_it->compute_result();
         right_it->compute_result();
