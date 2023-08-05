@@ -16,31 +16,32 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-#      - name: Install dependencies
-#        run: |
-#          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-#          sudo apt-get update
-#
-#          sudo apt-get install -y g++-10 make git zlib1g-dev m4
-#
-#          # Define the compiler
-#          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
-#          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
-#
-#          sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
-#          sudo update-alternatives --set cc /usr/bin/gcc
-#
-#          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
-#          sudo update-alternatives --set c++ /usr/bin/g++
-#
-#      - name: Set up Bazel
-#        uses: bazelbuild/setup-bazelisk@v2
+      - name: Install dependencies
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+
+          sudo apt-get install -y g++-10 make git zlib1g-dev m4
+
+          # Define the compiler
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
+
+          sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
+          sudo update-alternatives --set cc /usr/bin/gcc
+
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
+          sudo update-alternatives --set c++ /usr/bin/g++
+
+      - name: Set up Bazel
+        uses: bazelbuild/setup-bazelisk@v2
 
       - name: Download bazel cache
-        uses: actions/download-artifact@v3
+        uses: dawidd6/action-download-artifact@v2
         with:
-          name: bazel-cache.tar.gz
-        continue-on-error: true
+          name: bazel-cache
+          search_artifacts: true
+          if_no_artifact_found: warn
 
       - name: Uncompress bazel cache
         run: |
@@ -49,39 +50,33 @@ jobs:
             [ -f "$tar_file" ] && \
             tar -xzvf "$tar_file" -C ~/.cache/bazel && \
             rm bazel-cache.tar.gz
+          exit 0
 
-      - name: Display structure of downloaded files
-        run: ls -R ~/.cache/bazel
+      - name: Build Typesense
+        run: bazel build //:typesense-server
 
-#      - name: Build Typesense
-#        run: bazel build //:typesense-server
-#
-#      - name: Run tests
-#        run: bazel test //:typesense-test
-
-      - name: Generate dummy files
-        run: |
-          echo "hello" > ~/.cache/bazel/t.txt
-
-      - name: Display structure of dir
-        run: ls -R ~/.cache/bazel
+      - name: Run tests
+        run: bazel test //:typesense-test
 
       - name: Compress bazel cache
         if: always()
         run: |
-          tar -czvf bazel-cache.tar.gz ~/.cache/bazel
+          tar -czvf bazel-cache.tar.gz -C ~/.cache/bazel .
 
       - name: Save bazel cache
         uses: actions/upload-artifact@v3
         if: always()
         with:
+          name: bazel-cache
           path: bazel-cache.tar.gz
           if-no-files-found: warn
+          retention-days: 10
 
       # Source: https://github.com/actions/upload-artifact/issues/92#issuecomment-1080347032
-#      - run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
-#      - name: Save build artifacts
-#        uses: actions/upload-artifact@v3
-#        with:
-#          name: typesense-server
-#          path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
+      - name: Set BAZEL_BIN_FULL_PATH
+        run: echo "BAZEL_BIN_FULL_PATH=$(readlink -f bazel-bin)" >> $GITHUB_ENV
+      - name: Save build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: typesense-server
+          path: ${{ env.BAZEL_BIN_FULL_PATH }}/typesense-server
