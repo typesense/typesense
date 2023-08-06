@@ -654,7 +654,7 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
 
     if(validate_embedding_fields) {
         // validate embedding fields
-        auto validate_embed_op = validate_embed_fields(document, embedding_fields, search_schema, !is_update);
+        auto validate_embed_op = validate_embed_fields(document, embedding_fields, search_schema, is_update);
         if(!validate_embed_op.ok()) {
             return Option<>(validate_embed_op.code(), validate_embed_op.error());
         }
@@ -667,8 +667,26 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
 Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document, 
                                           const tsl::htrie_map<char, field>& embedding_fields, 
                                           const tsl::htrie_map<char, field> & search_schema,
-                                          const bool& error_if_field_not_found) {
+                                          const bool& is_update) {
     for(const auto& field : embedding_fields) {
+        if(document.contains(field.name) && !is_update) {
+            const auto& field_vec = document[field.name];
+            if(!field_vec.is_array() || field_vec.empty() || !field_vec[0].is_number() ||
+                field_vec.size() != field.num_dim) {
+                return Option<bool>(400, "Field `" + field.name + "` contains an invalid embedding.");
+            }
+
+            auto it = field_vec.begin();
+            while(it != field_vec.end()) {
+                if(!it.value().is_number()) {
+                    return Option<bool>(400, "Field `" + field.name + "` contains invalid float values.");
+                }
+                it++;
+            }
+
+            continue;
+        }
+
         const auto& embed_from = field.embed[fields::from].get<std::vector<std::string>>();
         // flag to check if all fields to embed from are optional and null
         bool all_optional_and_null = true;
@@ -679,7 +697,7 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                 return Option<bool>(400, "Field `" + field.name + "` has invalid fields to create embeddings from.");
             }
             if(doc_field_it == document.end()) {
-                if(error_if_field_not_found && !schema_field_it->optional) {
+                if(!is_update && !schema_field_it->optional) {
                     return Option<bool>(400, "Field `" + field_name + "` is needed to create embedding.");
                 } else {
                     continue;
