@@ -365,7 +365,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
                 continue;
             }
 
-            if(std::regex_match(flat_name, std::regex(flat_name))) {
+            if(std::regex_match(flat_name, std::regex(dynamic_field.name))) {
                 detected_type = dynamic_field.type;
                 found_dynamic_field = true;
                 break;
