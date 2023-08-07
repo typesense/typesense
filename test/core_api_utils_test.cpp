@@ -4,6 +4,7 @@
 #include <collection_manager.h>
 #include <core_api.h>
 #include "core_api_utils.h"
+#include "raft_server.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -1137,4 +1138,30 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
 
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
+}
+
+TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
+    Collection *coll_hnstories;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll_hnstories = collectionManager.get_collection("coll_hnstories").get();
+    if(coll_hnstories == nullptr) {
+        coll_hnstories = collectionManager.create_collection("coll_hnstories", 4, fields, "title").get();
+    }
+
+    auto req = std::make_shared<http_req>();
+    char buf[196605]; //chunk size limit
+    std::ifstream infile(std::string(ROOT_DIR)+"test/resources/hnstories.jsonl.gz");
+
+    while(infile >> buf) {
+        req->body = buf;
+
+        auto res = ReplicationState::handle_gzip(req);
+        if(!res.error().empty()) {
+            LOG(ERROR) << res.error();
+            FAIL();
+        }
+    }
 }

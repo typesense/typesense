@@ -142,8 +142,6 @@ private:
 
     butil::EndPoint peering_endpoint;
 
-    Option<bool> handle_gzip(const std::shared_ptr<http_req>& request);
-
 public:
 
     static constexpr const char* log_dir_name = "log";
@@ -240,6 +238,8 @@ public:
     nlohmann::json get_status();
 
     std::string get_leader_url() const;
+
+    static Option<bool> handle_gzip(const std::shared_ptr<http_req>& request);
 
 private:
 
