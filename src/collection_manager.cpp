@@ -8,6 +8,7 @@
 #include "batched_indexer.h"
 #include "logger.h"
 #include "magic_enum.hpp"
+#include "stopwords_manager.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -74,6 +75,21 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             if(vec_dist_type_op.has_value()) {
                 vec_dist_type = vec_dist_type_op.value();
             }
+        }
+
+        if(field_obj.count(fields::embed) != 0 && !field_obj[fields::embed].empty()) {
+            size_t num_dim = 0;
+            auto& model_config = field_obj[fields::embed][fields::model_config];
+
+            auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+            if(!res.ok()) {
+                const std::string& model_name = model_config["model_name"].get<std::string>();
+                LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
+                continue;
+            }
+
+            field_obj[fields::num_dim] = num_dim;
+            LOG(INFO) << "Model init done.";
         }
 
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
@@ -261,7 +277,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         collection_symlinks[parts[0]] = iter->value().ToString();
         iter->Next();
     }
-
     delete iter;
 
     // load presets
@@ -284,8 +299,39 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         iter->Next();
     }
-
     delete iter;
+
+    //load stopwords
+    std::string stopword_prefix_key = std::string(StopwordsManager::STOPWORD_PREFIX) + "_";
+    std::string stopword_upper_bound_key = std::string(StopwordsManager::STOPWORD_PREFIX) + "`"; // cannot inline this
+    rocksdb::Slice stopword_upper_bound(stopword_upper_bound_key);
+
+    iter = store->scan(stopword_prefix_key, &stopword_upper_bound);
+    while(iter->Valid() && iter->key().starts_with(stopword_prefix_key)) {
+        std::vector<std::string> parts;
+        std::string stopword_name = iter->key().ToString().substr(stopword_prefix_key.size());
+        nlohmann::json stopword_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
+
+        if(!stopword_obj.is_discarded() && stopword_obj.is_object()) {
+            StopwordsManager::get_instance().upsert_stopword(stopword_name, stopword_obj);
+        } else {
+            LOG(INFO) << "Invalid object for stopword " << stopword_name;
+        }
+
+        iter->Next();
+    }
+    delete iter;
+
+    // restore query suggestions configs
+    std::vector<std::string> analytics_config_jsons;
+    store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
+                     std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
+                     analytics_config_jsons);
+
+    for(const auto& analytics_config_json: analytics_config_jsons) {
+        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
+        AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
+    }
 
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";
 
@@ -643,6 +689,98 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
     return Option<bool>(true);
 }
 
+void CollectionManager::_get_reference_collection_names(const std::string& filter_query,
+                                                        std::set<std::string>& reference_collection_names) {
+    auto size = filter_query.size();
+    for (uint32_t i = 0; i < size;) {
+        auto c = filter_query[i];
+        if (c == ' ' || c == '(' || c == ')') {
+            i++;
+        } else if (c == '&' || c == '|') {
+            i += 2;
+        } else {
+            // Reference filter would start with $ symbol.
+            if (c == '$') {
+                auto open_paren_pos = filter_query.find('(', ++i);
+                if (open_paren_pos == std::string::npos) {
+                    return;
+                }
+
+                auto reference_collection_name = filter_query.substr(i, open_paren_pos - i);
+                StringUtils::trim(reference_collection_name);
+                if (!reference_collection_name.empty()) {
+                    reference_collection_names.insert(reference_collection_name);
+                }
+
+                i = open_paren_pos;
+                int parenthesis_count = 1;
+                while (++i < size && parenthesis_count > 0) {
+                    if (filter_query[i] == '(') {
+                        parenthesis_count++;
+                    } else if (filter_query[i] == ')') {
+                        parenthesis_count--;
+                    }
+                }
+            } else {
+                while (filter_query[++i] != ':');
+                bool in_backtick = false;
+                do {
+                    c = filter_query[++i];
+                    if (c == '`') {
+                        in_backtick = !in_backtick;
+                    }
+                } while (i < size && (in_backtick || (c != '(' && c != ')' &&
+                                                      !(c == '&' && filter_query[i + 1] == '&') &&
+                                                      !(c == '|' && filter_query[i + 1] == '|'))));
+            }
+        }
+    }
+}
+
+void initialize_include_fields_vec(const std::string& filter_query, std::vector<std::string>& include_fields_vec) {
+    if (filter_query.empty()) {
+        return;
+    }
+
+    std::set<std::string> reference_collection_names;
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    if (reference_collection_names.empty()) {
+        return;
+    }
+
+    bool non_reference_include_found = false;
+    for (auto include_field: include_fields_vec) {
+        if (include_field[0] != '$') {
+            non_reference_include_found = true;
+            continue;
+        }
+
+        auto open_paren_pos = include_field.find('(');
+        if (open_paren_pos == std::string::npos) {
+            continue;
+        }
+
+        auto reference_collection_name = include_field.substr(1, open_paren_pos - 1);
+        StringUtils::trim(reference_collection_name);
+        if (reference_collection_name.empty()) {
+            continue;
+        }
+
+        // Referenced collection in filter_query is already mentioned in include_fields.
+        reference_collection_names.erase(reference_collection_name);
+    }
+
+    // Get all the fields of the referenced collection in the filter but not mentioned in include_fields.
+    for (const auto &reference_collection_name: reference_collection_names) {
+        include_fields_vec.emplace_back("$" + reference_collection_name + "(*)");
+    }
+
+    // Since no field of the collection is mentioned in include_fields, get all the fields.
+    if (!include_fields_vec.empty() && !non_reference_include_found) {
+        include_fields_vec.emplace_back("*");
+    }
+}
+
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
                                           nlohmann::json& embedded_params,
                                           std::string& results_json_str,
@@ -668,8 +806,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
     const char *MAX_FACET_VALUES = "max_facet_values";
 
+    const char *FACET_RETURN_PARENT = "facet_return_parent";
+
     const char *VECTOR_QUERY = "vector_query";
-    const char *VECTOR_QUERY_HITS = "vector_query_hits";
+
+    const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
+    const char* REMOTE_EMBEDDING_NUM_TRIES = "remote_embedding_num_tries";
 
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
@@ -753,6 +895,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
+    //check if stopword set is supplied
+    const auto stopword_it = req_params.find("stopwords");
+    std::string stopwords_set="";
+
+    if(stopword_it != req_params.end()) {
+        stopwords_set = stopword_it->second;
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     const std::string& orig_coll_name = req_params["collection"];
     auto collection = collectionManager.get_collection(orig_coll_name);
@@ -778,13 +928,15 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD;
 
     std::vector<std::string> search_fields;
-    std::string simple_filter_query;
+    std::string filter_query;
     std::vector<std::string> facet_fields;
     std::vector<sort_by> sort_fields;
     size_t per_page = 10;
     size_t page = 0;
     size_t offset = 0;
     token_ordering token_order = NOT_SET;
+
+    std::vector<std::string> facet_return_parent;
 
     std::string vector_query;
 
@@ -822,7 +974,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
-    size_t vector_query_hits = 250;
+
+    size_t remote_embedding_timeout_ms = 5000;
+    size_t remote_embedding_num_tries = 2;
 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
@@ -849,11 +1003,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FILTER_CURATED_HITS, &filter_curated_hits_option},
         {FACET_SAMPLE_PERCENT, &facet_sample_percent},
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
-        {VECTOR_QUERY_HITS, &vector_query_hits},
+        {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
+        {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
-        {FILTER, &simple_filter_query},
+        {FILTER, &filter_query},
         {VECTOR_QUERY, &vector_query},
         {FACET_QUERY, &simple_facet_query},
         {HIGHLIGHT_FIELDS, &highlight_fields},
@@ -879,6 +1034,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {GROUP_BY, &group_by_fields},
         {INCLUDE_FIELDS, &include_fields_vec},
         {EXCLUDE_FIELDS, &exclude_fields_vec},
+        {FACET_RETURN_PARENT, &facet_return_parent},
     };
 
     std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
@@ -978,6 +1134,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
+    initialize_include_fields_vec(filter_query, include_fields_vec);
+
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
     exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
 
@@ -1020,7 +1178,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
-    Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
+    Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, filter_query, facet_fields,
                                                           sort_fields, num_typos,
                                                           per_page,
                                                           page,
@@ -1062,7 +1220,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           match_type,
                                                           facet_sample_percent,
                                                           facet_sample_threshold,
-                                                          offset
+                                                          offset,
+                                                          HASH,
+                                                          remote_embedding_timeout_ms,
+                                                          remote_embedding_num_tries,
+                                                          stopwords_set,
+                                                          facet_return_parent
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1293,7 +1456,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_override_json: collection_override_jsons) {
         nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
         override_t override;
-        auto parse_op = override_t::parse(collection_override, "", override);
+        auto parse_op = override_t::parse(collection_override, "", override, "", collection->get_symbols_to_index(),
+                                          collection->get_token_separators());
         if(parse_op.ok()) {
             collection->add_override(override, false);
         } else {
@@ -1310,17 +1474,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
         collection->add_synonym(collection_synonym, false);
-    }
-
-    // restore query suggestions configs
-    std::vector<std::string> analytics_config_jsons;
-    cm.store->scan_fill(AnalyticsManager::ANALYTICS_RULE_PREFIX,
-                        std::string(AnalyticsManager::ANALYTICS_RULE_PREFIX) + "`",
-                        analytics_config_jsons);
-
-    for(const auto& analytics_config_json: analytics_config_jsons) {
-        nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
-        AnalyticsManager::get_instance().create_rule(analytics_config, false);
     }
 
     // Fetch records from the store and re-create memory index
@@ -1378,7 +1531,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         // batch must match atleast the number of shards
          if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
-            size_t num_indexed = collection->batch_index_in_memory(index_records, false);
+            size_t num_indexed = collection->batch_index_in_memory(index_records, 200, false);
             batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {

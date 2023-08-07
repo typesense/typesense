@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <filter_result_iterator.h>
 #include "posting_list.h"
 
 /*
@@ -48,8 +49,13 @@ public:
 
     static bool take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded);
 
+    static bool take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded,
+                        single_filter_result_t& filter_result);
+
     template<class T>
     static bool intersect(std::vector<or_iterator_t>& its, result_iter_state_t& istate, T func);
+
+    static bool contains_atleast_one(std::vector<or_iterator_t>& its, result_iter_state_t&& istate);
 };
 
 template<class T>
@@ -75,8 +81,9 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
                 }
 
                 auto id = its[0].id();
-                if(take_id(istate, id, is_excluded)) {
-                    func(id, its);
+                single_filter_result_t filter_result;
+                if(take_id(istate, id, is_excluded, filter_result)) {
+                    func(filter_result, its);
                 }
 
                 if(istate.is_filter_provided() && !is_excluded) {
@@ -107,8 +114,9 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
                 if(equals2(its)) {
                     auto id = its[0].id();
-                    if(take_id(istate, id, is_excluded)) {
-                        func(id, its);
+                    single_filter_result_t filter_result;
+                    if(take_id(istate, id, is_excluded, filter_result)) {
+                        func(filter_result, its);
                     }
 
                     if(istate.is_filter_provided() != 0 && !is_excluded) {
@@ -144,8 +152,9 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
                 if(equals(its)) {
                     auto id = its[0].id();
-                    if(take_id(istate, id, is_excluded)) {
-                        func(id, its);
+                    single_filter_result_t filter_result;
+                    if(take_id(istate, id, is_excluded, filter_result)) {
+                        func(filter_result, its);
                     }
 
                     if(istate.is_filter_provided() && !is_excluded) {

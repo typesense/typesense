@@ -313,7 +313,7 @@ TEST_F(CollectionAllFieldsTest, ShouldBeAbleToUpdateSchemaDetectedDocs) {
     // insert multiple docs at the same time
     const size_t NUM_DOCS = 20;
     std::vector<std::string> json_lines;
-    
+
     for(size_t i = 0; i < NUM_DOCS; i++) {
         const std::string &i_str = std::to_string(i);
         doc["title"] = std::string("upserted ") + std::to_string(StringUtils::hash_wy(i_str.c_str(), i_str.size()));
@@ -1650,17 +1650,18 @@ TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
     ASSERT_EQ("Property `embed` must contain a `from` property.", field_op.error());
 }
 
-
 TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
-
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    nlohmann::json schema = R"({
+        "name": "obj_coll",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"],
+                "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
 
-    field embedding = field("embedding", field_types::FLOAT_ARRAY, false);
-    embedding.embed["from"].push_back("name");
-    embedding.embed["model_config"]["model_name"] = "ts/e5-small";
-    std::vector<field> fields = {field("name", field_types::STRING, false),
-                                 embedding};
-    auto obj_coll_op = collectionManager.create_collection("obj_coll", 1, fields, "", 0, field_types::AUTO);
+    auto obj_coll_op = collectionManager.create_collection(schema);
 
     ASSERT_TRUE(obj_coll_op.ok());
     Collection* obj_coll = obj_coll_op.get();
@@ -1678,23 +1679,17 @@ TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
 }
 
 TEST_F(CollectionAllFieldsTest, WrongDataTypeForEmbedFrom) {
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    nlohmann::json field_json;
-    field_json["name"] = "embedding";
-    field_json["type"] = "float[]";
-    field_json["embed"] = nlohmann::json::object();
-    field_json["embed"]["from"] = {"age"};
-    field_json["embed"]["model_config"] = nlohmann::json::object();
-    field_json["embed"]["model_config"]["model_name"] = "ts/e5-small";
+    nlohmann::json schema = R"({
+        "name": "obj_coll",
+        "fields": [
+            {"name": "age", "type": "int32"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["age"],
+                "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
 
-    std::vector<field> fields;
-    std::string fallback_field_type;
-    auto arr = nlohmann::json::array();
-    arr.push_back(field_json);
-    field_json["name"] = "age";
-    field_json["type"] = "int32";
-    arr.push_back(field_json);
-    auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
-    ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `embed.from` can only refer to string or string array fields.", field_op.error());
+    auto obj_coll_op = collectionManager.create_collection(schema);
+
+    ASSERT_FALSE(obj_coll_op.ok());
+    ASSERT_EQ("Property `embed.from` can only refer to string or string array fields.", obj_coll_op.error());
 }

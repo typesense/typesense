@@ -212,15 +212,15 @@ mkdir -p $INSTALLDIR/lib/_deps/google_nsync-build
 cp $BUILD_TMPDIR/_deps/onnx-build/libonnx.a $INSTALLDIR/lib/_deps/onnx-build
 cp $BUILD_TMPDIR/_deps/onnx-build/libonnx_proto.a $INSTALLDIR/lib/_deps/onnx-build
 cp $BUILD_TMPDIR/_deps/re2-build/libre2.a $INSTALLDIR/lib/_deps/re2-build
-cp $BUILD_TMPDIR/_deps/abseil_cpp-build/. $INSTALLDIR/lib/_deps/abseil_cpp-build -r
+cp -r $BUILD_TMPDIR/_deps/abseil_cpp-build/. $INSTALLDIR/lib/_deps/abseil_cpp-build
 cp $BUILD_TMPDIR/_deps/google_nsync-build/libnsync_cpp.a $INSTALLDIR/lib/_deps/google_nsync-build
 cp $BUILD_TMPDIR/_deps/pytorch_cpuinfo-build/deps/clog/libclog.a $INSTALLDIR/lib/_deps/pytorch_cpuinfo-build/deps/clog
 cp $BUILD_TMPDIR/_deps/pytorch_cpuinfo-build/libcpuinfo.a $INSTALLDIR/lib/_deps/pytorch_cpuinfo-build
 """
 
 __POSTFIX_WITH_CUDA = __POSTFIX + """
-cp $BUILD_TMPDIR/libonnxruntime_providers_shared.so $EXT_BUILD_ROOT/bazel-out/k8-fastbuild/bin
-cp $BUILD_TMPDIR/libonnxruntime_providers_cuda.so $EXT_BUILD_ROOT/bazel-out/k8-fastbuild/bin
+cp $BUILD_TMPDIR/libonnxruntime_providers_shared.so $INSTALLDIR/../../bin
+cp $BUILD_TMPDIR/libonnxruntime_providers_cuda.so $INSTALLDIR/../../bin
 """
 
 

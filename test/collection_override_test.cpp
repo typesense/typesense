@@ -948,6 +948,50 @@ TEST_F(CollectionOverrideTest, RuleQueryMustBeCaseInsensitive) {
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionOverrideTest, RuleQueryWithAccentedChars) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("color", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Green";
+    doc1["color"] = "Green";
+    doc1["points"] = 30;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json = R"({
+       "id": "rule-1",
+       "rule": {
+            "query": "Grün",
+            "match": "contains"
+        },
+        "filter_by":"color:green",
+        "filter_curated_hits":true
+    })"_json;
+
+    override_t override_rule;
+    auto op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    auto results = coll1->search("grün", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionOverrideTest, WindowForRule) {
     Collection *coll1;
 
@@ -1428,7 +1472,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsWhenThereAreNotEnoughResults) {
 
     // multiple pinned hits specified, but query produces no result
 
-    auto results = coll_mul_fields->search("notfoundquery", {"title"}, "", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
+    auto results = coll_mul_fields->search("not-foundquery", {"title"}, "", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
                                            {false}, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
@@ -3158,3 +3202,80 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithPartialTokenMatch) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionOverrideTest, OverrideWithSymbolsToIndex) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "", static_cast<uint64_t>(std::time(nullptr)),
+                                                    "", {"-"}, {}).get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Non-Stick";
+    doc1["category"] = "Cookware";
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "NonStick";
+    doc2["category"] = "Kitchen";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC")};
+
+    auto results = coll1->search("non-stick", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+
+    // with override, we return all records
+
+    nlohmann::json override_json = {
+            {"id",   "ov-1"},
+            {
+             "rule", {
+                             {"query", "non-stick"},
+                             {"match", override_t::MATCH_EXACT}
+                     }
+            },
+            {"filter_by", "category:= Cookware"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "ov-1", override, "", {'-'}, {});
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    results = coll1->search("non-stick", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("nonstick", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+

@@ -153,10 +153,23 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
     if (res != CURLE_OK) {
         char* url = nullptr;
         curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
-        LOG(ERROR) << "CURL failed. URL: " << url << ", Code: " << res << ", strerror: " << curl_easy_strerror(res);
+
+        long status_code = 0;
+
+        if(res == CURLE_OPERATION_TIMEDOUT) {
+            double total_time;
+            curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &total_time);
+            LOG(ERROR) << "CURL timeout. Time taken: " << total_time << ", URL: " << url;
+            status_code = 408;
+        } else {
+            LOG(ERROR) << "CURL failed. URL: " << url << ", Code: " << res << ", strerror: " << curl_easy_strerror(res);
+            status_code = 500;
+        }
+
         curl_easy_cleanup(curl);
         curl_slist_free_all(chunk);
-        return 500;
+
+        return status_code;
     }
 
     long http_code = 500;
@@ -262,12 +275,14 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 
     //LOG(INFO) << "curl_write_async response, res body size: " << req_res->res->body.size();
 
+    // wait for previous chunk to finish (if any)
+    //LOG(INFO) << "Waiting on req_res " << req_res->res;
+    req_res->res->wait();
+
     async_req_res_t* async_req_res = new async_req_res_t(req_res->req, req_res->res, true);
     req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
 
     // wait until response is sent
-    //LOG(INFO) << "Waiting on req_res " << req_res->res;
-    req_res->res->wait();
     //LOG(INFO) << "Response sent";
 
     return res_size;
@@ -287,11 +302,12 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     req_res->res->body = "";
     req_res->res->final = true;
 
+    // wait until final response is flushed or response object will be destroyed by caller
+    //LOG(INFO) << "Waiting on req_res " << req_res->res;
+    req_res->res->wait();
+
     async_req_res_t* async_req_res = new async_req_res_t(req_res->req, req_res->res, true);
     req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
-
-    // wait until final response is flushed or response object will be destroyed by caller
-    req_res->res->wait();
 
     // Close the socket as we've overridden the close socket handler!
     close(item);

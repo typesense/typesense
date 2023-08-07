@@ -477,6 +477,21 @@ TEST_F(GeoFilteringTest, GeoPolygonFiltering) {
     ASSERT_FALSE(gop.ok());
     ASSERT_EQ("Unit must be either `km` or `mi`.", gop.error());
 
+    auto search_op = coll1->search("*", {}, "loc: (10, 20, 11, 12, 14, 16, 10, 20, 11, 40)", {}, {}, {0}, 10, 1,
+                                   FREQUENCY);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Polygon is invalid: Edge 2 has duplicate vertex with edge 4", search_op.error());
+
+    search_op = coll1->search("*", {}, "loc: (10, 20, 11, 12, 14, 16, 10, 20)", {}, {}, {0}, 10, 1,
+                              FREQUENCY);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, search_op.get()["found"].get<size_t>());
+
+    search_op = coll1->search("*", {}, "loc: [([10, 20, 30, 40, 50, 30]), ([10, 20, 11, 12, 14, 16, 10, 20])]", {}, {},
+                              {0}, 10, 1, FREQUENCY);
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(0, search_op.get()["found"].get<size_t>());
+
     collectionManager.drop_collection("coll1");
 }
 

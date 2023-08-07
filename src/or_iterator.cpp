@@ -220,6 +220,61 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
     return true;
 }
 
+bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded,
+                            single_filter_result_t& filter_result) {
+    is_excluded = false;
+
+    // decide if this result id should be excluded
+    if(istate.excluded_result_ids_size != 0) {
+        if (std::binary_search(istate.excluded_result_ids,
+                               istate.excluded_result_ids + istate.excluded_result_ids_size, id)) {
+            is_excluded = true;
+            return false;
+        }
+    }
+
+    // decide if this result be matched with filter results
+    if(istate.filter_ids_length != 0) {
+        if(istate.filter_ids_index >= istate.filter_ids_length) {
+            return false;
+        }
+
+        // Returns iterator to the first element that is >= to value or last if no such element is found.
+        size_t found_index = std::lower_bound(istate.filter_ids + istate.filter_ids_index,
+                                              istate.filter_ids + istate.filter_ids_length, id) - istate.filter_ids;
+
+        if(found_index == istate.filter_ids_length) {
+            // all elements are lesser than lowest value (id), so we can stop looking
+            istate.filter_ids_index = found_index + 1;
+            return false;
+        } else {
+            if(istate.filter_ids[found_index] == id) {
+                filter_result.seq_id = id;
+                istate.filter_ids_index = found_index + 1;
+                return true;
+            }
+
+            istate.filter_ids_index = found_index;
+        }
+
+        return false;
+    }
+
+    if (istate.fit != nullptr && istate.fit->approx_filter_ids_length > 0) {
+        if (istate.fit->valid(id) == 1) {
+            filter_result.seq_id = id;
+            filter_result.reference_filter_results = std::move(istate.fit->reference);
+            istate.fit->next();
+            return true;
+        }
+
+        return false;
+    }
+
+    filter_result.seq_id = id;
+    return true;
+}
+
 or_iterator_t::or_iterator_t(std::vector<posting_list_t::iterator_t>& its): its(std::move(its)) {
     curr_index = 0;
 
@@ -249,4 +304,98 @@ or_iterator_t::~or_iterator_t() noexcept {
     for(auto& it: its) {
         it.reset_cache();
     }
+}
+
+bool or_iterator_t::contains_atleast_one(std::vector<or_iterator_t>& its, result_iter_state_t&& istate) {
+    size_t it_size = its.size();
+    bool is_excluded;
+
+    switch (its.size()) {
+        case 0:
+            break;
+        case 1:
+            if(istate.is_filter_provided() && istate.is_filter_valid()) {
+                its[0].skip_to(istate.get_filter_id());
+            }
+
+            while(its.size() == it_size && its[0].valid()) {
+                auto id = its[0].id();
+                if(take_id(istate, id, is_excluded)) {
+                    return true;
+                }
+
+                if(istate.is_filter_provided() && !is_excluded) {
+                    if(istate.is_filter_valid()) {
+                        // skip iterator till next id available in filter
+                        its[0].skip_to(istate.get_filter_id());
+                    } else {
+                        break;
+                    }
+                } else {
+                    its[0].next();
+                }
+            }
+            break;
+        case 2:
+            if(istate.is_filter_provided() && istate.is_filter_valid()) {
+                its[0].skip_to(istate.get_filter_id());
+                its[1].skip_to(istate.get_filter_id());
+            }
+
+            while(its.size() == it_size && !at_end2(its)) {
+                if(equals2(its)) {
+                    auto id = its[0].id();
+                    if(take_id(istate, id, is_excluded)) {
+                        return true;
+                    }
+
+                    if(istate.is_filter_provided() != 0 && !is_excluded) {
+                        if(istate.is_filter_valid()) {
+                            // skip iterator till next id available in filter
+                            its[0].skip_to(istate.get_filter_id());
+                            its[1].skip_to(istate.get_filter_id());
+                        } else {
+                            break;
+                        }
+                    } else {
+                        advance_all2(its);
+                    }
+                } else {
+                    advance_non_largest2(its);
+                }
+            }
+            break;
+        default:
+            if(istate.is_filter_provided() && istate.is_filter_valid()) {
+                for(auto& it: its) {
+                    it.skip_to(istate.get_filter_id());
+                }
+            }
+
+            while(its.size() == it_size && !at_end(its)) {
+                if(equals(its)) {
+                    auto id = its[0].id();
+                    if(take_id(istate, id, is_excluded)) {
+                        return true;
+                    }
+
+                    if(istate.is_filter_provided() && !is_excluded) {
+                        if(istate.is_filter_valid()) {
+                            // skip iterator till next id available in filter
+                            for(auto& it: its) {
+                                it.skip_to(istate.get_filter_id());
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        advance_all(its);
+                    }
+                } else {
+                    advance_non_largest(its);
+                }
+            }
+    }
+
+    return false;
 }

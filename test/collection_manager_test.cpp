@@ -1245,3 +1245,33 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_EQ('-', coll2->get_token_separators().at(0));
     ASSERT_EQ('?', coll2->get_token_separators().at(1));
 }
+
+TEST(StringUtilsTest, GetReferenceCollectionNames) {
+    std::string filter_query = "";
+    std::set<std::string> reference_collection_names;
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_TRUE(reference_collection_names.empty());
+
+    filter_query = "foo:bar";
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_TRUE(reference_collection_names.empty());
+
+    filter_query = "$foo(bar:baz)";
+    std::vector<std::string> result = {"foo"};
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_EQ(1, reference_collection_names.size());
+    for (const auto &item: result) {
+        ASSERT_EQ(1, reference_collection_names.count(item));
+    }
+    reference_collection_names.clear();
+
+    filter_query = "((age: <5 || age: >10) && category:= [shoes]) &&"
+                   " $Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
+    result = {"Customers"};
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_EQ(1, reference_collection_names.size());
+    for (const auto &item: result) {
+        ASSERT_EQ(1, reference_collection_names.count(item));
+    }
+    reference_collection_names.clear();
+}

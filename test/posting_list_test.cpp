@@ -1204,7 +1204,14 @@ TEST_F(PostingListTest, CompactPostingListErase) {
 
     compact_posting_list_t* list = compact_posting_list_t::create(3, ids, offset_index, 9, offsets);
 
-    list->erase(3); // erase non-existing ID
+    list->erase(3); // erase non-existing small ID
+
+    ASSERT_EQ(15, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
+
+    list->erase(3000); // erase non-existing large ID
 
     ASSERT_EQ(15, list->length);
     ASSERT_EQ(15, list->capacity);
@@ -1539,4 +1546,52 @@ TEST_F(PostingListTest, DISABLED_BenchmarkIntersection) {
 
     LOG(INFO) << "Sorted array result len: " << abc_len;
     LOG(INFO) << "Time taken for sorted array intersection: " << timeMicros;
+}
+
+TEST_F(PostingListTest, GetOrIterator) {
+    std::vector<uint32_t> ids = {1, 3, 5};
+    std::vector<uint32_t> offset_index = {0, 3, 6};
+    std::vector<uint32_t> offsets = {0, 3, 4, 0, 3, 4, 0, 3, 4};
+    compact_posting_list_t* c_list = compact_posting_list_t::create(3, &ids[0], &offset_index[0], 9, &offsets[0]);
+    void* raw_pointer = SET_COMPACT_POSTING(c_list);
+
+    std::vector<or_iterator_t> or_iterators;
+    std::vector<posting_list_t*> expanded_plists;
+
+    posting_t::get_or_iterator(raw_pointer, or_iterators, expanded_plists);
+    ASSERT_EQ(1, or_iterators.size());
+    ASSERT_EQ(1, expanded_plists.size());
+
+    for (const auto &id: ids) {
+        ASSERT_TRUE(or_iterators.front().valid());
+        ASSERT_EQ(id, or_iterators.front().id());
+        or_iterators.front().next();
+    }
+    ASSERT_FALSE(or_iterators.front().valid());
+
+    free(c_list);
+    or_iterators.clear();
+    for (auto& item: expanded_plists) {
+        delete item;
+    }
+    expanded_plists.clear();
+
+    posting_list_t p_list(2);
+    for (const auto &id: ids) {
+        p_list.upsert(id, {1, 2, 3});
+    }
+    raw_pointer = &p_list;
+
+    posting_t::get_or_iterator(raw_pointer, or_iterators, expanded_plists);
+    ASSERT_EQ(1, or_iterators.size());
+    ASSERT_TRUE(expanded_plists.empty());
+
+    for (const auto &id: ids) {
+        ASSERT_TRUE(or_iterators.front().valid());
+        ASSERT_EQ(id, or_iterators.front().id());
+        or_iterators.front().next();
+    }
+    ASSERT_FALSE(or_iterators.front().valid());
+
+    or_iterators.clear();
 }

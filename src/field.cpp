@@ -187,13 +187,22 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     }
 
     if(field_json.count(fields::embed) != 0) {
-        // If the model path is not specified, use the default model and set the number of dimensions to 384 (number of dimensions of the default model)
-        field_json[fields::num_dim] = static_cast<unsigned int>(384);
+        if(!field_json[fields::embed].is_object()) {
+            return Option<bool>(400, "Property `" + fields::embed + "` must be an object.");
+        }
 
         auto& embed_json = field_json[fields::embed];
 
-        if(embed_json.count(fields::from) == 0) {
-            return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` not found.");
+        if(field_json[fields::embed].count(fields::from) == 0) {
+            return Option<bool>(400, "Property `" + fields::embed + "` must contain a `" + fields::from + "` property.");
+        }
+
+        if(!field_json[fields::embed][fields::from].is_array()) {
+            return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must be an array.");
+        }
+
+        if(field_json[fields::embed][fields::from].empty()) {
+            return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must have at least one element.");
         }
 
         if(embed_json.count(fields::model_config) == 0) {
@@ -201,15 +210,15 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
 
         auto& model_config = embed_json[fields::model_config];
-        
+
         if(model_config.count(fields::model_name) == 0) {
             return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::model_name + "`not found");
         }
 
-        unsigned int num_dim = 0;
         if(!model_config[fields::model_name].is_string()) {
             return Option<bool>(400, "Property `" + fields::embed + "."  + fields::model_config + "." + fields::model_name + "` must be a string.");
         }
+
         if(model_config[fields::model_name].get<std::string>().empty()) {
             return Option<bool>(400, "Property `" + fields::embed + "." + fields::model_config + "." + fields::model_name + "` cannot be empty.");
         }
@@ -226,13 +235,11 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             }
         }
 
-        auto res = TextEmbedder::is_model_valid(model_config, num_dim);
-        if(!res.ok()) {
-            return Option<bool>(res.code(), res.error());
+        for(auto& embed_from_field : field_json[fields::embed][fields::from]) {
+            if(!embed_from_field.is_string()) {
+                return Option<bool>(400, "Property `" + fields::embed + "." + fields::from + "` must contain only field names as strings.");
+            }
         }
-        field_json[fields::num_dim] = num_dim;
-    } else {
-        field_json[fields::embed] = nlohmann::json::object();
     }
 
     auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
@@ -270,7 +277,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             }
         }
     }
-
 
     if(field_json.count(fields::optional) == 0) {
         // dynamic type fields are always optional
@@ -359,7 +365,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
                 continue;
             }
 
-            if(std::regex_match(flat_name, std::regex(flat_name))) {
+            if(std::regex_match(flat_name, std::regex(dynamic_field.name))) {
                 detected_type = dynamic_field.type;
                 found_dynamic_field = true;
                 break;
@@ -414,7 +420,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             }
 
             if(std::regex_match(the_field.name, std::regex(dynamic_field.name))) {
-                detected_type = dynamic_field.type;
+                detected_type = obj.is_object() ? field_types::OBJECT : dynamic_field.type;
                 found_dynamic_field = true;
                 break;
             }
@@ -558,4 +564,79 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
     for(auto& field_name: nested_fields_vec) {
         nested_fields.erase_prefix(field_name + ".");
     }
+}
+
+Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::json &fields_json, string &fallback_field_type,
+                                          std::vector<field>& the_fields) {
+    size_t num_auto_detect_fields = 0;
+    std::vector<std::pair<size_t, size_t>> embed_json_field_indices;
+
+    for(size_t i = 0; i < fields_json.size(); i++) {
+        nlohmann::json& field_json = fields_json[i];
+        auto op = json_field_to_field(enable_nested_fields,
+                                      field_json, the_fields, fallback_field_type, num_auto_detect_fields);
+        if(!op.ok()) {
+            return op;
+        }
+
+        if(!the_fields.empty() && !the_fields.back().embed.empty()) {
+            embed_json_field_indices.emplace_back(i, i);
+        }
+    }
+
+    const tsl::htrie_map<char, field> dummy_search_schema;
+    auto validation_op = field::validate_and_init_embed_fields(embed_json_field_indices, dummy_search_schema,
+                                                               fields_json, the_fields);
+    if(!validation_op.ok()) {
+        return validation_op;
+    }
+
+    if(num_auto_detect_fields > 1) {
+        return Option<bool>(400,"There can be only one field named `.*`.");
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> field::validate_and_init_embed_fields(const std::vector<std::pair<size_t, size_t>>& embed_json_field_indices,
+                                                   const tsl::htrie_map<char, field>& search_schema,
+                                                   nlohmann::json& fields_json,
+                                                   std::vector<field>& fields_vec) {
+
+    for(const auto& json_field_index: embed_json_field_indices) {
+        auto& field_json = fields_json[json_field_index.first];
+        const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
+                                    "` can only refer to string or string array fields.";
+
+        for(auto& field_name : field_json[fields::embed][fields::from].get<std::vector<std::string>>()) {
+            auto embed_field = std::find_if(fields_json.begin(), fields_json.end(), [&field_name](const nlohmann::json& x) {
+                return x["name"].get<std::string>() == field_name;
+            });
+
+            if(embed_field == fields_json.end()) {
+                const auto& embed_field2 = search_schema.find(field_name);
+                if (embed_field2 == search_schema.end()) {
+                    return Option<bool>(400, err_msg);
+                } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY) {
+                    return Option<bool>(400, err_msg);
+                }
+            } else if((*embed_field)[fields::type] != field_types::STRING &&
+                      (*embed_field)[fields::type] != field_types::STRING_ARRAY) {
+                return Option<bool>(400, err_msg);
+            }
+        }
+
+        const auto& model_config = field_json[fields::embed][fields::model_config];
+        size_t num_dim = 0;
+        auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+        if(!res.ok()) {
+            return Option<bool>(res.code(), res.error());
+        }
+
+        LOG(INFO) << "Model init done.";
+        field_json[fields::num_dim] = num_dim;
+        fields_vec[json_field_index.second].num_dim = num_dim;
+    }
+
+    return Option<bool>(true);
 }

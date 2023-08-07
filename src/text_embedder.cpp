@@ -5,13 +5,24 @@
 #include <fstream>
 #include <sstream>
 #include <filesystem>
+#include <dlfcn.h>
 
 TextEmbedder::TextEmbedder(const std::string& model_name) {
-    // create environment
+    // create environment for local model
     Ort::SessionOptions session_options;
     auto providers = Ort::GetAvailableProviders();
     for(auto& provider : providers) {
         if(provider == "CUDAExecutionProvider") {
+
+            // check existence of shared lib
+            void* handle = dlopen("libonnxruntime_providers_shared.so", RTLD_NOW | RTLD_GLOBAL);
+            if(!handle) {
+                LOG(INFO) << "ONNX shared libs: off";
+                continue;
+            }
+
+            dlclose(handle);
+
             LOG(INFO) << "Using CUDAExecutionProvider";
             OrtCUDAProviderOptions cuda_options;
             session_options.AppendExecutionProvider_CUDA(cuda_options);
@@ -39,13 +50,14 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
         if (shape.size() == 3 && shape[0] == -1 && shape[1] == -1 && shape[2] > 0) {
             Ort::AllocatorWithDefaultOptions allocator;
             output_tensor_name = std::string(session_->GetOutputNameAllocated(i, allocator).get());
+            num_dim = shape[2];
             break;
         }
     }
 }
 
-TextEmbedder::TextEmbedder(const nlohmann::json& model_config) {
-    auto model_name = model_config["model_name"].get<std::string>();
+TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims) {
+    const std::string& model_name = model_config["model_name"].get<std::string>();
     LOG(INFO) << "Initializing remote embedding model: " << model_name;
     auto model_namespace = TextEmbedderManager::get_model_namespace(model_name);
 
@@ -67,6 +79,8 @@ TextEmbedder::TextEmbedder(const nlohmann::json& model_config) {
 
         remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, access_token, refresh_token, client_id, client_secret);
     }
+
+    num_dim = num_dims;
 }
 
 
@@ -83,9 +97,9 @@ std::vector<float> TextEmbedder::mean_pooling(const std::vector<std::vector<floa
     return pooled_output;
 }
 
-embedding_res_t TextEmbedder::Embed(const std::string& text) {
+embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
     if(is_remote()) {
-        return remote_embedder_->Embed(text);
+        return remote_embedder_->Embed(text, remote_embedder_timeout_ms, remote_embedding_num_tries);
     } else {
         // Cannot run same model in parallel, so lock the mutex
         std::lock_guard<std::mutex> lock(mutex_);
@@ -133,9 +147,10 @@ embedding_res_t TextEmbedder::Embed(const std::string& text) {
     }
 }
 
-std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs) {
+std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
     std::vector<embedding_res_t> outputs;
     if(!is_remote()) {
+        std::lock_guard<std::mutex> lock(mutex_);
         for(int i = 0; i < inputs.size(); i += 8) {
             auto input_batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + 8, static_cast<int>(inputs.size())));
             auto encoded_inputs = batch_encode(input_batch);
@@ -215,136 +230,13 @@ std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::st
             }
         }
     } else {
-        outputs = std::move(remote_embedder_->batch_embed(inputs));
+        outputs = std::move(remote_embedder_->batch_embed(inputs, remote_embedding_batch_size));
     }
     
     return outputs;
 }
 
-TextEmbedder::~TextEmbedder() {
-}
-
-Option<bool> TextEmbedder::is_model_valid(const nlohmann::json& model_config, unsigned int& num_dims) {
-    auto model_name = model_config["model_name"].get<std::string>();
-
-    if(TextEmbedderManager::is_remote_model(model_name)) {
-        return validate_remote_model(model_config, num_dims);
-    } else {
-        return validate_local_or_public_model(model_config, num_dims);
-    }
-}
-
-Option<bool> TextEmbedder::validate_remote_model(const nlohmann::json& model_config, unsigned int& num_dims) {
-    auto model_name = model_config["model_name"].get<std::string>();
-    auto model_namespace = TextEmbedderManager::get_model_namespace(model_name);
-
-    if(model_namespace == "openai") {
-        return OpenAIEmbedder::is_model_valid(model_config, num_dims);
-    } else if(model_namespace == "google") {
-        return GoogleEmbedder::is_model_valid(model_config, num_dims);
-    } else if(model_namespace == "gcp") {
-        return GCPEmbedder::is_model_valid(model_config, num_dims);
-    }
-
-    return Option<bool>(400, "Invalid model namespace");
-}
-
-Option<bool> TextEmbedder::validate_local_or_public_model(const nlohmann::json& model_config, unsigned int& num_dims) {
-    auto model_name = model_config["model_name"].get<std::string>();
-    LOG(INFO) << "Validating model: " << model_name;
-
-    if(TextEmbedderManager::get_instance().is_public_model(model_name)) {
-       auto res = TextEmbedderManager::get_instance().download_public_model(model_name);
-       if(!res.ok()) {
-              LOG(ERROR) << res.error();
-              return Option<bool>(400, res.error());
-       }
-    }
-
-    Ort::SessionOptions session_options;
-    Ort::Env env;
-    std::string abs_path = TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::get_model_name_without_namespace(model_name));
-
-    if(!std::filesystem::exists(abs_path)) {
-        LOG(ERROR) << "Model file not found: " << abs_path;
-        return Option<bool>(400, "Model file not found");
-    }
-
-    if(!TextEmbedderManager::get_instance().is_public_model(model_name)) {
-        if(!std::filesystem::exists(TextEmbedderManager::get_absolute_config_path(model_name))) {
-            LOG(ERROR) << "Config file not found: " << TextEmbedderManager::get_absolute_config_path(model_name);
-            return Option<bool>(400, "Config file not found");
-        }
-        std::ifstream config_file(TextEmbedderManager::get_absolute_config_path(model_name));
-        nlohmann::json config;
-        config_file >> config;
-        if(config["model_type"].is_null() || config["vocab_file_name"].is_null()) {
-            LOG(ERROR) << "Invalid config file: " << TextEmbedderManager::get_absolute_config_path(model_name);
-            return Option<bool>(400, "Invalid config file");
-        }
-
-        if(!config["model_type"].is_string() || !config["vocab_file_name"].is_string()) {
-            LOG(ERROR) << "Invalid config file: " << TextEmbedderManager::get_absolute_config_path(model_name);
-            return Option<bool>(400, "Invalid config file");
-        }
-
-        if(!std::filesystem::exists(TextEmbedderManager::get_model_subdir(model_name) + "/" + config["vocab_file_name"].get<std::string>())) {
-            LOG(ERROR) << "Vocab file not found: " << TextEmbedderManager::get_model_subdir(model_name) + "/" + config["vocab_file_name"].get<std::string>();
-            return Option<bool>(400, "Vocab file not found");
-        }
-
-        if(config["model_type"].get<std::string>() != "bert" && config["model_type"].get<std::string>() != "xlm_roberta" && config["model_type"].get<std::string>() != "distilbert") {
-            LOG(ERROR) << "Invalid model type: " << config["model_type"].get<std::string>();
-            return Option<bool>(400, "Invalid model type");
-        }
-    }
-
-    Ort::Session session(env, abs_path.c_str(), session_options);
-    if(session.GetInputCount() != 3 && session.GetInputCount() != 2) {
-        LOG(ERROR) << "Invalid model: input count is not 3 or 2";
-        return Option<bool>(400, "Invalid model: input count is not 3 or 2");
-    }
-    Ort::AllocatorWithDefaultOptions allocator;
-    auto input_ids_name = session.GetInputNameAllocated(0, allocator);
-    if (std::strcmp(input_ids_name.get(), "input_ids") != 0) {
-        LOG(ERROR) << "Invalid model: input_ids tensor not found";
-        return Option<bool>(400, "Invalid model: input_ids tensor not found");
-    }
-
-    auto attention_mask_name = session.GetInputNameAllocated(1, allocator);
-    if (std::strcmp(attention_mask_name.get(), "attention_mask") != 0) {
-        LOG(ERROR) << "Invalid model: attention_mask tensor not found";
-        return Option<bool>(400, "Invalid model: attention_mask tensor not found");
-    }
-
-
-    if(session.GetInputCount() == 3) {
-        auto token_type_ids_name = session.GetInputNameAllocated(2, allocator);
-        if (std::strcmp(token_type_ids_name.get(), "token_type_ids") != 0) {
-            LOG(ERROR) << "Invalid model: token_type_ids tensor not found";
-            return Option<bool>(400, "Invalid model: token_type_ids tensor not found");
-        }
-    }
-
-    auto output_tensor_count = session.GetOutputCount();
-    bool found_output_tensor = false;
-    for (size_t i = 0; i < output_tensor_count; i++) {
-        auto shape = session.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
-        if (shape.size() == 3 && shape[0] == -1 && shape[1] == -1 && shape[2] > 0) {
-            num_dims = shape[2];
-            found_output_tensor = true;
-            break;
-        }
-    }
-
-    if (!found_output_tensor) {
-        LOG(ERROR) << "Invalid model: Output tensor not found";
-        return Option<bool>(400, "Invalid model: Output tensor not found");
-    }
-
-    return Option<bool>(true);
-}
-
+TextEmbedder::~TextEmbedder() { }
 
 batch_encoded_input_t TextEmbedder::batch_encode(const std::vector<std::string>& inputs) {
     batch_encoded_input_t encoded_inputs;
@@ -376,4 +268,54 @@ batch_encoded_input_t TextEmbedder::batch_encode(const std::vector<std::string>&
     }
 
     return encoded_inputs;
+}
+
+Option<bool> TextEmbedder::validate() {
+    if(session_->GetInputCount() != 3 && session_->GetInputCount() != 2) {
+        LOG(ERROR) << "Invalid model: input count is not 3 or 2";
+        return Option<bool>(400, "Invalid model: input count is not 3 or 2");
+    }
+
+    Ort::AllocatorWithDefaultOptions allocator;
+    auto input_ids_name = session_->GetInputNameAllocated(0, allocator);
+    if (std::strcmp(input_ids_name.get(), "input_ids") != 0) {
+        LOG(ERROR) << "Invalid model: input_ids tensor not found";
+        return Option<bool>(400, "Invalid model: input_ids tensor not found");
+    }
+
+    auto attention_mask_name = session_->GetInputNameAllocated(1, allocator);
+    if (std::strcmp(attention_mask_name.get(), "attention_mask") != 0) {
+        LOG(ERROR) << "Invalid model: attention_mask tensor not found";
+        return Option<bool>(400, "Invalid model: attention_mask tensor not found");
+    }
+
+    if(session_->GetInputCount() == 3) {
+        auto token_type_ids_name = session_->GetInputNameAllocated(2, allocator);
+        if (std::strcmp(token_type_ids_name.get(), "token_type_ids") != 0) {
+            LOG(ERROR) << "Invalid model: token_type_ids tensor not found";
+            return Option<bool>(400, "Invalid model: token_type_ids tensor not found");
+        }
+    }
+
+    auto output_tensor_count = session_->GetOutputCount();
+    bool found_output_tensor = false;
+
+    for (size_t i = 0; i < output_tensor_count; i++) {
+        auto shape = session_->GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
+        if (shape.size() == 3 && shape[0] == -1 && shape[1] == -1 && shape[2] > 0) {
+            found_output_tensor = true;
+            break;
+        }
+    }
+
+    if (!found_output_tensor) {
+        LOG(ERROR) << "Invalid model: Output tensor not found";
+        return Option<bool>(400, "Invalid model: Output tensor not found");
+    }
+
+    return Option<bool>(true);
+}
+
+const size_t TextEmbedder::get_num_dim() const {
+    return num_dim;
 }

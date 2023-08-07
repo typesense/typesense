@@ -133,6 +133,11 @@ private:
     /// "field name" -> reference_pair(referenced_collection_name, referenced_field_name)
     spp::sparse_hash_map<std::string, reference_pair> reference_fields;
 
+    /// Contains the info where the current collection is referenced.
+    /// Useful to perform operations such as cascading delete.
+    /// collection_name -> field_name
+    spp::sparse_hash_map<std::string, std::string> referenced_in;
+
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
@@ -373,32 +378,35 @@ public:
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                           const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0,
-                          const reference_filter_result_t* reference_filter_result = nullptr);
+                          const std::map<std::string, reference_filter_result_t>& reference_filter_results = {});
 
     const Index* _get_index() const;
 
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value) const;
 
+    std::string get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const;
+
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs, 
                     const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
                     const std::vector<sort_by>& sort_by_fields);
 
     void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed,
-                     const bool& return_doc, const bool& return_id);
+                     const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size = 200);
 
     bool is_exceeding_memory_threshold() const;
 
     void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
-                            const std::string& locale, const bool already_segmented) const;
+                            const std::string& locale, const bool already_segmented, const std::string& stopword_set="") const;
 
     // PUBLIC OPERATIONS
 
     nlohmann::json get_summary_json() const;
 
-    size_t batch_index_in_memory(std::vector<index_record>& index_records, const bool generate_embeddings = true);
+    size_t batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
+                                 const bool generate_embeddings);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
@@ -407,7 +415,8 @@ public:
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                             const index_operation_t& operation=CREATE, const std::string& id="",
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
-                            const bool& return_doc=false, const bool& return_id=false);
+                            const bool& return_doc=false, const bool& return_id=false,
+                            const size_t remote_embedding_batch_size=200);
 
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
@@ -465,7 +474,10 @@ public:
                                   const size_t facet_sample_threshold = 0,
                                   const size_t page_offset = 0,
                                   facet_index_type_t facet_index_type = HASH,
-                                  const size_t vector_query_hits = 250) const;
+                                  const size_t remote_embedding_timeout_ms = 30000,
+                                  const size_t remote_embedding_num_tries = 2,
+                                  const std::string& stopwords_set="",
+                                  const std::vector<std::string>& facet_return_parent = {}) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

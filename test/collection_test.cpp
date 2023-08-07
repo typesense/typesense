@@ -4817,15 +4817,13 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
 }
 
 TEST_F(CollectionTest, CreateModelDirIfNotExists) {
-    system("mkdir -p /tmp/typesense_test/models");
-    system("rm -rf /tmp/typesense_test/models");
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    system("mkdir -p /tmp/typesense_test/new_models_dir");
+    system("rm -rf /tmp/typesense_test/new_models_dir");
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/new_models_dir");
 
     // check if model dir is created
-    ASSERT_TRUE(std::filesystem::exists("/tmp/typesense_test/models"));
+    ASSERT_TRUE(std::filesystem::exists("/tmp/typesense_test/new_models_dir"));
 }
-
-
 
 TEST_F(CollectionTest, EmbedStringArrayField) {
     nlohmann::json schema = R"({
@@ -4873,8 +4871,7 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
     doc["names"].push_back("butterball");
 
     auto add_op = coll->add(doc.dump());
-    ASSERT_FALSE(add_op.ok());
-    ASSERT_EQ("Field `category` is needed to create embedding.", add_op.error());
+    ASSERT_TRUE(add_op.ok());
 }
 
 TEST_F(CollectionTest, WrongTypeInEmbedFrom) {
@@ -4987,12 +4984,12 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
 
 TEST_F(CollectionTest, CreateCollectionWithOpenAI) {
     nlohmann::json schema = R"({
-                "name": "objects",
-                "fields": [
-                {"name": "name", "type": "string"},
-                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
-                ]
-            })"_json;
+        "name": "objects",
+        "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+        ]
+    })"_json;
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
@@ -5004,8 +5001,19 @@ TEST_F(CollectionTest, CreateCollectionWithOpenAI) {
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
-}
 
+    // create one more collection
+    schema = R"({
+        "name": "objects2",
+        "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "openai/text-embedding-ada-002"}}}
+        ]
+    })"_json;
+    schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+}
 
 TEST_F(CollectionTest, CreateOpenAIEmbeddingField) {
     nlohmann::json schema = R"({
@@ -5177,4 +5185,45 @@ TEST_F(CollectionTest, EmbeddingFieldEmptyArrayInDocument) {
     ASSERT_FALSE(get_op.get()["embedding"].is_null());
 
     ASSERT_EQ(384, get_op.get()["embedding"].size());
+}
+
+
+TEST_F(CollectionTest, CatchPartialResponseFromRemoteEmbedding) {
+    std::string partial_json = R"({
+        "results": [
+            {
+                "embedding": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "text": "butter"
+            },
+            {
+                "embedding": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "text": "butterball"
+            },
+            {
+                "embedding": [
+                    0.0,
+                    0.0)";
+    
+    nlohmann::json req_body = R"({
+        "inputs": [
+            "butter",
+            "butterball",
+            "butterfly"
+        ]
+    })"_json;
+
+    OpenAIEmbedder embedder("", "");
+
+    auto res = embedder.get_error_json(req_body, 200, partial_json);
+
+    ASSERT_EQ(res["response"]["error"], "Malformed response from OpenAI API.");
+    ASSERT_EQ(res["request"]["body"], req_body);
 }

@@ -2816,6 +2816,93 @@ TEST_F(CollectionNestedFieldsTest, HighlightArrayOfObjects) {
     ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][2].size());
 }
 
+TEST_F(CollectionNestedFieldsTest, FloatInsideNestedObject) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "price.*", "type": "float"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    auto doc1 = R"({
+        "price": {
+            "USD": 75.40
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // should also accept whole numbers
+    schema = R"({
+        "name": "coll2",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "price.*", "type": "float"}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll2 = op.get();
+
+    auto doc2 = R"({
+        "price": {
+            "USD": 75
+        }
+    })"_json;
+
+    add_op = coll2->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto fs = coll2->get_fields();
+    ASSERT_EQ(3, fs.size());
+
+    add_op = coll2->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionNestedFieldsTest, NestedFieldWithRegexName) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name":"titles", "type":"object"},
+            {"name": "titles\\..*", "type":"string"},
+            {"name":"start_date", "type":"object"},
+            {"name":"start_date\\..*", "type":"int32", "facet":true, "optional":true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    auto doc1 = R"({
+      "titles": {
+        "en": "Foobar baz"
+      },
+      "start_date": {
+        "year": 2020,
+        "month": 2,
+        "day": 3
+      }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("foobar", {"titles.en"}, "start_date.year: 2020", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionNestedFieldsTest, HighlightOnFlatFieldWithSnippeting) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("body", field_types::STRING, false)};

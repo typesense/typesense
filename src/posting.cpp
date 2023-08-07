@@ -125,13 +125,12 @@ void compact_posting_list_t::erase(const uint32_t id) {
             }
 
             length -= shift_offset;
+            ids_length--;
             break;
         }
 
         i += num_existing_offsets + 2;
     }
-
-    ids_length--;
 }
 
 compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, const uint32_t* ids, const uint32_t* offset_index,
@@ -520,6 +519,24 @@ void posting_t::get_matching_array_indices(const std::vector<void*>& raw_posting
 
     for(posting_list_t* expanded_plist: expanded_plists) {
         delete expanded_plist;
+    }
+}
+
+void posting_t::get_or_iterator(void*& raw_posting_list, std::vector<or_iterator_t>& or_iterators,
+                                std::vector<posting_list_t*>& expanded_plists) {
+    if(IS_COMPACT_POSTING(raw_posting_list)) {
+        auto compact_posting_list = COMPACT_POSTING_PTR(raw_posting_list);
+        posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
+        expanded_plists.emplace_back(full_posting_list);
+
+        std::vector<posting_list_t::iterator_t> its;
+        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
+        or_iterators.emplace_back(or_iterator_t(its));
+    } else {
+        posting_list_t* full_posting_list = (posting_list_t*)(raw_posting_list);
+        std::vector<posting_list_t::iterator_t> its;
+        its.push_back(full_posting_list->new_iterator(nullptr, nullptr, 0));
+        or_iterators.emplace_back(or_iterator_t(its));
     }
 }
 

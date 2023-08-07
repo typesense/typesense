@@ -1088,6 +1088,37 @@ TEST_F(CollectionSchemaChangeTest, IndexFalseToTrue) {
     ASSERT_EQ(1, res_op.get()["facet_counts"].size());
 }
 
+TEST_F(CollectionSchemaChangeTest, DropGeoPointArrayField) {
+    // when a value is `null` initially, and is altered, subsequent updates should not fail
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "geoloc", "type": "geopoint[]"}
+        ]
+    })"_json;
+
+    auto coll_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_create_op.ok());
+    Collection* coll1 = coll_create_op.get();
+
+    nlohmann::json doc = R"({
+        "geoloc": [[10, 20]]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "geoloc", "drop": true},
+            {"name": "_geoloc", "type": "geopoint[]", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+}
+
 TEST_F(CollectionSchemaChangeTest, AddingFieldWithExistingNullValue) {
     // when a value is `null` initially, and is altered, subsequent updates should not fail
     nlohmann::json schema = R"({
@@ -1633,42 +1664,102 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
 
 TEST_F(CollectionSchemaChangeTest, DropAndReindexEmbeddingField) {
     nlohmann::json schema = R"({
-                "name": "objects",
-                "fields": [
-                {"name": "name", "type": "string"},
-                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
-                ]
-            })"_json;
+        "name": "objects",
+        "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
     
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
-    auto op = collectionManager.create_collection(schema);
-
-    ASSERT_TRUE(op.ok());
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll = create_op.get();
 
     // drop the embedding field and reindex
-    nlohmann::json schema_without_embedding = R"({
-                            "fields": [
-                            {"name": "embedding", "drop": true},
-                            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
-                            ]
-                        })"_json;
+    nlohmann::json alter_schema = R"({
+        "fields": [
+        {"name": "embedding", "drop": true},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
     
-    auto update_op = op.get()->alter(schema_without_embedding);
-
+    auto update_op = coll->alter(alter_schema);
     ASSERT_TRUE(update_op.ok());
 
-    auto embedding_fields_map = op.get()->get_embedding_fields();
+    auto embedding_fields_map = coll->get_embedding_fields();
 
     ASSERT_EQ(1, embedding_fields_map.size());
 
     // try adding a document
     nlohmann::json doc;
     doc["name"] = "hello";
-    auto add_op = op.get()->add(doc.dump());
-
+    auto add_op = coll->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
     auto added_doc = add_op.get();
-
     ASSERT_EQ(384, added_doc["embedding"].get<std::vector<float>>().size());
+
+    // alter with bad schema
+    alter_schema = R"({
+        "fields": [
+        {"name": "embedding", "drop": true},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["namez"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    update_op = coll->alter(alter_schema);
+    ASSERT_FALSE(update_op.ok());
+    ASSERT_EQ("Property `embed.from` can only refer to string or string array fields.", update_op.error());
+
+    // alter with bad model name
+    alter_schema = R"({
+        "fields": [
+        {"name": "embedding", "drop": true},
+        {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/x5-small"}}}
+        ]
+    })"_json;
+
+    update_op = coll->alter(alter_schema);
+    ASSERT_FALSE(update_op.ok());
+    ASSERT_EQ("Model not found", update_op.error());
+
+    // should still be able to add doc after aborted alter
+    add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+    added_doc = add_op.get();
+    ASSERT_EQ(384, added_doc["embedding"].get<std::vector<float>>().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterDropTest) {
+    nlohmann::json schema = R"({
+                "name": "objects",
+                "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto& vec_index = coll->_get_index()->_get_vector_index();
+    ASSERT_EQ(1, vec_index.size());
+    ASSERT_EQ(1, vec_index.count("embedding"));
+
+
+    nlohmann::json schema_change = R"({
+                "fields": [
+                {"name": "embedding", "drop": true}
+                ]
+            })"_json;
+
+    auto schema_change_op = coll->alter(schema_change);
+
+    ASSERT_TRUE(schema_change_op.ok());
+    ASSERT_EQ(0, vec_index.size());
+    ASSERT_EQ(0, vec_index.count("embedding"));
 }

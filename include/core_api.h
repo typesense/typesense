@@ -63,6 +63,16 @@ bool put_upsert_preset(const std::shared_ptr<http_req>& req, const std::shared_p
 
 bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+//stopwords
+
+bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Overrides
 
 bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
@@ -147,7 +157,11 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
 
 bool get_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_analytics_rule(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 bool post_create_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_upsert_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 

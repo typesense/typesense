@@ -78,7 +78,7 @@ TEST_F(AnalyticsManagerTest, AddSuggestion) {
         }
     })"_json;
 
-    auto create_op = analyticsManager.create_rule(analytics_rule);
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
     std::string q = "foobar";
@@ -88,4 +88,116 @@ TEST_F(AnalyticsManagerTest, AddSuggestion) {
     auto userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
     ASSERT_EQ(1, userQueries.size());
     ASSERT_EQ("foobar", userQueries[0].query);
+
+    // add another query which is more popular
+    q = "buzzfoo";
+    analyticsManager.add_suggestion("titles", q, true, "1");
+    analyticsManager.add_suggestion("titles", q, true, "2");
+    analyticsManager.add_suggestion("titles", q, true, "3");
+
+    popularQueries = analyticsManager.get_popular_queries();
+    userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
+    ASSERT_EQ(2, userQueries.size());
+    ASSERT_EQ("foobar", userQueries[0].query);
+    ASSERT_EQ("buzzfoo", userQueries[1].query);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 }
+
+TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analytics_rule = R"({
+        "name": "top_search_queries2",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("There's already another configuration for this destination collection.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "top_search_queries2",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries2"
+            }
+        }
+    })"_json;
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    auto rules = analyticsManager.list_rules().get()["rules"];
+    ASSERT_EQ(2, rules.size());
+
+    ASSERT_TRUE(analyticsManager.get_rule("top_search_queries").ok());
+    ASSERT_TRUE(analyticsManager.get_rule("top_search_queries2").ok());
+
+    auto missing_rule_op = analyticsManager.get_rule("top_search_queriesX");
+    ASSERT_FALSE(missing_rule_op.ok());
+    ASSERT_EQ(404, missing_rule_op.code());
+    ASSERT_EQ("Rule not found.", missing_rule_op.error());
+
+    // upsert rule that already exists
+    analytics_rule = R"({
+        "name": "top_search_queries2",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queriesUpdated"
+            }
+        }
+    })"_json;
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+    auto existing_rule = analyticsManager.get_rule("top_search_queries2").get();
+    ASSERT_EQ("top_queriesUpdated", existing_rule["params"]["destination"]["collection"].get<std::string>());
+
+    // reject when upsert is not enabled
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("There's already another configuration with the name `top_search_queries2`.", create_op.error());
+
+    // try deleting both rules
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries2").ok());
+
+    missing_rule_op = analyticsManager.get_rule("top_search_queries");
+    ASSERT_FALSE(missing_rule_op.ok());
+    missing_rule_op = analyticsManager.get_rule("top_search_queries2");
+    ASSERT_FALSE(missing_rule_op.ok());
+}
+

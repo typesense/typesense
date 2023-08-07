@@ -10,6 +10,7 @@
 #include <queue>
 #include "wyhash_v5.h"
 #include <unicode/normalizer2.h>
+#include <set>
 #include "option.h"
 
 struct StringUtils {

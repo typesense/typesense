@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <or_iterator.h>
 #include "posting_list.h"
 #include "threadpool.h"
 
@@ -111,6 +112,9 @@ public:
 
     static void get_matching_array_indices(const std::vector<void*>& raw_posting_lists,
                                            uint32_t id, std::vector<size_t>& indices);
+
+    static void get_or_iterator(void*& raw_posting_lists, std::vector<or_iterator_t>& or_iterators,
+                                std::vector<posting_list_t*>& expanded_plists);
 };
 
 template<class T>

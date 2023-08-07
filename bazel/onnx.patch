@@ -11,6 +11,19 @@ index 88b46890b7..d090499971 100644
            __cmake_contentNameLower
            __cmake_contentName
 
+
+--- cmake/CMakeLists.txt
++++ cmake/CMakeLists.txt
+@@ -1268,6 +1268,7 @@ if (onnxruntime_USE_CUDA)
+       set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode=arch=compute_53,code=sm_53") # TX1, Nano
+       set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode=arch=compute_62,code=sm_62") # TX2
+       set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode=arch=compute_72,code=sm_72") # AGX Xavier, NX Xavier
++      set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode=arch=compute_75,code=sm_75") # T4
+       if (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 11)
+         set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode=arch=compute_87,code=sm_87") # AGX Orin, NX Orin
+       endif()
+
+
 diff --git a/.gitmodules b/.gitmodules
 index 8e4217162b..bb63b7d9c5 100644
 --- .gitmodules

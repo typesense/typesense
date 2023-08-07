@@ -2,7 +2,11 @@
 #include "override.h"
 #include "tokenizer.h"
 
-Option<bool> override_t::parse(const nlohmann::json& override_json, const std::string& id, override_t& override) {
+Option<bool> override_t::parse(const nlohmann::json& override_json, const std::string& id,
+                               override_t& override,
+                               const std::string& locale,
+                               const std::vector<char>& symbols_to_index,
+                               const std::vector<char>& token_separators) {
     if(!override_json.is_object()) {
         return Option<bool>(400, "Bad JSON.");
     }
@@ -110,8 +114,14 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
     override.rule.match = json_rule.count("match") == 0 ? "" : json_rule["match"].get<std::string>();
 
     if(!override.rule.query.empty()) {
-        override.rule.normalized_query = override.rule.query;
-        Tokenizer::normalize_ascii(override.rule.normalized_query);
+        auto symbols = symbols_to_index;
+        symbols.push_back('{');
+        symbols.push_back('}');
+        symbols.push_back('*');
+        Tokenizer tokenizer(override.rule.query, true, false, locale, symbols, token_separators);
+        std::vector<std::string> tokens;
+        tokenizer.tokenize(tokens);
+        override.rule.normalized_query = StringUtils::join(tokens, " ");
     }
 
     if(json_rule.count("filter_by") != 0) {

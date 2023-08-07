@@ -111,7 +111,17 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnSingleField) {
 
     // max candidates as default 4
     auto results = coll1->search("mark j", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("mark b", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("9", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("8", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("mark b", {"title"}, "points: < 9", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("8", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionSpecificMoreTest, TypoCorrectionShouldUseMaxCandidates) {
@@ -1310,6 +1320,21 @@ TEST_F(CollectionSpecificMoreTest, UpdateArrayWithNullValue) {
 
     auto results = coll1->search("alpha", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // update document with no value (optional field) with a null value
+    auto doc3 = R"({
+        "id": "2"
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc3.dump(), CREATE).ok());
+    results = coll1->search("alpha", {"tags"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    doc_update = R"({
+        "id": "2",
+        "tags": null
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPDATE).ok());
 
     // via upsert
 
