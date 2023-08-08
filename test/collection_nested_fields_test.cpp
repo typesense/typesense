@@ -2578,6 +2578,19 @@ TEST_F(CollectionNestedFieldsTest, EmplaceWithNullValueOnRequiredField) {
     ASSERT_TRUE(op.ok());
     Collection *coll1 = op.get();
 
+    auto doc_with_null = R"({
+      "id": "0",
+      "currency": {
+        "eu": null
+      }
+    })"_json;
+
+    auto add_op = coll1->add(doc_with_null.dump(), EMPLACE);
+    ASSERT_FALSE(add_op.ok());
+
+    add_op = coll1->add(doc_with_null.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+
     auto doc1 = R"({
       "id": "0",
       "currency": {
@@ -2585,7 +2598,7 @@ TEST_F(CollectionNestedFieldsTest, EmplaceWithNullValueOnRequiredField) {
       }
     })"_json;
 
-    auto add_op = coll1->add(doc1.dump(), CREATE);
+    add_op = coll1->add(doc1.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
     // now update with null value -- should not be allowed

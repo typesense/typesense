@@ -627,7 +627,7 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
             continue;
         }
 
-        if((a_field.optional || op == UPDATE || op == EMPLACE) && document.count(field_name) == 0) {
+        if((a_field.optional || op == UPDATE || (op == EMPLACE && is_update)) && document.count(field_name) == 0) {
             continue;
         }
 
