@@ -2560,6 +2560,131 @@ TEST_F(CollectionNestedFieldsTest, NullValuesWithExplicitSchema) {
     auto results = coll1->search("jack", {"name.first"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"][0]["document"].size());  // id, name
+    ASSERT_EQ(1, results["hits"][0]["document"]["name"].size());  // name.first
+    ASSERT_EQ("Jack", results["hits"][0]["document"]["name"]["first"].get<std::string>());
+}
+
+TEST_F(CollectionNestedFieldsTest, EmplaceWithNullValueOnRequiredField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name":"currency", "type":"object"},
+            {"name":"currency.eu", "type":"int32", "optional": false}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    auto doc1 = R"({
+      "id": "0",
+      "currency": {
+        "eu": 12000
+      }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // now update with null value -- should not be allowed
+    auto update_doc = R"({
+      "id": "0",
+      "currency": {
+        "eu": null
+      }
+    })"_json;
+
+    auto update_op = coll1->add(update_doc.dump(), EMPLACE);
+    ASSERT_FALSE(update_op.ok());
+    ASSERT_EQ("Field `currency.eu` must be an int32.", update_op.error());
+}
+
+TEST_F(CollectionNestedFieldsTest, EmplaceWithNullValueOnOptionalField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name":"currency", "type":"object"},
+            {"name":"currency.eu", "type":"int32", "optional": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    auto doc1 = R"({
+      "id": "0",
+      "currency": {
+        "eu": 12000
+      }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // now update with null value -- should be allowed since field is optional
+    auto update_doc = R"({
+      "id": "0",
+      "currency": {
+        "eu": null
+      }
+    })"_json;
+
+    auto update_op = coll1->add(update_doc.dump(), EMPLACE);
+    ASSERT_TRUE(update_op.ok());
+
+    // try to fetch the document to see the stored value
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"][0]["document"].size());  // id, currency
+    ASSERT_EQ(0, results["hits"][0]["document"]["currency"].size());
+}
+
+TEST_F(CollectionNestedFieldsTest, EmplaceWithMissingArrayValueOnOptionalField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name":"currency", "type":"object[]"},
+            {"name":"currency.eu", "type":"int32[]", "optional": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    auto doc1 = R"({
+      "id": "0",
+      "currency": [
+        {"eu": 12000},
+        {"us": 10000}
+      ]
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // now update with null value -- should be allowed since field is optional
+    auto update_doc = R"({
+      "id": "0",
+      "currency": [
+        {"us": 10000}
+      ]
+    })"_json;
+
+    auto update_op = coll1->add(update_doc.dump(), EMPLACE);
+    ASSERT_TRUE(update_op.ok());
+
+    // try to fetch the document to see the stored value
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"][0]["document"].size());  // id, currency
+    ASSERT_EQ(1, results["hits"][0]["document"]["currency"].size());
+    ASSERT_EQ(10000, results["hits"][0]["document"]["currency"][0]["us"].get<uint32_t>());
 }
 
 TEST_F(CollectionNestedFieldsTest, UpdateNestedDocument) {

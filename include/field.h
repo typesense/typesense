@@ -23,6 +23,7 @@ namespace field_types {
     static const std::string INT64 = "int64";
     static const std::string FLOAT = "float";
     static const std::string BOOL = "bool";
+    static const std::string NIL = "nil";
     static const std::string GEOPOINT = "geopoint";
     static const std::string STRING_ARRAY = "string[]";
     static const std::string INT32_ARRAY = "int32[]";
@@ -434,19 +435,19 @@ struct field {
                                                        std::vector<field>& fields_vec);
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
-                            const field& the_field, const std::string& flat_name,
+                            bool is_update, const field& the_field, const std::string& flat_name,
                             const std::unordered_map<std::string, field>& dyn_fields,
                             std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                       std::vector<std::string>& path_parts, size_t path_index, bool has_array,
-                                      bool has_obj_array,
+                                      bool has_obj_array, bool is_update,
                                       const std::unordered_map<std::string, field>& dyn_fields,
                                       std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields,
                                     const std::unordered_map<std::string, field>& dyn_fields,
-                                    bool missing_is_ok, std::vector<field>& flattened_fields);
+                                    bool is_update, std::vector<field>& flattened_fields);
 
     static void compact_nested_fields(tsl::htrie_map<char, field>& nested_fields);
 };
