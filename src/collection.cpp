@@ -1957,10 +1957,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             if(field_order_kv->match_score_index == CURATED_RECORD_IDENTIFIER) {
                 wrapper_doc["curated"] = true;
             } else if(field_order_kv->match_score_index >= 0) {
-                wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
+                wrapper_doc["text_match"] = field_order_kv->text_match_score;
                 wrapper_doc["text_match_info"] = nlohmann::json::object();
                 populate_text_match_info(wrapper_doc["text_match_info"],
-                                        field_order_kv->scores[field_order_kv->match_score_index], match_type);
+                                        field_order_kv->text_match_score, match_type);
                 if(!vector_query.field_name.empty()) {
                     wrapper_doc["hybrid_search_info"] = nlohmann::json::object();
                     wrapper_doc["hybrid_search_info"]["rank_fusion_score"] = Index::int64_t_to_float(field_order_kv->scores[field_order_kv->match_score_index]);
