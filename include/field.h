@@ -635,6 +635,7 @@ struct facet_info_t {
     std::unordered_map<std::string, std::vector<std::string>> hashes;
     bool use_facet_query = false;
     bool should_compute_stats = false;
+    bool use_value_index = false;
     field facet_field{"", "", false};
 };
 

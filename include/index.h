@@ -744,6 +744,7 @@ public:
                              const size_t facet_query_num_typos,
                              const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                              const std::vector<std::string>& group_by_fields,
+                             size_t group_limit, bool is_wildcard_no_filter_query,
                              size_t max_candidates,
                              std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type) const;
 
