@@ -2531,3 +2531,55 @@ TEST_F(CollectionSpecificMoreTest, ApproxFilterMatchCount) {
     delete filter_tree_root;
     collectionManager.drop_collection("Collection");
 }
+
+TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string", "infix": true},
+                    {"name": "product_description", "type": "string"},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["product_description"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair."
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients."
+            })"_json
+    };
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto coll1 = collection_create_op.get();
+    auto results = coll1->search("natural products", {"product_name", "embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+
+    // It's a hybrid search with only vector match
+    ASSERT_EQ("0", results["hits"][0]["text_match_info"]["score"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["text_match_info"]["score"].get<std::string>());
+
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["fields_matched"].get<size_t>());
+    ASSERT_EQ(0, results["hits"][1]["text_match_info"]["fields_matched"].get<size_t>());
+
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
+    ASSERT_EQ(0, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
+}

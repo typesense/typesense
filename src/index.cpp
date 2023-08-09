@@ -3213,6 +3213,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         auto result = result_it->second;
                         // old_score + (1 / rank_of_document) * WEIGHT)
                         result->vector_distance = vec_result.second;
+                        result->text_match_score  = result->scores[result->match_score_index];
                         int64_t match_score = float_to_int64_t(
                                 (int64_t_to_float(result->scores[result->match_score_index])) +
                                 ((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT));
@@ -3234,6 +3235,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         int64_t match_score_index = -1;
                         compute_sort_scores(sort_fields_std, sort_order, field_values, geopoint_indices, doc_id, 0, match_score, scores, match_score_index, vec_result.second);
                         KV kv(searched_queries.size(), doc_id, doc_id, match_score_index, scores);
+                        kv.text_match_score = 0;
                         kv.vector_distance = vec_result.second;
                         topster->add(&kv);
                         vec_search_ids.push_back(doc_id);
@@ -4163,6 +4165,7 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
         if(match_score_index != -1) {
             kv.scores[match_score_index] = aggregated_score;
+            kv.text_match_score = aggregated_score;
         }
 
         int ret = topster->add(&kv);
