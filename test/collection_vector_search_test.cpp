@@ -775,7 +775,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     ASSERT_EQ(2, search_res["found"].get<size_t>());
     ASSERT_EQ(2, search_res["hits"].size());
 
-    ASSERT_FLOAT_EQ(0.04620, search_res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_FLOAT_EQ(0.046207964, search_res["hits"][0]["vector_distance"].get<float>());
     ASSERT_FLOAT_EQ(0.1213316321, search_res["hits"][1]["vector_distance"].get<float>());
 
     // to pass k param
@@ -1031,4 +1031,116 @@ TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
     add_op = coll->add(doc.dump());
 
     ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionVectorTest, SemanticSearchReturnOnlyVectorDistance) {
+    auto schema_json =
+        R"({
+            "name": "Products",
+            "fields": [
+                {"name": "product_name", "type": "string", "infix": true},
+                {"name": "category", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    auto add_op = coll1->add(R"({
+        "product_name": "moisturizer",
+        "category": "beauty"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("moisturizer", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>()).get();
+    
+    ASSERT_EQ(1, results["hits"].size());
+
+    // Return only vector distance
+    ASSERT_EQ(0, results["hits"][0].count("text_match_info"));
+    ASSERT_EQ(0, results["hits"][0].count("hybrid_search_info"));
+    ASSERT_EQ(1, results["hits"][0].count("vector_distance"));
+}
+
+TEST_F(CollectionVectorTest, KeywordSearchReturnOnlyTextMatchInfo) {
+    auto schema_json =
+            R"({
+            "name": "Products",
+            "fields": [
+                {"name": "product_name", "type": "string", "infix": true},
+                {"name": "category", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+    auto add_op = coll1->add(R"({
+        "product_name": "moisturizer",
+        "category": "beauty"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("moisturizer", {"product_name"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>()).get();
+
+    
+    ASSERT_EQ(1, results["hits"].size());
+
+    // Return only text match info
+    ASSERT_EQ(0, results["hits"][0].count("vector_distance"));
+    ASSERT_EQ(0, results["hits"][0].count("hybrid_search_info"));
+    ASSERT_EQ(1, results["hits"][0].count("text_match_info"));
+}
+
+TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
+    auto schema_json =
+            R"({
+            "name": "Products",
+            "fields": [
+                {"name": "product_name", "type": "string", "infix": true},
+                {"name": "category", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    auto add_op = coll1->add(R"({
+        "product_name": "moisturizer",
+        "category": "beauty"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+
+    auto results = coll1->search("moisturizer", {"product_name", "embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>()).get();
+    
+    ASSERT_EQ(1, results["hits"].size());
+
+    // Return all info
+    ASSERT_EQ(1, results["hits"][0].count("vector_distance"));
+    ASSERT_EQ(1, results["hits"][0].count("text_match_info"));
+    ASSERT_EQ(1, results["hits"][0].count("hybrid_search_info"));
 }
