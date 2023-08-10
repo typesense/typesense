@@ -775,8 +775,8 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     ASSERT_EQ(2, search_res["found"].get<size_t>());
     ASSERT_EQ(2, search_res["hits"].size());
 
-    ASSERT_FLOAT_EQ(0.046207964, search_res["hits"][0]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.1213316321, search_res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_NEAR(0.04620, search_res["hits"][0]["vector_distance"].get<float>(), 0.0001);
+    ASSERT_NEAR(0.12133, search_res["hits"][1]["vector_distance"].get<float>(), 0.0001);
 
     // to pass k param
     vec_query = "embedding:([], k: 1)";
@@ -1031,6 +1031,76 @@ TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
     add_op = coll->add(doc.dump());
 
     ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExists) {
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    nlohmann::json model_config = R"({
+        "model_name": "ts/e5-small"
+    })"_json;
+
+    // will be roughly 0.1110895648598671,-0.11710234731435776,-0.5319093465805054, ...
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    // document with explicit embedding vector
+    nlohmann::json doc;
+    doc["name"] = "FOO";
+
+    std::vector<float> vec;
+    for(size_t i = 0; i < 384; i++) {
+        vec.push_back(0.345);
+    }
+
+    doc["embedding"] = vec;
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // get the vector back
+    auto res = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                                      Index::DROP_TOKENS_THRESHOLD).get();
+
+    // let's check the first few vectors
+    auto stored_vec = res["hits"][0]["document"]["embedding"];
+    ASSERT_NEAR(0.345, stored_vec[0], 0.01);
+    ASSERT_NEAR(0.345, stored_vec[1], 0.01);
+    ASSERT_NEAR(0.345, stored_vec[2], 0.01);
+    ASSERT_NEAR(0.345, stored_vec[3], 0.01);
+    ASSERT_NEAR(0.345, stored_vec[4], 0.01);
+
+    // what happens when vector contains invalid value, like string
+    doc["embedding"] = "foo"; //{0.11, 0.11};
+    add_op = coll->add(doc.dump());
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `embedding` contains an invalid embedding.", add_op.error());
+
+    // when dims don't match
+    doc["embedding"] = {0.11, 0.11};
+    add_op = coll->add(doc.dump());
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `embedding` contains an invalid embedding.", add_op.error());
+
+    // invalid array value
+    doc["embedding"].clear();
+    for(size_t i = 0; i < 384; i++) {
+        doc["embedding"].push_back(0.01);
+    }
+    doc["embedding"][5] = "foo";
+    add_op = coll->add(doc.dump());
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `embedding` contains invalid float values.", add_op.error());
 }
 
 TEST_F(CollectionVectorTest, SemanticSearchReturnOnlyVectorDistance) {

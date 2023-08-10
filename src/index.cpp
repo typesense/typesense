@@ -504,6 +504,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
             index_rec.index_failure(400, e.what());
         }
     }
+
     if(generate_embeddings) {
         batch_embed_fields(records_to_embed, embedding_fields, search_schema, remote_embedding_batch_size);
     }
@@ -1223,10 +1224,18 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 RETURN_CIRCUIT_BREAKER
             }
 
+            std::set<uint32_t> unique_facet_hashes;
+
             for(size_t j = 0; j < facet_hash_count; j++) {
                 
                 if(facet_field.is_array()) {
                     fhash = facet_map_it->second.hashes[j];
+                }
+
+                if(unique_facet_hashes.count(fhash) == 0) {
+                    unique_facet_hashes.insert(fhash);
+                } else {
+                    continue;
                 }
         
                 if(should_compute_stats) {
@@ -6494,6 +6503,12 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
             if(document == nullptr) {
                 continue;
             }
+
+            if(document->contains(field.name) && !record->is_update) {
+                // embedding already exists (could be a restore from export)
+                continue;
+            }
+
             std::string text = indexing_prefix;
             const auto& embed_from = field.embed[fields::from].get<std::vector<std::string>>();
             for(const auto& field_name : embed_from) {

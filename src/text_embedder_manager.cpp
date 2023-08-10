@@ -42,7 +42,13 @@ Option<bool> TextEmbedderManager::validate_and_init_remote_model(const nlohmann:
         return Option<bool>(400, "Invalid model namespace");
     }
 
-    return TextEmbedderManager::get_instance().init_text_embedder(model_config, num_dims);
+    std::unique_lock<std::mutex> lock(text_embedders_mutex);
+    auto text_embedder_it = text_embedders.find(model_name);
+    if(text_embedder_it == text_embedders.end()) {
+        text_embedders.emplace(model_name, std::make_shared<TextEmbedder>(model_config, num_dims));
+    }
+
+    return Option<bool>(true);
 }
 
 Option<bool> TextEmbedderManager::validate_and_init_local_model(const nlohmann::json& model_config, size_t& num_dims) {
@@ -53,9 +59,8 @@ Option<bool> TextEmbedderManager::validate_and_init_local_model(const nlohmann::
         return public_model_op;
     }
 
-    Ort::SessionOptions session_options;
-    Ort::Env env;
-    std::string abs_path = TextEmbedderManager::get_absolute_model_path(TextEmbedderManager::get_model_name_without_namespace(model_name));
+    std::string abs_path = TextEmbedderManager::get_absolute_model_path(
+            TextEmbedderManager::get_model_name_without_namespace(model_name));
 
     if(!std::filesystem::exists(abs_path)) {
         LOG(ERROR) << "Model file not found: " << abs_path;
@@ -92,35 +97,25 @@ Option<bool> TextEmbedderManager::validate_and_init_local_model(const nlohmann::
             return Option<bool>(400, "Invalid model type");
         }
     }
-    
-    return TextEmbedderManager::get_instance().init_text_embedder(model_config, num_dims);
-}
 
-Option<bool> TextEmbedderManager::init_text_embedder(const nlohmann::json& model_config, size_t& num_dim) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    const std::string& model_name = model_config.at("model_name");
     auto text_embedder_it = text_embedders.find(model_name);
-    if(text_embedder_it == text_embedders.end()) {
-        if(is_remote_model(model_name)) {
-            text_embedders.emplace(model_name, std::make_shared<TextEmbedder>(model_config));
-        } else {
-            const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(
-                    get_model_name_without_namespace(model_name));
 
-            auto validate_op = embedder->validate(num_dim);
-            if(!validate_op.ok()) {
-                return validate_op;
-            }
-
-            text_embedders.emplace(model_name, embedder);
-        }
-    } else {
-        auto validate_op = text_embedder_it->second->validate(num_dim);
-        if(!validate_op.ok()) {
-            return validate_op;
-        }
+    if(text_embedder_it != text_embedders.end()) {
+        num_dims = text_embedder_it->second->get_num_dim();
+        return Option<bool>(true);
     }
 
+    const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(
+            get_model_name_without_namespace(model_name));
+
+    auto validate_op = embedder->validate();
+    if(!validate_op.ok()) {
+        return validate_op;
+    }
+
+    num_dims = embedder->get_num_dim();
+    text_embedders.emplace(model_name, embedder);
     return Option<bool>(true);
 }
 

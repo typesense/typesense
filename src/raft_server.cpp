@@ -254,7 +254,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         // Handle no leader scenario
         LOG(ERROR) << "Rejecting write: could not find a leader.";
 
-        if(request->_req->proceed_req && response->proxied_stream) {
+        if(response->proxied_stream) {
             // streaming in progress: ensure graceful termination (cannot start response again)
             LOG(ERROR) << "Terminating streaming request gracefully.";
             response->is_alive = false;
@@ -267,7 +267,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
     }
 
-    if (request->_req->proceed_req && response->proxied_stream) {
+    if (response->proxied_stream) {
         // indicates async request body of in-flight request
         //LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
         request->notify();

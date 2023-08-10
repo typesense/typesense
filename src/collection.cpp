@@ -1732,13 +1732,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     if(!facet_query.query.empty()) {
         // identify facet hash tokens
 
-        for(const auto& the_facet: facets) {
-            if(the_facet.field_name == facet_query.field_name) {
-                //the_facet.hash_tokens
-                break;
-            }
-        }
-
         auto fq_field = search_schema.at(facet_query.field_name);
         bool is_cyrillic = Tokenizer::is_cyrillic(fq_field.locale);
         bool normalise = is_cyrillic ? false : true;
