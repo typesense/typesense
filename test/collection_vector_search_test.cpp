@@ -1033,6 +1033,42 @@ TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
     ASSERT_TRUE(add_op.ok());
 }
 
+TEST_F(CollectionVectorTest, UpdateOfCollWithNonOptionalEmbeddingField) {
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "about", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json object;
+    object["id"] = "0";
+    object["name"] = "butter";
+    object["about"] = "about butter";
+
+    auto add_op = coll->add(object.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json update_object;
+    update_object["id"] = "0";
+    update_object["about"] = "something about butter";
+    auto update_op = coll->add(update_object.dump(), EMPLACE);
+    ASSERT_TRUE(update_op.ok());
+
+    // action = update
+    update_object["about"] = "something about butter 2";
+    update_op = coll->add(update_object.dump(), UPDATE);
+    ASSERT_TRUE(update_op.ok());
+}
+
 TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExists) {
     nlohmann::json schema = R"({
         "name": "objects",
