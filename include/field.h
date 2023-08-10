@@ -539,19 +539,6 @@ struct sort_by {
     }
 };
 
-struct facet_sort_by {
-   std::string param;
-   std::string order;
-
-   facet_sort_by() {
-       param.clear();
-       order.clear();
-   }
-
-   facet_sort_by(const std::string& _param, const std::string& _order)
-   :param(_param), order(_order) {}
-};
-
 class GeoPoint {
     constexpr static const double EARTH_RADIUS = 3958.75;
     constexpr static const double METER_CONVERT = 1609.00;
@@ -617,6 +604,10 @@ struct facet {
     
     bool is_intersected = false;
 
+    bool is_sort_by_alpha = false;
+
+    std::string sort_order="";
+
     bool get_range(std::string key, std::pair<std::string, std::string>& range_pair)
     {
         if(facet_range_map.empty())
@@ -636,10 +627,13 @@ struct facet {
     }
 
     explicit facet(const std::string& field_name, 
-        std::map<std::string, std::string> facet_range = {}, bool is_range_q = false)
-        :field_name(field_name){
-            facet_range_map = facet_range;
-            is_range_query = is_range_q;
+        std::map<std::string, std::string> facet_range = {}, bool is_range_q = false, bool sort_by_alpha=false,
+        const std::string& order="")
+        :field_name(field_name) {
+        facet_range_map = facet_range;
+        is_range_query = is_range_q;
+        is_sort_by_alpha = sort_by_alpha;
+        sort_order = order;
     }
 };
 
@@ -660,7 +654,6 @@ struct facet_value_t {
     std::string value;
     std::string highlighted;
     uint32_t count;
-    float sort_field_val = 0.0f;
 };
 
 struct facet_hash_values_t {

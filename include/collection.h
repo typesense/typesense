@@ -477,8 +477,7 @@ public:
                                   const size_t remote_embedding_timeout_ms = 30000,
                                   const size_t remote_embedding_num_try = 2,
                                   const std::string& stopwords_set="",
-                                  const std::vector<std::string>& facet_return_parent = {},
-                                  const facet_sort_by& facet_sort_params = {}) const;
+                                  const std::vector<std::string>& facet_return_parent = {}) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
@@ -505,8 +504,6 @@ public:
     bool get_enable_nested_fields();
 
     Option<bool> parse_facet(const std::string& facet_field, std::vector<facet>& facets) const;
-
-    Option<bool> validate_facet_sort_by_field(const facet_sort_by& facet_sort_params) const;
 
     // Override operations
 

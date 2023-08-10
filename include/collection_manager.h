@@ -184,8 +184,6 @@ public:
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 
-    static bool parse_facet_sort_by_str(std::string facet_sort_by_str, facet_sort_by& facet_sort_params);
-
     // symlinks
     Option<std::string> resolve_symlink(const std::string & symlink_name) const;
 

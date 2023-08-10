@@ -1877,129 +1877,13 @@ TEST_F(CollectionFacetingTest, FacetingReturnParentObject) {
     ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["value"]);
 }
 
-TEST_F(CollectionFacetingTest, FacetSortByOtherFieldVal) {
-    nlohmann::json schema = R"({
-        "name": "coll1",
-        "enable_nested_fields": true,
-        "fields": [
-          {"name": "car", "type": "object", "optional": false, "facet": true }
-        ]
-    })"_json;
-
-    auto op = collectionManager.create_collection(schema);
-    ASSERT_TRUE(op.ok());
-    Collection* coll1 = op.get();
-
-    nlohmann::json doc1 = R"({
-        "car": {
-            "speed": 130,
-            "brand": "Tata",
-            "type": "Hatchback"
-        }
-    })"_json;
-
-    nlohmann::json doc2 = R"({
-        "car": {
-            "speed": 140,
-            "brand": "Hyundai",
-            "type": "Sedan"
-        }
-    })"_json;
-
-    nlohmann::json doc3 = R"({
-        "car": {
-            "speed": 120,
-            "brand": "Maruti",
-            "type": "Sedan"
-        }
-    })"_json;
-
-    nlohmann::json doc4 = R"({
-        "car": {
-            "speed": 135,
-            "brand": "Toyota",
-            "type": "Hatchback"
-        }
-    })"_json;
-
-    auto add_op = coll1->add(doc1.dump(), CREATE);
-    ASSERT_TRUE(add_op.ok());
-    add_op = coll1->add(doc2.dump(), CREATE);
-    ASSERT_TRUE(add_op.ok());
-    add_op = coll1->add(doc3.dump(), CREATE);
-    ASSERT_TRUE(add_op.ok());
-    add_op = coll1->add(doc4.dump(), CREATE);
-    ASSERT_TRUE(add_op.ok());
-
-    //sort cars brands by top speed in asc order
-    facet_sort_by facet_sort_param{"car.speed", "asc"};
-    auto search_op = coll1->search("*", {},"", {"car.brand"},
-                                   {}, {2}, 10, 1,FREQUENCY, {true},
-                                   1, spp::sparse_hash_set<std::string>(),
-                                   spp::sparse_hash_set<std::string>(),10, "",
-                                   30, 4, "",
-                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
-                                   3, "<mark>", "</mark>", {},
-                                   UINT32_MAX, true, false, true,
-                                   "", false, 6000*1000, 4, 7,
-                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
-                                   2, 2, false, "",
-                                   true, 0, max_score, 100,
-                                   0, 0, HASH, 30000,
-                                   2, "", {}, facet_sort_param);
-
-    if(!search_op.ok()) {
-        LOG(ERROR) << search_op.error();
-        FAIL();
-    }
-
-    auto results = search_op.get();
-    ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(4, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Maruti", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("Tata", results["facet_counts"][0]["counts"][1]["value"]);
-    ASSERT_EQ("Toyota", results["facet_counts"][0]["counts"][2]["value"]);
-    ASSERT_EQ("Hyundai", results["facet_counts"][0]["counts"][3]["value"]);
-
-    //sort cars brands by top speed in desc order
-    facet_sort_param.param = "car.speed";
-    facet_sort_param.order = "desc";
-
-    search_op = coll1->search("*", {},"", {"car.brand"},
-                                   {}, {2}, 10, 1,FREQUENCY, {true},
-                                   1, spp::sparse_hash_set<std::string>(),
-                                   spp::sparse_hash_set<std::string>(),10, "",
-                                   30, 4, "",
-                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
-                                   3, "<mark>", "</mark>", {},
-                                   UINT32_MAX, true, false, true,
-                                   "", false, 6000*1000, 4, 7,
-                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
-                                   2, 2, false, "",
-                                   true, 0, max_score, 100,
-                                   0, 0, HASH, 30000,
-                                   2, "", {}, facet_sort_param);
-
-    if(!search_op.ok()) {
-        LOG(ERROR) << search_op.error();
-        FAIL();
-    }
-
-    results = search_op.get();
-    ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(4, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("Hyundai", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("Toyota", results["facet_counts"][0]["counts"][1]["value"]);
-    ASSERT_EQ("Tata", results["facet_counts"][0]["counts"][2]["value"]);
-    ASSERT_EQ("Maruti", results["facet_counts"][0]["counts"][3]["value"]);
-}
-
 TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "fields": [
           {"name": "phone", "type": "string", "optional": false, "facet": true },
-          {"name": "brand", "type": "string", "optional": false, "facet": true }
+          {"name": "brand", "type": "string", "optional": false, "facet": true },
+          {"name": "rating", "type": "float", "optional": false, "facet": true }
         ]
     })"_json;
 
@@ -2011,55 +1895,49 @@ TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
 
     doc["phone"] = "Oneplus 11R";
     doc["brand"] = "Oneplus";
+    doc["rating"] = 4.6;
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
     doc["phone"] = "Fusion Plus";
     doc["brand"] = "Moto";
+    doc["rating"] = 4.2;
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
     doc["phone"] = "S22 Ultra";
     doc["brand"] = "Samsung";
+    doc["rating"] = 4.1;
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
     doc["phone"] = "GT Master";
     doc["brand"] = "Realme";
+    doc["rating"] = 4.4;
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
     doc["phone"] = "T2";
     doc["brand"] = "Vivo";
+    doc["rating"] = 4.0;
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
     doc["phone"] = "Mi 6";
     doc["brand"] = "Xiaomi";
+    doc["rating"] = 3.9;
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
     doc["phone"] = "Z6 Lite";
     doc["brand"] = "Iqoo";
+    doc["rating"] = 4.3;
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
     //sort facets by phone in asc order
-    facet_sort_by facet_sort_param{"alpha", "asc"};
-    auto search_op = coll1->search("*", {}, "", {"phone"},
-                                   {}, {2}, 10, 1, FREQUENCY, {true},
-                                   1, spp::sparse_hash_set<std::string>(),
-                                   spp::sparse_hash_set<std::string>(), 10, "",
-                                   30, 4, "",
-                                   Index::TYPO_TOKENS_THRESHOLD, "", "", {},
-                                   3, "<mark>", "</mark>", {},
-                                   UINT32_MAX, true, false, true,
-                                   "", false, 6000 * 1000, 4, 7,
-                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
-                                   2, 2, false, "",
-                                   true, 0, max_score, 100,
-                                   0, 0, HASH, 30000,
-                                   2, "", {}, facet_sort_param);
+    auto search_op = coll1->search("*", {}, "", {"phone(sort:asc)"},
+                                   {}, {2});
 
     if (!search_op.ok()) {
         LOG(ERROR) << search_op.error();
@@ -2078,22 +1956,8 @@ TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ("Z6 Lite", results["facet_counts"][0]["counts"][6]["value"]);
 
     //sort facets by brand in desc order
-    facet_sort_param.param = "alpha";
-    facet_sort_param.order =  "desc";
-    search_op = coll1->search("*", {}, "", {"brand"},
-                                   {}, {2}, 10, 1, FREQUENCY, {true},
-                                   1, spp::sparse_hash_set<std::string>(),
-                                   spp::sparse_hash_set<std::string>(), 10, "",
-                                   30, 4, "",
-                                   Index::TYPO_TOKENS_THRESHOLD, "", "", {},
-                                   3, "<mark>", "</mark>", {},
-                                   UINT32_MAX, true, false, true,
-                                   "", false, 6000 * 1000, 4, 7,
-                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
-                                   2, 2, false, "",
-                                   true, 0, max_score, 100,
-                                   0, 0, HASH, 30000,
-                                   2, "", {}, facet_sort_param);
+    search_op = coll1->search("*", {}, "", {"brand(sort:desc)"},
+                                   {}, {2});
 
     if (!search_op.ok()) {
         LOG(ERROR) << search_op.error();
@@ -2110,4 +1974,41 @@ TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ("Oneplus", results["facet_counts"][0]["counts"][4]["value"]);
     ASSERT_EQ("Moto", results["facet_counts"][0]["counts"][5]["value"]);
     ASSERT_EQ("Iqoo", results["facet_counts"][0]["counts"][6]["value"]);
+
+    //sort facets by brand in desc order and phone by asc order
+    search_op = coll1->search("*", {}, "", {"brand(sort:desc)", "phone(sort:asc)"},
+                              {}, {2});
+
+    if (!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+
+    results = search_op.get();
+    ASSERT_EQ(2, results["facet_counts"].size());
+
+    ASSERT_EQ(7, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Xiaomi", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Vivo", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Samsung", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Realme", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("Oneplus", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("Moto", results["facet_counts"][0]["counts"][5]["value"]);
+    ASSERT_EQ("Iqoo", results["facet_counts"][0]["counts"][6]["value"]);
+
+    ASSERT_EQ(7, results["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("Fusion Plus", results["facet_counts"][1]["counts"][0]["value"]);
+    ASSERT_EQ("GT Master", results["facet_counts"][1]["counts"][1]["value"]);
+    ASSERT_EQ("Mi 6", results["facet_counts"][1]["counts"][2]["value"]);
+    ASSERT_EQ("Oneplus 11R", results["facet_counts"][1]["counts"][3]["value"]);
+    ASSERT_EQ("S22 Ultra", results["facet_counts"][1]["counts"][4]["value"]);
+    ASSERT_EQ("T2", results["facet_counts"][1]["counts"][5]["value"]);
+    ASSERT_EQ("Z6 Lite", results["facet_counts"][1]["counts"][6]["value"]);
+
+    //try sort on non stirng field
+    search_op = coll1->search("*", {}, "", {"rating(sort:desc)"},
+                              {}, {2});
+
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Facet field should be string type to apply alpha sort.", search_op.error());
 }

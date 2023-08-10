@@ -1124,8 +1124,8 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_try,
                                   const std::string& stopwords_set,
-                                  const std::vector<std::string>& facet_return_parent,
-                                  const facet_sort_by& facet_sort_param) const {
+                                  const std::vector<std::string>& facet_return_parent) const
+                                  {
 
     std::shared_lock lock(mutex);
 
@@ -1422,14 +1422,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
         }
     }
 
-    //validate facet_sort_by fields
-    if(!facet_sort_param.param.empty()) {
-        const auto &res = validate_facet_sort_by_field(facet_sort_param);
-        if (!res.ok()) {
-            return Option<nlohmann::json>(res.code(), res.error());
-        }
-    }
-
     if(per_page > PER_PAGE_MAX) {
         std::string message = "Only upto " + std::to_string(PER_PAGE_MAX) + " hits can be fetched per page.";
         return Option<nlohmann::json>(422, message);
@@ -1631,7 +1623,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
-    auto search_op = index->run_search(search_params, name, facet_index_type, facet_sort_param);
+    auto search_op = index->run_search(search_params, name, facet_index_type);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();
@@ -2076,10 +2068,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
                                                   the_field.name) != facet_return_parent.end();
 
-            if(!facet_sort_param.param.empty()) {
-                max_facets = facet_counts.size();
-            }
-
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
                 auto & kv = facet_counts[fi];
@@ -2103,9 +2091,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
                     if(!facet_found) {
                         continue;
-                    }
-                    if(!facet_sort_param.param.empty()) {
-                        facet_count.sort_field_val = document[facet_sort_param.param].get<float>();
                     }
                 }
 
@@ -2182,33 +2167,21 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                     highlightedss << value[i];
                     i++;
                 }
-                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count, facet_count.sort_field_val};
+                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
                 facet_values.emplace_back(facet_value);
             }
         }
 
-        if(facet_sort_param.param == "alpha") {
-            bool is_asc = facet_sort_param.order == "asc";
+        if(a_facet.is_sort_by_alpha) {
+            bool is_asc = a_facet.sort_order == "asc";
             std::stable_sort(facet_values.begin(), facet_values.end(),
-                             [&](const auto& fv1, const auto& fv2) {
+                             [&] (const auto& fv1, const auto& fv2) {
                 if(is_asc) {
                     return fv1.value < fv2.value;
                 }
+
                 return fv1.value > fv2.value;
             });
-        } else if(!facet_sort_param.param.empty()) {
-            bool is_asc = facet_sort_param.order == "asc";
-            std::stable_sort(facet_values.begin(), facet_values.end(),
-                             [&](const auto& fv1, const auto& fv2) {
-                if(is_asc) {
-                    return fv1.sort_field_val < fv2.sort_field_val;
-                }
-                return fv1.sort_field_val > fv2.sort_field_val;
-            });
-
-            if(facet_values.size() > max_facet_values) {
-                facet_values.erase(facet_values.begin() + max_facet_values, facet_values.end());
-            }
         } else {
             std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
         }
@@ -4851,12 +4824,14 @@ bool Collection::get_enable_nested_fields() {
     return enable_nested_fields;
 }
 
-Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const{
-   const std::regex base_pattern(".+\\(.*\\)");
-   const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\,\\s*([0-9]+)\\]");
-   
-   if(facet_field.find(":") != std::string::npos) { //range based facet
-        if(!std::regex_match(facet_field, base_pattern)){
+Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
+    const std::regex base_pattern(".+\\(.*\\)");
+    const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\,\\s*([0-9]+)\\]");
+
+   if ((facet_field.find(":") != std::string::npos)
+        && (facet_field.find("sort") == std::string::npos)) { //range based facet
+
+       if (!std::regex_match(facet_field, base_pattern)) {
             std::string error = "Facet range value is not valid.";
             return Option<bool>(400, error);
         }
@@ -4864,14 +4839,14 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         auto startpos = facet_field.find("(");
         auto field_name = facet_field.substr(0, startpos);
 
-        if(search_schema.count(field_name) == 0) {
+        if (search_schema.count(field_name) == 0) {
             std::string error = "Could not find a facet field named `" + field_name + "` in the schema.";
             return Option<bool>(404, error);
         }
 
-        const field& a_field = search_schema.at(field_name);
+        const field &a_field = search_schema.at(field_name);
 
-        if(!a_field.is_integer() && !a_field.is_float()){
+        if (!a_field.is_integer() && !a_field.is_float()) {
             std::string error = "Range facet is restricted to only integer and float fields.";
             return Option<bool>(400, error);
         }
@@ -4884,32 +4859,28 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         //split the ranges
         std::vector<std::string> result;
         startpos = 0;
-        int index=0;
+        int index = 0;
         int commaFound = 0, rangeFound = 0;
-        bool range_open=false;
-        while(index < range_string.size()){
-            if(range_string[index] == ']'){
-                if(range_open == true){
+        bool range_open = false;
+        while (index < range_string.size()) {
+            if (range_string[index] == ']') {
+                if (range_open == true) {
                     std::string range = range_string.substr(startpos, index + 1 - startpos);
-                    range=StringUtils::trim(range);
+                    range = StringUtils::trim(range);
                     result.emplace_back(range);
                     rangeFound++;
-                    range_open=false;
-                }
-                else{
+                    range_open = false;
+                } else {
                     result.clear();
                     break;
                 }
-            }
-            else if(range_string[index] == ',' && range_open == false){
-                startpos = index+1;
+            } else if (range_string[index] == ',' && range_open == false) {
+                startpos = index + 1;
                 commaFound++;
-            }
-            else if(range_string[index] == '['){
-                if((commaFound == rangeFound) && range_open==false){
-                    range_open=true;
-                }
-                else{
+            } else if (range_string[index] == '[') {
+                if ((commaFound == rangeFound) && range_open == false) {
+                    range_open = true;
+                } else {
                     result.clear();
                     break;
                 }
@@ -4918,17 +4889,17 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             index++;
         }
 
-        if((result.empty()) || (range_open==true)){
+        if ((result.empty()) || (range_open == true)) {
             std::string error = "Error splitting the facet range values.";
             return Option<bool>(400, error);
         }
 
         std::vector<std::tuple<std::string, std::string, std::string>> tupVec;
 
-        auto& range_map = a_facet.facet_range_map;
-        for(const auto& range : result){
+        auto &range_map = a_facet.facet_range_map;
+        for (const auto &range: result) {
             //validate each range syntax
-            if(!std::regex_match(range, range_pattern)){
+            if (!std::regex_match(range, range_pattern)) {
                 std::string error = "Facet range value is not valid.";
                 return Option<bool>(400, error);
             }
@@ -4944,7 +4915,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             auto upper_range_start = pos2 + 1;
             auto upper_range_len = pos3 - upper_range_start;
 
-            if(a_field.is_integer()) {
+            if (a_field.is_integer()) {
                 lower_range = range.substr(lower_range_start, lower_range_len);
                 StringUtils::trim(lower_range);
                 upper_range = range.substr(upper_range_start, upper_range_len);
@@ -4963,33 +4934,33 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         //sort the range values so that we can check continuity
         sort(tupVec.begin(), tupVec.end());
 
-        for(const auto& tup : tupVec){
+        for (const auto &tup: tupVec) {
 
-            const auto& lower_range = std::get<0>(tup);
-            const auto& upper_range = std::get<1>(tup);
-            const std::string& range_val = std::get<2>(tup);
+            const auto &lower_range = std::get<0>(tup);
+            const auto &upper_range = std::get<1>(tup);
+            const std::string &range_val = std::get<2>(tup);
             //check if ranges are continous or not
-            if((!range_map.empty()) && (range_map.find(lower_range)== range_map.end())){
+            if ((!range_map.empty()) && (range_map.find(lower_range) == range_map.end())) {
                 std::string error = "Ranges in range facet syntax should be continous.";
                 return Option<bool>(400, error);
             }
 
-            range_map[upper_range] =  range_val;
+            range_map[upper_range] = range_val;
         }
 
         a_facet.is_range_query = true;
 
         facets.emplace_back(std::move(a_facet));
     } else if (facet_field.find('*') != std::string::npos) { // Wildcard
-       if (facet_field[facet_field.size() - 1] != '*') {
-           return Option<bool>(404, "Only prefix matching with a wildcard is allowed.");
-       }
+        if (facet_field[facet_field.size() - 1] != '*') {
+            return Option<bool>(404, "Only prefix matching with a wildcard is allowed.");
+        }
 
         // Trim * from the end.
         auto prefix = facet_field.substr(0, facet_field.size() - 1);
         auto pair = search_schema.equal_prefix_range(prefix);
 
-        if(pair.first == pair.second) {
+        if (pair.first == pair.second) {
             // not found
             std::string error = "Could not find a facet field for `" + facet_field + "` in the schema.";
             return Option<bool>(404, error);
@@ -5002,43 +4973,40 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                 facets.back().is_wildcard_match = true;
             }
         }
-   } else {
-        // normal facet
-       if(search_schema.count(facet_field) == 0 || !search_schema.at(facet_field).facet) {
-           std::string error = "Could not find a facet field named `" + facet_field + "` in the schema.";
+    } else {
+       // normal facet
+       std::string order = "";
+       bool sort_alpha = false;
+       std::string facet_field_copy = facet_field;
+       auto pos = facet_field_copy.find("(");
+       if(pos != std::string::npos) {
+           facet_field_copy = facet_field_copy.substr(0, pos);
+       }
+
+       if (search_schema.count(facet_field_copy) == 0 || !search_schema.at(facet_field_copy).facet) {
+           std::string error = "Could not find a facet field named `" + facet_field_copy + "` in the schema.";
            return Option<bool>(404, error);
        }
-       facets.emplace_back(facet(facet_field));
-    }
 
-    return Option<bool>(true);
-}
+       const field &a_field = search_schema.at(facet_field_copy);
 
-Option<bool> Collection::validate_facet_sort_by_field(const facet_sort_by& facet_sort_params) const {
-    if(facet_sort_params.param == "alpha") {
-        //sort param can be either alphabetical sort or sort by other field
-    } else {
-        if (search_schema.count(facet_sort_params.param) == 0) {
-            std::string error = "Could not find a facet field named `" + facet_sort_params.param + "` in the schema.";
-            return Option<bool>(404, error);
-        }
+       if (facet_field.find("sort") != std::string::npos) { //sort params are supplied with facet
+           if(!a_field.is_string()) {
+               std::string error = "Facet field should be string type to apply alpha sort.";
+               return Option<bool>(400, error);
+           }
 
-        const field &a_field = search_schema.at(facet_sort_params.param);
-        if (!a_field.nested) {
-            std::string error = "Field for `facet_sort_by` should be nested from same facet field";
-            return Option<bool>(400, error);
-        }
+           if (facet_field.find("asc") != std::string::npos) {
+               order = "asc";
+               sort_alpha = true;
+           } else if (facet_field.find("desc") != std::string::npos) {
+               order = "desc";
+               sort_alpha = true;
+           }
+       }
 
-        if (a_field.is_string()) {
-            std::string error = "Field for `facet_sort_by` should not be string";
-            return Option<bool>(400, error);
-        }
-    }
-
-    if ((facet_sort_params.order != "asc") && (facet_sort_params.order != "desc")) {
-        std::string error = "Sort order for field `facet_sort_by` should be asc/desc";
-        return Option<bool>(400, error);
-    }
+       facets.emplace_back(facet(facet_field_copy, {}, false, sort_alpha, order));
+   }
 
     return Option<bool>(true);
 }

@@ -662,24 +662,6 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
     return true;
 }
 
-bool CollectionManager::parse_facet_sort_by_str(std::string facet_sort_by_str, facet_sort_by& facet_sort_params) {
-    std::vector<std::string> params;
-    StringUtils::split(facet_sort_by_str, params, ":");
-
-    if(params.size() != 2) { //can have only 2 params seperated by colon
-        return false;
-    }
-
-    for(auto& param : params) {
-        std::transform(param.begin(), param.end(), param.begin(), ::tolower);
-    }
-
-    facet_sort_params.param = params[0];
-    facet_sort_params.order = params[1];
-
-    return true;
-}
-
 Option<bool> add_unsigned_int_param(const std::string& param_name, const std::string& str_val, size_t* int_val) {
     if(!StringUtils::is_uint32_t(str_val)) {
         return Option<bool>(400, "Parameter `" + std::string(param_name) + "` must be an unsigned integer.");
@@ -824,7 +806,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *MAX_FACET_VALUES = "max_facet_values";
 
     const char *FACET_RETURN_PARENT = "facet_return_parent";
-    const char* FACET_SORT_BY = "facet_sort_by";
 
     const char *VECTOR_QUERY = "vector_query";
 
@@ -955,8 +936,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     token_ordering token_order = NOT_SET;
 
     std::vector<std::string> facet_return_parent;
-
-    facet_sort_by facet_sort_params;
 
     std::string vector_query;
 
@@ -1169,15 +1148,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         return Option<bool>(400, "Only upto 3 sort fields are allowed.");
     }
 
-    if(!req_params[FACET_SORT_BY].empty()) {
-        bool parse_validate_facet_sort_by = parse_facet_sort_by_str(req_params[FACET_SORT_BY],
-                                                                             facet_sort_params);
-
-        if(!parse_validate_facet_sort_by) {
-            return Option<bool>(400,std::string("Parameter `") + FACET_SORT_BY + "` is malformed.");
-        }
-    }
-
     if(req_params.count(INFIX) != 0) {
         std::vector<std::string> infix_strs;
         StringUtils::split(req_params[INFIX], infix_strs, ",");
@@ -1254,9 +1224,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           remote_embedding_timeout_ms,
                                                           remote_embedding_num_try,
                                                           stopwords_set,
-                                                          facet_return_parent,
-                                                          facet_sort_params
-                                                        );
+                                                          facet_return_parent);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
