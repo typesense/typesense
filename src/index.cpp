@@ -867,9 +867,8 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                                 continue;
                             }
 
-                            const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
-
                             try {
+                                const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
                                 if(afield.vec_dist == cosine) {
                                     std::vector<float> normalized_vals(afield.num_dim);
                                     hnsw_index_t::normalize_vector(float_vals, normalized_vals);
