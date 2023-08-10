@@ -1043,7 +1043,7 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
         bool exact_key_match = (kv.key().size() == field_name.size());
         bool exact_primitive_match = exact_key_match && !kv.value().is_object();
-        bool text_embedding = kv.value().type == field_types::FLOAT_ARRAY && kv.value().embed.count(fields::from) != 0;
+        bool text_embedding = kv.value().type == field_types::FLOAT_ARRAY && kv.value().num_dim > 0;
 
         if(extract_only_string_fields && !kv.value().is_string() && !text_embedding) {
             if(exact_primitive_match && !is_wildcard) {
