@@ -1525,10 +1525,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     bool is_group_by_query = group_by_fields.size() > 0;
     bool is_vector_query = !vector_query.field_name.empty();
 
-    LOG(INFO) << "is_wildcard_query: " << is_wildcard_query;
-    LOG(INFO) << "is_group_by_query: " << is_group_by_query;
-    LOG(INFO) << "is_vector_query: " << is_vector_query;
-
     if(curated_sort_by.empty()) {
         auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, 
                                     sort_fields_std, is_wildcard_query, is_vector_query, is_group_by_query);
