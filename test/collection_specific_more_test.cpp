@@ -2583,3 +2583,5 @@ TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
     ASSERT_EQ(0, results["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
     ASSERT_EQ(0, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
 }
+
+

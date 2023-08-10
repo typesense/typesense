@@ -1043,7 +1043,7 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
         bool exact_key_match = (kv.key().size() == field_name.size());
         bool exact_primitive_match = exact_key_match && !kv.value().is_object();
-        bool text_embedding = kv.value().type == field_types::FLOAT_ARRAY && kv.value().embed.count(fields::from) != 0;
+        bool text_embedding = kv.value().type == field_types::FLOAT_ARRAY && kv.value().num_dim > 0;
 
         if(extract_only_string_fields && !kv.value().is_string() && !text_embedding) {
             if(exact_primitive_match && !is_wildcard) {
@@ -1073,7 +1073,7 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     return Option<bool>(true);
 }
 
-Option<nlohmann::json> Collection::search(std::string  raw_query,
+Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::vector<std::string>& raw_search_fields,
                                   const std::string & filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
@@ -1201,6 +1201,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     std::vector<std::string> processed_search_fields;
     std::vector<uint32_t> query_by_weights;
     size_t num_embed_fields = 0;
+    std::string query = raw_query;
 
     for(size_t i = 0; i < raw_search_fields.size(); i++) {
         const std::string& field_name = raw_search_fields[i];
@@ -1287,6 +1288,11 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 query_by_weights.push_back(raw_query_by_weights[i]);
             }
         }
+    }
+
+    // Set query to * if it is semantic search
+    if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
+        query = "*";
     }
 
     if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
@@ -1444,7 +1450,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     size_t max_hits = DEFAULT_TOPSTER_SIZE;
 
     // ensure that `max_hits` never exceeds number of documents in collection
-    if(search_fields.size() <= 1 || raw_query == "*") {
+    if(search_fields.size() <= 1 || query == "*") {
         max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
     } else {
         max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
@@ -1477,7 +1483,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
 
     std::vector<const override_t*> filter_overrides;
-    std::string query = raw_query;
     bool filter_curated_hits = false;
     std::string curated_sort_by;
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
