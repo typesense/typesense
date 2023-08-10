@@ -1073,7 +1073,7 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     return Option<bool>(true);
 }
 
-Option<nlohmann::json> Collection::search(std::string  raw_query,
+Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::vector<std::string>& raw_search_fields,
                                   const std::string & filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
@@ -1201,6 +1201,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     std::vector<std::string> processed_search_fields;
     std::vector<uint32_t> query_by_weights;
     size_t num_embed_fields = 0;
+    std::string query = raw_query;
 
     for(size_t i = 0; i < raw_search_fields.size(); i++) {
         const std::string& field_name = raw_search_fields[i];
@@ -1287,6 +1288,11 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 query_by_weights.push_back(raw_query_by_weights[i]);
             }
         }
+    }
+
+    // Set query to * if it is semantic search
+    if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
+        query = "*";
     }
 
     if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
@@ -1444,7 +1450,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     size_t max_hits = DEFAULT_TOPSTER_SIZE;
 
     // ensure that `max_hits` never exceeds number of documents in collection
-    if(search_fields.size() <= 1 || raw_query == "*") {
+    if(search_fields.size() <= 1 || query == "*") {
         max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
     } else {
         max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
@@ -1477,7 +1483,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
 
     std::vector<const override_t*> filter_overrides;
-    std::string query = raw_query;
     bool filter_curated_hits = false;
     std::string curated_sort_by;
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
@@ -1519,6 +1524,10 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
     bool is_wildcard_query = (query == "*");
     bool is_group_by_query = group_by_fields.size() > 0;
     bool is_vector_query = !vector_query.field_name.empty();
+
+    LOG(INFO) << "is_wildcard_query: " << is_wildcard_query;
+    LOG(INFO) << "is_group_by_query: " << is_group_by_query;
+    LOG(INFO) << "is_vector_query: " << is_vector_query;
 
     if(curated_sort_by.empty()) {
         auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, 
