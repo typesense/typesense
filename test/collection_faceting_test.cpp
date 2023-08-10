@@ -1993,3 +1993,121 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherFieldVal) {
     ASSERT_EQ("Tata", results["facet_counts"][0]["counts"][2]["value"]);
     ASSERT_EQ("Maruti", results["facet_counts"][0]["counts"][3]["value"]);
 }
+
+TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "phone", "type": "string", "optional": false, "facet": true },
+          {"name": "brand", "type": "string", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    nlohmann::json doc;
+
+    doc["phone"] = "Oneplus 11R";
+    doc["brand"] = "Oneplus";
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "Fusion Plus";
+    doc["brand"] = "Moto";
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "S22 Ultra";
+    doc["brand"] = "Samsung";
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "GT Master";
+    doc["brand"] = "Realme";
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "T2";
+    doc["brand"] = "Vivo";
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "Mi 6";
+    doc["brand"] = "Xiaomi";
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "Z6 Lite";
+    doc["brand"] = "Iqoo";
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    //sort facets by phone in asc order
+    facet_sort_by facet_sort_param{"alpha", "asc"};
+    auto search_op = coll1->search("*", {}, "", {"phone"},
+                                   {}, {2}, 10, 1, FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "", {},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000 * 1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, HASH, 30000,
+                                   2, "", {}, facet_sort_param);
+
+    if (!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(7, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("GT Master", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Mi 6", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Oneplus 11R", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("S22 Ultra", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("T2", results["facet_counts"][0]["counts"][5]["value"]);
+    ASSERT_EQ("Z6 Lite", results["facet_counts"][0]["counts"][6]["value"]);
+
+    //sort facets by brand in desc order
+    facet_sort_param.param = "alpha";
+    facet_sort_param.order =  "desc";
+    search_op = coll1->search("*", {}, "", {"brand"},
+                                   {}, {2}, 10, 1, FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "", {},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000 * 1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, HASH, 30000,
+                                   2, "", {}, facet_sort_param);
+
+    if (!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+
+    results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(7, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Xiaomi", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Vivo", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Samsung", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Realme", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("Oneplus", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("Moto", results["facet_counts"][0]["counts"][5]["value"]);
+    ASSERT_EQ("Iqoo", results["facet_counts"][0]["counts"][6]["value"]);
+}

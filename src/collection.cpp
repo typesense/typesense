@@ -1631,7 +1631,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
-    auto search_op = index->run_search(search_params, name, facet_index_type);
+    auto search_op = index->run_search(search_params, name, facet_index_type, facet_sort_param);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();
@@ -2114,7 +2114,7 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
                 }
 
                 std::unordered_map<std::string, size_t> ftoken_pos;
-                std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
+                std::vector<std::string>& ftokens = a_facet.hash_tokens[kv.first];
                 //LOG(INFO) << "working on hash_tokens for hash " << kv.first << " with size " << ftokens.size();
                 for(size_t ti = 0; ti < ftokens.size(); ti++) {
                     if(the_field.is_bool()) {
@@ -2187,9 +2187,19 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             }
         }
 
-        if(!facet_sort_param.param.empty()) {
+        if(facet_sort_param.param == "alpha") {
             bool is_asc = facet_sort_param.order == "asc";
-            std::stable_sort(facet_values.begin(), facet_values.end(), [&](const auto& fv1, const auto& fv2) {
+            std::stable_sort(facet_values.begin(), facet_values.end(),
+                             [&](const auto& fv1, const auto& fv2) {
+                if(is_asc) {
+                    return fv1.value < fv2.value;
+                }
+                return fv1.value > fv2.value;
+            });
+        } else if(!facet_sort_param.param.empty()) {
+            bool is_asc = facet_sort_param.order == "asc";
+            std::stable_sort(facet_values.begin(), facet_values.end(),
+                             [&](const auto& fv1, const auto& fv2) {
                 if(is_asc) {
                     return fv1.sort_field_val < fv2.sort_field_val;
                 }
@@ -2199,7 +2209,6 @@ Option<nlohmann::json> Collection::search(std::string  raw_query,
             if(facet_values.size() > max_facet_values) {
                 facet_values.erase(facet_values.begin() + max_facet_values, facet_values.end());
             }
-
         } else {
             std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
         }
@@ -5006,20 +5015,24 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
 }
 
 Option<bool> Collection::validate_facet_sort_by_field(const facet_sort_by& facet_sort_params) const {
-    if (search_schema.count(facet_sort_params.param) == 0) {
-        std::string error = "Could not find a facet field named `" + facet_sort_params.param + "` in the schema.";
-        return Option<bool>(404, error);
-    }
+    if(facet_sort_params.param == "alpha") {
+        //sort param can be either alphabetical sort or sort by other field
+    } else {
+        if (search_schema.count(facet_sort_params.param) == 0) {
+            std::string error = "Could not find a facet field named `" + facet_sort_params.param + "` in the schema.";
+            return Option<bool>(404, error);
+        }
 
-    const field &a_field = search_schema.at(facet_sort_params.param);
-    if (!a_field.nested) {
-        std::string error = "Field for `facet_sort_by` should be nested from same facet field";
-        return Option<bool>(400, error);
-    }
+        const field &a_field = search_schema.at(facet_sort_params.param);
+        if (!a_field.nested) {
+            std::string error = "Field for `facet_sort_by` should be nested from same facet field";
+            return Option<bool>(400, error);
+        }
 
-    if(a_field.is_string()) {
-        std::string error = "Field for `facet_sort_by` should not be string";
-        return Option<bool>(400, error);
+        if (a_field.is_string()) {
+            std::string error = "Field for `facet_sort_by` should not be string";
+            return Option<bool>(400, error);
+        }
     }
 
     if ((facet_sort_params.order != "asc") && (facet_sort_params.order != "desc")) {
