@@ -1069,6 +1069,32 @@ TEST_F(CollectionVectorTest, UpdateOfCollWithNonOptionalEmbeddingField) {
     ASSERT_TRUE(update_op.ok());
 }
 
+TEST_F(CollectionVectorTest, FreshEmplaceWithOptionalEmbeddingReferencedField) {
+    auto schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "name", "type": "string", "optional": true},
+            {"name": "about", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json object;
+    object["id"] = "0";
+    object["about"] = "about butter";
+
+    auto add_op = coll->add(object.dump(), EMPLACE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("No valid fields found to create embedding for `embedding`, please provide at least one valid field "
+              "or make the embedding field optional.", add_op.error());
+}
+
 TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExists) {
     nlohmann::json schema = R"({
         "name": "objects",
