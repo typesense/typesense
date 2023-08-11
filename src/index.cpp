@@ -434,6 +434,8 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 continue;
             }
 
+            handle_doc_ops(search_schema, index_rec.doc, index_rec.old_doc);
+
             if(do_validation) {
                 Option<uint32_t> validation_op = validator_t::validate_index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                           default_sorting_field,
@@ -471,7 +473,6 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                     }
                 }
             } else {
-                handle_doc_ops(search_schema, index_rec.doc, index_rec.old_doc);
                 if(generate_embeddings) {
                     records_to_embed.push_back(&index_rec);
                 }
@@ -6260,7 +6261,6 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
             }
         }
     } else {
-        handle_doc_ops(search_schema, update_doc, old_doc);
         new_doc = old_doc;
         new_doc.merge_patch(update_doc);
 

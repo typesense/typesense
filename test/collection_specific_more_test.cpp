@@ -2123,6 +2123,76 @@ TEST_F(CollectionSpecificMoreTest, WeightTakingPrecendeceOverMatch) {
     ASSERT_EQ(2, res["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
 }
 
+TEST_F(CollectionSpecificMoreTest, IncrementingCount) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "count", "type": "int32"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // brand new document: create + upsert + emplace should work
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Foo";
+    doc["$operations"]["increment"]["count"] = 1;
+    ASSERT_TRUE(coll1->add(doc.dump(), CREATE).ok());
+
+    doc.clear();
+    doc["id"] = "1";
+    doc["title"] = "Bar";
+    doc["$operations"]["increment"]["count"] = 1;
+    ASSERT_TRUE(coll1->add(doc.dump(), EMPLACE).ok());
+
+    doc.clear();
+    doc["id"] = "2";
+    doc["title"] = "Taz";
+    doc["$operations"]["increment"]["count"] = 1;
+    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+
+    auto res = coll1->search("*", {}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_EQ(3, res["hits"].size());
+    ASSERT_EQ(1, res["hits"][0]["document"]["count"].get<size_t>());
+    ASSERT_EQ(1, res["hits"][1]["document"]["count"].get<size_t>());
+    ASSERT_EQ(1, res["hits"][2]["document"]["count"].get<size_t>());
+
+    // should support updates
+
+    doc.clear();
+    doc["id"] = "0";
+    doc["title"] = "Foo";
+    doc["$operations"]["increment"]["count"] = 3;
+    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+
+    doc.clear();
+    doc["id"] = "1";
+    doc["title"] = "Bar";
+    doc["$operations"]["increment"]["count"] = 3;
+    ASSERT_TRUE(coll1->add(doc.dump(), EMPLACE).ok());
+
+    doc.clear();
+    doc["id"] = "2";
+    doc["title"] = "Bar";
+    doc["$operations"]["increment"]["count"] = 3;
+    ASSERT_TRUE(coll1->add(doc.dump(), UPDATE).ok());
+
+    res = coll1->search("*", {}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_EQ(3, res["hits"].size());
+    ASSERT_EQ(4, res["hits"][0]["document"]["count"].get<size_t>());
+    ASSERT_EQ(4, res["hits"][1]["document"]["count"].get<size_t>());
+    ASSERT_EQ(4, res["hits"][2]["document"]["count"].get<size_t>());
+}
+
 TEST_F(CollectionSpecificMoreTest, HighlightOnFieldNameWithDot) {
     nlohmann::json schema = R"({
         "name": "coll1",
