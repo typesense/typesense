@@ -1383,8 +1383,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("text_match_score"));
-    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("vector_distance"));
+    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("rank_fusion_score"));
 
     // Hybrid search - Only vector match
     req_params = {
@@ -1405,8 +1404,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-    ASSERT_EQ(0, res_obj["hits"][0]["hybrid_search_info"].at("text_match_score"));
-    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("vector_distance"));
+    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("rank_fusion_score"));
 
     // Infix search
     req_params = {
