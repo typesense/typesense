@@ -717,7 +717,7 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                 }
             }
         }
-        if(all_optional_and_null && !field.optional) {
+        if(all_optional_and_null && !field.optional && !is_update) {
             return Option<bool>(400, "No valid fields found to create embedding for `" + field.name + "`, please provide at least one valid field or make the embedding field optional.");
         }
     }
