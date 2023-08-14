@@ -757,6 +757,44 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
     for(size_t i = 0; i < sort_fields.size(); i++) {
         const sort_by& _sort_field = sort_fields[i];
+
+        if (_sort_field.name[0] == '$') {
+            // Reference sort_by
+            auto parenthesis_index = _sort_field.name.find('(');
+            std::string ref_collection_name = _sort_field.name.substr(1, parenthesis_index - 1);
+            auto& cm = CollectionManager::get_instance();
+            auto ref_collection = cm.get_collection(ref_collection_name);
+            if (ref_collection == nullptr) {
+                return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in `sort_by` not found.");
+            }
+
+            auto sort_by_str = _sort_field.name.substr(parenthesis_index + 1,
+                                                       _sort_field.name.size() - parenthesis_index - 2);
+            std::vector<sort_by> ref_sort_fields;
+            bool parsed_sort_by = CollectionManager::parse_sort_by_str(sort_by_str, ref_sort_fields);
+            if (!parsed_sort_by) {
+                return Option<bool>(400, "Reference `sort_by` is malformed.");
+            }
+
+            std::vector<sort_by> ref_sort_fields_std;
+            auto sort_validation_op = ref_collection->validate_and_standardize_sort_fields_with_lock(ref_sort_fields,
+                                                                                                     ref_sort_fields_std,
+                                                                                                     is_wildcard_query,
+                                                                                                     is_vector_query,
+                                                                                                     is_group_by_query);
+            if (!sort_validation_op.ok()) {
+                return Option<bool>(sort_validation_op.code(), "Referenced collection `" + ref_collection_name + "`: " +
+                                                                sort_validation_op.error());
+            }
+
+            for (auto& ref_sort_field_std: ref_sort_fields_std) {
+                ref_sort_field_std.reference_collection_name = ref_collection_name;
+                sort_fields_std.emplace_back(ref_sort_field_std);
+            }
+
+            continue;
+        }
+
         sort_by sort_field_std(_sort_field.name, _sort_field.order);
 
         if(sort_field_std.name.back() == ')') {
@@ -1007,6 +1045,214 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
     if(num_sort_expressions > 1) {
         std::string message = "Only one sorting eval expression is allowed.";
         return Option<bool>(422, message);
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const std::vector<sort_by> & sort_fields,
+                                                                        std::vector<sort_by>& sort_fields_std,
+                                                                        const bool is_wildcard_query,
+                                                                        const bool is_vector_query,
+                                                                        const bool is_group_by_query) const {
+    std::shared_lock lock(mutex);
+
+    for(const auto & sort_field : sort_fields) {
+        sort_by sort_field_std(sort_field.name, sort_field.order);
+
+        if(sort_field_std.name.back() == ')') {
+            // check if this is a geo field or text match field
+            size_t paran_start = 0;
+            while(paran_start < sort_field_std.name.size() && sort_field_std.name[paran_start] != '(') {
+                paran_start++;
+            }
+
+            const std::string& actual_field_name = sort_field_std.name.substr(0, paran_start);
+            const auto field_it = search_schema.find(actual_field_name);
+
+            if(actual_field_name == sort_field_const::text_match) {
+                std::vector<std::string> match_parts;
+                const std::string& match_config = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
+                StringUtils::split(match_config, match_parts, ":");
+                if(match_parts.size() != 2 || match_parts[0] != "buckets") {
+                    return Option<bool>(400, "Invalid sorting parameter passed for _text_match.");
+                }
+
+                if(!StringUtils::is_uint32_t(match_parts[1])) {
+                    return Option<bool>(400, "Invalid value passed for _text_match `buckets` configuration.");
+                }
+
+                sort_field_std.name = actual_field_name;
+                sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
+
+            } else if(actual_field_name == sort_field_const::eval) {
+                const std::string& filter_exp = sort_field_std.name.substr(paran_start + 1,
+                                                                           sort_field_std.name.size() - paran_start -
+                                                                           2);
+                if(filter_exp.empty()) {
+                    return Option<bool>(400, "The eval expression in sort_by is empty.");
+                }
+
+                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
+                                                                          store, "", sort_field_std.eval.filter_tree_root);
+                if(!parse_filter_op.ok()) {
+                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
+                }
+
+                sort_field_std.name = actual_field_name;
+
+            } else {
+                if(field_it == search_schema.end()) {
+                    std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
+                    return Option<bool>(404, error);
+                }
+
+                std::string error = "Bad syntax for sorting field `" + actual_field_name + "`";
+
+                if(!field_it.value().is_geopoint()) {
+                    // check for null value order
+                    const std::string& sort_params_str = sort_field_std.name.substr(paran_start + 1,
+                                                                                    sort_field_std.name.size() -
+                                                                                    paran_start - 2);
+
+                    std::vector<std::string> param_parts;
+                    StringUtils::split(sort_params_str, param_parts, ":");
+
+                    if(param_parts.size() != 2) {
+                        return Option<bool>(400, error);
+                    }
+
+                    if(param_parts[0] != sort_field_const::missing_values) {
+                        return Option<bool>(400, error);
+                    }
+
+                    auto missing_values_op = magic_enum::enum_cast<sort_by::missing_values_t>(param_parts[1]);
+                    if(missing_values_op.has_value()) {
+                        sort_field_std.missing_values = missing_values_op.value();
+                    } else {
+                        return Option<bool>(400, error);
+                    }
+                }
+
+                else {
+                    const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
+
+                    // e.g. geopoint_field(lat1, lng1, exclude_radius: 10 miles)
+
+                    std::vector<std::string> geo_parts;
+                    StringUtils::split(geo_coordstr, geo_parts, ",");
+
+                    if(geo_parts.size() != 2 && geo_parts.size() != 3) {
+                        return Option<bool>(400, error);
+                    }
+
+                    if(!StringUtils::is_float(geo_parts[0]) || !StringUtils::is_float(geo_parts[1])) {
+                        return Option<bool>(400, error);
+                    }
+
+                    if(geo_parts.size() == 3) {
+                        // try to parse the exclude radius option
+                        bool is_exclude_option = false;
+
+                        if(StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
+                            is_exclude_option = true;
+                        } else if(StringUtils::begins_with(geo_parts[2], sort_field_const::precision)) {
+                            is_exclude_option = false;
+                        } else {
+                            return Option<bool>(400, error);
+                        }
+
+                        std::vector<std::string> param_parts;
+                        StringUtils::split(geo_parts[2], param_parts, ":");
+
+                        if(param_parts.size() != 2) {
+                            return Option<bool>(400, error);
+                        }
+
+                        // param_parts[1] is the value, in either "20km" or "20 km" format
+
+                        if(param_parts[1].size() < 2) {
+                            return Option<bool>(400, error);
+                        }
+
+                        std::string unit = param_parts[1].substr(param_parts[1].size()-2, 2);
+
+                        if(unit != "km" && unit != "mi") {
+                            return Option<bool>(400, "Sort field's parameter unit must be either `km` or `mi`.");
+                        }
+
+                        std::vector<std::string> dist_values;
+                        StringUtils::split(param_parts[1], dist_values, unit);
+
+                        if(dist_values.size() != 1) {
+                            return Option<bool>(400, error);
+                        }
+
+                        if(!StringUtils::is_float(dist_values[0])) {
+                            return Option<bool>(400, error);
+                        }
+
+                        int32_t value_meters;
+
+                        if(unit == "km") {
+                            value_meters = std::stof(dist_values[0]) * 1000;
+                        } else if(unit == "mi") {
+                            value_meters = std::stof(dist_values[0]) * 1609.34;
+                        } else {
+                            return Option<bool>(400, "Sort field's parameter "
+                                                     "unit must be either `km` or `mi`.");
+                        }
+
+                        if(value_meters <= 0) {
+                            return Option<bool>(400, "Sort field's parameter must be a positive number.");
+                        }
+
+                        if(is_exclude_option) {
+                            sort_field_std.exclude_radius = value_meters;
+                        } else {
+                            sort_field_std.geo_precision = value_meters;
+                        }
+                    }
+
+                    double lat = std::stod(geo_parts[0]);
+                    double lng = std::stod(geo_parts[1]);
+                    int64_t lat_lng = GeoPoint::pack_lat_lng(lat, lng);
+                    sort_field_std.geopoint = lat_lng;
+                }
+
+                sort_field_std.name = actual_field_name;
+            }
+        }
+
+        if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
+            sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found && sort_field_std.name != sort_field_const::vector_distance) {
+
+            const auto field_it = search_schema.find(sort_field_std.name);
+            if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
+                std::string error = "Could not find a field named `" + sort_field_std.name +
+                                    "` in the schema for sorting.";
+                return Option<bool>(404, error);
+            }
+        }
+
+        if(sort_field_std.name == sort_field_const::group_found && is_group_by_query == false) {
+            std::string error = "group_by parameters should not be empty when using sort_by group_found";
+            return Option<bool>(404, error);
+        }
+
+        if(sort_field_std.name == sort_field_const::vector_distance && !is_vector_query) {
+            std::string error = "sort_by vector_distance is only supported for vector queries, semantic search and hybrid search.";
+            return Option<bool>(404, error);
+        }
+
+        StringUtils::toupper(sort_field_std.order);
+
+        if(sort_field_std.order != sort_field_const::asc && sort_field_std.order != sort_field_const::desc) {
+            std::string error = "Order for field` " + sort_field_std.name + "` should be either ASC or DESC.";
+            return Option<bool>(400, error);
+        }
+
+        sort_fields_std.emplace_back(sort_field_std);
     }
 
     return Option<bool>(true);
@@ -1526,7 +1772,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     bool is_vector_query = !vector_query.field_name.empty();
 
     if(curated_sort_by.empty()) {
-        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, 
+        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields,
                                     sort_fields_std, is_wildcard_query, is_vector_query, is_group_by_query);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
@@ -5112,4 +5358,17 @@ Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k
     }
 
     return Option<bool>(true);
+}
+
+void Collection::reference_populate_sort_mapping(int *sort_order, std::vector<size_t> &geopoint_indices,
+                                                 std::vector<sort_by> &sort_fields_std,
+                                                 std::array<spp::sparse_hash_map<uint32_t, int64_t> *, 3> &field_values)
+                                                 const {
+    std::shared_lock lock(mutex);
+    index->populate_sort_mapping_with_lock(sort_order, geopoint_indices, sort_fields_std, field_values);
+}
+
+int64_t Collection::reference_string_sort_score(const string &field_name,  const uint32_t& seq_id) const {
+    std::shared_lock lock(mutex);
+    return index->reference_string_sort_score(field_name, seq_id);
 }

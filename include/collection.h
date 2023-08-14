@@ -214,6 +214,11 @@ private:
                                                       bool is_wildcard_query,const bool is_vector_query,
                                                       bool is_group_by_query = false) const;
 
+    Option<bool> validate_and_standardize_sort_fields_with_lock(const std::vector<sort_by> & sort_fields,
+                                                                std::vector<sort_by>& sort_fields_std,
+                                                                bool is_wildcard_query,const bool is_vector_query,
+                                                                bool is_group_by_query = false) const;
+
     
     Option<bool> persist_collection_meta();
 
@@ -569,6 +574,12 @@ public:
                                  std::vector<std::string>& reordered_search_fields) const;
 
     Option<bool> truncate_after_top_k(const std::string& field_name, size_t k);
+
+    void reference_populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
+                                         std::vector<sort_by>& sort_fields_std,
+                                         std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
+
+    int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
 };
 
 template<class T>

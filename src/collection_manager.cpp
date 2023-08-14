@@ -623,6 +623,33 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
     char prev_non_space_char = 'a';
 
     for(size_t i=0; i < sort_by_str.size(); i++) {
+        if (sort_field_expr.empty() && sort_by_str[i] == '$') {
+            // Sort by reference field
+            auto open_paren_pos = sort_by_str.find('(', i);
+            if (open_paren_pos == std::string::npos) {
+                return false;
+            }
+            sort_field_expr = sort_by_str.substr(i, open_paren_pos - i + 1);
+
+            i = open_paren_pos;
+            int paren_count = 1;
+            while (++i < sort_by_str.size() && paren_count > 0) {
+                if (sort_by_str[i] == '(') {
+                    paren_count++;
+                } else if (sort_by_str[i] == ')') {
+                    paren_count--;
+                }
+                sort_field_expr += sort_by_str[i];
+            }
+            if (paren_count != 0) {
+                return false;
+            }
+
+            sort_fields.emplace_back(sort_field_expr, "");
+            sort_field_expr = "";
+            continue;
+        }
+
         if(i == sort_by_str.size()-1 || (sort_by_str[i] == ',' && !isdigit(prev_non_space_char))) {
             if(i == sort_by_str.size()-1) {
                 sort_field_expr += sort_by_str[i];

@@ -1364,6 +1364,36 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
 
+    nlohmann::json model_config = R"({
+        "model_name": "ts/e5-small"
+    })"_json;
+    auto query_embedding = TextEmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    std::string vec_string = "[";
+    for (auto const& i : query_embedding.embedding) {
+        vec_string += std::to_string(i);
+        vec_string += ",";
+    }
+    vec_string[vec_string.size() - 1] = ']';
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"vector_query", "embedding:(" + vec_string + ", flat_search_cutoff: 0)"},
+            {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
+            {"include_fields", "product_name, $Customers(product_price)"},
+            {"exclude_fields", ""}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+
     // Hybrid search - Both text match and vector match
     req_params = {
             {"collection", "Products"},
@@ -1383,7 +1413,8 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("rank_fusion_score"));
+    ASSERT_NE(0, res_obj["hits"][0].at("text_match"));
+    ASSERT_NE(0, res_obj["hits"][0].at("vector_distance"));
 
     // Hybrid search - Only vector match
     req_params = {
@@ -1404,7 +1435,8 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("rank_fusion_score"));
+    ASSERT_EQ(0, res_obj["hits"][0].at("text_match"));
+    ASSERT_NE(0, res_obj["hits"][0].at("vector_distance"));
 
     // Infix search
     req_params = {
@@ -1630,4 +1662,511 @@ TEST_F(CollectionJoinTest, CascadeDeletion) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ("product_b", res_obj["hits"][0]["document"].at("product_id"));
     ASSERT_EQ("user_a", res_obj["hits"][0]["document"].at("user_id"));
+}
+
+TEST_F(CollectionJoinTest, SortByReference) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string", "sort": true, "infix": true},
+                    {"name": "product_description", "type": "string"},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["product_description"], "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair."
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients."
+            })"_json
+    };
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float"},
+                    {"name": "product_available", "type": "bool"},
+                    {"name": "product_location", "type": "geopoint"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id", "sort": true}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 143,
+                "product_available": true,
+                "product_location": [48.872576479306765, 2.332291112241466],
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 73.5,
+                "product_available": false,
+                "product_location": [48.888286721920934, 2.342340862419206],
+                "product_id": "product_b"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 75,
+                "product_available": true,
+                "product_location": [48.872576479306765, 2.332291112241466],
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 140,
+                "product_available": false,
+                "product_location": [48.888286721920934, 2.342340862419206],
+                "product_id": "product_b"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$foo(product_price:asc"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Parameter `sort_by` is malformed.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(product_price)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Reference `sort_by` is malformed.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$foo(product_price:asc)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Referenced collection `foo` in `sort_by` not found.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(foo:asc)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Referenced collection `Customers`: Could not find a field named `foo` in the schema for sorting.",
+              search_op.error());
+
+    // Sort by reference numeric field
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(product_price:asc)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_b", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_a", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][1]["document"].at("product_price"));
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+
+    // Sort by reference string field
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(product_id:asc)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+
+    // Sort by reference optional filtering.
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(_eval(product_available:true):asc)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_b", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_a", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][1]["document"].at("product_price"));
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(_eval(product_available:true):desc)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+
+    // Text search
+    req_params = {
+            {"collection", "Products"},
+            {"q", "s"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+
+    // Phrase search
+    req_params = {
+            {"collection", "Products"},
+            {"q", R"("our")"},
+            {"query_by", "product_description"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+
+    // Vector search
+    req_params = {
+            {"collection", "Products"},
+            {"q", "natural products"},
+            {"query_by", "embedding"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+    auto product_a_score = res_obj["hits"][0].at("vector_distance");
+    auto product_b_score = res_obj["hits"][1].at("vector_distance");
+    // product_b is a better match for the vector query but sort_by overrides the order.
+    ASSERT_TRUE(product_b_score < product_a_score);
+
+    nlohmann::json model_config = R"({
+        "model_name": "ts/e5-small"
+    })"_json;
+    auto query_embedding = TextEmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    std::string vec_string = "[";
+    for (auto const& i : query_embedding.embedding) {
+        vec_string += std::to_string(i);
+        vec_string += ",";
+    }
+    vec_string[vec_string.size() - 1] = ']';
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"vector_query", "embedding:(" + vec_string + ", flat_search_cutoff: 0)"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+    product_a_score = res_obj["hits"][0].at("vector_distance");
+    product_b_score = res_obj["hits"][1].at("vector_distance");
+    // product_b is a better match for the vector query but sort_by overrides the order.
+    ASSERT_TRUE(product_b_score < product_a_score);
+
+    // Hybrid search - Both text match and vector match
+    req_params = {
+            {"collection", "Products"},
+            {"q", "soap"},
+            {"query_by", "product_name, embedding"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+    product_a_score = res_obj["hits"][0].at("text_match");
+    product_b_score = res_obj["hits"][1].at("text_match");
+    ASSERT_TRUE(product_b_score > product_a_score);
+    product_a_score = res_obj["hits"][0].at("vector_distance");
+    product_b_score = res_obj["hits"][1].at("vector_distance");
+    ASSERT_TRUE(product_b_score < product_a_score);
+
+    // Hybrid search - Only vector match
+    req_params = {
+            {"collection", "Products"},
+            {"q", "natural products"},
+            {"query_by", "product_name, embedding"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+    product_a_score = res_obj["hits"][0].at("vector_distance");
+    product_b_score = res_obj["hits"][1].at("vector_distance");
+    // product_b is a better match for the vector query but sort_by overrides the order.
+    ASSERT_TRUE(product_b_score < product_a_score);
+
+    // Infix search
+    req_params = {
+            {"collection", "Products"},
+            {"q", "p"},
+            {"query_by", "product_name"},
+            {"infix", "always"},
+            {"filter_by", "$Customers(customer_id:=customer_a)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+
+    // Multiple references - Wildcard search
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(product_price: >0)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Multiple references found to sort by on `Customers.product_price`.", search_op.error());
+
+    // Multiple references - Text search
+    req_params = {
+            {"collection", "Products"},
+            {"q", "s"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(product_price: >0)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+            {"include_fields", "product_id, $Customers(product_price)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Multiple references found to sort by on `Customers.product_price`.", search_op.error());
+
+    // Multiple references - Phrase search
+    req_params = {
+            {"collection", "Products"},
+            {"q", R"("our")"},
+            {"query_by", "product_description"},
+            {"filter_by", "$Customers(product_price: >0)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Multiple references found to sort by on `Customers.product_price`.", search_op.error());
+
+    // Multiple references - Vector search
+    req_params = {
+            {"collection", "Products"},
+            {"q", "natural products"},
+            {"query_by", "embedding"},
+            {"filter_by", "$Customers(product_price:>0)"},
+            {"include_fields", "product_name, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Multiple references found to sort by on `Customers.product_price`.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"vector_query", "embedding:(" + vec_string + ", flat_search_cutoff: 0)"},
+            {"filter_by", "$Customers(product_price: >0)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Multiple references found to sort by on `Customers.product_price`.", search_op.error());
+
+    // Multiple references - Hybrid search
+    req_params = {
+            {"collection", "Products"},
+            {"q", "soap"},
+            {"query_by", "product_name, embedding"},
+            {"filter_by", "$Customers(product_price: >0)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Multiple references found to sort by on `Customers.product_price`.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "natural products"},
+            {"query_by", "product_name, embedding"},
+            {"filter_by", "$Customers(product_price: >0)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Multiple references found to sort by on `Customers.product_price`.", search_op.error());
+
+    // Multiple references - Infix search
+    req_params = {
+            {"collection", "Products"},
+            {"q", "p"},
+            {"query_by", "product_name"},
+            {"infix", "always"},
+            {"filter_by", "$Customers(product_price: >0)"},
+            {"include_fields", "product_id, $Customers(product_price)"},
+            {"sort_by", "$Customers(product_price:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Multiple references found to sort by on `Customers.product_price`.", search_op.error());
 }
