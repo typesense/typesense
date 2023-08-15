@@ -4024,7 +4024,19 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else if(field_values[1] == &geo_sentinel_value) {
             scores[1] = geopoint_distances[1];
         } else if(field_values[1] == &str_sentinel_value) {
-            scores[1] = str_sort_index.at(sort_fields[1].name)->rank(seq_id);
+            if (sort_fields[1].reference_collection_name.empty()) {
+                scores[1] = str_sort_index.at(sort_fields[1].name)->rank(seq_id);
+            } else {
+                auto& cm = CollectionManager::get_instance();
+                auto ref_collection = cm.get_collection(sort_fields[1].reference_collection_name);
+                if (ref_collection == nullptr) {
+                    return Option<bool>(400, "Referenced collection `" + sort_fields[1].reference_collection_name +
+                                             "` not found.");
+                }
+
+                scores[1] = ref_collection->reference_string_sort_score(sort_fields[1].name, seq_id);
+            }
+
             if(scores[1] == adi_tree_t::NOT_FOUND) {
                 if(sort_fields[1].order == sort_field_const::asc &&
                    sort_fields[1].missing_values == sort_by::missing_values_t::first) {
@@ -4096,7 +4108,19 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         } else if(field_values[2] == &geo_sentinel_value) {
             scores[2] = geopoint_distances[2];
         } else if(field_values[2] == &str_sentinel_value) {
-            scores[2] = str_sort_index.at(sort_fields[2].name)->rank(seq_id);
+            if (sort_fields[2].reference_collection_name.empty()) {
+                scores[2] = str_sort_index.at(sort_fields[2].name)->rank(seq_id);
+            } else {
+                auto& cm = CollectionManager::get_instance();
+                auto ref_collection = cm.get_collection(sort_fields[2].reference_collection_name);
+                if (ref_collection == nullptr) {
+                    return Option<bool>(400, "Referenced collection `" + sort_fields[2].reference_collection_name +
+                                             "` not found.");
+                }
+
+                scores[2] = ref_collection->reference_string_sort_score(sort_fields[2].name, seq_id);
+            }
+
             if(scores[2] == adi_tree_t::NOT_FOUND) {
                 if(sort_fields[2].order == sort_field_const::asc &&
                    sort_fields[2].missing_values == sort_by::missing_values_t::first) {
