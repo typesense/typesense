@@ -39,12 +39,13 @@
 - An E-Commerce Store Browsing experience: [ecommerce-store.typesense.org](https://ecommerce-store.typesense.org/)
 - GeoSearch / Browsing experience: [airbnb-geosearch.typesense.org](https://airbnb-geosearch.typesense.org/)
 - Search / Browse xkcd comics by topic: [xkcd-search.typesense.org](https://xkcd-search.typesense.org/)
+- Semantic / Hybrid search on 300K HN comments: [hn-comments-search.typesense.org](https://hn-comments-search.typesense.org)
 
 🗣️ 🎥 If you prefer watching videos:
 
 - Here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
-- Here's our [roadmap](https://github.com/orgs/typesense/projects/1) call from Q1 2022: https://aviyel.com/events/297/typesense-community-call-q1-2022-roadmap-and-contributor-spotlight
 - Check out Typesense's recent mention during Google I/O Developer Keynote: https://youtu.be/qBkyU1TJKDg?t=2399
+- Here's one where one of our community members gives an overview of Typesense and shows you an end-to-end demo: https://www.youtube.com/watch?v=kwtHOkf7Jdg
 
 ## Quick Links
 
@@ -70,12 +71,13 @@
 - **Simple and Delightful:** Simple to set-up, integrate with, operate and scale.
 - **⚡ Blazing Fast:** Built in C++. Meticulously architected from the ground-up for low-latency (<50ms) instant searches.
 - **Tunable Ranking:** Easy to tailor your search results to perfection.
-- **Sorting:** Sort results based on a particular field at query time (helpful for features like "Sort by Price (asc)").
+- **Sorting:** Dynamically sort results based on a particular field at query time (helpful for features like "Sort by Price (asc)").
 - **Faceting & Filtering:** Drill down and refine results.
 - **Grouping & Distinct:** Group similar results together to show more variety.
 - **Federated Search:** Search across multiple collections (indices) in a single HTTP request.
-- **Geo Search:** Search and sort by results around a geographic location.
-- **Vector search:** support for both exact & HNSW-based approximate vector searching.
+- **Geo Search:** Search and sort by results around a latitude/longitude or within a bounding box.
+- **Vector Search:** Index embeddings from your machine learning models in Typesense and do a nearest-neighbor search. Can be used to build similarity search, semantic search, visual search, recommendations, etc.
+- **Semantic / Hybrid Search:** Automatically generate embeddings from within Typesense using built-in models like S-BERT, E-5, etc or use OpenAI, PaLM API, etc, for both queries and indexed data. This allows you to send JSON data into Typesense and build an out-of-the-box semantic search + keyword search experience.
 - **Scoped API Keys:** Generate API keys that only allow access to certain records, for multi-tenant applications.
 - **Synonyms:** Define words as equivalents of each other, so searching for a word will also return results for the synonyms defined.
 - **Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
@@ -83,7 +85,7 @@
 - **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
 - **No Runtime Dependencies:** Typesense is a single binary that you can run locally or in production with a single command.
 
-**Don't see a feature on this list?** Search our issue tracker if someone has already requested it and add a comment to it explaining your use-case, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
+**Don't see a feature on this list?** Search our issue tracker if someone has already requested it and add a comment to it explaining your use-case, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you.
 
 ## Roadmap
 
@@ -107,8 +109,11 @@ We'd love to benchmark with larger datasets, if we can find large ones in the pu
 
 ## Who's using this?
 
-Typesense is used by a range of users across different industries. We've only recently started documenting who's using it in our [Showcase](SHOWCASE.md).
+Typesense is used by a range of users across different domains and verticals.
 
+On Typesense Cloud we serve more than **1 BILLION** searches per month. Typesense's Docker images have been downloaded over 7M times.
+
+We've recently started documenting who's using it in our [Showcase](SHOWCASE.md).
 If you'd like to be included in the list, please feel free to edit [SHOWCASE.md](SHOWCASE.md) and send us a PR.
 
 You'll also see a list of user logos on the [Typesense Cloud](https://cloud.typesense.org) home page.
@@ -116,7 +121,7 @@ You'll also see a list of user logos on the [Typesense Cloud](https://cloud.type
 ## Install
 
 **Option 1:** You can download the [binary packages](https://typesense.org/downloads) that we publish for 
-Linux (x86-64) and Mac.
+Linux (x86_64 & arm64) and Mac (x86_64).
 
 **Option 2:** You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense).
 
@@ -131,7 +136,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.24.1 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.25.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.
@@ -212,29 +217,60 @@ If you notice any issues with the documentation or walk-through, please let us k
 
 While you can definitely use CURL to interact with Typesense Server directly, we offer official API clients to simplify using Typesense from your language of choice. The API Clients come built-in with a smart retry strategy to ensure that API calls made via them are resilient, especially in an HA setup.
 
-- [typesense-js](https://github.com/typesense/typesense-js)
-- [typesense-php](https://github.com/typesense/typesense-php)
-- [typesense-python](https://github.com/typesense/typesense-python)
-- [typesense-ruby](https://github.com/typesense/typesense-ruby)
+- [JavaScript](https://github.com/typesense/typesense-js)
+- [PHP](https://github.com/typesense/typesense-php)
+- [Python](https://github.com/typesense/typesense-python)
+- [Ruby](https://github.com/typesense/typesense-ruby)
 
 If we don't offer an API client in your language, you can still use any popular HTTP client library to access Typesense's APIs directly. 
 
 Here are some community-contributed clients and integrations:
 
-- [API client for Go](https://github.com/typesense/typesense-go)
-- [API client for Dart](https://github.com/typesense/typesense-dart)
-- [API client for C#](https://github.com/DAXGRID/typesense-dotnet)
-- [Laravel Scout driver](https://github.com/devloopsnet/laravel-scout-typesense-engine)
-- [Symfony integration](https://github.com/acseo/TypesenseBundle)
+- [Go](https://github.com/typesense/typesense-go)
+- [.Net](https://github.com/DAXGRID/typesense-dotnet)
+- [Java](https://github.com/typesense/typesense-java)
+- [Rust](https://github.com/typesense/typesense-rust)
+- [Dart](https://github.com/typesense/typesense-dart)
+- [Perl](https://github.com/Ovid/Search-Typesense)
+- [Swift](https://github.com/typesense/typesense-swift)
+- [Clojure](https://github.com/runeanielsen/typesense-clj)
+- [python orm client](https://github.com/RedSnail/typesense_orm)
+- [PHP SEAL Adapter](https://github.com/schranz-search/seal-typesense-adapter)
+- [Elixir](https://github.com/jaeyson/ex_typesense)
 
-We welcome community contributions to add more official client libraries and integrations. Please reach out to us at contact@typsense.org or open an issue on Github to collaborate with us on the architecture. 🙏
+We welcome community contributions to add more official client libraries and integrations. Please reach out to us at contact@typsense.org or open an issue on GitHub to collaborate with us on the architecture. 🙏
+
+### Framework Integrations
+
+We also have the following framework integrations:
+
+- [Laravel](https://github.com/typesense/laravel-scout-typesense-engine)
+- [Firebase](https://github.com/typesense/firestore-typesense-search)
+- [Gatsby](https://www.gatsbyjs.com/plugins/gatsby-plugin-typesense/)
+- [WordPress](https://wordpress.org/plugins/search-with-typesense/?ref=typesense)
+- [WooCommerce](https://www.codemanas.com/downloads/typesense-search-for-woocommerce/?ref=typesense)
+- [Symfony](https://github.com/acseo/TypesenseBundle)
+- [InstantSearch](https://github.com/typesense/typesense-instantsearch-adapter)
+- [DocSearch](https://typesense.org/docs/guide/docsearch.html)
+- [Docusaurus](https://github.com/typesense/docusaurus-theme-search-typesense)
+- [ToolJet](https://tooljet.com/?ref=typesense)
+- [Plone CMS](https://pypi.org/project/zopyx.typesense/)
+- [Craft CMS](https://plugins.craftcms.com/typesense)
+- [SEAL](https://github.com/schranz-search/schranz-search) provides integrations of Typesense in Laravel, Symfony, Spiral, Yii and Laminas Mezzio PHP Framework
+
+### Postman Collection
+
+We have a community-maintained Postman Collection here: [https://github.com/typesense/postman](https://github.com/typesense/postman).
+
+[Postman](https://www.postman.com/downloads/) is an app that let's you perform HTTP requests by pointing and clicking, instead of having to type them out in the terminal.
+The Postman Collection above gives you template requests that you can import into Postman, to quickly make API calls to Typesense.
 
 ## Search UI Components
 
 You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter) 
 to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
 
-Here's how: [https://typesense.org/docs/0.24.1/guide/#search-ui](https://typesense.org/docs/0.24.1/guide/#search-ui) 
+Here's how: [https://typesense.org/docs/guide/search-ui-components.html](https://typesense.org/docs/guide/search-ui-components.html) 
 
 ## FAQ
 
@@ -311,13 +347,13 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 
 ## Support
 
-👋 🌐 New: If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
+👋 🌐 If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
 
 We also do virtual office hours every Friday. Reserve a time slot [here](https://calendly.com/jason-typesense/typesense-office-hours).
 
-If you run into any problems or issues, please create a Github issue and we'll try our best to help.
+If you run into any problems or issues, please create a GitHub issue and we'll try our best to help.
 
-We strive to provide good support through our issue trackers on Github. However, if you'd like to receive private & prioritized support with:
+We strive to provide good support through our issue trackers on GitHub. However, if you'd like to receive private & prioritized support with:
 
 - Guaranteed SLAs
 - Phone / video calls to discuss your specific use case and get recommendations on best practices
@@ -333,23 +369,15 @@ We are a lean team on a mission to democratize search and we'll take all the hel
 
 ## Getting Latest Updates
 
-If you'd like to get updates when we release new versions, click on the "Watch" button on the top and select "Releases only". Github will then send you notifications along with a changelog with each new release.
+If you'd like to get updates when we release new versions, click on the "Watch" button on the top and select "Releases only". GitHub will then send you notifications along with a changelog with each new release.
 
 We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
 
-👋 🌐 New: We'll also post updates on our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
+👋 🌐 We'll also post updates on our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
 
 ## Build from source
 
-**Building with Docker**
-
-The docker build script takes care of all required dependencies, so it's the easiest way to build Typesense:
-
-```
-TYPESENSE_VERSION=nightly ./docker-build.sh --build-deploy-image --create-binary [--clean] [--depclean]
-```
-
-**Building on your machine**
+We use [Bazel](https://bazel.build) to build Typesense.
 
 Typesense requires the following dependencies: 
 
@@ -359,11 +387,11 @@ Typesense requires the following dependencies:
 * OpenSSL (>=1.0.2)
 * curl
 * ICU
-* brpc
-* braft
 
-```
-./build.sh --create-binary [--clean] [--depclean]
+Once you've installed them, run the following from the root of the repo:
+
+```shell
+bazel build //:typesense-server
 ```
 
 The first build will take some time since other third-party libraries are pulled and built as part of the build process.
