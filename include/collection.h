@@ -187,9 +187,8 @@ private:
                                           std::vector<field>& new_fields,
                                           bool enable_nested_fields);
 
-    static bool facet_count_compare(const std::pair<uint32_t, facet_count_t>& a,
-                                    const std::pair<uint32_t, facet_count_t>& b) {
-        return std::tie(a.second.count, a.first) > std::tie(b.second.count, b.first);
+    static bool facet_count_compare(const facet_count_t& a, const facet_count_t& b) {
+        return std::tie(a.count, a.fhash) > std::tie(b.count, b.fhash);
     }
 
     static bool facet_count_str_compare(const facet_value_t& a,

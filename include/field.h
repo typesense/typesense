@@ -570,6 +570,10 @@ public:
 
 struct facet_count_t {
     uint32_t count = 0;
+    // for value based faceting, actual value is stored here
+    std::string fvalue;
+    // for hash based faceting, hash value is stored here
+    int64_t fhash;
     // used to fetch the actual document and value for representation
     uint32_t doc_id = 0;
     uint32_t array_pos = 0;
@@ -584,9 +588,12 @@ struct facet_stats_t {
 
 struct facet {
     const std::string field_name;
-    spp::sparse_hash_map<std::string, facet_count_t> result_map;
+    spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
+    spp::sparse_hash_map<std::string, facet_count_t> value_result_map;
+
     // used for facet value query
-    spp::sparse_hash_map<std::string, std::vector<std::string>> hash_tokens;
+    spp::sparse_hash_map<std::string, std::vector<std::string>> fvalue_tokens;
+    spp::sparse_hash_map<uint64_t, std::vector<std::string>> hash_tokens;
 
     // used for faceting grouped results
     spp::sparse_hash_map<uint32_t, spp::sparse_hash_set<uint32_t>> hash_groups;
@@ -594,7 +601,7 @@ struct facet {
     facet_stats_t stats;
 
     //dictionary of key=>pair(range_id, range_val)
-    std::map<std::string, std::string> facet_range_map;
+    std::map<int64_t, std::string> facet_range_map;
 
     bool is_range_query;
 
@@ -604,16 +611,14 @@ struct facet {
     
     bool is_intersected = false;
 
-    bool get_range(std::string key, std::pair<std::string, std::string>& range_pair)
-    {
-        if(facet_range_map.empty())
-        {
+    bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
+        if(facet_range_map.empty()) {
             LOG (ERROR) << "Facet range is not defined!!!";
         }
+
         auto it = facet_range_map.lower_bound(key);
 
-        if(it != facet_range_map.end())
-        {
+        if(it != facet_range_map.end()) {
             range_pair.first = it->first;
             range_pair.second = it->second;
             return true;
@@ -622,17 +627,16 @@ struct facet {
         return false;
     }
 
-    explicit facet(const std::string& field_name, 
-        std::map<std::string, std::string> facet_range = {}, bool is_range_q = false)
-        :field_name(field_name){
-            facet_range_map = facet_range;
-            is_range_query = is_range_q;
+    explicit facet(const std::string& field_name, std::map<int64_t, std::string> facet_range = {},
+                   bool is_range_q = false) :field_name(field_name), facet_range_map(facet_range),
+                   is_range_query(is_range_q) {
     }
 };
 
 struct facet_info_t {
     // facet hash => resolved tokens
-    std::unordered_map<std::string, std::vector<std::string>> hashes;
+    std::unordered_map<uint64_t, std::vector<std::string>> hashes;
+    std::vector<std::string> fvalue_searched_tokens;
     bool use_facet_query = false;
     bool should_compute_stats = false;
     bool use_value_index = false;

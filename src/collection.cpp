@@ -2001,9 +2001,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["facet_counts"] = nlohmann::json::array();
     
     // populate facets
-    for(facet & a_facet: facets) {
+    for(facet& a_facet: facets) {
         // Don't return zero counts for a wildcard facet.
-        if (a_facet.is_wildcard_match && a_facet.result_map.size() == 0) {
+        if (a_facet.is_wildcard_match &&
+                (((a_facet.is_intersected && a_facet.value_result_map.empty())) ||
+                (!a_facet.is_intersected && a_facet.result_map.empty()))) {
             continue;
         }
 
@@ -2020,28 +2022,28 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         facet_result["counts"] = nlohmann::json::array();
 
         std::vector<facet_value_t> facet_values;
-        std::vector<std::pair<std::string, facet_count_t>> facet_counts;
+        std::vector<facet_count_t> facet_counts;
 
         for (const auto & kv : a_facet.result_map) {
-            facet_counts.emplace_back(std::make_pair(kv.first, kv.second));
+            facet_count_t v = kv.second;
+            v.fhash = kv.first;
+            facet_counts.emplace_back(v);
+        }
+
+        for (const auto& kv : a_facet.value_result_map) {
+            facet_count_t v = kv.second;
+            v.fvalue = kv.first;
+            v.fhash = StringUtils::hash_wy(kv.first.c_str(), kv.first.size());
+            facet_counts.emplace_back(v);
         }
         
         auto max_facets = std::min(max_facet_values, facet_counts.size());
         auto nthElement = max_facets == facet_counts.size() ? max_facets - 1 : max_facets;
-        std::nth_element(facet_counts.begin(), facet_counts.begin() + nthElement,
-                            facet_counts.end(), [&](const auto& kv1, const auto& kv2) {
-                                size_t a_count = kv1.second.count;
-                                size_t b_count = kv2.second.count;
-
-                                size_t a_value_size = UINT64_MAX - kv1.first.size();
-                                size_t b_value_size = UINT64_MAX - kv2.first.size();
-
-                                return std::tie(a_count, a_value_size) > std::tie(b_count, b_value_size);
-                            });
+        std::nth_element(facet_counts.begin(), facet_counts.begin() + nthElement, facet_counts.end(),
+                         Collection::facet_count_compare);
 
         if(a_facet.is_range_query){
-            for(auto kv : a_facet.result_map){
-
+            for(const auto& kv : a_facet.result_map){
                 auto facet_range_iter = a_facet.facet_range_map.find(kv.first);
                 if(facet_range_iter != a_facet.facet_range_map.end()){
                     auto & facet_count = kv.second;
@@ -2059,13 +2061,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
-                auto & kv = facet_counts[fi];
-                auto & facet_count = kv.second;
-
+                auto & facet_count = facet_counts[fi];
                 std::string value;
 
                 if(a_facet.is_intersected) {
-                    value = kv.first;
+                    value = facet_count.fvalue;
                     //LOG(INFO) << "used intersection";
                 } else {
                     // fetch actual facet value from representative doc id
@@ -2089,7 +2089,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 }
 
                 std::unordered_map<std::string, size_t> ftoken_pos;
-                std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
+                std::vector<string>& ftokens = a_facet.is_intersected ? a_facet.fvalue_tokens[facet_count.fvalue] :
+                                               a_facet.hash_tokens[facet_count.fhash];
                 //LOG(INFO) << "working on hash_tokens for hash " << kv.first << " with size " << ftokens.size();
                 for(size_t ti = 0; ti < ftokens.size(); ti++) {
                     if(the_field.is_bool()) {
@@ -4874,7 +4875,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             return Option<bool>(400, error);
         }
 
-        std::vector<std::tuple<std::string, std::string, std::string>> tupVec;
+        std::vector<std::tuple<int64_t, int64_t, std::string>> tupVec;
 
         auto& range_map = a_facet.facet_range_map;
         for(const auto& range : result){
@@ -4889,26 +4890,28 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             auto pos2 = range.find(",");
             auto pos3 = range.find("]");
 
-            std::string lower_range, upper_range;
+            int64_t lower_range, upper_range;
             auto lower_range_start = pos1 + 2;
             auto lower_range_len = pos2 - lower_range_start;
             auto upper_range_start = pos2 + 1;
             auto upper_range_len = pos3 - upper_range_start;
 
             if(a_field.is_integer()) {
-                lower_range = range.substr(lower_range_start, lower_range_len);
-                StringUtils::trim(lower_range);
-                upper_range = range.substr(upper_range_start, upper_range_len);
-                StringUtils::trim(upper_range);
+                std::string lower_range_str = range.substr(lower_range_start, lower_range_len);
+                StringUtils::trim(lower_range_str);
+                lower_range = std::stoll(lower_range_str);
+                std::string upper_range_str = range.substr(upper_range_start, upper_range_len);
+                StringUtils::trim(upper_range_str);
+                upper_range = std::stoll(upper_range_str);
             } else {
                 float val = std::stof(range.substr(pos1 + 2, pos2));
-                lower_range = std::to_string(Index::float_to_int64_t(val));
+                lower_range = Index::float_to_int64_t(val);
 
                 val = std::stof(range.substr(pos2 + 1, pos3));
-                upper_range = std::to_string(Index::float_to_int64_t(val));
+                upper_range = Index::float_to_int64_t(val);
             }
 
-            tupVec.emplace_back(std::make_tuple(lower_range, upper_range, range_val));
+            tupVec.emplace_back(lower_range, upper_range, range_val);
         }
 
         //sort the range values so that we can check continuity

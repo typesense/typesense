@@ -1295,32 +1295,29 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 //range facet processing
                 if(a_facet.is_range_query) {
                     const auto doc_val = kv.first;
-                    std::pair<std::string, std::string> range_pair {};
-                    if(a_facet.get_range(doc_val, range_pair)) {
+                    std::pair<int64_t , std::string> range_pair {};
+                    if(a_facet.get_range(std::stoll(doc_val), range_pair)) {
                         const auto& range_id = range_pair.first;
                         facet_count_t& facet_count = a_facet.result_map[range_id];
                         facet_count.count = kv.second;
                     }
                 } else { 
                     if(use_facet_query) {
-                        const auto fquery_hashes_it = fquery_hashes.find(facet_field.name);
-                        if(fquery_hashes_it != fquery_hashes.end()) {
-                            const auto& searched_tokens = fquery_hashes_it->second;
-                            auto facet_str = kv.first;
-                            transform(facet_str.begin(), facet_str.end(), facet_str.begin(), ::tolower);
+                        const auto& searched_tokens = facet_infos[findex].fvalue_searched_tokens;
+                        auto facet_str = kv.first;
+                        transform(facet_str.begin(), facet_str.end(), facet_str.begin(), ::tolower);
 
-                            for(const auto& val : searched_tokens) {
-                                if(facet_str.find(val) != std::string::npos) {
-                                    facet_count_t& facet_count = a_facet.result_map[kv.first];
-                                    facet_count.count = kv.second;       
+                        for(const auto& val : searched_tokens) {
+                            if(facet_str.find(val) != std::string::npos) {
+                                facet_count_t& facet_count = a_facet.value_result_map[kv.first];
+                                facet_count.count = kv.second;
 
-                                    a_facet.hash_tokens[kv.first] = searched_tokens;
-                                }
+                                a_facet.fvalue_tokens[kv.first] = searched_tokens;
                             }
                         }
 
                     } else {
-                        facet_count_t& facet_count = a_facet.result_map[kv.first];
+                        facet_count_t& facet_count = a_facet.value_result_map[kv.first];
                         facet_count.count = kv.second;
                     }
                 }
@@ -1389,18 +1386,17 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         compute_facet_stats(a_facet, fhash, facet_field.type);
                     }
 
-                    std::string fhash_str = std::to_string(fhash);
                     if(a_facet.is_range_query) {
                         int64_t doc_val = get_doc_val_from_sort_index(sort_index_it, doc_seq_id);
 
-                        std::pair<std::string, std::string> range_pair {};
-                        if(a_facet.get_range(std::to_string(doc_val), range_pair)) {
+                        std::pair<int64_t , std::string> range_pair {};
+                        if(a_facet.get_range(doc_val, range_pair)) {
                             const auto& range_id = range_pair.first;
                             facet_count_t& facet_count = a_facet.result_map[range_id];
                             facet_count.count += 1;
                         }
-                    } else if(!use_facet_query || fquery_hashes.find(fhash_str) != fquery_hashes.end()) {
-                        facet_count_t& facet_count = a_facet.result_map[fhash_str];
+                    } else if(!use_facet_query || fquery_hashes.find(fhash) != fquery_hashes.end()) {
+                        facet_count_t& facet_count = a_facet.result_map[fhash];
                         //LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id << ", hash: " <<  fhash;
                         facet_count.doc_id = doc_seq_id;
                         facet_count.array_pos = j;
@@ -1411,7 +1407,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         }
                         if(use_facet_query) {
                             //LOG (INFO) << "adding hash tokens for hash " << fhash;
-                            a_facet.hash_tokens[fhash_str] = fquery_hashes.at(fhash_str);
+                            a_facet.hash_tokens[fhash] = fquery_hashes.at(fhash);
                         }
                     }
                 }
@@ -2891,7 +2887,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 for(auto & facet_kv: this_facet.result_map) {
                     uint32_t fhash = 0;
                     if(group_limit) {
-                        fhash = std::stoul(facet_kv.first);
+                        fhash = facet_kv.first;
                         // we have to add all group sets
                         acc_facet.hash_groups[fhash].insert(
                             this_facet.hash_groups[fhash].begin(),
@@ -2915,6 +2911,24 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     acc_facet.hash_tokens[facet_kv.first] = this_facet.hash_tokens[facet_kv.first];
                 }
 
+                for(auto& facet_kv: this_facet.value_result_map) {
+                    size_t count = 0;
+                    if(acc_facet.value_result_map.count(facet_kv.first) == 0) {
+                        // not found, so set it
+                        count = facet_kv.second.count;
+                    } else {
+                        count = acc_facet.value_result_map[facet_kv.first].count + facet_kv.second.count;
+                    }
+
+                    acc_facet.value_result_map[facet_kv.first].count = count;
+
+                    acc_facet.value_result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
+                    acc_facet.value_result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
+                    acc_facet.is_intersected = this_facet.is_intersected;
+
+                    acc_facet.fvalue_tokens[facet_kv.first] = this_facet.fvalue_tokens[facet_kv.first];
+                }
+
                 if(this_facet.stats.fvcount != 0) {
                     acc_facet.stats.fvcount += this_facet.stats.fvcount;
                     acc_facet.stats.fvsum += this_facet.stats.fvsum;
@@ -2927,9 +2941,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         for(auto & acc_facet: facets) {
             for(auto& facet_kv: acc_facet.result_map) {
                 if(group_limit) {
-                    facet_kv.second.count = acc_facet.hash_groups[std::stoul(facet_kv.first)].size();
+                    facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
                 }
 
+                if(estimate_facets) {
+                    facet_kv.second.count = size_t(double(facet_kv.second.count) * (100.0f / facet_sample_percent));
+                }
+            }
+
+            for(auto& facet_kv: acc_facet.value_result_map) {
                 if(estimate_facets) {
                     facet_kv.second.count = size_t(double(facet_kv.second.count) * (100.0f / facet_sample_percent));
                 }
@@ -4482,7 +4502,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                         // since `field_result_ids` contains documents matched across all queries
                         // value based index
                         for(const auto& val : searched_tokens) {
-                            facet_infos[findex].hashes[facet_field.name].emplace_back(val);
+                            facet_infos[findex].fvalue_searched_tokens.emplace_back(val);
                         }
                     }
                 }
@@ -4519,7 +4539,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
                                 for(size_t array_index: array_indices) {
                                     if(array_index < facet_hashes.size()) {
-                                        std::string hash = std::to_string(facet_hashes[array_index]);
+                                        uint32_t hash = facet_hashes[array_index];
 
                                         /*LOG(INFO) << "seq_id: " << seq_id << ", hash: " << hash << ", array index: "
                                                   << array_index;*/
@@ -4531,7 +4551,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                                     }
                                 }
                             } else {
-                                std::string hash = std::to_string(facet_hashes[0]);
+                                uint32_t hash = facet_hashes[0];
                                 if(facet_infos[findex].hashes.count(hash) == 0) {
                                     //LOG(INFO) << "adding searched_tokens for hash " << hash;
                                     facet_infos[findex].hashes.emplace(hash, searched_tokens);
