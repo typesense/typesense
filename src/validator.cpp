@@ -626,7 +626,7 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
             continue;
         }
 
-        if((a_field.optional || op == UPDATE || op == EMPLACE) && document.count(field_name) == 0) {
+        if((a_field.optional || op == UPDATE || (op == EMPLACE && is_update)) && document.count(field_name) == 0) {
             continue;
         }
 
@@ -716,7 +716,7 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                 }
             }
         }
-        if(all_optional_and_null && !field.optional) {
+        if(all_optional_and_null && !field.optional && !is_update) {
             return Option<bool>(400, "No valid fields found to create embedding for `" + field.name + "`, please provide at least one valid field or make the embedding field optional.");
         }
     }

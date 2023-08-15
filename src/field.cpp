@@ -824,18 +824,41 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 }
 
 bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
-                        const field& the_field, const std::string& flat_name,
+                        bool is_update, const field& the_field, const std::string& flat_name,
                         const std::unordered_map<std::string, field>& dyn_fields,
                         std::unordered_map<std::string, field>& flattened_fields) {
     if(value.is_object()) {
         has_obj_array = has_array;
-        for(const auto& kv: value.items()) {
-            flatten_obj(doc, kv.value(), has_array, has_obj_array, the_field, flat_name + "." + kv.key(),
-                        dyn_fields, flattened_fields);
+        auto it = value.begin();
+        while(it != value.end()) {
+            const std::string& child_field_name = flat_name + "." + it.key();
+            if(it.value().is_null()) {
+                if(has_array) {
+                    doc[child_field_name].push_back(nullptr);
+                } else {
+                    doc[child_field_name] = nullptr;
+                }
+
+                field flattened_field;
+                flattened_field.name = child_field_name;
+                flattened_field.type = field_types::NIL;
+                flattened_fields[child_field_name] = flattened_field;
+
+                if(!is_update) {
+                    // update code path requires and takes care of null values
+                    it = value.erase(it);
+                } else {
+                    it++;
+                }
+            } else {
+                flatten_obj(doc, it.value(), has_array, has_obj_array, is_update, the_field, child_field_name,
+                            dyn_fields, flattened_fields);
+                it++;
+            }
         }
     } else if(value.is_array()) {
         for(const auto& kv: value.items()) {
-            flatten_obj(doc, kv.value(), true, has_obj_array, the_field, flat_name, dyn_fields, flattened_fields);
+            flatten_obj(doc, kv.value(), true, has_obj_array, is_update, the_field, flat_name, dyn_fields, flattened_fields);
         }
     } else { // must be a primitive
         if(doc.count(flat_name) != 0 && flattened_fields.find(flat_name) == flattened_fields.end()) {
@@ -891,7 +914,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
 
 Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                   std::vector<std::string>& path_parts, size_t path_index,
-                                  bool has_array, bool has_obj_array,
+                                  bool has_array, bool has_obj_array, bool is_update,
                                   const std::unordered_map<std::string, field>& dyn_fields,
                                   std::unordered_map<std::string, field>& flattened_fields) {
     if(path_index == path_parts.size()) {
@@ -946,7 +969,8 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
         if(detected_type == the_field.type || is_numericaly_valid) {
             if(the_field.is_object()) {
-                flatten_obj(doc, obj, has_array, has_obj_array, the_field, the_field.name, dyn_fields, flattened_fields);
+                flatten_obj(doc, obj, has_array, has_obj_array, is_update, the_field, the_field.name,
+                            dyn_fields, flattened_fields);
             } else {
                 if(doc.count(the_field.name) != 0 && flattened_fields.find(the_field.name) == flattened_fields.end()) {
                     return Option<bool>(true);
@@ -989,7 +1013,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             for(auto& ele: it.value()) {
                 has_obj_array = has_obj_array || ele.is_object();
                 Option<bool> op = flatten_field(doc, ele, the_field, path_parts, path_index + 1, has_array,
-                                                has_obj_array, dyn_fields, flattened_fields);
+                                                has_obj_array, is_update, dyn_fields, flattened_fields);
                 if(!op.ok()) {
                     return op;
                 }
@@ -997,7 +1021,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             return Option<bool>(true);
         } else {
             return flatten_field(doc, it.value(), the_field, path_parts, path_index + 1, has_array, has_obj_array,
-                                 dyn_fields, flattened_fields);
+                                 is_update, dyn_fields, flattened_fields);
         }
     } {
         return Option<bool>(404, "Field `" + the_field.name + "` not found.");
@@ -1007,7 +1031,7 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 Option<bool> field::flatten_doc(nlohmann::json& document,
                                 const tsl::htrie_map<char, field>& nested_fields,
                                 const std::unordered_map<std::string, field>& dyn_fields,
-                                bool missing_is_ok, std::vector<field>& flattened_fields) {
+                                bool is_update, std::vector<field>& flattened_fields) {
 
     std::unordered_map<std::string, field> flattened_fields_map;
 
@@ -1021,12 +1045,12 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
         }
 
         auto op = flatten_field(document, document, nested_field, field_parts, 0, false, false,
-                                dyn_fields, flattened_fields_map);
+                                is_update, dyn_fields, flattened_fields_map);
         if(op.ok()) {
             continue;
         }
 
-        if(op.code() == 404 && (missing_is_ok || nested_field.optional)) {
+        if(op.code() == 404 && (is_update || nested_field.optional)) {
             continue;
         } else {
             return op;
@@ -1036,7 +1060,10 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
     document[".flat"] = nlohmann::json::array();
     for(auto& kv: flattened_fields_map) {
         document[".flat"].push_back(kv.second.name);
-        flattened_fields.push_back(kv.second);
+        if(kv.second.type != field_types::NIL) {
+            // not a real field so we won't add it
+            flattened_fields.push_back(kv.second);
+        }
     }
 
     return Option<bool>(true);
