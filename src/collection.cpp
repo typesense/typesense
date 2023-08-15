@@ -262,10 +262,6 @@ nlohmann::json Collection::get_summary_json() const {
             field_json[fields::reference] = coll_field.reference;
         }
 
-        if(!coll_field.embed.empty()) {
-            field_json[fields::embed] = coll_field.embed;
-        }
-
         fields_arr.push_back(field_json);
     }
 
@@ -5054,9 +5050,10 @@ void Collection::hide_credential(nlohmann::json& json, const std::string& creden
         // hide api key with * except first 5 chars
         std::string credential_name_str = json[credential_name];
         if(credential_name_str.size() > 5) {
-            json[credential_name] = credential_name_str.replace(5, credential_name_str.size() - 5, credential_name_str.size() - 5, '*');
+            size_t num_chars_to_replace = credential_name_str.size() - 5;
+            json[credential_name] = credential_name_str.replace(5, num_chars_to_replace, num_chars_to_replace, '*');
         } else {
-            json[credential_name] = credential_name_str.replace(0, credential_name_str.size(), credential_name_str.size(), '*');
+            json[credential_name] = "***********";
         }
     }
 }

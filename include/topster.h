@@ -25,7 +25,7 @@ struct KV {
 
     std::map<std::string, reference_filter_result_t> reference_filter_results;
 
-    KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, uint8_t match_score_index, const int64_t *scores,
+    KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, int8_t match_score_index, const int64_t *scores,
        std::map<std::string, reference_filter_result_t>  reference_filter_results = {}):
             match_score_index(match_score_index), query_index(queryIndex), array_index(0), key(key),
             distinct_key(distinct_key), reference_filter_results(std::move(reference_filter_results)) {
