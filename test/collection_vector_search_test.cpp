@@ -1033,6 +1033,72 @@ TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
     ASSERT_TRUE(add_op.ok());
 }
 
+TEST_F(CollectionVectorTest, HideCredential) {
+    auto schema_json =
+            R"({
+            "name": "Products",
+            "fields": [
+                {"name": "product_name", "type": "string", "infix": true},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small",
+                        "api_key": "ax-abcdef12345",
+                        "access_token": "ax-abcdef12345",
+                        "refresh_token": "ax-abcdef12345",
+                        "client_id": "ax-abcdef12345",
+                        "client_secret": "ax-abcdef12345",
+                        "project_id": "ax-abcdef12345"
+                    }}}
+            ]
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+    auto coll_summary = coll1->get_summary_json();
+
+    ASSERT_EQ("ax-ab*********", coll_summary["fields"][1]["embed"]["model_config"]["api_key"].get<std::string>());
+    ASSERT_EQ("ax-ab*********", coll_summary["fields"][1]["embed"]["model_config"]["access_token"].get<std::string>());
+    ASSERT_EQ("ax-ab*********", coll_summary["fields"][1]["embed"]["model_config"]["refresh_token"].get<std::string>());
+    ASSERT_EQ("ax-ab*********", coll_summary["fields"][1]["embed"]["model_config"]["client_id"].get<std::string>());
+    ASSERT_EQ("ax-ab*********", coll_summary["fields"][1]["embed"]["model_config"]["client_secret"].get<std::string>());
+    ASSERT_EQ("ax-ab*********", coll_summary["fields"][1]["embed"]["model_config"]["project_id"].get<std::string>());
+
+    // small api key
+
+    schema_json =
+            R"({
+            "name": "Products2",
+            "fields": [
+                {"name": "product_name", "type": "string", "infix": true},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small",
+                        "api_key": "ax1",
+                        "access_token": "ax1",
+                        "refresh_token": "ax1",
+                        "client_id": "ax1",
+                        "client_secret": "ax1",
+                        "project_id": "ax1"
+                    }}}
+            ]
+        })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll2 = collection_create_op.get();
+    coll_summary = coll2->get_summary_json();
+
+    ASSERT_EQ("***********", coll_summary["fields"][1]["embed"]["model_config"]["api_key"].get<std::string>());
+    ASSERT_EQ("***********", coll_summary["fields"][1]["embed"]["model_config"]["access_token"].get<std::string>());
+    ASSERT_EQ("***********", coll_summary["fields"][1]["embed"]["model_config"]["refresh_token"].get<std::string>());
+    ASSERT_EQ("***********", coll_summary["fields"][1]["embed"]["model_config"]["client_id"].get<std::string>());
+    ASSERT_EQ("***********", coll_summary["fields"][1]["embed"]["model_config"]["client_secret"].get<std::string>());
+    ASSERT_EQ("***********", coll_summary["fields"][1]["embed"]["model_config"]["project_id"].get<std::string>());
+}
+
 TEST_F(CollectionVectorTest, UpdateOfCollWithNonOptionalEmbeddingField) {
     nlohmann::json schema = R"({
         "name": "objects",
