@@ -1314,11 +1314,11 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                                     facet_count_t& facet_count = a_facet.result_map[kv.first];
                                     facet_count.count = kv.second;       
 
-                                    a_facet.hash_tokens[kv.first] = fquery_hashes.at(facet_field.name);     
+                                    a_facet.hash_tokens[kv.first] = searched_tokens;
                                 }
                             }
                         }
-                        
+
                     } else {
                         facet_count_t& facet_count = a_facet.result_map[kv.first];
                         facet_count.count = kv.second;
@@ -1331,7 +1331,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         compute_facet_stats(a_facet, kv.first, facet_field.type);
                     }
                 } 
-            }                 
+            }
         } else {
             //LOG(INFO) << "Using hashing to find facets";
             bool facet_hash_index_exists = facet_index_v4->has_hash_index(facet_field.name);
@@ -4463,33 +4463,48 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
                 //LOG(INFO) << "si: " << si << ", field_result_ids_len: " << field_result_ids_len;
 
-                for(size_t i = 0; i < field_result_ids_len; i++) {
-                    uint32_t seq_id = field_result_ids[i];
-                    bool id_matched = true;
-
+#ifdef TEST_BUILD
+                if(facet_index_type == VALUE) {
+#else
+                if(facet_value_index_exists && facet_infos[findex].use_value_index) {
+#endif
+                    size_t num_tokens_found = 0;
                     for(auto pl: posting_lists) {
-                        if(!posting_t::contains(pl, seq_id)) {
-                            // need to ensure that document ID actually contains searched_query tokens
-                            // since `field_result_ids` contains documents matched across all queries
-                            id_matched = false;
+                        if(posting_t::contains_atleast_one(pl, field_result_ids, field_result_ids_len)) {
+                            num_tokens_found++;
+                        } else {
                             break;
                         }
                     }
 
-                    if(!id_matched) {
-                        continue;
-                    }
-
-                #ifdef TEST_BUILD
-                    if(facet_index_type == VALUE) {
-                #else
-                    if(facet_value_index_exists && facet_infos[findex].use_value_index) {
-                #endif
+                    if(num_tokens_found == posting_lists.size()) {
+                        // need to ensure that document ID actually contains searched_query tokens
+                        // since `field_result_ids` contains documents matched across all queries
                         // value based index
                         for(const auto& val : searched_tokens) {
                             facet_infos[findex].hashes[facet_field.name].emplace_back(val);
                         }
-                    } else {
+                    }
+                }
+
+                else {
+                    for(size_t i = 0; i < field_result_ids_len; i++) {
+                        uint32_t seq_id = field_result_ids[i];
+                        bool id_matched = true;
+
+                        for(auto pl: posting_lists) {
+                            if(!posting_t::contains(pl, seq_id)) {
+                                // need to ensure that document ID actually contains searched_query tokens
+                                // since `field_result_ids` contains documents matched across all queries
+                                id_matched = false;
+                                break;
+                            }
+                        }
+
+                        if(!id_matched) {
+                            continue;
+                        }
+
                         std::vector<uint32_t> facet_hashes;
                         auto facet_index = facet_index_v4->get_facet_hash_index(a_facet.field_name);
                         posting_list_t::iterator_t facet_index_it = facet_index->new_iterator();
