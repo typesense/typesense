@@ -1214,3 +1214,63 @@ TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
     ASSERT_EQ(1, results["hits"][0].count("text_match_info"));
     ASSERT_EQ(1, results["hits"][0].count("hybrid_search_info"));
 }
+
+
+TEST_F(CollectionVectorTest, HybridSortingTest) {
+    auto schema_json =
+            R"({
+            "name": "TEST",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+    })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    auto add_op = coll1->add(R"({
+        "name": "john doe"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll1->add(R"({
+        "name": "john legend"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll1->add(R"({
+        "name": "john krasinski"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll1->add(R"({
+        "name": "john abraham"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // first do keyword search
+    auto results = coll1->search("john", {"name"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>()).get();
+    
+    ASSERT_EQ(4, results["hits"].size());
+
+
+    // now do hybrid search with sort_by: _text_match:desc,_vector_distance:asc
+    std::vector<sort_by> sort_by_list = {{"_text_match", "desc"}, {"_vector_distance", "asc"}};
+
+    auto hybrid_results = coll1->search("john", {"name", "embedding"},
+                                 "", {}, sort_by_list, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>()).get();
+    
+    // first 4 results should be same as keyword search
+    ASSERT_EQ(results["hits"][0]["document"]["name"].get<std::string>(), hybrid_results["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ(results["hits"][1]["document"]["name"].get<std::string>(), hybrid_results["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ(results["hits"][2]["document"]["name"].get<std::string>(), hybrid_results["hits"][2]["document"]["name"].get<std::string>());
+    ASSERT_EQ(results["hits"][3]["document"]["name"].get<std::string>(), hybrid_results["hits"][3]["document"]["name"].get<std::string>());
+}
