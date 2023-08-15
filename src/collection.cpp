@@ -1945,7 +1945,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                       exclude_fields_full,
                                       "",
                                       0,
-                                      field_order_kv->reference_filter_results);
+                                      field_order_kv->reference_filter_results,
+                                      const_cast<Collection *>(this), get_seq_id_from_key(seq_id_key));
             if (!prune_op.ok()) {
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
             }
@@ -2697,11 +2698,21 @@ Option<bool> Collection::get_filter_ids(const std::string& filter_query, filter_
     return index->do_filtering_with_lock(filter_tree_root, filter_result, name);
 }
 
-Option<std::string> Collection::get_reference_field(const std::string & collection_name) const {
+Option<uint32_t> Collection::get_reference_doc_id(const std::string& ref_collection_name, const uint32_t& seq_id) const {
+    auto get_reference_field_op = get_reference_field(ref_collection_name);
+    if (!get_reference_field_op.ok()) {
+        return Option<uint32_t>(get_reference_field_op.code(), get_reference_field_op.error());
+    }
+
+    auto field_name = get_reference_field_op.get() + REFERENCE_HELPER_FIELD_SUFFIX;
+    return index->get_reference_doc_id_with_lock(field_name, seq_id);
+}
+
+Option<std::string> Collection::get_reference_field(const std::string& ref_collection_name) const {
     std::string reference_field_name;
     for (auto const& pair: reference_fields) {
         auto reference_pair = pair.second;
-        if (reference_pair.collection == collection_name) {
+        if (reference_pair.collection == ref_collection_name) {
             reference_field_name = pair.first;
             break;
         }
@@ -2709,7 +2720,7 @@ Option<std::string> Collection::get_reference_field(const std::string & collecti
 
     if (reference_field_name.empty()) {
         return Option<std::string>(400, "Could not find any field in `" + name + "` referencing the collection `"
-                                 + collection_name + "`.");
+                                 + ref_collection_name + "`.");
     }
 
     return Option(reference_field_name);
@@ -4044,7 +4055,8 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                    const tsl::htrie_set<char>& include_names,
                                    const tsl::htrie_set<char>& exclude_names,
                                    const std::string& parent_name, size_t depth,
-                                   const std::map<std::string, reference_filter_result_t>& reference_filter_results) {
+                                   const std::map<std::string, reference_filter_result_t>& reference_filter_results,
+                                   Collection *const collection, const uint32_t& seq_id) {
     // doc can only be an object
     auto it = doc.begin();
     while(it != doc.end()) {
@@ -4120,12 +4132,8 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         it++;
     }
 
-    if (reference_filter_results.empty()) {
-        return Option<bool>(true);
-    }
-
-    auto include_reference_it = include_names.equal_prefix_range("$");
-    for (auto reference = include_reference_it.first; reference != include_reference_it.second; reference++) {
+    auto include_reference_it_pair = include_names.equal_prefix_range("$");
+    for (auto reference = include_reference_it_pair.first; reference != include_reference_it_pair.second; reference++) {
         auto ref = reference.key();
         size_t parenthesis_index = ref.find('(');
 
@@ -4162,9 +4170,36 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
             return Option<bool>(include_exclude_op.code(), error_prefix + include_exclude_op.error());
         }
 
-        if (reference_filter_results.count(ref_collection_name) == 0 ||
-            reference_filter_results.at(ref_collection_name).count == 0) {
-            // doc has no references.
+        bool has_filter_reference = reference_filter_results.count(ref_collection_name) > 0;
+        if (!has_filter_reference) {
+            if (collection == nullptr) {
+                continue;
+            }
+
+            // Reference include_by without join, check if doc itself contains the reference.
+            auto get_reference_doc_id_op = collection->get_reference_doc_id(ref_collection_name, seq_id);
+            if (!get_reference_doc_id_op.ok()) {
+                continue;
+            }
+
+            auto ref_doc_seq_id = get_reference_doc_id_op.get();
+
+            nlohmann::json ref_doc;
+            auto get_doc_op = ref_collection->get_document_from_store(ref_doc_seq_id, ref_doc);
+            if (!get_doc_op.ok()) {
+                return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
+            }
+
+            auto prune_op = prune_doc(ref_doc, ref_include_fields_full, ref_exclude_fields_full);
+            if (!prune_op.ok()) {
+                return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
+            }
+
+            doc.update(ref_doc);
+            continue;
+        }
+
+        if (has_filter_reference && reference_filter_results.at(ref_collection_name).count == 0) {
             continue;
         }
 

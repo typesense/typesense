@@ -1656,34 +1656,6 @@ bool Index::field_is_indexed(const std::string& field_name) const {
     geo_range_index.count(field_name) != 0;
 }
 
-void Index::aproximate_numerical_match(num_tree_t* const num_tree,
-                                       const NUM_COMPARATOR& comparator,
-                                       const int64_t& value,
-                                       const int64_t& range_end_value,
-                                       uint32_t& filter_ids_length) const {
-    if (comparator == RANGE_INCLUSIVE) {
-        num_tree->approx_range_inclusive_search_count(value, range_end_value, filter_ids_length);
-        return;
-    }
-
-    if (comparator == NOT_EQUALS) {
-        uint32_t to_exclude_ids_len = 0;
-        num_tree->approx_search_count(EQUALS, value, to_exclude_ids_len);
-
-        if (to_exclude_ids_len == 0) {
-            filter_ids_length += seq_ids->num_ids();
-        } else if (to_exclude_ids_len >= seq_ids->num_ids()) {
-            filter_ids_length += 0;
-        } else {
-            filter_ids_length += (seq_ids->num_ids() - to_exclude_ids_len);
-        }
-
-        return;
-    }
-
-    num_tree->approx_search_count(comparator, value, filter_ids_length);
-}
-
 Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root,
                                            filter_result_t& filter_result,
                                            const std::string& collection_name) const {
@@ -6148,6 +6120,17 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
             (*document)[field.name] = embedding_res.embedding;
         }
     }
+}
+
+Option<uint32_t> Index::get_reference_doc_id_with_lock(const string& reference_helper_field_name,
+                                                       const uint32_t& seq_id) const {
+    std::shared_lock lock(mutex);
+    if (sort_index.count(reference_helper_field_name) == 0 ||
+        sort_index.at(reference_helper_field_name)->count(seq_id) == 0) {
+        return Option<uint32_t>(400, "Could not find a reference for doc " + std::to_string(seq_id));
+    }
+
+    return Option<uint32_t>(sort_index.at(reference_helper_field_name)->at(seq_id));
 }
 
 /*

@@ -482,23 +482,7 @@ private:
                                         const size_t num_search_fields,
                                         std::vector<size_t>& popular_field_ids);
 
-    void numeric_not_equals_filter(num_tree_t* const num_tree,
-                                   const int64_t value,
-                                   const uint32_t& context_ids_length,
-                                   uint32_t* const& context_ids,
-                                   size_t& ids_len,
-                                   uint32_t*& ids) const;
-
     bool field_is_indexed(const std::string& field_name) const;
-
-    void aproximate_numerical_match(num_tree_t* const num_tree,
-                                    const NUM_COMPARATOR& comparator,
-                                    const int64_t& value,
-                                    const int64_t& range_end_value,
-                                    uint32_t& filter_ids_length) const;
-
-    void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
-                    const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
     static void tokenize_string(const std::string& text,
                                 const field& a_field,
@@ -940,6 +924,9 @@ public:
 
     Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                        std::vector<uint32_t>& outside_seq_ids);
+
+    Option<uint32_t> get_reference_doc_id_with_lock(const std::string& reference_helper_field_name,
+                                                    const uint32_t& seq_id) const;
 
     friend class filter_result_iterator_t;
 };
