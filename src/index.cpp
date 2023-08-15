@@ -2447,9 +2447,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     return compute_sort_scores_op;
                 }
 
-                KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
+                KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, std::move(references));
                 kv.vector_distance = vec_dist_score;
-                kv.reference_filter_results = std::move(references);
                 int ret = topster->add(&kv);
 
                 if(group_limit != 0 && ret < 2) {
