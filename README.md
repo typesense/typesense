@@ -388,6 +388,8 @@ Typesense requires the following dependencies:
 * curl
 * ICU
 
+Please refer to the [CI build steps](.github/workflows/tests.yml) for the latest set of dependencies.
+
 Once you've installed them, run the following from the root of the repo:
 
 ```shell
