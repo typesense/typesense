@@ -81,13 +81,14 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             size_t num_dim = 0;
             auto& model_config = field_obj[fields::embed][fields::model_config];
 
-            auto res = TextEmbedderManager::validate_and_init_model(model_config, num_dim);
+            auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
             if(!res.ok()) {
                 const std::string& model_name = model_config["model_name"].get<std::string>();
                 LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
                 continue;
             }
 
+            field_obj[fields::num_dim] = num_dim;
             LOG(INFO) << "Model init done.";
         }
 
@@ -810,7 +811,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *VECTOR_QUERY = "vector_query";
 
     const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
-    const char* REMOTE_EMBEDDING_NUM_TRY = "remote_embedding_num_try";
+    const char* REMOTE_EMBEDDING_NUM_TRIES = "remote_embedding_num_tries";
 
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
@@ -975,7 +976,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     text_match_type_t match_type = max_score;
 
     size_t remote_embedding_timeout_ms = 5000;
-    size_t remote_embedding_num_try = 2;
+    size_t remote_embedding_num_tries = 2;
 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
@@ -1003,7 +1004,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_PERCENT, &facet_sample_percent},
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
-        {REMOTE_EMBEDDING_NUM_TRY, &remote_embedding_num_try},
+        {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1222,7 +1223,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           offset,
                                                           HASH,
                                                           remote_embedding_timeout_ms,
-                                                          remote_embedding_num_try,
+                                                          remote_embedding_num_tries,
                                                           stopwords_set,
                                                           facet_return_parent);
 

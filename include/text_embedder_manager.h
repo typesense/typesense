@@ -36,7 +36,6 @@ public:
     TextEmbedderManager& operator=(const TextEmbedderManager&) = delete;
 
     Option<TextEmbedder*> get_text_embedder(const nlohmann::json& model_config);
-    Option<bool> init_text_embedder(const nlohmann::json& model_config, size_t& num_dim);
 
     void delete_text_embedder(const std::string& model_path);
     void delete_all_text_embedders();
@@ -69,9 +68,9 @@ public:
     bool is_public_model(const std::string& model_name);
     static bool is_remote_model(const std::string& model_name);
 
-    static Option<bool> validate_and_init_remote_model(const nlohmann::json& model_config, size_t& num_dims);
-    static Option<bool> validate_and_init_local_model(const nlohmann::json& model_config, size_t& num_dims);
-    static Option<bool> validate_and_init_model(const nlohmann::json& model_config, size_t& num_dims);
+    Option<bool> validate_and_init_remote_model(const nlohmann::json& model_config, size_t& num_dims);
+    Option<bool> validate_and_init_local_model(const nlohmann::json& model_config, size_t& num_dims);
+    Option<bool> validate_and_init_model(const nlohmann::json& model_config, size_t& num_dims);
 
 private:
     TextEmbedderManager() = default;

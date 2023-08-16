@@ -1306,6 +1306,49 @@ TEST_F(CollectionOptimizedFacetingTest, FacetOnArrayFieldWithSpecialChars) {
     }
 }
 
+TEST_F(CollectionOptimizedFacetingTest, FacetTestWithDeletedDoc) {
+    std::vector<field> fields = {
+            field("tags", field_types::STRING_ARRAY, true),
+            field("points", field_types::INT32, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+
+    doc["id"] = "0";
+    doc["tags"] = {"foobar"};
+    doc["points"] = 10;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["tags"] = {"gamma"};
+    doc["points"] = 10;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["tags"] = {"beta"};
+    doc["points"] = 10;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "3";
+    doc["tags"] = {"alpha"};
+    doc["points"] = 10;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    coll1->remove("0");
+
+    auto results = coll1->search("*", {},
+                                 "", {"tags"}, {}, {2}, 10, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
+}
+
 TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
     std::vector<field> fields = {
             field("tags", field_types::STRING_ARRAY, true),
