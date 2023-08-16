@@ -275,10 +275,10 @@ private:
                                                  const spp::sparse_hash_set<std::string>& exclude_fields,
                                                  tsl::htrie_set<char>& include_fields_full,
                                                  tsl::htrie_set<char>& exclude_fields_full) const;
-    
 
+    Option<uint32_t> get_reference_doc_id(const std::string& ref_collection_name, const uint32_t& seq_id) const;
 
-    Option<std::string> get_reference_field(const std::string & collection_name) const;
+    Option<std::string> get_reference_field(const std::string& ref_collection_name) const;
 
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
@@ -376,8 +376,10 @@ public:
     static void remove_flat_fields(nlohmann::json& document);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
-                          const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "", size_t depth = 0,
-                          const std::map<std::string, reference_filter_result_t>& reference_filter_results = {});
+                                  const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
+                                  size_t depth = 0,
+                                  const std::map<std::string, reference_filter_result_t>& reference_filter_results = {},
+                                  Collection *const collection = nullptr, const uint32_t& seq_id = 0);
 
     const Index* _get_index() const;
 
