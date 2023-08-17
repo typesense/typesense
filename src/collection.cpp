@@ -2028,6 +2028,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         for (const auto & kv : a_facet.result_map) {
             facet_count_t v = kv.second;
             v.fhash = kv.first;
+            v.sort_field_val = kv.second.sort_field_val;
             facet_counts.emplace_back(v);
         }
 
@@ -2159,7 +2160,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     highlightedss << value[i];
                     i++;
                 }
-                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
+                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count, facet_count.sort_field_val};
                 facet_values.emplace_back(facet_value);
             }
         }
@@ -2173,6 +2174,16 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 }
 
                 return fv1.value > fv2.value;
+            });
+        } else if(!a_facet.sort_field.empty()) {
+            bool is_asc = a_facet.sort_order == "asc";
+            std::stable_sort(facet_values.begin(), facet_values.end(),
+                             [&] (const auto& fv1, const auto& fv2) {
+                if(is_asc) {
+                    return fv1.sort_field_val < fv2.sort_field_val;
+                }
+
+                return fv1.sort_field_val > fv2.sort_field_val;
             });
         } else {
             std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
@@ -5009,6 +5020,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
        // normal facet
        std::string order = "";
        bool sort_alpha = false;
+       std::string sort_field = "";
        std::string facet_field_copy = facet_field;
        auto pos = facet_field_copy.find("(");
        if(pos != std::string::npos) {
@@ -5020,24 +5032,41 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
            return Option<bool>(404, error);
        }
 
-       const field &a_field = search_schema.at(facet_field_copy);
-
        if (facet_field.find("sort") != std::string::npos) { //sort params are supplied with facet
-           if(!a_field.is_string()) {
-               std::string error = "Facet field should be string type to apply alpha sort.";
-               return Option<bool>(400, error);
+           pos = facet_field.find("sort_field");
+           if(pos == std::string::npos) { //alpha sort
+               const field &a_field = search_schema.at(facet_field_copy);
+               if (!a_field.is_string()) {
+                   std::string error = "Facet field should be string type to apply alpha sort.";
+                   return Option<bool>(400, error);
+               }
+               sort_alpha = true;
+           } else { //sort_field based sort
+               auto sort_field_fixed_len = strlen("sort_field:");
+               auto sort_field_len = facet_field.size() - pos - sort_field_fixed_len - 1;
+               sort_field = facet_field.substr(pos + sort_field_fixed_len, sort_field_len);
+
+               if (search_schema.count(sort_field) == 0 || !search_schema.at(sort_field).facet) {
+                   std::string error = "Could not find a facet field named `" + sort_field + "` in the schema.";
+                   return Option<bool>(404, error);
+               }
+
+               const field &a_field = search_schema.at(sort_field);
+               if (a_field.is_string()) {
+                   std::string error = "Sort field should be non string type to apply sort.";
+                   return Option<bool>(400, error);
+               }
            }
 
            if (facet_field.find("asc") != std::string::npos) {
                order = "asc";
-               sort_alpha = true;
            } else if (facet_field.find("desc") != std::string::npos) {
                order = "desc";
-               sort_alpha = true;
            }
        }
 
-       facets.emplace_back(facet(facet_field_copy, {}, false, sort_alpha, order));
+       facets.emplace_back(facet(facet_field_copy, {}, false, sort_alpha,
+                                 order, sort_field));
    }
 
     return Option<bool>(true);

@@ -1278,32 +1278,20 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         bool is_wildcard_no_filter_query = is_wildcard_query && no_filters_provided;
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
 
-        if(a_facet.is_sort_by_alpha) {
-            a_facet.is_intersected = true;
-
-            std::map<std::string, uint32_t> facet_results;
-
-            facet_index_v4->intersect(facet_field.name, result_ids,
-                                      results_size, max_facet_count, facet_results, is_wildcard_no_filter_query,
-                                      a_facet.sort_order);
-
-            for(const auto& kv : facet_results) {
-                facet_count_t &facet_count = a_facet.value_result_map[kv.first];
-                facet_count.count = kv.second;
-            }
-
 #ifdef TEST_BUILD
-        } else if(facet_index_type == VALUE) {
+        if(facet_index_type == VALUE) {
 #else
-        } else if(facet_value_index_exists && use_value_index) {
+        if(facet_value_index_exists && use_value_index) {
 #endif
             // LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
 
             std::map<std::string, uint32_t> facet_results;
+            std::string sort_order = a_facet.is_sort_by_alpha ? a_facet.sort_order : "";
 
             facet_index_v4->intersect(facet_field.name, result_ids,
-                                      results_size, max_facet_count, facet_results, is_wildcard_no_filter_query);
+                                      results_size, max_facet_count, facet_results,
+                                      is_wildcard_no_filter_query, sort_order);
 
             for(const auto& kv : facet_results) {
                 //range facet processing
@@ -1422,6 +1410,11 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         if(use_facet_query) {
                             //LOG (INFO) << "adding hash tokens for hash " << fhash;
                             a_facet.hash_tokens[fhash] = fquery_hashes.at(fhash);
+                        }
+                        if(!a_facet.sort_field.empty()) {
+                            sort_index_it = sort_index.find(a_facet.sort_field);
+                            facet_count.sort_field_val = get_doc_val_from_sort_index(sort_index_it, doc_seq_id);
+                            //LOG(INFO) << "found sort_field val " << facet_count.sort_field;
                         }
                     }
                 }
@@ -2814,7 +2807,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         for(size_t i = 0; i < num_threads; i++) {
             for(const auto& this_facet: facets) {
                 facet_batches[i].emplace_back(facet(this_facet.field_name, this_facet.facet_range_map, 
-                    this_facet.is_range_query));
+                    this_facet.is_range_query, this_facet.is_sort_by_alpha, this_facet.sort_order,
+                    this_facet.sort_field));
             }
         }
 
@@ -2870,6 +2864,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             for(size_t fi = 0; fi < facet_batch.size(); fi++) {
                 auto& this_facet = facet_batch[fi];
                 auto& acc_facet = facets[fi];
+
+                acc_facet.is_intersected = this_facet.is_intersected;
+                acc_facet.is_sort_by_alpha = this_facet.is_sort_by_alpha;
+                acc_facet.sort_order = this_facet.sort_order;
+                acc_facet.sort_field = this_facet.sort_field;
+
                 for(auto & facet_kv: this_facet.result_map) {
                     uint32_t fhash = 0;
                     if(group_limit) {
@@ -2892,7 +2892,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                     acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
                     acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
-                    acc_facet.is_intersected = this_facet.is_intersected;
+                    acc_facet.result_map[facet_kv.first].sort_field_val = facet_kv.second.sort_field_val;
 
                     acc_facet.hash_tokens[facet_kv.first] = this_facet.hash_tokens[facet_kv.first];
                 }
@@ -2910,7 +2910,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                     acc_facet.value_result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
                     acc_facet.value_result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
-                    acc_facet.is_intersected = this_facet.is_intersected;
 
                     acc_facet.fvalue_tokens[facet_kv.first] = this_facet.fvalue_tokens[facet_kv.first];
                 }
@@ -4404,9 +4403,11 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                                                     facet_field.type != field_types::INT64_ARRAY);
 
         size_t num_facet_values = facet_index_v4->get_facet_count(facet_field.name);
-        facet_infos[findex].use_value_index = (group_limit == 0) && ( is_wildcard_no_filter_query ||
-                                               (all_result_ids_len > 1000 && num_facet_values < 250) ||
-                                               (all_result_ids_len > 1000 && all_result_ids_len * 2 > total_docs));
+        facet_infos[findex].use_value_index = (group_limit == 0) && (a_facet.sort_field.empty()) &&
+                                                ( is_wildcard_no_filter_query ||
+                                                (all_result_ids_len > 1000 && num_facet_values < 250) ||
+                                                (all_result_ids_len > 1000 && all_result_ids_len * 2 > total_docs) ||
+                                                (a_facet.is_sort_by_alpha));
 
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
 

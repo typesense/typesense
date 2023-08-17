@@ -2099,3 +2099,117 @@ TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ(400, search_op.code());
     ASSERT_EQ("Facet field should be string type to apply alpha sort.", search_op.error());
 }
+
+TEST_F(CollectionFacetingTest, FacetSortByOtherField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "receipe", "type": "object", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "receipe": {
+            "name": "cheese pizza",
+            "calories": 300,
+            "origin": "america"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc2 = R"({
+          "receipe": {
+            "name": "noodles",
+            "calories": 250,
+            "origin": "china"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc3 = R"({
+          "receipe": {
+            "name": "hamburger",
+            "calories": 350,
+            "origin": "america"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc3.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc4 = R"({
+          "receipe": {
+            "name": "schezwan rice",
+            "calories": 150,
+            "origin": "china"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc4.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc5 = R"({
+          "receipe": {
+            "name": "butter chicken",
+            "calories": 270,
+            "origin": "india"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc5.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    //search by calories in asc order
+    auto search_op = coll1->search("*", {},"",
+                                   {"receipe.name(sort:asc, sort_field:receipe.calories)"},
+                                   {}, {2});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("schezwan rice", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("noodles", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("butter chicken", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("cheese pizza", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("hamburger", results["facet_counts"][0]["counts"][4]["value"]);
+
+    //search by calories in desc order
+    search_op = coll1->search("*", {},"",
+                                   {"receipe.name(sort:desc, sort_field:receipe.calories)"},
+                                   {}, {2});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("hamburger", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("cheese pizza", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("butter chicken", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("noodles", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("schezwan rice", results["facet_counts"][0]["counts"][4]["value"]);
+
+    //try sort by stirng field
+    search_op = coll1->search("*", {}, "", {"receipe.name(sort:desc, sort_field:receipe.origin)"},
+                              {}, {2});
+
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Sort field should be non string type to apply sort.", search_op.error());
+}
