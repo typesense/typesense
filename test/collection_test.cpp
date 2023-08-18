@@ -398,7 +398,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10).get();
 
-    ids = {"1", "13", "8"};
+    ids = {"8", "1", "17"};
 
     ASSERT_EQ(3, results["hits"].size());
 
