@@ -126,18 +126,31 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
             auto reference_collection_name = reference_pair.collection;
             auto reference_field_name = reference_pair.field;
             auto& cm = CollectionManager::get_instance();
-            auto collection = cm.get_collection(reference_collection_name);
-            if (collection == nullptr) {
+            auto ref_collection = cm.get_collection(reference_collection_name);
+            if (ref_collection == nullptr) {
                 return Option<doc_seq_id_t>(400, "Referenced collection `" + reference_collection_name
                                                                 + "` not found.");
             }
 
-            if (collection->get_schema().count(reference_field_name) == 0) {
+            if (reference_field_name == "id") {
+                auto value = document[field_name].get<std::string>();
+                auto ref_doc_id_op = ref_collection->doc_id_to_seq_id(value);
+                if (!ref_doc_id_op.ok()) {
+                    return Option<doc_seq_id_t>(400, "Referenced document having `id: " + value +
+                                                        "` not found in the collection `" +
+                                                        reference_collection_name + "`." );
+                }
+
+                document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = ref_doc_id_op.get();
+                continue;
+            }
+
+            if (ref_collection->get_schema().count(reference_field_name) == 0) {
                 return Option<doc_seq_id_t>(400, "Referenced field `" + reference_field_name +
                                                     "` not found in the collection `" + reference_collection_name + "`.");
             }
 
-            if (!collection->get_schema().at(reference_field_name).index) {
+            if (!ref_collection->get_schema().at(reference_field_name).index) {
                 return Option<doc_seq_id_t>(400, "Referenced field `" + reference_field_name +
                                                     "` in the collection `" + reference_collection_name + "` must be indexed.");
             }
@@ -145,7 +158,7 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
             // Get the doc id of the referenced document.
             auto value = document[field_name].get<std::string>();
             filter_result_t filter_result;
-            collection->get_filter_ids(reference_field_name + ":=" + value, filter_result);
+            ref_collection->get_filter_ids(reference_field_name + ":=" + value, filter_result);
 
             if (filter_result.count != 1) {
                 auto match = " `" + reference_field_name + ": " + value + "` ";

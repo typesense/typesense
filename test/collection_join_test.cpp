@@ -162,7 +162,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                     {"name": "customer_id", "type": "string"},
                     {"name": "customer_name", "type": "string"},
                     {"name": "product_price", "type": "float"},
-                    {"name": "reference_id", "type": "string", "reference": "Products.id"}
+                    {"name": "reference_id", "type": "string", "reference": "Products.foo"}
                 ]
             })"_json;
     collection_create_op = collectionManager.create_collection(customers_schema_json);
@@ -183,7 +183,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
 
     add_doc_op = customer_collection->add(customer_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("Referenced field `id` not found in the collection `Products`.", add_doc_op.error());
+    ASSERT_EQ("Referenced field `foo` not found in the collection `Products`.", add_doc_op.error());
     collectionManager.drop_collection("Customers");
 
     customers_schema_json =
@@ -294,8 +294,33 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ(document["product_id"], "product_a");
     ASSERT_EQ(document["product_name"], "shampoo");
 
+    auto id_ref_schema_json =
+            R"({
+                "name": "id_ref",
+                "fields": [
+                    {"name": "reference", "type": "string", "reference": "Products.id"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(id_ref_schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto id_ref_collection = collection_create_op.get();
+    auto id_ref_json = R"({
+                            "reference": "foo"
+                        })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Referenced document having `id: foo` not found in the collection `Products`.", add_doc_op.error());
+
+    id_ref_json = R"({
+                        "reference": "1"
+                    })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
+    collectionManager.drop_collection("id_ref");
 }
 
 TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
