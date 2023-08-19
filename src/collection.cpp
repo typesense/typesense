@@ -4911,7 +4911,6 @@ void Collection::process_remove_field_for_embedding_fields(const field& del_fiel
         bool found_field = false;
         nlohmann::json& embed_from_names = field.embed[fields::from];
         for(auto it = embed_from_names.begin(); it != embed_from_names.end();) {
-            LOG(INFO) << it.value();
             if(it.value() == del_field.name) {
                 it = embed_from_names.erase(it);
                 found_field = true;
