@@ -3942,7 +3942,6 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         }
     }
 
-
     // hide credentials in the alter payload return
     for(auto& field_json : alter_payload["fields"]) {
         if(field_json[fields::embed].count(fields::model_config) != 0) {
@@ -3954,8 +3953,6 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
             hide_credential(field_json[fields::embed][fields::model_config], "project_id");
         }
     }
-
-    
 
     return Option<bool>(true);
 }
@@ -4904,27 +4901,44 @@ Option<bool> Collection::populate_include_exclude_fields_lk(const spp::sparse_ha
 }
 
 // Removes the dropped field from embed_from of all embedding fields.
-void Collection::process_remove_field_for_embedding_fields(const field& the_field, std::vector<field>& garbage_fields) {
+void Collection::process_remove_field_for_embedding_fields(const field& del_field,
+                                                           std::vector<field>& garbage_embed_fields) {
     for(auto& field : fields) {
         if(field.embed.count(fields::from) == 0) {
             continue;
         }
-        auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
-        embed_from.erase(std::remove_if(embed_from.begin(), embed_from.end(), [&the_field](std::string field_name) {
-            return the_field.name == field_name;
-        }));
-        field.embed[fields::from] = std::move(embed_from);
-        embedding_fields[field.name] = field;
 
-        // mark this embedding field as "garbage" if it has no more embed_from fields
-        if(embed_from.empty()) {
-            embedding_fields.erase(field.name);
-            garbage_fields.push_back(field);
+        bool found_field = false;
+        nlohmann::json& embed_from_names = field.embed[fields::from];
+        for(auto it = embed_from_names.begin(); it != embed_from_names.end();) {
+            LOG(INFO) << it.value();
+            if(it.value() == del_field.name) {
+                it = embed_from_names.erase(it);
+                found_field = true;
+            } else {
+                it++;
+            }
         }
 
-
+        if(found_field) {
+            // mark this embedding field as "garbage" if it has no more embed_from fields
+            if(embed_from_names.empty()) {
+                garbage_embed_fields.push_back(field);
+            } else {
+                // the dropped field was present in `embed_from`, so we have to update the field objects
+                field.embed[fields::from] = embed_from_names;
+                embedding_fields[field.name].embed[fields::from] = embed_from_names;
+            }
+        }
     }
 
+    for(auto& garbage_field: garbage_embed_fields) {
+        embedding_fields.erase(garbage_field.name);
+        search_schema.erase(garbage_field.name);
+        fields.erase(std::remove_if(fields.begin(), fields.end(), [&garbage_field](const auto &f) {
+            return f.name == garbage_field.name;
+        }), fields.end());
+    }
 }
 
 void Collection::hide_credential(nlohmann::json& json, const std::string& credential_name) {
