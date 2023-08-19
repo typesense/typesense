@@ -24,6 +24,9 @@ class TextEmbedder {
             return remote_embedder_ != nullptr;
         }
         Option<bool> validate();
+        RemoteEmbedder* _get_remote_embedder() {
+            return remote_embedder_.get();
+        }
     private:
         std::unique_ptr<Ort::Session> session_;
         Ort::Env env_;

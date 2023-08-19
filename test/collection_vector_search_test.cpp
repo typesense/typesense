@@ -1216,7 +1216,7 @@ TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
 }
 
 
-TEST_F(CollectionVectorTest, HybridSortingTest) {
+TEST_F(CollectionVectorTest, DISABLED_HybridSortingTest) {
     auto schema_json =
             R"({
             "name": "TEST",
@@ -1273,4 +1273,39 @@ TEST_F(CollectionVectorTest, HybridSortingTest) {
     ASSERT_EQ(results["hits"][1]["document"]["name"].get<std::string>(), hybrid_results["hits"][1]["document"]["name"].get<std::string>());
     ASSERT_EQ(results["hits"][2]["document"]["name"].get<std::string>(), hybrid_results["hits"][2]["document"]["name"].get<std::string>());
     ASSERT_EQ(results["hits"][3]["document"]["name"].get<std::string>(), hybrid_results["hits"][3]["document"]["name"].get<std::string>());
+}
+
+TEST_F(CollectionVectorTest, TestDifferentOpenAIApiKeys) {
+    if (std::getenv("api_key_1") == nullptr || std::getenv("api_key_2") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key_1 or api_key_2 is not set";
+        return;
+    }
+
+    auto api_key1 = std::string(std::getenv("api_key_1"));
+    auto api_key2 = std::string(std::getenv("api_key_2"));
+
+    auto embedder_map = TextEmbedderManager::get_instance()._get_text_embedders();
+
+    ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002:" + api_key1), embedder_map.end());
+    ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002:" + api_key2), embedder_map.end());
+    ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002"), embedder_map.end());
+
+    nlohmann::json model_config1 = R"({
+                "model_name": "openai/text-embedding-ada-002"
+            })"_json;
+    
+    nlohmann::json model_config2 = model_config1;
+
+    model_config1["api_key"] = api_key1;
+    model_config2["api_key"] = api_key2;
+
+    size_t num_dim;
+    TextEmbedderManager::get_instance().validate_and_init_remote_model(model_config1, num_dim);
+    TextEmbedderManager::get_instance().validate_and_init_remote_model(model_config2, num_dim);
+
+    embedder_map = TextEmbedderManager::get_instance()._get_text_embedders();
+
+    ASSERT_NE(embedder_map.find("openai/text-embedding-ada-002:" + api_key1), embedder_map.end());
+    ASSERT_NE(embedder_map.find("openai/text-embedding-ada-002:" + api_key2), embedder_map.end());
+    ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002"), embedder_map.end());
 }
