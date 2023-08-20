@@ -649,7 +649,5 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
 }
 
 std::string GCPEmbedder::get_model_key(const nlohmann::json& model_config) {
-    return model_config["model_name"].get<std::string>() + ":" + model_config["project_id"].get<std::string>() + ":" 
-        + model_config["access_token"].get<std::string>() + ":" + model_config["refresh_token"].get<std::string>() + ":" 
-        + model_config["client_id"].get<std::string>() + ":" + model_config["client_secret"].get<std::string>();
+    return model_config["model_name"].get<std::string>() + ":" + model_config["project_id"].get<std::string>() + ":" + model_config["client_secret"].get<std::string>();
 }
