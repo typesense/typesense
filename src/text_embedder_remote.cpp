@@ -53,6 +53,21 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
                                                     proxy_call_timeout_ms, true);
 }
 
+
+const std::string RemoteEmbedder::get_model_key(const nlohmann::json& model_config) {
+    const std::string model_namespace = TextEmbedderManager::get_model_namespace(model_config["model_name"].get<std::string>());
+
+    if(model_namespace == "openai") {
+        return OpenAIEmbedder::get_model_key(model_config);
+    } else if(model_namespace == "google") {
+        return GoogleEmbedder::get_model_key(model_config);
+    } else if(model_namespace == "gcp") {
+        return GCPEmbedder::get_model_key(model_config);
+    } else {
+        return "";
+    }
+}
+
 OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key) : api_key(api_key), openai_model_path(openai_model_path) {
 
 }
@@ -255,6 +270,9 @@ nlohmann::json OpenAIEmbedder::get_error_json(const nlohmann::json& req_body, lo
     return embedding_res;
 }
 
+std::string OpenAIEmbedder::get_model_key(const nlohmann::json& model_config) {
+    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+}
 
 GoogleEmbedder::GoogleEmbedder(const std::string& google_api_key) : google_api_key(google_api_key) {
 
@@ -370,6 +388,10 @@ nlohmann::json GoogleEmbedder::get_error_json(const nlohmann::json& req_body, lo
     }
 
     return embedding_res;
+}
+
+std::string GoogleEmbedder::get_model_key(const nlohmann::json& model_config) {
+    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
 }
 
 
@@ -624,4 +646,8 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
     std::string access_token = res_json["access_token"].get<std::string>();
 
     return Option<std::string>(access_token);
+}
+
+std::string GCPEmbedder::get_model_key(const nlohmann::json& model_config) {
+    return model_config["model_name"].get<std::string>() + ":" + model_config["project_id"].get<std::string>() + ":" + model_config["client_secret"].get<std::string>();
 }
