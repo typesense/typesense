@@ -56,6 +56,7 @@ namespace fields {
     static const std::string model_name = "model_name";
     static const std::string range_index = "range_index";
     static const std::string qa = "qa";
+    static const std::string system_prompt = "system_prompt";
 
     // Some models require additional parameters to be passed to the model during indexing/querying
     // For e.g. e5-small model requires prefix "passage:" for indexing and "query:" for querying

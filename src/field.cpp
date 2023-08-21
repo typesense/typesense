@@ -290,6 +290,11 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             return Option<bool>(400, "Property `" + fields::qa + "` should be an object containing a `model_name` property.");
         }
 
+        // it may contain "system_prompt", if exists it should be a string
+        if(field_json[fields::qa].count(fields::system_prompt) != 0 && !field_json[fields::qa][fields::system_prompt].is_string()) {
+            return Option<bool>(400, "`qa.system_prompt` should be a string.");
+        }
+
         auto validate_qa_res = QAModel::validate_model(field_json[fields::qa]);
         if(!validate_qa_res.ok()) {
             return validate_qa_res;

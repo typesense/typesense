@@ -114,10 +114,12 @@ Option<std::string> OpenAIQAModel::get_answer(const std::string& context, const 
     nlohmann::json req_body;
     req_body["model"] = model_name;
     req_body["messages"] = nlohmann::json::array();
-    static nlohmann::json system_message = nlohmann::json::object();
-    system_message["role"] = "system";
-    system_message["content"] = "You are an assistant, answer questions according to the data in JSON format. Do not mention the data content in your answer.";
-    req_body["messages"].push_back(system_message);
+    if(model_config.count("system_prompt") != 0) {
+        nlohmann::json system_message = nlohmann::json::object();
+        system_message["role"] = "system";
+        system_message["content"] = model_config["system_prompt"].get<std::string>();
+        req_body["messages"].push_back(system_message);
+    }
     nlohmann::json message = nlohmann::json::object();
     message["role"] = "user";
     message["content"] = "Data:\n" + context + "\n\nQuestion:\n" + prompt;
