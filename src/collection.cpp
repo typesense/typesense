@@ -4952,6 +4952,7 @@ void Collection::hide_credential(nlohmann::json& json, const std::string& creden
         }
     }
 }
+
 Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k) {
     std::shared_lock slock(mutex);
 

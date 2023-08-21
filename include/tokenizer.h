@@ -88,5 +88,5 @@ public:
 
     bool should_skip_char(char c);
 
-    static void normalize_ascii(std::string& text);
+    static std::string normalize_ascii_no_spaces(const std::string& text);
 };

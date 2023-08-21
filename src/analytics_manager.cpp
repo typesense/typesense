@@ -203,7 +203,7 @@ Option<bool> AnalyticsManager::remove_popular_queries_index(const std::string &n
     return Option<bool>(true);
 }
 
-void AnalyticsManager::add_suggestion(const std::string &query_collection, std::string &query,
+void AnalyticsManager::add_suggestion(const std::string &query_collection, const std::string& query,
                                       const bool live_query, const std::string& user_id) {
     // look up suggestion collections for the query collection
     std::unique_lock lock(mutex);
@@ -212,7 +212,6 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection, std::
         for(const auto& suggestion_collection: suggestion_collections_it->second) {
             const auto& popular_queries_it = popular_queries.find(suggestion_collection);
             if(popular_queries_it != popular_queries.end()) {
-                Tokenizer::normalize_ascii(query);
                 popular_queries_it->second->add(query, live_query, user_id);
             }
         }
