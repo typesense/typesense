@@ -6315,9 +6315,10 @@ size_t Index::num_seq_ids() const {
 
 Option<bool> Index::seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                           std::vector<uint32_t>& outside_seq_ids) {
+    std::shared_lock lock(mutex);
     auto field_it = numerical_index.find(field_name);
 
-    if(field_it == sort_index.end()) {
+    if(field_it == numerical_index.end()) {
         return Option<bool>(400, "Field not found in numerical index.");
     }
 
