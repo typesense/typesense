@@ -23,6 +23,7 @@ namespace field_types {
     static const std::string INT64 = "int64";
     static const std::string FLOAT = "float";
     static const std::string BOOL = "bool";
+    static const std::string NIL = "nil";
     static const std::string GEOPOINT = "geopoint";
     static const std::string STRING_ARRAY = "string[]";
     static const std::string INT32_ARRAY = "int32[]";
@@ -434,19 +435,19 @@ struct field {
                                                        std::vector<field>& fields_vec);
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
-                            const field& the_field, const std::string& flat_name,
+                            bool is_update, const field& the_field, const std::string& flat_name,
                             const std::unordered_map<std::string, field>& dyn_fields,
                             std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                                       std::vector<std::string>& path_parts, size_t path_index, bool has_array,
-                                      bool has_obj_array,
+                                      bool has_obj_array, bool is_update,
                                       const std::unordered_map<std::string, field>& dyn_fields,
                                       std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields,
                                     const std::unordered_map<std::string, field>& dyn_fields,
-                                    bool missing_is_ok, std::vector<field>& flattened_fields);
+                                    bool is_update, std::vector<field>& flattened_fields);
 
     static void compact_nested_fields(tsl::htrie_map<char, field>& nested_fields);
 };
@@ -569,6 +570,10 @@ public:
 
 struct facet_count_t {
     uint32_t count = 0;
+    // for value based faceting, actual value is stored here
+    std::string fvalue;
+    // for hash based faceting, hash value is stored here
+    int64_t fhash;
     // used to fetch the actual document and value for representation
     uint32_t doc_id = 0;
     uint32_t array_pos = 0;
@@ -583,9 +588,12 @@ struct facet_stats_t {
 
 struct facet {
     const std::string field_name;
-    spp::sparse_hash_map<std::string, facet_count_t> result_map;
+    spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
+    spp::sparse_hash_map<std::string, facet_count_t> value_result_map;
+
     // used for facet value query
-    spp::sparse_hash_map<std::string, std::vector<std::string>> hash_tokens;
+    spp::sparse_hash_map<std::string, std::vector<std::string>> fvalue_tokens;
+    spp::sparse_hash_map<uint64_t, std::vector<std::string>> hash_tokens;
 
     // used for faceting grouped results
     spp::sparse_hash_map<uint32_t, spp::sparse_hash_set<uint32_t>> hash_groups;
@@ -593,7 +601,7 @@ struct facet {
     facet_stats_t stats;
 
     //dictionary of key=>pair(range_id, range_val)
-    std::map<std::string, std::string> facet_range_map;
+    std::map<int64_t, std::string> facet_range_map;
 
     bool is_range_query;
 
@@ -603,16 +611,14 @@ struct facet {
     
     bool is_intersected = false;
 
-    bool get_range(std::string key, std::pair<std::string, std::string>& range_pair)
-    {
-        if(facet_range_map.empty())
-        {
+    bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
+        if(facet_range_map.empty()) {
             LOG (ERROR) << "Facet range is not defined!!!";
         }
+
         auto it = facet_range_map.lower_bound(key);
 
-        if(it != facet_range_map.end())
-        {
+        if(it != facet_range_map.end()) {
             range_pair.first = it->first;
             range_pair.second = it->second;
             return true;
@@ -621,19 +627,19 @@ struct facet {
         return false;
     }
 
-    explicit facet(const std::string& field_name, 
-        std::map<std::string, std::string> facet_range = {}, bool is_range_q = false)
-        :field_name(field_name){
-            facet_range_map = facet_range;
-            is_range_query = is_range_q;
+    explicit facet(const std::string& field_name, std::map<int64_t, std::string> facet_range = {},
+                   bool is_range_q = false) :field_name(field_name), facet_range_map(facet_range),
+                   is_range_query(is_range_q) {
     }
 };
 
 struct facet_info_t {
     // facet hash => resolved tokens
-    std::unordered_map<std::string, std::vector<std::string>> hashes;
+    std::unordered_map<uint64_t, std::vector<std::string>> hashes;
+    std::vector<std::string> fvalue_searched_tokens;
     bool use_facet_query = false;
     bool should_compute_stats = false;
+    bool use_value_index = false;
     field facet_field{"", "", false};
 };
 

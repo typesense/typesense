@@ -1383,8 +1383,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("text_match_score"));
-    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("vector_distance"));
+    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("rank_fusion_score"));
 
     // Hybrid search - Only vector match
     req_params = {
@@ -1405,8 +1404,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
-    ASSERT_EQ(0, res_obj["hits"][0]["hybrid_search_info"].at("text_match_score"));
-    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("vector_distance"));
+    ASSERT_NE(0, res_obj["hits"][0]["hybrid_search_info"].at("rank_fusion_score"));
 
     // Infix search
     req_params = {
@@ -1417,6 +1415,26 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
             {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
             {"include_fields", "product_name, $Customers(product_price)"},
             {"exclude_fields", ""}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+
+    // Reference include_by without join
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "Joe"},
+            {"query_by", "customer_name"},
+            {"filter_by", "product_price:<100"},
+            {"include_fields", "$Products(product_name), product_price"}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());

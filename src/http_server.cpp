@@ -570,13 +570,11 @@ int HttpServer::async_req_cb(void *ctx, int is_end_stream) {
     bool async_req = custom_generator->rpath->async_req;
     bool is_http_v1 = (0x101 <= request->_req->version && request->_req->version < 0x200);
 
-    /*
-    LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len
+    /*LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len
               << ", is_http_v1: " << is_http_v1
-              << ", request->req->entity.len=" << request->req->entity.len
-              << ", content_len: " << request->req->content_length
-              << ", is_end_stream=" << is_end_stream;
-    */
+              << ", request->req->entity.len=" << request->_req->entity.len
+              << ", content_len: " << request->_req->content_length
+              << ", is_end_stream=" << is_end_stream;*/
 
     // disallow specific curl clients from using import call via http2
     // detects: https://github.com/curl/curl/issues/1410
