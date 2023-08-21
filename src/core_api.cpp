@@ -730,7 +730,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         }
     }
 
-    res->content_type_header = "text/plain; charset=utf8";
+    res->content_type_header = "text/plain; charset=utf-8";
     res->status_code = 200;
 
     stream_response(req, res);
@@ -903,7 +903,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         }
     }
 
-    res->content_type_header = "text/plain; charset=utf8";
+    res->content_type_header = "text/plain; charset=utf-8";
     res->status_code = 200;
     res->body = response_stream.str();
 
