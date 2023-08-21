@@ -19,6 +19,7 @@
 #include "vector_query_ops.h"
 #include "text_embedder_manager.h"
 #include "stopwords_manager.h"
+#include "qa_model.h";
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -241,6 +242,7 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::sort] = coll_field.sort;
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
+        field_json[fields::qa] = coll_field.qa;
         if(coll_field.embed.count(fields::from) != 0) {
             field_json[fields::embed] = coll_field.embed;
 
@@ -252,6 +254,15 @@ nlohmann::json Collection::get_summary_json() const {
                 hide_credential(field_json[fields::embed][fields::model_config], "client_secret");
                 hide_credential(field_json[fields::embed][fields::model_config], "project_id");
             }
+        }
+
+        if(!coll_field.qa.empty()) {
+            hide_credential(field_json[fields::qa], "api_key");
+            hide_credential(field_json[fields::qa], "access_token");
+            hide_credential(field_json[fields::qa], "refresh_token");
+            hide_credential(field_json[fields::qa], "client_id");
+            hide_credential(field_json[fields::qa], "client_secret");
+            hide_credential(field_json[fields::qa], "project_id");
         }
 
         if(coll_field.num_dim > 0) {
@@ -1120,7 +1131,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_tries,
                                   const std::string& stopwords_set,
-                                  const std::vector<std::string>& facet_return_parent) const {
+                                  const std::vector<std::string>& facet_return_parent,
+                                  const std::string& prompt) const {
 
     std::shared_lock lock(mutex);
 
@@ -1293,6 +1305,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     // Set query to * if it is semantic search
     if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
         query = "*";
+    } else if(!prompt.empty()) {
+        return Option<nlohmann::json>(400, "Prompt is only supported for semantic search.");
     }
 
     if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
@@ -1783,6 +1797,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         index_symbols[uint8_t(c)] = 1;
     }
 
+    nlohmann::json docs_array = nlohmann::json::array();
+
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
@@ -1951,6 +1967,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
             }
 
+            if(!prompt.empty()) {
+                docs_array.push_back(document);
+            }
+
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
 
@@ -1997,6 +2017,25 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
             result["grouped_hits"].push_back(group_hits);
         }
+    }
+
+    if(!prompt.empty()) {
+        result["qa"] = nlohmann::json::object();
+        result["qa"]["prompt"] = prompt;
+        auto embedding_field_it = search_schema.find(vector_query.field_name);
+        if(embedding_field_it == search_schema.end()) {
+            return Option<nlohmann::json>(400, "Invalid embedding field name.");
+        }
+
+        // for each document, remove embedding field to reduce request size
+        for(auto& doc : docs_array) {
+            doc.erase(embedding_field_it->name);
+        }
+        auto qa_op = QAModel::get_answer(docs_array.dump(), prompt, embedding_field_it->qa);
+        if(!qa_op.ok()) {
+            return Option<nlohmann::json>(qa_op.code(), qa_op.error());
+        }
+        result["qa"]["answer"] = qa_op.get();
     }
 
     result["facet_counts"] = nlohmann::json::array();
@@ -4412,6 +4451,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 if(f.embed.count(fields::from) != 0) {
                     embedding_fields.emplace(f.name, f);
                 }
+
 
                 if(f.nested && enable_nested_fields) {
                     updated_nested_fields.emplace(f.name, f);

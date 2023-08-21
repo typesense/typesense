@@ -2,6 +2,7 @@
 #include "field.h"
 #include "magic_enum.hpp"
 #include "text_embedder_manager.h"
+#include "qa_model.h"
 #include <stack>
 #include <collection_manager.h>
 #include <regex>
@@ -278,6 +279,24 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
+    if(field_json.count(fields::qa) != 0) {
+        if(field_json.count(fields::embed) == 0 || !field_json[fields::embed].is_object() || field_json[fields::embed].count(fields::from) == 0) {
+            return Option<bool>(400, "Property `" + fields::qa + "` is allowed only on an embedded field.");
+        }
+
+        // qa object should contain "model_name" and it should be a string
+        if(!field_json[fields::qa].is_object() || field_json[fields::qa].count(fields::model_name) == 0 ||
+           !field_json[fields::qa][fields::model_name].is_string()) {
+            return Option<bool>(400, "Property `" + fields::qa + "` should be an object containing a `model_name` property.");
+        }
+
+        auto validate_qa_res = QAModel::validate_model(field_json[fields::qa]);
+        if(!validate_qa_res.ok()) {
+            return validate_qa_res;
+        }
+    }
+
+
     if(field_json.count(fields::optional) == 0) {
         // dynamic type fields are always optional
         bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
@@ -321,7 +340,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
-                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index])
+                  field_json[fields::reference], field_json[fields::embed], field_json[fields::qa], field_json[fields::range_index])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {

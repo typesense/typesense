@@ -65,6 +65,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::embed] = nlohmann::json::object();
         }
 
+        if(field_obj.count(fields::qa) == 0) {
+            field_obj[fields::qa] = nlohmann::json::object();
+        }
+
         if(field_obj.count(fields::model_config) == 0) {
             field_obj[fields::model_config] = nlohmann::json::object();
         }
@@ -95,7 +99,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed]);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed], field_obj[fields::qa]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -808,6 +812,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *FACET_RETURN_PARENT = "facet_return_parent";
 
+    const char *PROMPT = "prompt";
+
     const char *VECTOR_QUERY = "vector_query";
 
     const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
@@ -977,6 +983,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
+    
+    std::string prompt;
 
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
@@ -1017,6 +1025,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {HIGHLIGHT_END_TAG, &highlight_end_tag},
         {PINNED_HITS, &pinned_hits_str},
         {HIDDEN_HITS, &hidden_hits_str},
+        {PROMPT, &prompt},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -1225,7 +1234,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           remote_embedding_timeout_ms,
                                                           remote_embedding_num_tries,
                                                           stopwords_set,
-                                                          facet_return_parent
+                                                          facet_return_parent,
+                                                          prompt
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
