@@ -9,6 +9,7 @@
 #include "logger.h"
 #include "magic_enum.hpp"
 #include "stopwords_manager.h"
+#include "qa_model.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -65,10 +66,6 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::embed] = nlohmann::json::object();
         }
 
-        if(field_obj.count(fields::qa) == 0) {
-            field_obj[fields::qa] = nlohmann::json::object();
-        }
-
         if(field_obj.count(fields::model_config) == 0) {
             field_obj[fields::model_config] = nlohmann::json::object();
         }
@@ -99,7 +96,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed], field_obj[fields::qa]);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -131,6 +128,12 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     std::vector<std::string> symbols_to_index;
     std::vector<std::string> token_separators;
 
+    nlohmann::json qa = nlohmann::json::object();
+
+    if(collection_meta.count(Collection::COLLECTION_QA) != 0) {
+        qa = collection_meta[Collection::COLLECTION_QA];
+    }
+
     if(collection_meta.count(Collection::COLLECTION_SYMBOLS_TO_INDEX) != 0) {
         symbols_to_index = collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX].get<std::vector<std::string>>();
     }
@@ -152,7 +155,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             fallback_field_type,
                                             symbols_to_index,
                                             token_separators,
-                                            enable_nested_fields);
+                                            enable_nested_fields, qa);
 
     return collection;
 }
@@ -392,7 +395,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::string& fallback_field_type,
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
-                                                         const bool enable_nested_fields) {
+                                                         const bool enable_nested_fields,
+                                                         const nlohmann::json& qa) {
     std::unique_lock lock(coll_create_mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -426,12 +430,13 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
+    collection_meta[Collection::COLLECTION_QA] = qa;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
                                                 default_sorting_field,
                                                 this->max_memory_ratio, fallback_field_type,
                                                 symbols_to_index, token_separators,
-                                                enable_nested_fields);
+                                                enable_nested_fields, qa);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
@@ -812,8 +817,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *FACET_RETURN_PARENT = "facet_return_parent";
 
-    const char *PROMPT = "prompt";
-
     const char *VECTOR_QUERY = "vector_query";
 
     const char* REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
@@ -869,6 +872,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *FACET_SAMPLE_PERCENT = "facet_sample_percent";
     const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
+
+    const char *CONVERSATION = "conversation";
+    const char *CONVERSATION_ID = "conversation_id";
+    const char *SYSTEM_PROMPT = "system_prompt";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -984,10 +991,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
     
-    std::string prompt;
-
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
+
+    bool conversation = false;
+    size_t conversation_id = std::numeric_limits<size_t>::max();
+    std::string system_prompt;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -1013,6 +1022,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
+        {CONVERSATION_ID, &conversation_id},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1025,7 +1035,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {HIGHLIGHT_END_TAG, &highlight_end_tag},
         {PINNED_HITS, &pinned_hits_str},
         {HIDDEN_HITS, &hidden_hits_str},
-        {PROMPT, &prompt},
+        {SYSTEM_PROMPT, &system_prompt},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -1035,6 +1045,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
         {ENABLE_OVERRIDES, &enable_overrides},
         {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
+        {CONVERSATION, &conversation},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1187,6 +1198,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
+
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, filter_query, facet_fields,
                                                           sort_fields, num_typos,
                                                           per_page,
@@ -1235,7 +1247,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           remote_embedding_num_tries,
                                                           stopwords_set,
                                                           facet_return_parent,
-                                                          prompt
+                                                          conversation,
+                                                          system_prompt,
+                                                          (conversation_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_id)
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1394,6 +1408,15 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         return Option<Collection*>(parse_op.code(), parse_op.error());
     }
 
+    if(req_json.count("qa") != 0) {
+        auto validate_qa_res = QAModel::validate_model(req_json["qa"]);
+        if(!validate_qa_res.ok()) {
+            return Option<Collection*>(validate_qa_res.code(), validate_qa_res.error());
+        }
+    } else {
+        req_json["qa"] = nlohmann::json::object();
+    }
+
     const auto created_at = static_cast<uint64_t>(std::time(nullptr));
 
     return CollectionManager::get_instance().create_collection(req_json["name"], num_memory_shards,
@@ -1401,7 +1424,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
-                                                                req_json[ENABLE_NESTED_FIELDS]);
+                                                                req_json[ENABLE_NESTED_FIELDS], req_json["qa"]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,

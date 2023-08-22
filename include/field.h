@@ -90,7 +90,6 @@ struct field {
 
     size_t num_dim;
     nlohmann::json embed;
-    nlohmann::json qa;
     vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
@@ -104,10 +103,10 @@ struct field {
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
-          std::string reference = "", const nlohmann::json& embed = nlohmann::json(),const nlohmann::json& qa = nlohmann::json(), const bool range_index = false) :
+          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), qa(qa) {
+            embed(embed), range_index(range_index) {
 
         set_computed_defaults(sort, infix);
     }

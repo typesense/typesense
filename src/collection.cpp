@@ -19,7 +19,8 @@
 #include "vector_query_ops.h"
 #include "text_embedder_manager.h"
 #include "stopwords_manager.h"
-#include "qa_model.h";
+#include "qa_model.h"
+#include "conversation_manager.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -45,14 +46,14 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const float max_memory_ratio, const std::string& fallback_field_type,
                        const std::vector<std::string>& symbols_to_index,
                        const std::vector<std::string>& token_separators,
-                       const bool enable_nested_fields):
+                       const bool enable_nested_fields, const nlohmann::json& qa):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
-        index(init_index()) {
+        index(init_index()), qa(qa) {
 
     for (auto const& field: fields) {
         if (field.embed.count(fields::from) != 0) {
@@ -242,7 +243,6 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::sort] = coll_field.sort;
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
-        field_json[fields::qa] = coll_field.qa;
         if(coll_field.embed.count(fields::from) != 0) {
             field_json[fields::embed] = coll_field.embed;
 
@@ -254,15 +254,6 @@ nlohmann::json Collection::get_summary_json() const {
                 hide_credential(field_json[fields::embed][fields::model_config], "client_secret");
                 hide_credential(field_json[fields::embed][fields::model_config], "project_id");
             }
-        }
-
-        if(!coll_field.qa.empty()) {
-            hide_credential(field_json[fields::qa], "api_key");
-            hide_credential(field_json[fields::qa], "access_token");
-            hide_credential(field_json[fields::qa], "refresh_token");
-            hide_credential(field_json[fields::qa], "client_id");
-            hide_credential(field_json[fields::qa], "client_secret");
-            hide_credential(field_json[fields::qa], "project_id");
         }
 
         if(coll_field.num_dim > 0) {
@@ -278,6 +269,13 @@ nlohmann::json Collection::get_summary_json() const {
 
     json_response["fields"] = fields_arr;
     json_response["default_sorting_field"] = default_sorting_field;
+    json_response["qa"] = qa;
+    hide_credential(json_response["qa"], "api_key");
+    hide_credential(json_response["qa"], "access_token");
+    hide_credential(json_response["qa"], "refresh_token");
+    hide_credential(json_response["qa"], "client_id");
+    hide_credential(json_response["qa"], "client_secret");
+    hide_credential(json_response["qa"], "project_id");
     return json_response;
 }
 
@@ -1132,7 +1130,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t remote_embedding_num_tries,
                                   const std::string& stopwords_set,
                                   const std::vector<std::string>& facet_return_parent,
-                                  const std::string& prompt) const {
+                                  const bool conversation,
+                                  const std::string& system_prompt,
+                                  int conversation_id) const {
 
     std::shared_lock lock(mutex);
 
@@ -1305,8 +1305,18 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     // Set query to * if it is semantic search
     if(!vector_query.field_name.empty() && processed_search_fields.empty()) {
         query = "*";
-    } else if(!prompt.empty()) {
-        return Option<nlohmann::json>(400, "Prompt is only supported for semantic search.");
+    }
+
+    if(conversation) {
+        if(vector_query.field_name.empty()) {
+            std::string error = "Conversation search is only supported for semantic and hybrid search.";
+            return Option<nlohmann::json>(400, error);
+        }
+
+        if(this->qa.empty()) {
+            std::string error = "Conversation search is not enabled for this collection.";
+            return Option<nlohmann::json>(400, error);
+        }
     }
 
     if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
@@ -1967,7 +1977,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
             }
 
-            if(!prompt.empty()) {
+            if(conversation) {
                 docs_array.push_back(document);
             }
 
@@ -2019,9 +2029,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
-    if(!prompt.empty()) {
+    if(conversation) {
         result["qa"] = nlohmann::json::object();
-        result["qa"]["prompt"] = prompt;
+        result["qa"]["query"] = raw_query;
         auto embedding_field_it = search_schema.find(vector_query.field_name);
         if(embedding_field_it == search_schema.end()) {
             return Option<nlohmann::json>(400, "Invalid embedding field name.");
@@ -2031,11 +2041,31 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         for(auto& doc : docs_array) {
             doc.erase(embedding_field_it->name);
         }
-        auto qa_op = QAModel::get_answer(docs_array.dump(), prompt, embedding_field_it->qa);
+
+        bool has_conversation_history = conversation_id >= 0;
+        auto qa_op = QAModel::get_answer(docs_array.dump(), raw_query, system_prompt, this->qa, conversation_id);
         if(!qa_op.ok()) {
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());
         }
         result["qa"]["answer"] = qa_op.get();
+        result["qa"]["system_prompt"] = system_prompt;
+        result["qa"]["conversation_id"] = conversation_id;
+
+        if(has_conversation_history) {
+            auto get_conversation_op = ConversationManager::get_conversation(conversation_id);
+            if(!get_conversation_op.ok()) {
+                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
+            }
+
+            auto conversation_history = get_conversation_op.get();
+            
+            auto parse_conversation_op = QAModel::parse_conversation_history(conversation_history, this->qa);
+            if(!parse_conversation_op.ok()) {
+                return Option<nlohmann::json>(parse_conversation_op.code(), parse_conversation_op.error());
+            }
+
+            result["qa"]["conversation_history"] = parse_conversation_op.get();
+        }
     }
 
     result["facet_counts"] = nlohmann::json::array();
@@ -4299,6 +4329,13 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
     if(schema_changes.size() != 1) {
         return Option<bool>(400, "Only `fields` can be updated at the moment.");
+    }
+
+    if(schema_changes.count("qa") != 0) {
+        auto qa_op = QAModel::validate_model(schema_changes["qa"]);
+        if(!qa_op.ok()) {
+            return qa_op;
+        }
     }
 
     const std::string err_msg = "The `fields` value should be an array of objects containing "

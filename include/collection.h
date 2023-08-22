@@ -141,6 +141,8 @@ private:
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
+    nlohmann::json qa;
+
     // methods
 
     std::string get_doc_id_key(const std::string & doc_id) const;
@@ -311,6 +313,8 @@ public:
 
     static constexpr const char* REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
 
+    static constexpr const char* COLLECTION_QA = "qa";
+
     // methods
 
     Collection() = delete;
@@ -320,7 +324,7 @@ public:
                const std::string& default_sorting_field,
                const float max_memory_ratio, const std::string& fallback_field_type,
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
-               const bool enable_nested_fields);
+               const bool enable_nested_fields, const nlohmann::json& qa);
 
     ~Collection();
 
@@ -479,7 +483,9 @@ public:
                                   const size_t remote_embedding_num_tries = 2,
                                   const std::string& stopwords_set="",
                                   const std::vector<std::string>& facet_return_parent = {},
-                                  const std::string& prompt = "") const;
+                                  const bool converstaion = false,
+                                  const std::string& system_prompt = "",
+                                  int conversation_id = -1) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
