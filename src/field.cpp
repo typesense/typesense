@@ -1094,7 +1094,7 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
         }
 
         if(!the_fields.empty() && !the_fields.back().embed.empty()) {
-            embed_json_field_indices.emplace_back(i, i);
+            embed_json_field_indices.emplace_back(i, the_fields.size()-1);
         }
     }
 

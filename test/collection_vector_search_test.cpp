@@ -1161,6 +1161,27 @@ TEST_F(CollectionVectorTest, FreshEmplaceWithOptionalEmbeddingReferencedField) {
               "or make the embedding field optional.", add_op.error());
 }
 
+TEST_F(CollectionVectorTest, EmbeddingFieldWithIdFieldPrecedingInSchema) {
+    auto schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "id", "type": "string"},
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto fs = coll->get_fields();
+    ASSERT_EQ(2, fs.size());
+    ASSERT_EQ(384, fs[1].num_dim);
+}
+
 TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExists) {
     nlohmann::json schema = R"({
         "name": "objects",
