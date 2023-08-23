@@ -5886,6 +5886,7 @@ size_t Index::num_seq_ids() const {
 
 Option<bool> Index::seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                           std::vector<uint32_t>& outside_seq_ids) {
+    std::shared_lock lock(mutex);
     if (numerical_index.count(field_name) != 0) {
         auto field_it = numerical_index.find(field_name);
 
