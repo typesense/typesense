@@ -5887,21 +5887,15 @@ size_t Index::num_seq_ids() const {
 Option<bool> Index::seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                           std::vector<uint32_t>& outside_seq_ids) {
     std::shared_lock lock(mutex);
-    if (numerical_index.count(field_name) != 0) {
-        auto field_it = numerical_index.find(field_name);
-
-        if(field_it == sort_index.end()) {
-            return Option<bool>(400, "Field not found in numerical index.");
-        }
-
+    auto field_it = numerical_index.find(field_name);
+    if(field_it != numerical_index.end()) {
         field_it->second->seq_ids_outside_top_k(k, outside_seq_ids);
-
         return Option<bool>(true);
     }
 
-    if (range_index.count(field_name) != 0) {
-        auto trie = range_index[field_name];
-        trie->seq_ids_outside_top_k(k, outside_seq_ids);
+    auto range_trie_it = range_index.find(field_name);
+    if (range_trie_it != range_index.end()) {
+        range_trie_it->second->seq_ids_outside_top_k(k, outside_seq_ids);
         return Option<bool>(true);
     }
 
