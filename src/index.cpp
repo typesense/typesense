@@ -953,12 +953,16 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
                             try {
                                 const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
-                                if(afield.vec_dist == cosine) {
-                                    std::vector<float> normalized_vals(afield.num_dim);
-                                    hnsw_index_t::normalize_vector(float_vals, normalized_vals);
-                                    vec_index->addPoint(normalized_vals.data(), (size_t)record.seq_id, true);
+                                if(float_vals.size() != afield.num_dim) {
+                                    record.index_failure(400, "Vector size mismatch.");
                                 } else {
-                                    vec_index->addPoint(float_vals.data(), (size_t)record.seq_id, true);
+                                    if(afield.vec_dist == cosine) {
+                                        std::vector<float> normalized_vals(afield.num_dim);
+                                        hnsw_index_t::normalize_vector(float_vals, normalized_vals);
+                                        vec_index->addPoint(normalized_vals.data(), (size_t)record.seq_id, true);
+                                    } else {
+                                        vec_index->addPoint(float_vals.data(), (size_t)record.seq_id, true);
+                                    }
                                 }
                             } catch(const std::exception &e) {
                                 record.index_failure(400, e.what());

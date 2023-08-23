@@ -72,6 +72,10 @@ public:
     Option<bool> validate_and_init_local_model(const nlohmann::json& model_config, size_t& num_dims);
     Option<bool> validate_and_init_model(const nlohmann::json& model_config, size_t& num_dims);
 
+    std::unordered_map<std::string, std::shared_ptr<TextEmbedder>> _get_text_embedders() {
+        return text_embedders;
+    }
+
 private:
     TextEmbedderManager() = default;
 
