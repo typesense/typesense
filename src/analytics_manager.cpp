@@ -234,6 +234,8 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         }
 
         persist_suggestions(raft_server, prev_persistence_s);
+        prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
 
         lk.unlock();
     }
@@ -268,8 +270,6 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
             // we will persist aggregation every hour
             continue;
         }
-
-        prev_persistence_s = now_ts_seconds;
 
         std::string import_payload;
         popularQueries->serialize_as_docs(import_payload);
