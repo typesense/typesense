@@ -6420,6 +6420,16 @@ int64_t Index::reference_string_sort_score(const string &field_name, const uint3
     return str_sort_index.at(field_name)->rank(seq_id);
 }
 
+Option<uint32_t> Index::get_sort_indexed_field_value(const string& field_name, const uint32_t& seq_id) const {
+    std::shared_lock lock(mutex);
+    if (sort_index.count(field_name) == 0 || sort_index.at(field_name)->count(seq_id) == 0) {
+        return Option<uint32_t>(400, "Could not find `" + field_name + "` value for doc `" + std::to_string(seq_id)
+                                        + "`.");
+    }
+
+    return Option<uint32_t>(sort_index.at(field_name)->at(seq_id));
+}
+
 /*
 // https://stackoverflow.com/questions/924171/geo-fencing-point-inside-outside-polygon
 // NOTE: polygon and point should have been transformed with `transform_for_180th_meridian`

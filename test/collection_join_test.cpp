@@ -1044,7 +1044,7 @@ TEST_F(CollectionJoinTest, FilterByNReferences) {
     collectionManager.drop_collection("Links");
 }
 
-TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
+TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     auto schema_json =
             R"({
                 "name": "Products",
@@ -1504,6 +1504,222 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference_SingleMatch) {
     ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+
+    schema_json =
+            R"({
+                "name": "Users",
+                "fields": [
+                    {"name": "user_id", "type": "string"},
+                    {"name": "user_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "user_id": "user_a",
+                "user_name": "Roshan"
+            })"_json,
+            R"({
+                "user_id": "user_b",
+                "user_name": "Ruby"
+            })"_json,
+            R"({
+                "user_id": "user_c",
+                "user_name": "Joe"
+            })"_json,
+            R"({
+                "user_id": "user_d",
+                "user_name": "Aby"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Repos",
+                "fields": [
+                    {"name": "repo_id", "type": "string"},
+                    {"name": "repo_content", "type": "string"},
+                    {"name": "repo_stars", "type": "int32"},
+                    {"name": "repo_is_private", "type": "bool"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "repo_id": "repo_a",
+                "repo_content": "body1",
+                "repo_stars": 431,
+                "repo_is_private": true
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "repo_content": "body2",
+                "repo_stars": 4562,
+                "repo_is_private": false
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "repo_content": "body3",
+                "repo_stars": 945,
+                "repo_is_private": false
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Links",
+                "fields": [
+                    {"name": "repo_id", "type": "string", "reference": "Repos.repo_id"},
+                    {"name": "user_id", "type": "string", "reference": "Users.user_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "repo_id": "repo_a",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_a",
+                "user_id": "user_c"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_a"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_d"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_a"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_c"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_d"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Organizations",
+                "fields": [
+                    {"name": "org_id", "type": "string"},
+                    {"name": "org_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "org_id": "org_a",
+                "org_name": "Typesense"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Participants",
+                "fields": [
+                    {"name": "user_id", "type": "string", "reference": "Users.user_id"},
+                    {"name": "org_id", "type": "string", "reference": "Organizations.org_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "user_id": "user_a",
+                "org_id": "org_a"
+            })"_json,
+            R"({
+                "user_id": "user_b",
+                "org_id": "org_a"
+            })"_json,
+            R"({
+                "user_id": "user_d",
+                "org_id": "org_a"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // Search for users within an organization with access to a particular repo.
+    req_params = {
+            {"collection", "Users"},
+            {"q", "R"},
+            {"query_by", "user_name"},
+            {"filter_by", "$Participants(org_id:=org_a) && $Links(repo_id:=repo_b)"},
+            {"include_fields", "user_id, user_name, $Repos(repo_content), $Organizations(org_name)"},
+            {"exclude_fields", "$Participants(*), $Links(*), "}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(4, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("user_b", res_obj["hits"][0]["document"].at("user_id"));
+    ASSERT_EQ("Ruby", res_obj["hits"][0]["document"].at("user_name"));
+    ASSERT_EQ("body2", res_obj["hits"][0]["document"].at("repo_content"));
+    ASSERT_EQ("Typesense", res_obj["hits"][0]["document"].at("org_name"));
+    ASSERT_EQ("user_a", res_obj["hits"][1]["document"].at("user_id"));
+    ASSERT_EQ("Roshan", res_obj["hits"][1]["document"].at("user_name"));
+    ASSERT_EQ("body2", res_obj["hits"][1]["document"].at("repo_content"));
+    ASSERT_EQ("Typesense", res_obj["hits"][1]["document"].at("org_name"));
 }
 
 TEST_F(CollectionJoinTest, CascadeDeletion) {

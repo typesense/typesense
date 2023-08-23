@@ -283,8 +283,6 @@ private:
 
     Option<uint32_t> get_reference_doc_id(const std::string& ref_collection_name, const uint32_t& seq_id) const;
 
-    Option<std::string> get_reference_field(const std::string& ref_collection_name) const;
-
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
 public:
@@ -379,6 +377,13 @@ public:
                                      const index_operation_t op, const DIRTY_VALUES& dirty_values);
 
     static void remove_flat_fields(nlohmann::json& document);
+
+    static Option<bool> add_reference_fields(nlohmann::json& doc,
+                                             Collection *const ref_collection,
+                                             const reference_filter_result_t& references,
+                                             const tsl::htrie_set<char>& ref_include_fields_full,
+                                             const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                             const std::string& error_prefix);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
@@ -489,7 +494,7 @@ public:
 
     Option<bool> get_reference_filter_ids(const std::string& filter_query,
                                           filter_result_t& filter_result,
-                                          const std::string& collection_name) const;
+                                          const std::string& reference_field_name) const;
 
     Option<nlohmann::json> get(const std::string & id) const;
 
@@ -580,6 +585,14 @@ public:
                                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
 
     int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
+
+    bool is_referenced_in(const std::string& collection_name) const;
+
+    Option<std::string> get_reference_field(const std::string& collection_name) const;
+
+    Option<uint32_t> get_sort_indexed_field_value(const std::string& field_name, const uint32_t& seq_id) const;
+
+    friend class filter_result_iterator_t;
 };
 
 template<class T>

@@ -728,6 +728,8 @@ public:
 
     int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
 
+    Option<uint32_t> get_sort_indexed_field_value(const std::string& field_name, const uint32_t& seq_id) const;
+
     static void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) ;
 
     void compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,

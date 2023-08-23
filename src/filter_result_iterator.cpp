@@ -592,16 +592,26 @@ void filter_result_iterator_t::init() {
     if (is_referenced_filter) {
         // Apply filter on referenced collection and get the sequence ids of current collection from the filtered documents.
         auto& cm = CollectionManager::get_instance();
-        auto collection = cm.get_collection(a_filter.referenced_collection_name);
-        if (collection == nullptr) {
-            status = Option<bool>(400, "Referenced collection `" + a_filter.referenced_collection_name + "` not found.");
+        auto const& ref_collection_name = a_filter.referenced_collection_name;
+        auto ref_collection = cm.get_collection(ref_collection_name);
+        if (ref_collection == nullptr) {
+            status = Option<bool>(400, "Referenced collection `" + ref_collection_name + "` not found.");
             is_valid = false;
             return;
         }
 
-        auto reference_filter_op = collection->get_reference_filter_ids(a_filter.field_name,
-                                                                        filter_result,
-                                                                        collection_name);
+        auto coll = cm.get_collection(collection_name);
+        if (coll->referenced_in.count(ref_collection_name) == 0 || coll->referenced_in.at(ref_collection_name).empty()) {
+            status = Option<bool>(400, "Could not find a reference to `" + collection_name + "` in `" +
+                                        ref_collection_name + "` collection.");
+            is_valid = false;
+            return;
+        }
+
+        auto const& field_name = coll->referenced_in.at(ref_collection_name);
+        auto reference_filter_op = ref_collection->get_reference_filter_ids(a_filter.field_name,
+                                                                            filter_result,
+                                                                            field_name);
         if (!reference_filter_op.ok()) {
             status = Option<bool>(400, "Failed to apply reference filter on `" + a_filter.referenced_collection_name
                                        + "` collection: " + reference_filter_op.error());
