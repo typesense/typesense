@@ -55,7 +55,7 @@ void facet_index_t::insert(const std::string& field_name, bool is_string,
                 if(facet_index.has_value_index) {
                     count_list.emplace_back(fvalue.facet_value, seq_ids.size(), facet_id);
                     fis.facet_count_it = std::prev(count_list.end());
-                    fis.seq_ids = SET_COMPACT_IDS(compact_id_list_t::create(seq_ids.size(), seq_ids));
+                    fis.seq_ids = ids_t::create(seq_ids);
                 }
 
                 fvalue_index.emplace(fvalue.facet_value, fis);
