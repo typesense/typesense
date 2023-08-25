@@ -1269,7 +1269,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
-            std::string analytics_query = raw_query;
+            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
             AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query,
                                                             true, req_params["x-typesense-user-id"]);
         }

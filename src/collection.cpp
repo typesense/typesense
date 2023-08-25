@@ -5396,8 +5396,12 @@ void Collection::hide_credential(nlohmann::json& json, const std::string& creden
 }
 
 Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k) {
+    std::shared_lock slock(mutex);
+
     std::vector<uint32_t> seq_ids;
     auto op = index->seq_ids_outside_top_k(field_name, k, seq_ids);
+
+    slock.unlock();
 
     if(!op.ok()) {
         return op;

@@ -79,7 +79,7 @@ public:
     Option<bool> remove_rule(const std::string& name);
 
     void add_suggestion(const std::string& query_collection,
-                        std::string& query, bool live_query, const std::string& user_id);
+                        const std::string& query, bool live_query, const std::string& user_id);
 
     void stop();
 

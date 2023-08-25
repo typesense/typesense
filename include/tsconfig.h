@@ -787,6 +787,10 @@ public:
         cors_domains.insert(cors_values_vec.begin(), cors_values_vec.end());
     }
 
+    void set_enable_search_analytics(bool enable_search_analytics) {
+        this->enable_search_analytics = enable_search_analytics;
+    }
+
     // validation
 
     Option<bool> is_valid() {
