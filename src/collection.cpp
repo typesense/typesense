@@ -4419,7 +4419,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         auto& cm = CollectionManager::get_instance();
         auto ref_collection = cm.get_collection(ref_collection_name);
         if (ref_collection == nullptr) {
-            return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in include_fields not found.");
+            return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in `include_fields` not found.");
         }
 
         auto const joined_on_ref_collection = reference_filter_results.count(ref_collection_name) > 0,

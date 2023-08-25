@@ -1150,7 +1150,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     req_params["include_fields"] = "$foo(bar)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Referenced collection `foo` in include_fields not found.", search_op.error());
+    ASSERT_EQ("Referenced collection `foo` in `include_fields` not found.", search_op.error());
 
     req_params = {
             {"collection", "Products"},
@@ -2307,6 +2307,248 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
     ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
     ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+
+    // Reference sort_by without join
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "*"},
+            {"filter_by", "customer_name:= [Joe, Dan] && product_price:<100"},
+            {"include_fields", "$Products(product_name), product_price"},
+            {"sort_by", "$Products(product_name:desc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("product_name"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"].at("product_name"));
+    ASSERT_EQ(75, res_obj["hits"][1]["document"].at("product_price"));
+
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "*"},
+            {"filter_by", "customer_name:= [Joe, Dan] && product_price:<100"},
+            {"include_fields", "$Products(product_name), product_price"},
+            {"sort_by", "$Products(product_name:asc)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("shampoo", res_obj["hits"][0]["document"].at("product_name"));
+    ASSERT_EQ(75, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("soap", res_obj["hits"][1]["document"].at("product_name"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+
+    schema_json =
+            R"({
+                "name": "Users",
+                "fields": [
+                    {"name": "user_id", "type": "string"},
+                    {"name": "user_name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "user_id": "user_a",
+                "user_name": "Roshan"
+            })"_json,
+            R"({
+                "user_id": "user_b",
+                "user_name": "Ruby"
+            })"_json,
+            R"({
+                "user_id": "user_c",
+                "user_name": "Joe"
+            })"_json,
+            R"({
+                "user_id": "user_d",
+                "user_name": "Aby"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Repos",
+                "fields": [
+                    {"name": "repo_id", "type": "string"},
+                    {"name": "repo_content", "type": "string"},
+                    {"name": "repo_stars", "type": "int32"},
+                    {"name": "repo_is_private", "type": "bool"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "repo_id": "repo_a",
+                "repo_content": "body1",
+                "repo_stars": 431,
+                "repo_is_private": true
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "repo_content": "body2",
+                "repo_stars": 4562,
+                "repo_is_private": false
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "repo_content": "body3",
+                "repo_stars": 945,
+                "repo_is_private": false
+            })"_json,
+            R"({
+                "repo_id": "repo_d",
+                "repo_content": "body4",
+                "repo_stars": 95,
+                "repo_is_private": true
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Links",
+                "fields": [
+                    {"name": "repo_id", "type": "string", "reference": "Repos.repo_id"},
+                    {"name": "user_id", "type": "string", "reference": "Users.user_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "repo_id": "repo_a",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_a",
+                "user_id": "user_c"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_a"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_b",
+                "user_id": "user_d"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_a"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_b"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_c"
+            })"_json,
+            R"({
+                "repo_id": "repo_c",
+                "user_id": "user_d"
+            })"_json,
+            R"({
+                "repo_id": "repo_d",
+                "user_id": "user_d"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Users"},
+            {"q", "*"},
+            {"filter_by", "$Links(repo_id:=[repo_a, repo_d])"},
+            {"include_fields", "user_id, user_name, $Repos(repo_content, repo_stars), "},
+            {"exclude_fields", "$Links(*), "},
+            {"sort_by", "$Repos(repo_stars: asc)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ(4, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("user_d", res_obj["hits"][0]["document"].at("user_id"));
+    ASSERT_EQ("Aby", res_obj["hits"][0]["document"].at("user_name"));
+    ASSERT_EQ("body4", res_obj["hits"][0]["document"].at("repo_content"));
+    ASSERT_EQ(95, res_obj["hits"][0]["document"].at("repo_stars"));
+
+    ASSERT_EQ("user_c", res_obj["hits"][1]["document"].at("user_id"));
+    ASSERT_EQ("Joe", res_obj["hits"][1]["document"].at("user_name"));
+    ASSERT_EQ("body1", res_obj["hits"][1]["document"].at("repo_content"));
+    ASSERT_EQ(431, res_obj["hits"][1]["document"].at("repo_stars"));
+
+    ASSERT_EQ("user_b", res_obj["hits"][2]["document"].at("user_id"));
+    ASSERT_EQ("Ruby", res_obj["hits"][2]["document"].at("user_name"));
+    ASSERT_EQ("body1", res_obj["hits"][2]["document"].at("repo_content"));
+    ASSERT_EQ(431, res_obj["hits"][2]["document"].at("repo_stars"));
+
+    req_params = {
+            {"collection", "Users"},
+            {"q", "*"},
+            {"filter_by", "$Links(repo_id:=[repo_a, repo_d])"},
+            {"include_fields", "user_id, user_name, $Repos(repo_content, repo_stars), "},
+            {"exclude_fields", "$Links(*), "},
+            {"sort_by", "$Repos(repo_stars: desc)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ(4, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("user_c", res_obj["hits"][0]["document"].at("user_id"));
+    ASSERT_EQ("Joe", res_obj["hits"][0]["document"].at("user_name"));
+    ASSERT_EQ("body1", res_obj["hits"][0]["document"].at("repo_content"));
+    ASSERT_EQ(431, res_obj["hits"][0]["document"].at("repo_stars"));
+
+    ASSERT_EQ("user_b", res_obj["hits"][1]["document"].at("user_id"));
+    ASSERT_EQ("Ruby", res_obj["hits"][1]["document"].at("user_name"));
+    ASSERT_EQ("body1", res_obj["hits"][1]["document"].at("repo_content"));
+    ASSERT_EQ(431, res_obj["hits"][1]["document"].at("repo_stars"));
+
+    ASSERT_EQ("user_d", res_obj["hits"][2]["document"].at("user_id"));
+    ASSERT_EQ("Aby", res_obj["hits"][2]["document"].at("user_name"));
+    ASSERT_EQ("body4", res_obj["hits"][2]["document"].at("repo_content"));
+    ASSERT_EQ(95, res_obj["hits"][2]["document"].at("repo_stars"));
 
     // Multiple references - Wildcard search
     req_params = {

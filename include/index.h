@@ -453,7 +453,7 @@ private:
                                        std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                                        const std::vector<size_t>& geopoint_indices,
                                        std::set<uint64>& query_hashes,
-                                       std::vector<uint32_t>& id_buff) const;
+                                       std::vector<uint32_t>& id_buff, const std::string& collection_name = "") const;
 
     void search_candidates(const uint8_t & field_id,
                            bool field_is_array,
@@ -709,7 +709,8 @@ public:
                                  const size_t concurrency,
                                  const int* sort_order,
                                  std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
-                                 const std::vector<size_t>& geopoint_indices) const;
+                                 const std::vector<size_t>& geopoint_indices,
+                                 const std::string& collection_name = "") const;
 
     void search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
                       size_t max_extra_prefix, size_t max_extra_suffix) const;
@@ -762,7 +763,8 @@ public:
                                  const std::vector<uint32_t>& curated_ids_sorted,
                                  const std::unordered_set<uint32_t>& excluded_group_ids,
                                  uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                                 spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed) const;
+                                 spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                 const std::string& collection_name = "") const;
 
     [[nodiscard]] Option<bool> do_synonym_search(const std::vector<search_field_t>& the_fields,
                                                  const text_match_type_t match_type,
@@ -791,7 +793,8 @@ public:
                                                  const int* sort_order,
                                                  std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                                                  const std::vector<size_t>& geopoint_indices,
-                                                 tsl::htrie_map<char, token_leaf>& qtoken_set) const;
+                                                 tsl::htrie_map<char, token_leaf>& qtoken_set,
+                                                 const std::string& collection_name = "") const;
 
     Option<bool> do_phrase_search(const size_t num_search_fields, const std::vector<search_field_t>& search_fields,
                                   std::vector<query_tokens_t>& field_query_tokens,
@@ -811,7 +814,7 @@ public:
                                   const std::unordered_set<uint32_t>& excluded_group_ids,
                                   Topster* curated_topster,
                                   const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                                  bool is_wildcard_query) const;
+                                  bool is_wildcard_query, const std::string& collection_name = "") const;
 
     [[nodiscard]] Option<bool> fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                                                    const std::vector<token_t>& query_tokens,
@@ -842,7 +845,8 @@ public:
                                                    int syn_orig_num_tokens,
                                                    const int* sort_order,
                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
-                                                   const std::vector<size_t>& geopoint_indices) const;
+                                                   const std::vector<size_t>& geopoint_indices,
+                                                   const std::string& collection_name = "") const;
 
     void find_across_fields(const token_t& previous_token,
                             const std::string& previous_token_str,
@@ -880,8 +884,8 @@ public:
                                       std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                                       const std::vector<size_t>& geopoint_indices,
                                       std::vector<uint32_t>& id_buff,
-                                      uint32_t*& all_result_ids,
-                                      size_t& all_result_ids_len) const;
+                                      uint32_t*& all_result_ids, size_t& all_result_ids_len,
+                                      const std::string& collection_name = "") const;
 
     void
     search_fields(const std::vector<filter>& filters,
@@ -918,7 +922,8 @@ public:
                                      size_t filter_index,
                                      int64_t max_field_match_score,
                                      int64_t* scores,
-                                     int64_t& match_score_index, float vector_distance = 0) const;
+                                     int64_t& match_score_index, float vector_distance = 0,
+                                     const std::string& collection_name = "") const;
 
     void process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                              const std::vector<uint32_t>& excluded_ids, const std::vector<std::string>& group_by_fields,

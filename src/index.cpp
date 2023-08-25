@@ -1471,7 +1471,7 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                           std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                                           const std::vector<size_t>& geopoint_indices,
                                           std::set<uint64>& query_hashes,
-                                          std::vector<uint32_t>& id_buff) const {
+                                          std::vector<uint32_t>& id_buff, const std::string& collection_name) const {
 
     /*if(!token_candidates_vec.empty()) {
         LOG(INFO) << "Prefix candidates size: " << token_candidates_vec.back().candidates.size();
@@ -1520,7 +1520,8 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                                              total_cost, syn_orig_num_tokens,
                                                              exclude_token_ids, exclude_token_ids_size, excluded_group_ids,
                                                              sort_order, field_values, geopoint_indices,
-                                                             id_buff, all_result_ids, all_result_ids_len);
+                                                             id_buff, all_result_ids, all_result_ids_len,
+                                                             collection_name);
         if (!search_across_fields_op.ok()) {
             return search_across_fields_op;
         }
@@ -2282,7 +2283,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                     filter_result_iterator, all_result_ids, all_result_ids_len,
                                                     groups_processed, curated_ids,
                                                     excluded_result_ids, excluded_result_ids_size, excluded_group_ids,
-                                                    curated_topster, included_ids_map, is_wildcard_query);
+                                                    curated_topster, included_ids_map, is_wildcard_query,
+                                                    collection_name);
 
         filter_iterator_guard.release();
         filter_iterator_guard.reset(filter_result_iterator);
@@ -2446,7 +2448,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
                                                                   geopoint_indices, seq_id, references, 0, 0, scores,
-                                                                  match_score_index, vec_dist_score);
+                                                                  match_score_index, vec_dist_score, collection_name);
                 if (!compute_sort_scores_op.ok()) {
                     return compute_sort_scores_op;
                 }
@@ -2480,7 +2482,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                       excluded_result_ids, excluded_result_ids_size, excluded_group_ids,
                                                       all_result_ids, all_result_ids_len,
                                                       filter_result_iterator, concurrency,
-                                                      sort_order, field_values, geopoint_indices);
+                                                      sort_order, field_values, geopoint_indices, collection_name);
             if (!search_wildcard_op.ok()) {
                 return search_wildcard_op;
             }
@@ -2539,7 +2541,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                           prioritize_token_position, query_hashes, token_order, prefixes,
                                                           typo_tokens_threshold, exhaustive_search,
                                                           max_candidates, min_len_1typo, min_len_2typo,
-                                                          syn_orig_num_tokens, sort_order, field_values, geopoint_indices);
+                                                          syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
+                                                          collection_name);
         if (!fuzzy_search_fields_op.ok()) {
             return fuzzy_search_fields_op;
         }
@@ -2582,7 +2585,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                                   prioritize_token_position, query_hashes, token_order,
                                                                   prefixes, typo_tokens_threshold, exhaustive_search,
                                                                   max_candidates, min_len_1typo, min_len_2typo,
-                                                                  syn_orig_num_tokens, sort_order, field_values, geopoint_indices);
+                                                                  syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
+                                                                  collection_name);
                 if (!fuzzy_search_fields_op.ok()) {
                     return fuzzy_search_fields_op;
                 }
@@ -2600,7 +2604,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                      groups_processed, searched_queries, all_result_ids, all_result_ids_len,
                                                      filter_result_iterator, query_hashes,
                                                      sort_order, field_values, geopoint_indices,
-                                                     qtoken_set);
+                                                     qtoken_set, collection_name);
         if (!do_synonym_search_op.ok()) {
             return do_synonym_search_op;
         }
@@ -2662,7 +2666,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                                           prioritize_exact_match, prioritize_token_position, query_hashes,
                                                                           token_order, prefixes, typo_tokens_threshold,
                                                                           exhaustive_search, max_candidates, min_len_1typo,
-                                                                          min_len_2typo, -1, sort_order, field_values, geopoint_indices);
+                                                                          min_len_2typo, -1, sort_order, field_values, geopoint_indices,
+                                                                          collection_name);
                         if (!fuzzy_search_fields_op.ok()) {
                             return fuzzy_search_fields_op;
                         }
@@ -2682,7 +2687,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                    topster, filter_result_iterator,
                                                    sort_order, field_values, geopoint_indices,
                                                    curated_ids_sorted, excluded_group_ids,
-                                                   all_result_ids, all_result_ids_len, groups_processed);
+                                                   all_result_ids, all_result_ids_len, groups_processed,
+                                                   collection_name);
         if (!do_infix_search_op.ok()) {
             return do_infix_search_op;
         }
@@ -2781,7 +2787,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
                                                                           geopoint_indices, doc_id, references, 0,
                                                                           match_score, scores, match_score_index,
-                                                                          vec_result.second);
+                                                                          vec_result.second, collection_name);
                         if (!compute_sort_scores_op.ok()) {
                             return compute_sort_scores_op;
                         }
@@ -2800,7 +2806,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
                                                                           geopoint_indices, doc_id, references, 0,
                                                                           match_score, scores, match_score_index,
-                                                                          vec_result.second);
+                                                                          vec_result.second, collection_name);
                         if (!compute_sort_scores_op.ok()) {
                             return compute_sort_scores_op;
                         }
@@ -3138,7 +3144,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         int syn_orig_num_tokens,
                                         const int* sort_order,
                                         std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
-                                        const std::vector<size_t>& geopoint_indices) const {
+                                        const std::vector<size_t>& geopoint_indices,
+                                        const std::string& collection_name) const {
 
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
@@ -3379,7 +3386,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                                                   num_typos, prefixes, prioritize_exact_match, prioritize_token_position,
                                                                   exhaustive_search, max_candidates,
                                                                   syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
-                                                                  query_hashes, id_buff);
+                                                                  query_hashes, id_buff, collection_name);
             if (!search_all_candidates_op.ok()) {
                 return search_all_candidates_op;
             }
@@ -3547,7 +3554,8 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
                                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                                          const std::vector<size_t>& geopoint_indices,
                                          std::vector<uint32_t>& id_buff,
-                                         uint32_t*& all_result_ids, size_t& all_result_ids_len) const {
+                                         uint32_t*& all_result_ids, size_t& all_result_ids_len,
+                                         const std::string& collection_name) const {
 
     std::vector<art_leaf*> query_suggestion;
 
@@ -3740,7 +3748,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
 
         auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
                                                           seq_id, references, filter_index, best_field_match_score,
-                                                          scores, match_score_index);
+                                                          scores, match_score_index, 0, collection_name);
         if (!compute_sort_scores_op.ok()) {
             status = Option<bool>(compute_sort_scores_op.code(), compute_sort_scores_op.error());
             return;
@@ -3856,7 +3864,8 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                                         const std::vector<size_t>& geopoint_indices,
                                         uint32_t seq_id, const std::map<basic_string<char>, reference_filter_result_t>& references,
                                         size_t filter_index, int64_t max_field_match_score, int64_t* scores,
-                                        int64_t& match_score_index, float vector_distance) const {
+                                        int64_t& match_score_index, float vector_distance,
+                                        const std::string& collection_name) const {
 
     int64_t geopoint_distances[3];
 
@@ -3917,19 +3926,84 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (!sort_fields[0].reference_collection_name.empty()) {
             auto& sort_field = sort_fields[0];
-            if (references.count(sort_field.reference_collection_name) == 0 ||
-                references.at(sort_field.reference_collection_name).count == 0) {
-                return Option<bool>(400, "No references found to sort by on `" +
-                                            sort_field.reference_collection_name + "." + sort_field.name + "`.");
-            }
+            auto const& ref_collection_name = sort_field.reference_collection_name;
+            auto const& multiple_references_error_message = "Multiple references found to sort by on `" +
+                                                            ref_collection_name + "." + sort_field.name + "`.";
+            auto const& no_references_error_message = "No references found to sort by on `" +
+                                                      ref_collection_name + "." + sort_field.name + "`.";
 
-            auto& reference_result = references.at(sort_field.reference_collection_name);
-            if (reference_result.count > 1) {
-                return Option<bool>(400, "Multiple references found to sort by on `" +
-                                            sort_field.reference_collection_name + "." + sort_field.name + "`.");
-            }
+            // Joined on ref collection
+            if (references.count(ref_collection_name) > 0) {
+                if (references.at(ref_collection_name).count == 1) {
+                    seq_id = references.at(ref_collection_name).docs[0];
+                } else {
+                    return Option<bool>(400, references.at(ref_collection_name).count > 1 ?
+                                                multiple_references_error_message : no_references_error_message);
+                }
+            } else {
+                auto& cm = CollectionManager::get_instance();
+                auto ref_collection = cm.get_collection(ref_collection_name);
+                if (ref_collection == nullptr) {
+                    return Option<bool>(400, "Referenced collection `" + ref_collection_name +
+                                                "` in `sort_by` not found.");
+                }
 
-            seq_id = reference_result.docs[0];
+                // Current collection has a reference.
+                if (ref_collection->is_referenced_in(collection_name)) {
+                    auto get_reference_field_op = ref_collection->get_reference_field(collection_name);
+                    if (!get_reference_field_op.ok()) {
+                        return Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
+                    }
+                    auto const& field_name = get_reference_field_op.get();
+                    if (sort_index.count(field_name) == 0 || sort_index.at(field_name)->count(seq_id) == 0) {
+                        return Option<bool>(400, "Could not find a reference for doc " + std::to_string(seq_id));
+                    }
+
+                    seq_id = sort_index.at(field_name)->at(seq_id);
+                }
+                // Joined collection has a reference
+                else {
+                    std::string joined_coll_having_reference;
+                    for (const auto &reference: references) {
+                        if (ref_collection->is_referenced_in(reference.first)) {
+                            joined_coll_having_reference = reference.first;
+                            break;
+                        }
+                    }
+
+                    if (joined_coll_having_reference.empty()) {
+                        return Option<bool>(400, no_references_error_message);
+                    }
+
+                    auto joined_collection = cm.get_collection(joined_coll_having_reference);
+                    if (joined_collection == nullptr) {
+                        return Option<bool>(400, "Referenced collection `" + joined_coll_having_reference +
+                                                    "` in `sort_by` not found.");
+                    }
+
+                    auto reference_field_name_op = ref_collection->get_reference_field(joined_coll_having_reference);
+                    if (!reference_field_name_op.ok()) {
+                        return Option<bool>(reference_field_name_op.code(), reference_field_name_op.error());
+                    }
+
+                    auto const& reference_field_name = reference_field_name_op.get();
+                    auto const& reference = references.at(joined_coll_having_reference);
+                    auto const& count = reference.count;
+
+                    if (count == 1) {
+                        auto op = joined_collection->get_sort_indexed_field_value(reference_field_name,
+                                                                                  reference.docs[0]);
+                        if (!op.ok()) {
+                            return Option<bool>(op.code(), op.error());
+                        }
+
+                        seq_id = op.get();
+                    } else {
+                        return Option<bool>(400, count > 1 ? multiple_references_error_message :
+                                                                    no_references_error_message);
+                    }
+                }
+            }
         }
 
         if (field_values[0] == &text_match_sentinel_value) {
@@ -4005,19 +4079,84 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (!sort_fields[1].reference_collection_name.empty()) {
             auto& sort_field = sort_fields[1];
-            if (references.count(sort_field.reference_collection_name) == 0 ||
-                references.at(sort_field.reference_collection_name).count == 0) {
-                return Option<bool>(400, "No references found to sort by on `" +
-                                         sort_field.reference_collection_name + "." + sort_field.name + "`.");
-            }
+            auto const& ref_collection_name = sort_field.reference_collection_name;
+            auto const& multiple_references_error_message = "Multiple references found to sort by on `" +
+                                                            ref_collection_name + "." + sort_field.name + "`.";
+            auto const& no_references_error_message = "No references found to sort by on `" +
+                                                      ref_collection_name + "." + sort_field.name + "`.";
 
-            auto& reference_result = references.at(sort_field.reference_collection_name);
-            if (reference_result.count > 1) {
-                return Option<bool>(400, "Multiple references found to sort by on `" +
-                                         sort_field.reference_collection_name + "." + sort_field.name + "`.");
-            }
+            // Joined on ref collection
+            if (references.count(ref_collection_name) > 0) {
+                if (references.at(ref_collection_name).count == 1) {
+                    seq_id = references.at(ref_collection_name).docs[0];
+                } else {
+                    return Option<bool>(400, references.at(ref_collection_name).count > 1 ?
+                                             multiple_references_error_message : no_references_error_message);
+                }
+            } else {
+                auto& cm = CollectionManager::get_instance();
+                auto ref_collection = cm.get_collection(ref_collection_name);
+                if (ref_collection == nullptr) {
+                    return Option<bool>(400, "Referenced collection `" + ref_collection_name +
+                                             "` in `sort_by` not found.");
+                }
 
-            seq_id = reference_result.docs[0];
+                // Current collection has a reference.
+                if (ref_collection->is_referenced_in(collection_name)) {
+                    auto get_reference_field_op = ref_collection->get_reference_field(collection_name);
+                    if (!get_reference_field_op.ok()) {
+                        return Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
+                    }
+                    auto const& field_name = get_reference_field_op.get();
+                    if (sort_index.count(field_name) == 0 || sort_index.at(field_name)->count(seq_id) == 0) {
+                        return Option<bool>(400, "Could not find a reference for doc " + std::to_string(seq_id));
+                    }
+
+                    seq_id = sort_index.at(field_name)->at(seq_id);
+                }
+                    // Joined collection has a reference
+                else {
+                    std::string joined_coll_having_reference;
+                    for (const auto &reference: references) {
+                        if (ref_collection->is_referenced_in(reference.first)) {
+                            joined_coll_having_reference = reference.first;
+                            break;
+                        }
+                    }
+
+                    if (joined_coll_having_reference.empty()) {
+                        return Option<bool>(400, no_references_error_message);
+                    }
+
+                    auto joined_collection = cm.get_collection(joined_coll_having_reference);
+                    if (joined_collection == nullptr) {
+                        return Option<bool>(400, "Referenced collection `" + joined_coll_having_reference +
+                                                 "` in `sort_by` not found.");
+                    }
+
+                    auto reference_field_name_op = ref_collection->get_reference_field(joined_coll_having_reference);
+                    if (!reference_field_name_op.ok()) {
+                        return Option<bool>(reference_field_name_op.code(), reference_field_name_op.error());
+                    }
+
+                    auto const& reference_field_name = reference_field_name_op.get();
+                    auto const& reference = references.at(joined_coll_having_reference);
+                    auto const& count = reference.count;
+
+                    if (count == 1) {
+                        auto op = joined_collection->get_sort_indexed_field_value(reference_field_name,
+                                                                                  reference.docs[0]);
+                        if (!op.ok()) {
+                            return Option<bool>(op.code(), op.error());
+                        }
+
+                        seq_id = op.get();
+                    } else {
+                        return Option<bool>(400, count > 1 ? multiple_references_error_message :
+                                                 no_references_error_message);
+                    }
+                }
+            }
         }
 
         if (field_values[1] == &text_match_sentinel_value) {
@@ -4089,19 +4228,84 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
         // In case of reference sort_by, we need to get the sort score of the reference doc id.
         if (!sort_fields[2].reference_collection_name.empty()) {
             auto& sort_field = sort_fields[2];
-            if (references.count(sort_field.reference_collection_name) == 0 ||
-                references.at(sort_field.reference_collection_name).count == 0) {
-                return Option<bool>(400, "No references found to sort by on `" +
-                                         sort_field.reference_collection_name + "." + sort_field.name + "`.");
-            }
+            auto const& ref_collection_name = sort_field.reference_collection_name;
+            auto const& multiple_references_error_message = "Multiple references found to sort by on `" +
+                                                            ref_collection_name + "." + sort_field.name + "`.";
+            auto const& no_references_error_message = "No references found to sort by on `" +
+                                                      ref_collection_name + "." + sort_field.name + "`.";
 
-            auto& reference_result = references.at(sort_field.reference_collection_name);
-            if (reference_result.count > 1) {
-                return Option<bool>(400, "Multiple references found to sort by on `" +
-                                         sort_field.reference_collection_name + "." + sort_field.name + "`.");
-            }
+            // Joined on ref collection
+            if (references.count(ref_collection_name) > 0) {
+                if (references.at(ref_collection_name).count == 1) {
+                    seq_id = references.at(ref_collection_name).docs[0];
+                } else {
+                    return Option<bool>(400, references.at(ref_collection_name).count > 1 ?
+                                             multiple_references_error_message : no_references_error_message);
+                }
+            } else {
+                auto& cm = CollectionManager::get_instance();
+                auto ref_collection = cm.get_collection(ref_collection_name);
+                if (ref_collection == nullptr) {
+                    return Option<bool>(400, "Referenced collection `" + ref_collection_name +
+                                             "` in `sort_by` not found.");
+                }
 
-            seq_id = reference_result.docs[0];
+                // Current collection has a reference.
+                if (ref_collection->is_referenced_in(collection_name)) {
+                    auto get_reference_field_op = ref_collection->get_reference_field(collection_name);
+                    if (!get_reference_field_op.ok()) {
+                        return Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
+                    }
+                    auto const& field_name = get_reference_field_op.get();
+                    if (sort_index.count(field_name) == 0 || sort_index.at(field_name)->count(seq_id) == 0) {
+                        return Option<bool>(400, "Could not find a reference for doc " + std::to_string(seq_id));
+                    }
+
+                    seq_id = sort_index.at(field_name)->at(seq_id);
+                }
+                    // Joined collection has a reference
+                else {
+                    std::string joined_coll_having_reference;
+                    for (const auto &reference: references) {
+                        if (ref_collection->is_referenced_in(reference.first)) {
+                            joined_coll_having_reference = reference.first;
+                            break;
+                        }
+                    }
+
+                    if (joined_coll_having_reference.empty()) {
+                        return Option<bool>(400, no_references_error_message);
+                    }
+
+                    auto joined_collection = cm.get_collection(joined_coll_having_reference);
+                    if (joined_collection == nullptr) {
+                        return Option<bool>(400, "Referenced collection `" + joined_coll_having_reference +
+                                                 "` in `sort_by` not found.");
+                    }
+
+                    auto reference_field_name_op = ref_collection->get_reference_field(joined_coll_having_reference);
+                    if (!reference_field_name_op.ok()) {
+                        return Option<bool>(reference_field_name_op.code(), reference_field_name_op.error());
+                    }
+
+                    auto const& reference_field_name = reference_field_name_op.get();
+                    auto const& reference = references.at(joined_coll_having_reference);
+                    auto const& count = reference.count;
+
+                    if (count == 1) {
+                        auto op = joined_collection->get_sort_indexed_field_value(reference_field_name,
+                                                                                  reference.docs[0]);
+                        if (!op.ok()) {
+                            return Option<bool>(op.code(), op.error());
+                        }
+
+                        seq_id = op.get();
+                    } else {
+                        return Option<bool>(400, count > 1 ? multiple_references_error_message :
+                                                 no_references_error_message);
+                    }
+                }
+            }
         }
 
         if (field_values[2] == &text_match_sentinel_value) {
@@ -4190,7 +4394,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
                                      const std::unordered_set<uint32_t>& excluded_group_ids,
                                      Topster* curated_topster,
                                      const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                                     bool is_wildcard_query) const {
+                                     bool is_wildcard_query, const std::string& collection_name) const {
 
     uint32_t* phrase_result_ids = nullptr;
     uint32_t phrase_result_count = 0;
@@ -4312,7 +4516,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
 
         auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
                                                           seq_id, references, filter_index, match_score, scores,
-                                                          match_score_index);
+                                                          match_score_index, 0, collection_name);
         if (!compute_sort_scores_op.ok()) {
             return compute_sort_scores_op;
         }
@@ -4369,7 +4573,8 @@ Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fie
                                       const int* sort_order,
                                       std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                                       const std::vector<size_t>& geopoint_indices,
-                                      tsl::htrie_map<char, token_leaf>& qtoken_set) const {
+                                      tsl::htrie_map<char, token_leaf>& qtoken_set,
+                                      const std::string& collection_name) const {
 
     for (const auto& syn_tokens : q_pos_synonyms) {
         query_hashes.clear();
@@ -4381,7 +4586,8 @@ Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fie
                                                           prioritize_exact_match, prioritize_token_position, query_hashes,
                                                           token_order, prefixes, typo_tokens_threshold, exhaustive_search,
                                                           max_candidates, min_len_1typo, min_len_2typo,
-                                                          syn_orig_num_tokens, sort_order, field_values, geopoint_indices);
+                                                          syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
+                                                          collection_name);
         if (!fuzzy_search_fields_op.ok()) {
             return fuzzy_search_fields_op;
         }
@@ -4405,7 +4611,8 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                                     const std::vector<uint32_t>& curated_ids_sorted,
                                     const std::unordered_set<uint32_t>& excluded_group_ids,
                                     uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                                    spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed) const {
+                                    spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
+                                    const std::string& collection_name) const {
 
     for(size_t field_id = 0; field_id < num_search_fields; field_id++) {
         auto& field_name = the_fields[field_id].name;
@@ -4462,7 +4669,8 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
 
                     auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values,
                                                                       geopoint_indices, seq_id, references,
-                                                                      filter_index, 100, scores, match_score_index);
+                                                                      filter_index, 100, scores, match_score_index,
+                                                                      0, collection_name);
                     if (!compute_sort_scores_op.ok()) {
                         return compute_sort_scores_op;
                     }
@@ -4770,7 +4978,8 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                                     const size_t concurrency,
                                     const int* sort_order,
                                     std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
-                                    const std::vector<size_t>& geopoint_indices) const {
+                                    const std::vector<size_t>& geopoint_indices,
+                                    const std::string& collection_name) const {
 
     filter_result_iterator->compute_result();
     auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
@@ -4818,7 +5027,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                               &sort_order, field_values, &geopoint_indices, &plists,
                               check_for_circuit_break,
                               batch_result,
-                              &num_processed, &m_process, &cv_process, &compute_sort_score_status]() {
+                              &num_processed, &m_process, &cv_process, &compute_sort_score_status, collection_name]() {
 
             search_begin_us = parent_search_begin;
             search_stop_us = parent_search_stop_ms;
@@ -4843,7 +5052,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
                 auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
                                                                   seq_id, references, filter_index, 100, scores,
-                                                                  match_score_index);
+                                                                  match_score_index, 0, collection_name);
                 if (!compute_sort_scores_op.ok()) {
                     compute_sort_score_status = new Option<bool>(compute_sort_scores_op.code(), compute_sort_scores_op.error());
                     break;
