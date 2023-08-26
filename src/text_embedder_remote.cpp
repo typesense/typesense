@@ -235,7 +235,6 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
     }
 
     if(res_json.count("data") == 0 || !res_json["data"].is_array() || res_json["data"].size() != inputs.size()) {
-        nlohmann::json embedding_res = get_error_json(req_body, res_code, res);
         std::vector<embedding_res_t> outputs;
         for(size_t i = 0; i < inputs.size(); i++) {
             outputs.push_back(embedding_res_t(500, "Got malformed response from OpenAI API."));
