@@ -6,6 +6,7 @@
 #include <posting_list.h>
 #include <num_tree.h>
 #include <list>
+#include <field.h>
 
 struct facet_value_id_t {
     std::string facet_value;
@@ -125,7 +126,7 @@ public:
 
     size_t get_facet_count(const std::string& field_name);
 
-    size_t intersect(const std::string& field_name,
+    size_t intersect(facet& a_facet,
                      bool has_facet_query, const std::vector<std::string>& fvalue_searched_tokens,
                      const uint32_t* result_ids, size_t result_id_len,
                      size_t max_facet_count, std::map<std::string, uint32_t>& found,

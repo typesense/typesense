@@ -145,14 +145,14 @@ size_t facet_index_t::get_facet_count(const std::string& field_name) {
 }
 
 //returns the count of matching seq_ids from result array
-size_t facet_index_t::intersect(const std::string& field_name,
+size_t facet_index_t::intersect(facet& a_facet,
                                 bool has_facet_query, const std::vector<std::string>& fvalue_searched_tokens,
                                 const uint32_t* result_ids, size_t result_ids_len,
                                 size_t max_facet_count, std::map<std::string, uint32_t>& found,
                                 bool is_wildcard_no_filter_query) {
     //LOG (INFO) << "intersecting field " << field;
 
-    const auto& facet_field_it = facet_field_map.find(field_name);
+    const auto& facet_field_it = facet_field_map.find(a_facet.field_name);
     if(facet_field_it == facet_field_map.end()) {
         return 0;
     }
@@ -179,6 +179,7 @@ size_t facet_index_t::intersect(const std::string& field_name,
             for(const auto& searched_token: fvalue_searched_tokens) {
                 if(facet_str.find(searched_token) != std::string::npos) {
                     found_search_token = true;
+                    a_facet.fvalue_tokens[facet_count.facet_value] = fvalue_searched_tokens;
                     break;
                 }
             }

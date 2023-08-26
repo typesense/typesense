@@ -1292,7 +1292,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
             std::map<std::string, uint32_t> facet_results;
 
-            facet_index_v4->intersect(facet_field.name, use_facet_query,
+            facet_index_v4->intersect(a_facet, use_facet_query,
                                       facet_infos[findex].fvalue_searched_tokens, result_ids,
                                       results_size, max_facet_count, facet_results, is_wildcard_no_filter_query);
 
