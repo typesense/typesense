@@ -594,7 +594,6 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
     std::vector<embedding_res_t> outputs;
 
     if(res_json.count("predictions") == 0 || !res_json["predictions"].is_array() || res_json["predictions"].size() != inputs.size()) {
-        nlohmann::json embedding_res = get_error_json(req_body, res_code, res);
         std::vector<embedding_res_t> outputs;
         for(size_t i = 0; i < inputs.size(); i++) {
             outputs.push_back(embedding_res_t(500, "Got malformed response from GCP API."));
@@ -604,7 +603,6 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
 
     for(const auto& prediction : res_json["predictions"]) {
         if(prediction.count("embeddings") == 0 || !prediction["embeddings"].is_object() || prediction["embeddings"].count("values") == 0 || !prediction["embeddings"]["values"].is_array() || prediction["embeddings"]["values"].size() == 0) {
-            nlohmann::json embedding_res = get_error_json(req_body, res_code, res);
             outputs.push_back(embedding_res_t(500, "Got malformed response from GCP API."));
             continue;
         }
