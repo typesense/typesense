@@ -1349,6 +1349,49 @@ TEST_F(CollectionOptimizedFacetingTest, FacetTestWithDeletedDoc) {
     ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
 }
 
+TEST_F(CollectionOptimizedFacetingTest, FacetQueryTest) {
+    std::vector<field> fields = {
+        field("color", field_types::STRING, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    std::vector<std::string> colors = {"apple red", "azure", "amazon green", "apricot orange",
+                                       "blue", "barrel blue", "banana yellow", "ball green", "baikal"};
+
+    for(size_t i = 0; i < 100; i++) {
+        nlohmann::json doc;
+        doc["color"] = colors[i % colors.size()];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // add colors that DON'T start with "b" to push these up the count list
+    for(size_t i = 0; i < 4; i++) {
+        nlohmann::json doc;
+        doc["color"] = colors[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {},
+                                 "", {"color"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 5, "color:b", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(4, results["facet_counts"][0]["counts"].size()); // 4 is default candidate size
+
+    // junk string should produce no facets
+
+    results = coll1->search("*", {},
+                            "", {"color"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 5, "color:xsda", 30, 4, "", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+}
+
 TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
     std::vector<field> fields = {
             field("tags", field_types::STRING_ARRAY, true),

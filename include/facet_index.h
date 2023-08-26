@@ -125,7 +125,9 @@ public:
 
     size_t get_facet_count(const std::string& field_name);
 
-    size_t intersect(const std::string& val, const uint32_t* result_ids, size_t result_id_len,
+    size_t intersect(const std::string& field_name,
+                     bool has_facet_query, const std::vector<std::string>& fvalue_searched_tokens,
+                     const uint32_t* result_ids, size_t result_id_len,
                      size_t max_facet_count, std::map<std::string, uint32_t>& found,
                      bool is_wildcard_no_filter_query);
     
