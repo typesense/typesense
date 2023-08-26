@@ -1327,6 +1327,58 @@ TEST_F(CollectionVectorTest, KeywordSearchReturnOnlyTextMatchInfo) {
     ASSERT_EQ(1, results["hits"][0].count("text_match_info"));
 }
 
+TEST_F(CollectionVectorTest, GroupByWithVectorSearch) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::vector<float>> values = {
+        {0.851758, 0.909671, 0.823431, 0.372063},
+        {0.97826, 0.933157, 0.39557, 0.306488},
+        {0.230606, 0.634397, 0.514009, 0.399594}
+    };
+
+    for (size_t i = 0; i < values.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = std::to_string(i) + " title";
+        doc["group"] = "0";
+        doc["vec"] = values[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto res = coll1->search("title", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                     spp::sparse_hash_set<std::string>(),
+                     spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                     "", 10, {}, {}, {"group"}, 1,
+                     "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                     4, {off}, 32767, 32767, 2,
+                     false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488])").get();
+
+    ASSERT_EQ(1, res["grouped_hits"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"][0].count("vector_distance"));
+
+    res = coll1->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                        "", 10, {}, {}, {"group"}, 1,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                        4, {off}, 32767, 32767, 2,
+                        false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488])").get();
+
+    ASSERT_EQ(1, res["grouped_hits"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"][0].count("vector_distance"));
+}
+
 TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
     auto schema_json =
             R"({
