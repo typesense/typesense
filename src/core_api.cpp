@@ -1932,7 +1932,7 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     return true;
 }
 
-bool upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
 
     try {

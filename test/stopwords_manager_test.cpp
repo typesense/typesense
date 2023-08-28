@@ -211,7 +211,7 @@ TEST_F(StopwordsManagerTest, StopwordsBasics) {
     req->params["name"] = "articles";
     req->body = stopword_value.dump();
 
-    auto result = upsert_stopword(req, res);
+    auto result = put_upsert_stopword(req, res);
     if(!result) {
         LOG(ERROR) << res->body;
         FAIL();
@@ -247,7 +247,7 @@ TEST_F(StopwordsManagerTest, StopwordsBasics) {
     req->params["name"] = "continents";
     req->body = stopword_value.dump();
 
-    result = upsert_stopword(req, res);
+    result = put_upsert_stopword(req, res);
     if(!result) {
         LOG(ERROR) << res->body;
         FAIL();
@@ -337,7 +337,7 @@ TEST_F(StopwordsManagerTest, StopwordsValidation) {
     req->params["name"] = "continents";
     req->body = stopword_value.dump();
 
-    auto result = upsert_stopword(req, res);
+    auto result = put_upsert_stopword(req, res);
     ASSERT_EQ(400, res->status_code);
     ASSERT_STREQ("{\"message\": \"Parameter `stopwords` is required\"}", res->body.c_str());
 
@@ -350,7 +350,7 @@ TEST_F(StopwordsManagerTest, StopwordsValidation) {
     req->params["name"] = "continents";
     req->body = stopword_value.dump();
 
-    result = upsert_stopword(req, res);
+    result = put_upsert_stopword(req, res);
     ASSERT_EQ(400, res->status_code);
     ASSERT_STREQ("{\"message\": \"Parameter `locale` is required as string value\"}", res->body.c_str());
 
@@ -362,7 +362,7 @@ TEST_F(StopwordsManagerTest, StopwordsValidation) {
     req->params["name"] = "continents";
     req->body = stopword_value.dump();
 
-    result = upsert_stopword(req, res);
+    result = put_upsert_stopword(req, res);
     ASSERT_EQ(400, res->status_code);
     ASSERT_STREQ("{\"message\": \"Parameter `stopwords` is required as string array value\"}", res->body.c_str());
 
@@ -392,7 +392,7 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
     req->params["name"] = "genre";
     req->body = stopword_value.dump();
 
-    auto result = upsert_stopword(req, res);
+    auto result = put_upsert_stopword(req, res);
     if(!result) {
         LOG(ERROR) << res->body;
         FAIL();
