@@ -69,7 +69,7 @@ bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
 
 bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 

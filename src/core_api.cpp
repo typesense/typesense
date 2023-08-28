@@ -1899,9 +1899,9 @@ bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
 
     for(const auto& stopwords_kv: stopwords) {
         nlohmann::json stopword;
-        stopword["name"] = stopwords_kv.first;
+        stopword["id"] = stopwords_kv.first;
         for(const auto& val : stopwords_kv.second) {
-            stopword["value"].push_back(val);
+            stopword["stopwords"].push_back(val);
         }
         res_json["stopwords"].push_back(stopword);
     }
@@ -1911,7 +1911,7 @@ bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
 }
 
 bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const std::string & stopword_name = req->params["stopword_name"];
+    const std::string & stopword_name = req->params["name"];
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
     spp::sparse_hash_set<std::string> stopwords;
@@ -1932,7 +1932,7 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     return true;
 }
 
-bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
 
     try {
@@ -1977,9 +1977,9 @@ bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     }
 
     nlohmann::json res_json;
-    res_json["name"] = stopword_name;
+    res_json["id"] = stopword_name;
     for(const auto& stopword : stopwords) {
-        res_json["value"].push_back(stopword);
+        res_json["stopwords"].push_back(stopword);
     }
 
     res->set_200(res_json.dump());

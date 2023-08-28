@@ -70,7 +70,7 @@ void master_server_routes() {
 
     server->get("/stopwords", get_stopwords);
     server->get("/stopwords/:name", get_stopword);
-    server->put("/stopwords/:name", put_upsert_stopword);
+    server->put("/stopwords/:name", upsert_stopword);
     server->del("/stopwords/:name", del_stopword);
 
     // analytics
