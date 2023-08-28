@@ -610,7 +610,7 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     ASSERT_EQ(2, embedded_params_vec.size());
 }
 
-TEST_F(CoreAPIUtilsTest, PresetSingleSearch) {
+TEST_F(CoreAPIUtilsTest, PresetMultiSearch) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "fields": [
@@ -634,7 +634,7 @@ TEST_F(CoreAPIUtilsTest, PresetSingleSearch) {
 
     auto search_body = R"(
         {"searches":[
-            {"collection":"coll1","q":"apple", "query_by": "title", "preset": "single_preset"}
+            {"collection":"coll1","q":"apple", "query_by": "name", "preset": "single_preset"}
         ]}
     )";
 
@@ -644,8 +644,40 @@ TEST_F(CoreAPIUtilsTest, PresetSingleSearch) {
 
     post_multi_search(req, res);
 
-    ASSERT_EQ("12", req->params["per_page"]);
-    ASSERT_EQ("coll1", req->params["collection"]);
+    auto res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ(1, res_json["results"].size());
+    ASSERT_EQ(0, res_json["results"][0]["found"].get<size_t>());
+
+    // with multiple "searches" preset configuration
+    preset_value = R"(
+        {"searches":[
+            {"collection":"coll1", "q": "*", "per_page": "8"},
+            {"collection":"coll1", "q": "*", "per_page": "11"}
+        ]}
+    )"_json;
+
+    collectionManager.upsert_preset("multi_preset", preset_value);
+    embedded_params.clear();
+    req->params.clear();
+    req->params["preset"] = "multi_preset";
+    req->embedded_params_vec.clear();
+    req->embedded_params_vec.push_back(embedded_params);
+    req->embedded_params_vec.push_back(embedded_params);
+
+    //  "preset": "multi_preset"
+    search_body = R"(
+        {"searches":[
+            {"collection":"coll1","q":"apple", "query_by": "title"}
+        ]}
+    )";
+
+    req->body = search_body;
+
+    post_multi_search(req, res);
+    res_json = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, res_json["results"].size());
+    ASSERT_EQ(0, res_json["results"][0]["found"].get<size_t>());
+    ASSERT_EQ(0, res_json["results"][1]["found"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }
