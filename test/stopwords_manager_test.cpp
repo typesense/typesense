@@ -328,20 +328,8 @@ TEST_F(StopwordsManagerTest, StopwordsValidation) {
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
-    auto stopword_value = R"(
-            {"stopwords": ["america", "europe"]}
-        )"_json;
-
-    req->params["collection"] = "coll1";
-    req->params["name"] = "continents";
-    req->body = stopword_value.dump();
-
-    auto result = put_upsert_stopword(req, res);
-    ASSERT_EQ(400, res->status_code);
-    ASSERT_EQ("{\"message\": \"Parameter `locale` is required\"}", res->body);
-
     //with a typo
-    stopword_value = R"(
+    auto stopword_value = R"(
             {"stopword": ["america", "europe"], "locale": "en"}
         )"_json;
 
@@ -349,7 +337,7 @@ TEST_F(StopwordsManagerTest, StopwordsValidation) {
     req->params["name"] = "continents";
     req->body = stopword_value.dump();
 
-    result = put_upsert_stopword(req, res);
+    auto result = put_upsert_stopword(req, res);
     ASSERT_EQ(400, res->status_code);
     ASSERT_STREQ("{\"message\": \"Parameter `stopwords` is required\"}", res->body.c_str());
 

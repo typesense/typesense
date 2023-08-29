@@ -28,6 +28,7 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
 
     const char* STOPWORD_VALUES = "stopwords";
     const char* STOPWORD_LOCALE = "locale";
+    std::string locale  = "";
 
     if(stopwords_json.count(STOPWORD_VALUES) == 0){
         return Option<bool>(400, (std::string("Parameter `") + STOPWORD_VALUES + "` is required"));
@@ -37,12 +38,11 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
         return Option<bool>(400, (std::string("Parameter `") + STOPWORD_VALUES + "` is required as string array value"));
     }
 
-    if(stopwords_json.count(STOPWORD_LOCALE) == 0) {
-        return Option<bool>(400, (std::string("Parameter `") + STOPWORD_LOCALE + "` is required"));
-    }
-
-    if(!stopwords_json[STOPWORD_LOCALE].is_string()) {
-        return Option<bool>(400, (std::string("Parameter `") + STOPWORD_LOCALE + "` is required as string value"));
+    if(stopwords_json.count(STOPWORD_LOCALE) != 0) {
+        if (!stopwords_json[STOPWORD_LOCALE].is_string()) {
+            return Option<bool>(400, (std::string("Parameter `") + STOPWORD_LOCALE + "` is required as string value"));
+        }
+        locale = stopwords_json[STOPWORD_LOCALE];
     }
 
     if(write_to_store) {
@@ -55,7 +55,6 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
     std::vector<std::string> tokens;
     spp::sparse_hash_set<std::string> stopwords_set;
     const auto& stopwords = stopwords_json[STOPWORD_VALUES];
-    const auto& locale = stopwords_json[STOPWORD_LOCALE];
 
     for (const auto &stopword: stopwords.items()) {
         const auto& val = stopword.value().get<std::string>();
