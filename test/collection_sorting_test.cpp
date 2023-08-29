@@ -2135,6 +2135,22 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
     results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(5, results["hits"].size());
 
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "title"},
+            {"query_by", "title"},
+            {"sort_by", "_eval(brand:[nike, adidas] && points:0):desc, points:DESC"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, results["hits"].size());
+
     expected_ids = {"0", "4", "3", "2", "1"};
     for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());

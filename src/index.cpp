@@ -1292,7 +1292,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
             std::map<std::string, uint32_t> facet_results;
 
-            facet_index_v4->intersect(facet_field.name, result_ids,
+            facet_index_v4->intersect(a_facet, use_facet_query,
+                                      facet_infos[findex].fvalue_searched_tokens, result_ids,
                                       results_size, max_facet_count, facet_results, is_wildcard_no_filter_query);
 
             for(const auto& kv : facet_results) {
@@ -1306,24 +1307,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         facet_count.count = kv.second;
                     }
                 } else { 
-                    if(use_facet_query) {
-                        const auto& searched_tokens = facet_infos[findex].fvalue_searched_tokens;
-                        auto facet_str = kv.first;
-                        transform(facet_str.begin(), facet_str.end(), facet_str.begin(), ::tolower);
-
-                        for(const auto& val : searched_tokens) {
-                            if(facet_str.find(val) != std::string::npos) {
-                                facet_count_t& facet_count = a_facet.value_result_map[kv.first];
-                                facet_count.count = kv.second;
-
-                                a_facet.fvalue_tokens[kv.first] = searched_tokens;
-                            }
-                        }
-
-                    } else {
-                        facet_count_t& facet_count = a_facet.value_result_map[kv.first];
-                        facet_count.count = kv.second;
-                    }
+                    facet_count_t& facet_count = a_facet.value_result_map[kv.first];
+                    facet_count.count = kv.second;
                 }
 
                 if(should_compute_stats) {
@@ -5891,21 +5876,16 @@ size_t Index::num_seq_ids() const {
 
 Option<bool> Index::seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                           std::vector<uint32_t>& outside_seq_ids) {
-    if (numerical_index.count(field_name) != 0) {
-        auto field_it = numerical_index.find(field_name);
-
-        if(field_it == sort_index.end()) {
-            return Option<bool>(400, "Field not found in numerical index.");
-        }
-
+    std::shared_lock lock(mutex);
+    auto field_it = numerical_index.find(field_name);
+    if(field_it != numerical_index.end()) {
         field_it->second->seq_ids_outside_top_k(k, outside_seq_ids);
-
         return Option<bool>(true);
     }
 
-    if (range_index.count(field_name) != 0) {
-        auto trie = range_index[field_name];
-        trie->seq_ids_outside_top_k(k, outside_seq_ids);
+    auto range_trie_it = range_index.find(field_name);
+    if (range_trie_it != range_index.end()) {
+        range_trie_it->second->seq_ids_outside_top_k(k, outside_seq_ids);
         return Option<bool>(true);
     }
 

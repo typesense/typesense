@@ -624,6 +624,45 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
     char prev_non_space_char = 'a';
 
     for(size_t i=0; i < sort_by_str.size(); i++) {
+        if (sort_field_expr.empty() && sort_by_str.substr(i, 5) == sort_field_const::eval) {
+            // Optional filtering
+            auto open_paren_pos = sort_by_str.find('(', i);
+            if (open_paren_pos == std::string::npos) {
+                return false;
+            }
+            sort_field_expr = sort_field_const::eval + "(";
+
+            i = open_paren_pos;
+            int paren_count = 1;
+            while (++i < sort_by_str.size() && paren_count > 0) {
+                if (sort_by_str[i] == '(') {
+                    paren_count++;
+                } else if (sort_by_str[i] == ')') {
+                    paren_count--;
+                }
+                sort_field_expr += sort_by_str[i];
+            }
+            if (paren_count != 0 || i >= sort_by_str.size()) {
+                return false;
+            }
+
+            while (sort_by_str[i] != ':' && ++i < sort_by_str.size());
+            if (i >= sort_by_str.size()) {
+                return false;
+            }
+
+            std::string order_str;
+            while (++i < sort_by_str.size() && sort_by_str[i] != ',') {
+                order_str += sort_by_str[i];
+            }
+            StringUtils::trim(order_str);
+            StringUtils::toupper(order_str);
+
+            sort_fields.emplace_back(sort_field_expr, order_str);
+            sort_field_expr = "";
+            continue;
+        }
+
         if(i == sort_by_str.size()-1 || (sort_by_str[i] == ',' && !isdigit(prev_non_space_char))) {
             if(i == sort_by_str.size()-1) {
                 sort_field_expr += sort_by_str[i];
@@ -1243,7 +1282,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
-            std::string analytics_query = raw_query;
+            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
             AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query,
                                                             true, req_params["x-typesense-user-id"]);
         }
