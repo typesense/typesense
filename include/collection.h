@@ -361,6 +361,8 @@ public:
 
     std::string get_default_sorting_field();
 
+    Option<bool> add_reference_helper_fields(nlohmann::json& document);
+
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
                                 const DIRTY_VALUES dirty_values,

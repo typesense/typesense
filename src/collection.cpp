@@ -74,6 +74,73 @@ uint32_t Collection::get_next_seq_id() {
     return next_seq_id++;
 }
 
+Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document) {
+    // Add reference helper fields in the document.
+    for (auto const& pair: reference_fields) {
+        auto field_name = pair.first;
+        auto optional = get_schema().at(field_name).optional;
+        if (!optional && document.count(field_name) != 1) {
+            return Option<bool>(400, "Missing the required reference field `" + field_name
+                                             + "` in the document.");
+        } else if (document.count(field_name) != 1) {
+            continue;
+        }
+
+        auto reference_pair = pair.second;
+        auto reference_collection_name = reference_pair.collection;
+        auto reference_field_name = reference_pair.field;
+        auto& cm = CollectionManager::get_instance();
+        auto ref_collection = cm.get_collection(reference_collection_name);
+        if (ref_collection == nullptr) {
+            return Option<bool>(400, "Referenced collection `" + reference_collection_name
+                                             + "` not found.");
+        }
+
+        if (reference_field_name == "id") {
+            auto value = document[field_name].get<std::string>();
+            auto ref_doc_id_op = ref_collection->doc_id_to_seq_id(value);
+            if (!ref_doc_id_op.ok()) {
+                return Option<bool>(400, "Referenced document having `id: " + value +
+                                                 "` not found in the collection `" +
+                                                 reference_collection_name + "`." );
+            }
+
+            document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = ref_doc_id_op.get();
+            continue;
+        }
+
+        if (ref_collection->get_schema().count(reference_field_name) == 0) {
+            return Option<bool>(400, "Referenced field `" + reference_field_name +
+                                             "` not found in the collection `" + reference_collection_name + "`.");
+        }
+
+        if (!ref_collection->get_schema().at(reference_field_name).index) {
+            return Option<bool>(400, "Referenced field `" + reference_field_name +
+                                             "` in the collection `" + reference_collection_name + "` must be indexed.");
+        }
+
+        // Get the doc id of the referenced document.
+        auto value = document[field_name].get<std::string>();
+        filter_result_t filter_result;
+        ref_collection->get_filter_ids(reference_field_name + ":=" + value, filter_result);
+
+        if (filter_result.count != 1) {
+            auto match = " `" + reference_field_name + ": " + value + "` ";
+
+            // Constraints similar to foreign key apply here. The reference match must be unique and not null.
+            return  Option<bool>(400, filter_result.count < 1 ?
+                                              "Referenced document having" + match + "not found in the collection `"
+                                              + reference_collection_name + "`." :
+                                              "Multiple documents having" + match + "found in the collection `" +
+                                              reference_collection_name + "`.");
+        }
+
+        document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = filter_result.docs[0];
+    }
+
+    return Option<bool>(true);
+}
+
 Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::json& document,
                                         const index_operation_t& operation,
                                         const DIRTY_VALUES dirty_values,
@@ -110,68 +177,9 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
         uint32_t seq_id = get_next_seq_id();
         document["id"] = std::to_string(seq_id);
 
-
-        // Add reference helper fields in the document.
-        for (auto const& pair: reference_fields) {
-            auto field_name = pair.first;
-            auto optional = get_schema().at(field_name).optional;
-            if (!optional && document.count(field_name) != 1) {
-                return Option<doc_seq_id_t>(400, "Missing the required reference field `" + field_name
-                                                                + "` in the document.");
-            } else if (document.count(field_name) != 1) {
-                continue;
-            }
-
-            auto reference_pair = pair.second;
-            auto reference_collection_name = reference_pair.collection;
-            auto reference_field_name = reference_pair.field;
-            auto& cm = CollectionManager::get_instance();
-            auto ref_collection = cm.get_collection(reference_collection_name);
-            if (ref_collection == nullptr) {
-                return Option<doc_seq_id_t>(400, "Referenced collection `" + reference_collection_name
-                                                                + "` not found.");
-            }
-
-            if (reference_field_name == "id") {
-                auto value = document[field_name].get<std::string>();
-                auto ref_doc_id_op = ref_collection->doc_id_to_seq_id(value);
-                if (!ref_doc_id_op.ok()) {
-                    return Option<doc_seq_id_t>(400, "Referenced document having `id: " + value +
-                                                        "` not found in the collection `" +
-                                                        reference_collection_name + "`." );
-                }
-
-                document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = ref_doc_id_op.get();
-                continue;
-            }
-
-            if (ref_collection->get_schema().count(reference_field_name) == 0) {
-                return Option<doc_seq_id_t>(400, "Referenced field `" + reference_field_name +
-                                                    "` not found in the collection `" + reference_collection_name + "`.");
-            }
-
-            if (!ref_collection->get_schema().at(reference_field_name).index) {
-                return Option<doc_seq_id_t>(400, "Referenced field `" + reference_field_name +
-                                                    "` in the collection `" + reference_collection_name + "` must be indexed.");
-            }
-
-            // Get the doc id of the referenced document.
-            auto value = document[field_name].get<std::string>();
-            filter_result_t filter_result;
-            ref_collection->get_filter_ids(reference_field_name + ":=" + value, filter_result);
-
-            if (filter_result.count != 1) {
-                auto match = " `" + reference_field_name + ": " + value + "` ";
-
-                // Constraints similar to foreign key apply here. The reference match must be unique and not null.
-                return  Option<doc_seq_id_t>(400, filter_result.count < 1 ?
-                                                  "Referenced document having" + match + "not found in the collection `"
-                                                  + reference_collection_name + "`." :
-                                                  "Multiple documents having" + match + "found in the collection `" +
-                                                  reference_collection_name + "`.");
-            }
-
-            document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = filter_result.docs[0];
+        auto add_reference_helper_fields_op = add_reference_helper_fields(document);
+        if (!add_reference_helper_fields_op.ok()) {
+            return Option<doc_seq_id_t>(add_reference_helper_fields_op.code(), add_reference_helper_fields_op.error());
         }
 
         return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
@@ -209,6 +217,11 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
             } else {
                 // for UPSERT, EMPLACE or CREATE, if a document with given ID is not found, we will treat it as a new doc
                 uint32_t seq_id = get_next_seq_id();
+
+                auto add_reference_helper_fields_op = add_reference_helper_fields(document);
+                if (!add_reference_helper_fields_op.ok()) {
+                    return Option<doc_seq_id_t>(add_reference_helper_fields_op.code(), add_reference_helper_fields_op.error());
+                }
 
                 return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
             }

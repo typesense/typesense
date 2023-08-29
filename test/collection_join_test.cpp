@@ -298,6 +298,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
             R"({
                 "name": "id_ref",
                 "fields": [
+                    {"name": "id", "type": "string"},
                     {"name": "reference", "type": "string", "reference": "Products.id"}
                 ]
             })"_json;
@@ -306,6 +307,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
 
     auto id_ref_collection = collection_create_op.get();
     auto id_ref_json = R"({
+                            "id": "0",
                             "reference": "foo"
                         })"_json;
     add_doc_op = id_ref_collection->add(id_ref_json.dump());
@@ -313,6 +315,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Referenced document having `id: foo` not found in the collection `Products`.", add_doc_op.error());
 
     id_ref_json = R"({
+                        "id": "0",
                         "reference": "1"
                     })"_json;
     add_doc_op = id_ref_collection->add(id_ref_json.dump());
