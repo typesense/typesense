@@ -44,10 +44,10 @@ spp::sparse_hash_map<uint32_t, int64_t> Index::str_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::vector_distance_sentinel_value;
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
-             SynonymIndex* synonym_index, ThreadPool* thread_pool,
+             ThreadPool* thread_pool,
              const tsl::htrie_map<char, field> & search_schema,
              const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
-        name(name), collection_id(collection_id), store(store), synonym_index(synonym_index), thread_pool(thread_pool),
+        name(name), collection_id(collection_id), store(store), thread_pool(thread_pool),
         search_schema(search_schema),
         seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
@@ -1717,7 +1717,8 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
-                               facet_index_type_t facet_index_type) {
+                               facet_index_type_t facet_index_type,
+                               const spp::sparse_hash_set<std::string>& synonym_sets) {
     return search(search_params->field_query_tokens,
            search_params->search_fields,
            search_params->match_type,
@@ -1753,7 +1754,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->facet_sample_percent,
            search_params->facet_sample_threshold,
            collection_name,
-           facet_index_type);
+           facet_index_type,
+           synonym_sets);
 }
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
@@ -2202,7 +2204,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const bool filter_curated_hits, const enable_t split_join_tokens,
                    const vector_query_t& vector_query,
                    size_t facet_sample_percent, size_t facet_sample_threshold,
-                   const std::string& collection_name, facet_index_type_t facet_index_type) const {
+                   const std::string& collection_name, facet_index_type_t facet_index_type,
+                   const spp::sparse_hash_set<std::string>& synonym_sets) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root);
@@ -2482,7 +2485,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         for(size_t j = 0; j < field_query_tokens[0].q_include_tokens.size(); j++) {
             q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
         }
-        synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
+
+        SynonymIndex::get_instance().synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms,
+                                                       synonym_sets);
 
         if(!field_query_tokens[0].q_synonyms.empty()) {
             syn_orig_num_tokens = field_query_tokens[0].q_include_tokens.size();

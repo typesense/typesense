@@ -1781,6 +1781,108 @@ bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     return true;
 }
 
+bool get_synonyms_sets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json res_json;
+    res_json["synonyms"] = nlohmann::json::array();
+
+    const auto& synonyms = SynonymIndex::get_instance().get_synonyms();
+    for(const auto & kv: synonyms) {
+        nlohmann::json synonym = kv.second.to_view_json();
+        res_json["synonyms"].push_back(synonym);
+    }
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool get_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    std::string synonym_id = req->params["id"];
+
+    synonym_t synonym;
+    bool found = SynonymIndex::get_instance().get_synonym(synonym_id, synonym);
+
+    if(found) {
+        nlohmann::json synonym_json = synonym.to_view_json();
+        res->set_200(synonym_json.dump());
+        return true;
+    }
+
+    res->set_404();
+    return false;
+}
+
+bool put_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    std::string synonym_id = req->params["id"];
+
+    nlohmann::json syn_json;
+
+    try {
+        syn_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!syn_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    // These checks should be inside `add_synonym` but older versions of Typesense wrongly persisted
+    // `root` as an array, so we have to do it here so that on-disk synonyms are loaded properly
+    if(syn_json.count("root") != 0 && !syn_json["root"].is_string()) {
+        res->set_400("Key `root` should be a string.");
+        return false;
+    }
+
+    if(syn_json.count("synonyms") && syn_json["synonyms"].is_array()) {
+        if(syn_json["synonyms"].empty()) {
+            res->set_400("Could not find a valid string array of `synonyms`");
+            return false;
+        }
+
+        for(const auto& synonym: syn_json["synonyms"]) {
+            if (!synonym.is_string() || synonym.empty()) {
+                res->set_400("Could not find a valid string array of `synonyms`");
+                return false;
+            }
+        }
+    }
+
+    syn_json["id"] = synonym_id;
+    synonym_t synonym;
+    Option<bool> syn_op = synonym_t::parse(syn_json, synonym);
+    if(!syn_op.ok()) {
+        res->set_400(syn_op.error());
+        return false;
+    }
+
+    Option<bool> upsert_op = SynonymIndex::get_instance().add_synonym(synonym);
+
+    if(!upsert_op.ok()) {
+        res->set(upsert_op.code(), upsert_op.error());
+        return false;
+    }
+
+    res->set_200(syn_json.dump());
+    return true;
+}
+
+bool del_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    Option<bool> rem_op = SynonymIndex::get_instance().remove_synonym(req->params["id"]);
+    if(!rem_op.ok()) {
+        res->set(rem_op.code(), rem_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["id"] = req->params["id"];
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
 bool is_doc_import_route(uint64_t route_hash) {
     route_path* rpath;
     bool found = server->get_route(route_hash, &rpath);

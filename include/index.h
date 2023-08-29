@@ -301,8 +301,6 @@ private:
 
     const Store* store;
 
-    const SynonymIndex* synonym_index;
-
     ThreadPool* thread_pool;
 
     size_t num_documents;
@@ -547,7 +545,6 @@ public:
     Index(const std::string& name,
           const uint32_t collection_id,
           const Store* store,
-          SynonymIndex* synonym_index,
           ThreadPool* thread_pool,
           const tsl::htrie_map<char, field>& search_schema,
           const std::vector<char>& symbols_to_index,
@@ -617,7 +614,8 @@ public:
     // Public operations
 
     Option<bool> run_search(search_args* search_params, const std::string& collection_name,
-                            facet_index_type_t facet_index_type);
+                            facet_index_type_t facet_index_type,
+                            const spp::sparse_hash_set<std::string>& synonym_sets = spp::sparse_hash_set<std::string>{});
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
@@ -642,7 +640,8 @@ public:
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, enable_t split_join_tokens,
                 const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
-                const std::string& collection_name, facet_index_type_t facet_index_type = DETECT) const;
+                const std::string& collection_name, facet_index_type_t facet_index_type = DETECT,
+                const spp::sparse_hash_set<std::string>& synonym_sets = spp::sparse_hash_set<std::string>{}) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name);
 

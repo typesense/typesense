@@ -388,7 +388,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::string& fallback_field_type,
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
-                                                         const bool enable_nested_fields) {
+                                                         const bool enable_nested_fields,
+                                                         const spp::sparse_hash_set<std::string>& synonym_sets) {
     std::unique_lock lock(coll_create_mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -427,7 +428,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 default_sorting_field,
                                                 this->max_memory_ratio, fallback_field_type,
                                                 symbols_to_index, token_separators,
-                                                enable_nested_fields);
+                                                enable_nested_fields, synonym_sets);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
@@ -529,9 +530,9 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
         // delete synonyms
         const std::string& del_synonym_prefix =
-                std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
+                std::string(SynonymIndex::SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
 
-        std::string syn_upper_bound_key = std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" +
+        std::string syn_upper_bound_key = std::string(SynonymIndex::SYNONYM_PREFIX) + "_" +
                                       actual_coll_name + "`";  // cannot inline this
         rocksdb::Slice syn_upper_bound(syn_upper_bound_key);
 
@@ -1289,7 +1290,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     const char* TOKEN_SEPARATORS = "token_separators";
     const char* ENABLE_NESTED_FIELDS = "enable_nested_fields";
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
-
+    const char* SYNONYM_SETS = "synonym_sets";
     // validate presence of mandatory fields
 
     if(req_json.count("name") == 0) {
@@ -1367,6 +1368,18 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     if(!req_json["fields"].is_array() || req_json["fields"].empty()) {
         return Option<Collection *>(400, "The `fields` value should be an array of objects containing "
                      "`name`, `type` and optionally, `facet` properties.");
+    }
+
+    spp::sparse_hash_set<std::string> synonym_sets;
+    if((req_json.count(SYNONYM_SETS) != 0) && (!req_json[SYNONYM_SETS].empty())) {
+        if((!req_json[SYNONYM_SETS].is_array()) || (!req_json[SYNONYM_SETS][0].is_string())) {
+            return Option<Collection *>(400, "The `synonym_sets` value should be an array of strings containing "
+                                             "name of synonym sets");
+        }
+
+        for(auto synonym : req_json[SYNONYM_SETS]) {
+            synonym_sets.insert(synonym.get<std::string>());
+        }
     }
 
     const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
@@ -1467,8 +1480,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // initialize synonyms
     std::vector<std::string> collection_synonym_jsons;
-    cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""),
-                        std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "`",
+    cm.store->scan_fill(SynonymIndex::get_synonym_key(""),
+                        std::string(SynonymIndex::SYNONYM_PREFIX) + "_" + "`",
                         collection_synonym_jsons);
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
@@ -1658,12 +1671,6 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     }
 
     Collection* new_coll = coll_create_op.get();
-
-    // copy synonyms
-    auto synonyms = existing_coll->get_synonyms();
-    for(const auto& synonym: synonyms) {
-        new_coll->get_synonym_index()->add_synonym(new_name, synonym.second);
-    }
 
     // copy overrides
     auto overrides = existing_coll->get_overrides();

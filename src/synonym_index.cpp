@@ -1,10 +1,14 @@
 #include "synonym_index.h"
 
+void SynonymIndex::init(Store* _store) {
+    store = _store;
+}
 
 void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& tokens,
                                             size_t start_window_size, size_t start_index_pos,
                                             std::set<uint64_t>& processed_syn_hashes,
-                                            std::vector<std::vector<std::string>>& results) const {
+                                            std::vector<std::vector<std::string>>& results,
+                                            const spp::sparse_hash_set<std::string>& synonym_sets) const {
 
     bool recursed = false;
 
@@ -32,6 +36,12 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
                 const auto& syn_ids = syn_itr->second;
 
                 for(const auto& syn_id: syn_ids) {
+
+                    if((!synonym_sets.empty()) && (synonym_sets.find(syn_id) == synonym_sets.end())) {
+                        //skip the synonyms not mentioned in collection schema
+                        continue;
+                    }
+
                     const auto &syn_def = synonym_definitions.at(syn_id);
 
                     for (const auto &syn_def_tokens: syn_def.synonyms) {
@@ -80,7 +90,8 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
                         }
 
                         recursed = true;
-                        synonym_reduction_internal(new_tokens, window_len, start_index, processed_syn_hashes, results);
+                        synonym_reduction_internal(new_tokens, window_len, start_index,
+                                                   processed_syn_hashes, results, synonym_sets);
                     }
                 }
             }
@@ -96,20 +107,21 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
 }
 
 void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
-                                   std::vector<std::vector<std::string>>& results) const {
+                                   std::vector<std::vector<std::string>>& results,
+                                     const spp::sparse_hash_set<std::string>& synonym_sets) const {
     if(synonym_definitions.empty()) {
         return;
     }
 
     std::set<uint64_t> processed_syn_hashes;
-    synonym_reduction_internal(tokens, tokens.size(), 0, processed_syn_hashes, results);
+    synonym_reduction_internal(tokens, tokens.size(), 0, processed_syn_hashes,
+                               results, synonym_sets);
 }
 
-Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, const synonym_t& synonym,
-                                       bool write_to_store) {
+Option<bool> SynonymIndex::add_synonym(const synonym_t& synonym, bool write_to_store) {
     if(synonym_definitions.count(synonym.id) != 0) {
         // first we have to delete existing entries so we can upsert
-        Option<bool> rem_op = remove_synonym(collection_name, synonym.id);
+        Option<bool> rem_op = remove_synonym(synonym.id);
         if(!rem_op.ok()) {
             return rem_op;
         }
@@ -131,7 +143,7 @@ Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, cons
     write_lock.unlock();
 
     if(write_to_store) {
-        bool inserted = store->insert(get_synonym_key(collection_name, synonym.id), synonym.to_view_json().dump());
+        bool inserted = store->insert(get_synonym_key(synonym.id), synonym.to_view_json().dump());
         if(!inserted) {
             return Option<bool>(500, "Error while storing the synonym on disk.");
         }
@@ -151,12 +163,12 @@ bool SynonymIndex::get_synonym(const std::string& id, synonym_t& synonym) {
     return false;
 }
 
-Option<bool> SynonymIndex::remove_synonym(const std::string & collection_name, const std::string &id) {
+Option<bool> SynonymIndex::remove_synonym(const std::string &id) {
     std::unique_lock lock(mutex);
     const auto& syn_iter = synonym_definitions.find(id);
 
     if(syn_iter != synonym_definitions.end()) {
-        bool removed = store->remove(get_synonym_key(collection_name, id));
+        bool removed = store->remove(get_synonym_key(id));
         if(!removed) {
             return Option<bool>(500, "Error while deleting the synonym from disk.");
         }
@@ -184,8 +196,8 @@ spp::sparse_hash_map<std::string, synonym_t> SynonymIndex::get_synonyms() {
     return synonym_definitions;
 }
 
-std::string SynonymIndex::get_synonym_key(const std::string & collection_name, const std::string & synonym_id) {
-    return std::string(COLLECTION_SYNONYM_PREFIX) + "_" + collection_name + "_" + synonym_id;
+std::string SynonymIndex::get_synonym_key(const std::string & synonym_id) {
+    return std::string(SYNONYM_PREFIX) + "_" + synonym_id;
 }
 
 Option<bool> synonym_t::parse(const nlohmann::json& synonym_json, synonym_t& syn) {

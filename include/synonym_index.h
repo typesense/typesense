@@ -46,7 +46,6 @@ struct synonym_t {
 
 class SynonymIndex {
 private:
-
     mutable std::shared_mutex mutex;
     Store* store;
     spp::sparse_hash_map<std::string, synonym_t> synonym_definitions;
@@ -56,25 +55,32 @@ private:
                                     size_t start_window_size,
                                     size_t start_index_pos,
                                     std::set<uint64_t>& processed_syn_hashes,
-                                    std::vector<std::vector<std::string>>& results) const;
+                                    std::vector<std::vector<std::string>>& results,
+                                    const spp::sparse_hash_set<std::string>& synonym_sets) const;
 
 public:
+    SynonymIndex() {}
 
-    static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
+    static SynonymIndex& get_instance() {
+        static SynonymIndex instance;
+        return instance;
+    }
 
-    SynonymIndex(Store* store): store(store) { }
+    static constexpr const char* SYNONYM_PREFIX = "$SY";
 
-    static std::string get_synonym_key(const std::string & collection_name, const std::string & synonym_id);
+    void init(Store* store);
+
+    static std::string get_synonym_key(const std::string & synonym_id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
-                           std::vector<std::vector<std::string>>& results) const;
+                           std::vector<std::vector<std::string>>& results,
+                           const spp::sparse_hash_set<std::string>& synonym_sets = spp::sparse_hash_set<std::string>{}) const;
 
     spp::sparse_hash_map<std::string, synonym_t> get_synonyms();
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
-    Option<bool> add_synonym(const std::string & collection_name, const synonym_t& synonym,
-                             bool write_to_store = true);
+    Option<bool> add_synonym(const synonym_t& synonym, bool write_to_store = true);
 
-    Option<bool> remove_synonym(const std::string & collection_name, const std::string & id);
+    Option<bool> remove_synonym(const std::string & id);
 };

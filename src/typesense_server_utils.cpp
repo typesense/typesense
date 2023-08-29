@@ -22,6 +22,7 @@
 #include "file_utils.h"
 #include "threadpool.h"
 #include "stopwords_manager.h"
+#include "synonym_index.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -428,6 +429,9 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     StopwordsManager& stopwordsManager = StopwordsManager::get_instance();
     stopwordsManager.init(&store);
+
+    SynonymIndex& synonymIndex = SynonymIndex::get_instance();
+    synonymIndex.init(&store);
 
     RateLimitManager *rateLimitManager = RateLimitManager::getInstance();
     auto rate_limit_manager_init = rateLimitManager->init(&meta_store);

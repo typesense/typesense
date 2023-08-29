@@ -128,8 +128,6 @@ private:
 
     std::vector<char> token_separators;
 
-    SynonymIndex* synonym_index;
-
     /// "field name" -> reference_pair(referenced_collection_name, referenced_field_name)
     spp::sparse_hash_map<std::string, reference_pair> reference_fields;
 
@@ -137,6 +135,9 @@ private:
     /// Useful to perform operations such as cascading delete.
     /// collection_name -> field_name
     spp::sparse_hash_map<std::string, std::string> referenced_in;
+
+    //for synonym sets
+    spp::sparse_hash_set<std::string> synonym_sets;
 
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
@@ -320,7 +321,8 @@ public:
                const std::string& default_sorting_field,
                const float max_memory_ratio, const std::string& fallback_field_type,
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
-               const bool enable_nested_fields);
+               const bool enable_nested_fields,
+               const spp::sparse_hash_set<std::string>& synonyms = spp::sparse_hash_set<std::string>{});
 
     ~Collection();
 
@@ -529,8 +531,6 @@ public:
 
     void synonym_reduction(const std::vector<std::string>& tokens,
                            std::vector<std::vector<std::string>>& results) const;
-
-    SynonymIndex* get_synonym_index();
 
     spp::sparse_hash_map<std::string, reference_pair> get_reference_fields();
 

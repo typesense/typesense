@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "core_api.h"
 
 class CollectionSynonymsTest : public ::testing::Test {
 protected:
@@ -21,6 +22,8 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        SynonymIndex::get_instance().init(store);
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
         std::vector<field> fields = {
@@ -1007,4 +1010,106 @@ TEST_F(CollectionSynonymsTest, SynonymForKorean) {
 
     res = coll1->search("구울", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(3, res["hits"].size());
+}
+
+TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> resp = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json syn1 = {
+            {"id", "syn-1"},
+            {"root", "Ocean"},
+            {"synonyms", {"Sea"} }
+    };
+
+    req->params["collection"] = "coll1";
+    req->params["id"] = "syn-1";
+    req->body = syn1.dump();
+
+    auto result = put_synonym_set(req, resp);
+    if(!result) {
+        LOG(ERROR) << resp->body;
+        FAIL();
+    }
+
+    nlohmann::json syn2 = {
+            {"id", "syn-2"},
+            {"root", "Phone"},
+            {"synonyms", {"Smartphone", "Mobile"} }
+    };
+
+    req->params["id"] = "syn-2";
+    req->body = syn2.dump();
+
+    result = put_synonym_set(req, resp);
+    if(!result) {
+        LOG(ERROR) << resp->body;
+        FAIL();
+    }
+
+    nlohmann::json syn3 = {
+            {"id", "syn-3"},
+            {"root", "Vehichle"},
+            {"synonyms", {"Automobile"} }
+    };
+
+    req->params["id"] = "syn-3";
+    req->body = syn3.dump();
+
+    result = put_synonym_set(req, resp);
+    if(!result) {
+        LOG(ERROR) << resp->body;
+        FAIL();
+    }
+
+    nlohmann::json syn4 = {
+            {"id", "syn-4"},
+            {"root", "Computer"},
+            {"synonyms", {"PC", "Laptop", "Desktop"} }
+    };
+
+    req->params["id"] = "syn-4";
+    req->body = syn4.dump();
+
+    result = put_synonym_set(req, resp);
+    if(!result) {
+        LOG(ERROR) << resp->body;
+        FAIL();
+    }
+
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "synonym_sets": ["Phone", "Computer"],
+        "fields": [
+          {"name": "title", "type": "string"},
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    std::vector<std::vector<std::string>> records = {
+            {"Phone sells hit record high in last quarter.", "100"},
+            {"Personal Computer is essential for Kid's Education.", "100"},
+            {"Smartphone battery lasts typically 6 hours.", "100"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = std::stoi(records[i][1]);
+
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    auto res = coll1->search("phone", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("Smartphone battery lasts typically 6 hours.", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("Phone sells hit record high in last quarter.", res["hits"][1]["document"]["title"].get<std::string>());
 }

@@ -669,7 +669,7 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
     ASSERT_TRUE(stored_values.empty());
 
     // synonyms should also have been deleted from the store
-    store->scan_fill(SynonymIndex::COLLECTION_SYNONYM_PREFIX, std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "`",
+    store->scan_fill(SynonymIndex::SYNONYM_PREFIX, std::string(SynonymIndex::SYNONYM_PREFIX) + "`",
                      stored_values);
     ASSERT_TRUE(stored_values.empty());
 }

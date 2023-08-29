@@ -19,6 +19,7 @@
 #include "vector_query_ops.h"
 #include "text_embedder_manager.h"
 #include "stopwords_manager.h"
+#include "synonym_index.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -44,14 +45,15 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const float max_memory_ratio, const std::string& fallback_field_type,
                        const std::vector<std::string>& symbols_to_index,
                        const std::vector<std::string>& token_separators,
-                       const bool enable_nested_fields):
+                       const bool enable_nested_fields,
+                       const spp::sparse_hash_set<std::string>& synonyms):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
-        index(init_index()) {
+        index(init_index()), synonym_sets(synonyms) {
 
     for (auto const& field: fields) {
         if (field.embed.count(fields::from) != 0) {
@@ -65,7 +67,6 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 Collection::~Collection() {
     std::unique_lock lock(mutex);
     delete index;
-    delete synonym_index;
 }
 
 uint32_t Collection::get_next_seq_id() {
@@ -3761,33 +3762,28 @@ Option<bool> Collection::add_synonym(const nlohmann::json& syn_json, bool write_
     if(!syn_op.ok()) {
         return syn_op;
     }
-
-    return synonym_index->add_synonym(name, synonym, write_to_store);
+    return SynonymIndex::get_instance().add_synonym(synonym, write_to_store);
 }
 
 bool Collection::get_synonym(const std::string& id, synonym_t& synonym) {
     std::shared_lock lock(mutex);
-    return synonym_index->get_synonym(id, synonym);
+    return SynonymIndex::get_instance().get_synonym(id, synonym);
 }
 
 Option<bool> Collection::remove_synonym(const std::string &id) {
     std::shared_lock lock(mutex);
-    return synonym_index->remove_synonym(name, id);
+    return SynonymIndex::get_instance().remove_synonym(id);
 }
 
 void Collection::synonym_reduction(const std::vector<std::string>& tokens,
                                      std::vector<std::vector<std::string>>& results) const {
     std::shared_lock lock(mutex);
-    return synonym_index->synonym_reduction(tokens, results);
+    return SynonymIndex::get_instance().synonym_reduction(tokens, results);
 }
 
 spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
     std::shared_lock lock(mutex);
-    return synonym_index->get_synonyms();
-}
-
-SynonymIndex* Collection::get_synonym_index() {
-    return synonym_index;
+    return SynonymIndex::get_instance().get_synonyms();
 }
 
 spp::sparse_hash_map<std::string, reference_pair> Collection::get_reference_fields() {
@@ -4780,12 +4776,9 @@ Index* Collection::init_index() {
 
     field::compact_nested_fields(nested_fields);
 
-    synonym_index = new SynonymIndex(store);
-
     return new Index(name+std::to_string(0),
                      collection_id,
                      store,
-                     synonym_index,
                      CollectionManager::get_instance().get_thread_pool(),
                      search_schema,
                      symbols_to_index, token_separators);
