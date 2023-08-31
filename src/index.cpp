@@ -454,7 +454,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
 
             if(index_rec.is_update) {
                 // scrub string fields to reduce delete ops
-                get_doc_changes(index_rec.operation, search_schema, index_rec.doc, index_rec.old_doc,
+                get_doc_changes(index_rec.operation, embedding_fields, index_rec.doc, index_rec.old_doc,
                                 index_rec.new_doc, index_rec.del_doc);
 
                 if(generate_embeddings) {
@@ -6258,7 +6258,7 @@ void Index::handle_doc_ops(const tsl::htrie_map<char, field>& search_schema,
     }
 }
 
-void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& search_schema,
+void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<char, field>& embedding_fields,
                             nlohmann::json& update_doc, const nlohmann::json& old_doc, nlohmann::json& new_doc,
                             nlohmann::json& del_doc) {
 
@@ -6271,7 +6271,12 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
             }
 
             if(!update_doc.contains(it.key())) {
-                del_doc[it.key()] = it.value();
+                // embedding field won't be part of upsert doc so populate new doc with the value from old doc
+                if(embedding_fields.count(it.key()) != 0) {
+                    new_doc[it.key()] = it.value();
+                } else {
+                    del_doc[it.key()] = it.value();
+                }
             }
         }
     } else {

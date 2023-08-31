@@ -224,6 +224,55 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "points", "type": "int32"},
+                {"name": "vec", "type": "float[]", "num_dim": 3}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<float> vec = {0.12, 0.45, 0.64};
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+    doc["vec"] = vec;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+
+    // upsert unchanged doc
+    add_op = coll1->add(doc.dump(), index_operation_t::UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionVectorTest, NumVectorGreaterThanNumDim) {
     nlohmann::json schema = R"({
             "name": "coll1",
@@ -692,6 +741,88 @@ TEST_F(CollectionVectorTest, VectorWithNullValue) {
               nlohmann::json::parse(json_lines[1])["error"].get<std::string>());
 }
 
+TEST_F(CollectionVectorTest, EmbeddedVectorUnchangedUpsert) {
+    nlohmann::json schema = R"({
+                "name": "coll1",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "points", "type": "int32"},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["title"],
+                        "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("title", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    auto embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding.size());
+
+    // upsert unchanged doc
+    doc.clear();
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+
+    add_op = coll1->add(doc.dump(), index_operation_t::UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("title", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding.size());
+
+    // update
+
+    doc.clear();
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+
+    add_op = coll1->add(doc.dump(), index_operation_t::UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("title", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding.size());
+
+    // emplace
+
+    doc.clear();
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+
+    add_op = coll1->add(doc.dump(), index_operation_t::EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("title", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding.size());
+}
+
 TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     nlohmann::json schema = R"({
                             "name": "objects",
@@ -1099,7 +1230,67 @@ TEST_F(CollectionVectorTest, HideCredential) {
     ASSERT_EQ("***********", coll_summary["fields"][1]["embed"]["model_config"]["project_id"].get<std::string>());
 }
 
-TEST_F(CollectionVectorTest, UpdateOfCollWithNonOptionalEmbeddingField) {
+TEST_F(CollectionVectorTest, UpdateOfFieldReferencedByEmbedding) {
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"],
+                "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json object;
+    object["id"] = "0";
+    object["name"] = "butter";
+
+    auto add_op = coll->add(object.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    auto original_embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+
+    nlohmann::json update_object;
+    update_object["id"] = "0";
+    update_object["name"] = "ghee";
+    auto update_op = coll->add(update_object.dump(), EMPLACE);
+    ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("ghee", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    auto updated_embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_NE(original_embedding, updated_embedding);
+
+    // action = update
+    update_object["name"] = "milk";
+    update_op = coll->add(update_object.dump(), UPDATE);
+    ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("milk", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    updated_embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_NE(original_embedding, updated_embedding);
+
+    // action = upsert
+    update_object["name"] = "cheese";
+    update_op = coll->add(update_object.dump(), UPSERT);
+    ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("cheese", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    updated_embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_NE(original_embedding, updated_embedding);
+}
+
+TEST_F(CollectionVectorTest, UpdateOfFieldNotReferencedByEmbedding) {
+    // test updates to a field that's not referred by an embedding field
     nlohmann::json schema = R"({
         "name": "objects",
         "fields": [
@@ -1123,16 +1314,34 @@ TEST_F(CollectionVectorTest, UpdateOfCollWithNonOptionalEmbeddingField) {
     auto add_op = coll->add(object.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
+    auto results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
     nlohmann::json update_object;
     update_object["id"] = "0";
     update_object["about"] = "something about butter";
     auto update_op = coll->add(update_object.dump(), EMPLACE);
     ASSERT_TRUE(update_op.ok());
 
+    results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
     // action = update
     update_object["about"] = "something about butter 2";
     update_op = coll->add(update_object.dump(), UPDATE);
     ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // action = upsert
+    update_object["name"] = "butter";
+    update_object["about"] = "something about butter 3";
+    update_op = coll->add(update_object.dump(), UPSERT);
+    ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionVectorTest, FreshEmplaceWithOptionalEmbeddingReferencedField) {
