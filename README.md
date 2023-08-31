@@ -13,7 +13,8 @@
 <p align="center">
  <!-- <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a> -->
  <a href="https://hub.docker.com/r/typesense/typesense/tags"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>
-  <a href="https://github.com/typesense"><img src="https://img.shields.io/github/stars/typesense/typesense?label=github%20stars"></a>
+  <a href="https://github.com/typesense"><img src="https://img.shields.io/github/stars/typesense/typesense?label=github%20stars"></a><br>
+  <a href="https://cloud.typesense.org"><img src="https://img.shields.io/badge/searches_per_month_on_typesense_cloud-1.5B-blue"></a>
 <p>
 <p align="center">
   <a href="https://typesense.org">Website</a> | 
@@ -111,7 +112,7 @@ We'd love to benchmark with larger datasets, if we can find large ones in the pu
 
 Typesense is used by a range of users across different domains and verticals.
 
-On Typesense Cloud we serve more than **1 BILLION** searches per month. Typesense's Docker images have been downloaded over 7M times.
+On Typesense Cloud we serve more than **1.5 BILLION** searches per month. Typesense's Docker images have been downloaded over 7M times.
 
 We've recently started documenting who's using it in our [Showcase](SHOWCASE.md).
 If you'd like to be included in the list, please feel free to edit [SHOWCASE.md](SHOWCASE.md) and send us a PR.
