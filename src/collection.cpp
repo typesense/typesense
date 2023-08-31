@@ -52,12 +52,6 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         index(init_index()) {
 
-    for (auto const& field: fields) {
-        if (field.embed.count(fields::from) != 0) {
-            embedding_fields.emplace(field.name, field);
-        }
-    }
-
     this->num_documents = 0;
 }
 
