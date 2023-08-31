@@ -700,6 +700,8 @@ TEST_F(CollectionSynonymsTest, SynonymFieldOrdering) {
 }
 
 TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
+    SynonymIndex::get_instance().reset();
+
     coll_mul_fields->add_synonym(R"({"id": "ipod-synonyms", "root": "ipod", "synonyms": ["i pod", "ipod"]})"_json);
     coll_mul_fields->add_synonym(R"({"id": "samsung-synonyms", "root": "s3", "synonyms": ["s3 phone", "samsung"]})"_json);
 
@@ -1022,11 +1024,11 @@ TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
             {"synonyms", {"Sea"} }
     };
 
-    req->params["collection"] = "coll1";
-    req->params["id"] = "syn-1";
+    req->params["set_name"] = "set1";
+    req->params["synonym_id"] = "syn-1";
     req->body = syn1.dump();
 
-    auto result = put_synonym_set(req, resp);
+    auto result = put_synonym_to_set(req, resp);
     if(!result) {
         LOG(ERROR) << resp->body;
         FAIL();
@@ -1038,10 +1040,10 @@ TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
             {"synonyms", {"Smartphone", "Mobile"} }
     };
 
-    req->params["id"] = "syn-2";
+    req->params["synonym_id"] = "syn-2";
     req->body = syn2.dump();
 
-    result = put_synonym_set(req, resp);
+    result = put_synonym_to_set(req, resp);
     if(!result) {
         LOG(ERROR) << resp->body;
         FAIL();
@@ -1053,10 +1055,10 @@ TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
             {"synonyms", {"Automobile"} }
     };
 
-    req->params["id"] = "syn-3";
+    req->params["synonym_id"] = "syn-3";
     req->body = syn3.dump();
 
-    result = put_synonym_set(req, resp);
+    result = put_synonym_to_set(req, resp);
     if(!result) {
         LOG(ERROR) << resp->body;
         FAIL();
@@ -1068,10 +1070,10 @@ TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
             {"synonyms", {"PC", "Laptop", "Desktop"} }
     };
 
-    req->params["id"] = "syn-4";
+    req->params["synonym_id"] = "syn-4";
     req->body = syn4.dump();
 
-    result = put_synonym_set(req, resp);
+    result = put_synonym_to_set(req, resp);
     if(!result) {
         LOG(ERROR) << resp->body;
         FAIL();
@@ -1079,7 +1081,7 @@ TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
 
     nlohmann::json schema = R"({
         "name": "coll1",
-        "synonym_sets": ["Phone", "Computer"],
+        "synonym_sets": ["set1"],
         "fields": [
           {"name": "title", "type": "string"},
           {"name": "points", "type": "int32" }
@@ -1091,8 +1093,8 @@ TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
     Collection* coll1 = op.get();
 
     std::vector<std::vector<std::string>> records = {
-            {"Phone sells hit record high in last quarter.", "100"},
-            {"Personal Computer is essential for Kid's Education.", "100"},
+            {"Phone sales hit record high in last quarter.", "100"},
+            {"Personal Computer is essential for kid's Education.", "100"},
             {"Smartphone battery lasts typically 6 hours.", "100"},
     };
 
@@ -1108,8 +1110,7 @@ TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
     }
 
     auto res = coll1->search("phone", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
-
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ("Smartphone battery lasts typically 6 hours.", res["hits"][0]["document"]["title"].get<std::string>());
-    ASSERT_EQ("Phone sells hit record high in last quarter.", res["hits"][1]["document"]["title"].get<std::string>());
+    ASSERT_EQ("Phone sales hit record high in last quarter.", res["hits"][1]["document"]["title"].get<std::string>());
 }

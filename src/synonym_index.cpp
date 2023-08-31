@@ -4,6 +4,12 @@ void SynonymIndex::init(Store* _store) {
     store = _store;
 }
 
+void SynonymIndex::reset() {
+    synonym_definitions.clear();
+    synonym_index.clear();
+    synonym_sets_ids_map.clear();
+}
+
 void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& tokens,
                                             size_t start_window_size, size_t start_index_pos,
                                             std::set<uint64_t>& processed_syn_hashes,
@@ -37,9 +43,22 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
 
                 for(const auto& syn_id: syn_ids) {
 
-                    if((!synonym_sets.empty()) && (synonym_sets.find(syn_id) == synonym_sets.end())) {
+                    if((!synonym_sets.empty()))  {
+                        bool found = false;
                         //skip the synonyms not mentioned in collection schema
-                        continue;
+                        for(const auto& set : synonym_sets) {
+                            if(synonym_sets_ids_map.find(set) != synonym_sets_ids_map.end()) {
+                                const auto& ids = synonym_sets_ids_map.at(set);
+                                if(ids.find(syn_id) != ids.end()) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if(!found) {
+                            continue;
+                        }
                     }
 
                     const auto &syn_def = synonym_definitions.at(syn_id);
@@ -118,10 +137,11 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
                                results, synonym_sets);
 }
 
-Option<bool> SynonymIndex::add_synonym(const synonym_t& synonym, bool write_to_store) {
+Option<bool> SynonymIndex::add_synonym(const std::string& key, const synonym_t& synonym,
+                                       bool write_to_store) {
     if(synonym_definitions.count(synonym.id) != 0) {
         // first we have to delete existing entries so we can upsert
-        Option<bool> rem_op = remove_synonym(synonym.id);
+        Option<bool> rem_op = remove_synonym(key, synonym.id);
         if(!rem_op.ok()) {
             return rem_op;
         }
@@ -143,7 +163,7 @@ Option<bool> SynonymIndex::add_synonym(const synonym_t& synonym, bool write_to_s
     write_lock.unlock();
 
     if(write_to_store) {
-        bool inserted = store->insert(get_synonym_key(synonym.id), synonym.to_view_json().dump());
+        bool inserted = store->insert(key,synonym.to_view_json().dump());
         if(!inserted) {
             return Option<bool>(500, "Error while storing the synonym on disk.");
         }
@@ -163,12 +183,12 @@ bool SynonymIndex::get_synonym(const std::string& id, synonym_t& synonym) {
     return false;
 }
 
-Option<bool> SynonymIndex::remove_synonym(const std::string &id) {
+Option<bool> SynonymIndex::remove_synonym(const std::string & key, const std::string &id) {
     std::unique_lock lock(mutex);
     const auto& syn_iter = synonym_definitions.find(id);
 
     if(syn_iter != synonym_definitions.end()) {
-        bool removed = store->remove(get_synonym_key(id));
+        bool removed = store->remove(key);
         if(!removed) {
             return Option<bool>(500, "Error while deleting the synonym from disk.");
         }
@@ -196,8 +216,92 @@ spp::sparse_hash_map<std::string, synonym_t> SynonymIndex::get_synonyms() {
     return synonym_definitions;
 }
 
-std::string SynonymIndex::get_synonym_key(const std::string & synonym_id) {
+std::string SynonymIndex::get_synonym_key(const std::string & collection_name, const std::string & synonym_id) {
+    return std::string(COLLECTION_SYNONYM_PREFIX) + "_" + collection_name + "_" + synonym_id;
+}
+
+std::string SynonymIndex::get_synonym_set_key(const std::string & synonym_id) {
     return std::string(SYNONYM_PREFIX) + "_" + synonym_id;
+}
+
+Option<bool> SynonymIndex::add_synonym_to_set(const std::string& set_name, const synonym_t& synonym, bool write_to_store) {
+    auto op = add_synonym(get_synonym_set_key(synonym.id), synonym, write_to_store);
+
+    if(!op.error().empty()) {
+        return Option<bool>(op.code(), op.error());
+    }
+
+    std::unique_lock write_lock(mutex);
+
+    synonym_sets_ids_map[set_name].insert(synonym.id);
+
+    write_lock.unlock();
+
+    return Option<bool>(true);
+}
+
+Option<bool> SynonymIndex::remove_synonym_from_set(const std::string& set_name, const std::string & id) {
+    auto op = remove_synonym(get_synonym_set_key(id), id);
+
+    if(!op.error().empty()) {
+        return Option<bool>(op.code(), op.error());
+    }
+
+    std::unique_lock lock(mutex);
+
+    if(synonym_sets_ids_map.find(set_name) != synonym_sets_ids_map.end()) {
+        auto &set = synonym_sets_ids_map[set_name];
+        if (set.find(id) != set.end()) {
+            set.erase(id);
+
+            return Option<bool>(true);
+        }
+    }
+
+    return Option<bool>(404, "Could not find id in synonym sets.");
+}
+
+Option<bool> SynonymIndex::remove_synonym_set(const std::string& set_name) {
+    if(synonym_sets_ids_map.find(set_name) != synonym_sets_ids_map.end()) {
+        auto &set = synonym_sets_ids_map[set_name];
+        for (const auto &id: set) {
+            remove_synonym(get_synonym_set_key(id), id);
+        }
+
+        std::unique_lock lock(mutex);
+
+        synonym_sets_ids_map.erase(set_name);
+
+        lock.unlock();
+    }
+
+    return Option<bool>(404, "Could not find set in synonym sets.");
+}
+
+bool SynonymIndex::get_synonyms_sets(std::vector<std::string>& sets) {
+    std::shared_lock lock(mutex);
+
+    for(const auto& set : synonym_sets_ids_map) {
+        sets.push_back(set.first);
+    }
+
+    return true;
+}
+
+Option<bool> SynonymIndex::get_synonym_set(const std::string& set_name, std::vector<synonym_t>& set) {
+    std::shared_lock lock(mutex);
+
+    if(synonym_sets_ids_map.find(set_name) != synonym_sets_ids_map.end()) {
+        const auto& synonym_set = synonym_sets_ids_map.at(set_name);
+        for(const auto& id : synonym_set) {
+            const auto& synonym_it = synonym_definitions.find(id);
+            if(synonym_it != synonym_definitions.end()) {
+                set.push_back(synonym_it->second);
+            }
+        }
+    }
+
+    return Option<bool>(404, "Could not find set in synonym sets.");
 }
 
 Option<bool> synonym_t::parse(const nlohmann::json& synonym_json, synonym_t& syn) {
@@ -315,4 +419,3 @@ nlohmann::json synonym_t::to_view_json() const {
 
     return obj;
 }
-

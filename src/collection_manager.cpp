@@ -530,9 +530,9 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
         // delete synonyms
         const std::string& del_synonym_prefix =
-                std::string(SynonymIndex::SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
+                std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
 
-        std::string syn_upper_bound_key = std::string(SynonymIndex::SYNONYM_PREFIX) + "_" +
+        std::string syn_upper_bound_key = std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" +
                                       actual_coll_name + "`";  // cannot inline this
         rocksdb::Slice syn_upper_bound(syn_upper_bound_key);
 
@@ -1416,6 +1416,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                              "name of synonym sets");
         }
 
+        if(req_json[SYNONYM_SETS].size() > 5) {
+            return Option<Collection *>(400, "Maximum 5 `synonym_sets` are supported");
+        }
+
         for(auto synonym : req_json[SYNONYM_SETS]) {
             synonym_sets.insert(synonym.get<std::string>());
         }
@@ -1519,8 +1523,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // initialize synonyms
     std::vector<std::string> collection_synonym_jsons;
-    cm.store->scan_fill(SynonymIndex::get_synonym_key(""),
-                        std::string(SynonymIndex::SYNONYM_PREFIX) + "_" + "`",
+    cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""),
+                        std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + "`",
                         collection_synonym_jsons);
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {

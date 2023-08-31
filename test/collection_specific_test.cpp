@@ -23,6 +23,8 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        SynonymIndex::get_instance().init(store);
     }
 
     virtual void SetUp() {
@@ -669,7 +671,7 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
     ASSERT_TRUE(stored_values.empty());
 
     // synonyms should also have been deleted from the store
-    store->scan_fill(SynonymIndex::SYNONYM_PREFIX, std::string(SynonymIndex::SYNONYM_PREFIX) + "`",
+    store->scan_fill(SynonymIndex::COLLECTION_SYNONYM_PREFIX, std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "`",
                      stored_values);
     ASSERT_TRUE(stored_values.empty());
 }

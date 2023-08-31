@@ -99,9 +99,11 @@ bool get_synonyms_sets(const std::shared_ptr<http_req>& req, const std::shared_p
 
 bool get_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool put_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool put_synonym_to_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool del_synonym_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_synonym_from_set(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Keys
 

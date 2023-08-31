@@ -74,9 +74,10 @@ void master_server_routes() {
     server->del("/stopwords/:name", del_stopword);
 
     server->get("/synonyms", get_synonyms_sets);
-    server->get("/synonyms/:name", get_synonym_set);
-    server->put("/synonyms/:name", put_synonym_set);
-    server->del("/synonyms/:name", del_synonym_set);
+    server->get("/synonyms/:set_name", get_synonym_set);
+    server->put("/synonyms/:set_name/:synonym_id", put_synonym_to_set);
+    server->del("/synonyms/:set_name", del_synonym_set);
+    server->del("/synonyms/:set_name/:synonym_id", del_synonym_from_set);
 
     // analytics
     server->get("/analytics/rules", get_analytics_rules);

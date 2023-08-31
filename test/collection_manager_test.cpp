@@ -25,6 +25,8 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
+        SynonymIndex::get_instance().init(store);
+
         AnalyticsManager::get_instance().init(store);
 
         schema = R"({
@@ -1266,6 +1268,8 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     auto create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(create_op.ok());
     auto coll1 = create_op.get();
+
+    SynonymIndex::get_instance().reset();
 
     nlohmann::json synonym1 = R"({
         "id": "ipod-synonyms",

@@ -50,6 +50,7 @@ private:
     Store* store;
     spp::sparse_hash_map<std::string, synonym_t> synonym_definitions;
     spp::sparse_hash_map<uint64_t, std::vector<std::string>> synonym_index;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> synonym_sets_ids_map;
 
     void synonym_reduction_internal(const std::vector<std::string>& tokens,
                                     size_t start_window_size,
@@ -66,11 +67,16 @@ public:
         return instance;
     }
 
+    static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
     static constexpr const char* SYNONYM_PREFIX = "$SY";
 
     void init(Store* store);
 
-    static std::string get_synonym_key(const std::string & synonym_id);
+    void reset();
+
+    static std::string get_synonym_key(const std::string & collection_name, const std::string & synonym_id);
+
+    static std::string get_synonym_set_key(const std::string & synonym_id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
                            std::vector<std::vector<std::string>>& results,
@@ -80,7 +86,19 @@ public:
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
-    Option<bool> add_synonym(const synonym_t& synonym, bool write_to_store = true);
+    Option<bool> add_synonym(const std::string &key, const synonym_t& synonym, bool write_to_store = true);
 
-    Option<bool> remove_synonym(const std::string & id);
+    Option<bool> remove_synonym(const std::string &key, const std::string & id);
+
+    //set operations
+
+    Option<bool> add_synonym_to_set(const std::string& set_name, const synonym_t& synonym, bool write_to_store = true);
+
+    Option<bool> remove_synonym_from_set(const std::string& set_name, const std::string & id);
+
+    Option<bool> remove_synonym_set(const std::string& set_name);
+
+    bool get_synonyms_sets(std::vector<std::string>& sets);
+
+    Option<bool> get_synonym_set(const std::string& set_name, std::vector<synonym_t>& synonym_set);
 };

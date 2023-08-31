@@ -3762,7 +3762,7 @@ Option<bool> Collection::add_synonym(const nlohmann::json& syn_json, bool write_
     if(!syn_op.ok()) {
         return syn_op;
     }
-    return SynonymIndex::get_instance().add_synonym(synonym, write_to_store);
+    return SynonymIndex::get_instance().add_synonym(SynonymIndex::get_synonym_key(name, synonym.id),synonym, write_to_store);
 }
 
 bool Collection::get_synonym(const std::string& id, synonym_t& synonym) {
@@ -3772,7 +3772,7 @@ bool Collection::get_synonym(const std::string& id, synonym_t& synonym) {
 
 Option<bool> Collection::remove_synonym(const std::string &id) {
     std::shared_lock lock(mutex);
-    return SynonymIndex::get_instance().remove_synonym(id);
+    return SynonymIndex::get_instance().remove_synonym(SynonymIndex::get_synonym_key(name, id), id);
 }
 
 void Collection::synonym_reduction(const std::vector<std::string>& tokens,
