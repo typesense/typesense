@@ -53,6 +53,21 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
                                                     proxy_call_timeout_ms, true);
 }
 
+
+const std::string RemoteEmbedder::get_model_key(const nlohmann::json& model_config) {
+    const std::string model_namespace = TextEmbedderManager::get_model_namespace(model_config["model_name"].get<std::string>());
+
+    if(model_namespace == "openai") {
+        return OpenAIEmbedder::get_model_key(model_config);
+    } else if(model_namespace == "google") {
+        return GoogleEmbedder::get_model_key(model_config);
+    } else if(model_namespace == "gcp") {
+        return GCPEmbedder::get_model_key(model_config);
+    } else {
+        return "";
+    }
+}
+
 OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key) : api_key(api_key), openai_model_path(openai_model_path) {
 
 }
@@ -206,6 +221,7 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
     }
 
     nlohmann::json res_json;
+
     try {
         res_json = nlohmann::json::parse(res);
     } catch (const std::exception& e) {
@@ -217,8 +233,21 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
         }
         return outputs;
     }
+
+    if(res_json.count("data") == 0 || !res_json["data"].is_array() || res_json["data"].size() != inputs.size()) {
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from OpenAI API."));
+        }
+        return outputs;
+    }
+
     std::vector<embedding_res_t> outputs;
     for(auto& data : res_json["data"]) {
+        if(data.count("embedding") == 0 || !data["embedding"].is_array() || data["embedding"].size() == 0) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from OpenAI API."));
+            continue;
+        }
         outputs.push_back(embedding_res_t(data["embedding"].get<std::vector<float>>()));
     }
 
@@ -255,6 +284,9 @@ nlohmann::json OpenAIEmbedder::get_error_json(const nlohmann::json& req_body, lo
     return embedding_res;
 }
 
+std::string OpenAIEmbedder::get_model_key(const nlohmann::json& model_config) {
+    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
+}
 
 GoogleEmbedder::GoogleEmbedder(const std::string& google_api_key) : google_api_key(google_api_key) {
 
@@ -370,6 +402,10 @@ nlohmann::json GoogleEmbedder::get_error_json(const nlohmann::json& req_body, lo
     }
 
     return embedding_res;
+}
+
+std::string GoogleEmbedder::get_model_key(const nlohmann::json& model_config) {
+    return model_config["model_name"].get<std::string>() + ":" + model_config["api_key"].get<std::string>();
 }
 
 
@@ -555,7 +591,20 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
         return outputs;
     }
     std::vector<embedding_res_t> outputs;
+
+    if(res_json.count("predictions") == 0 || !res_json["predictions"].is_array() || res_json["predictions"].size() != inputs.size()) {
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from GCP API."));
+        }
+        return outputs;
+    }
+
     for(const auto& prediction : res_json["predictions"]) {
+        if(prediction.count("embeddings") == 0 || !prediction["embeddings"].is_object() || prediction["embeddings"].count("values") == 0 || !prediction["embeddings"]["values"].is_array() || prediction["embeddings"]["values"].size() == 0) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from GCP API."));
+            continue;
+        }
         outputs.push_back(embedding_res_t(prediction["embeddings"]["values"].get<std::vector<float>>()));
     }
 
@@ -624,4 +673,8 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
     std::string access_token = res_json["access_token"].get<std::string>();
 
     return Option<std::string>(access_token);
+}
+
+std::string GCPEmbedder::get_model_key(const nlohmann::json& model_config) {
+    return model_config["model_name"].get<std::string>() + ":" + model_config["project_id"].get<std::string>() + ":" + model_config["client_secret"].get<std::string>();
 }

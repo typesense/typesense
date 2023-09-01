@@ -1489,13 +1489,15 @@ static inline void rotate(int &i, int &j, int &k) {
 }
 
 // -1: return without adding, 0 : continue iteration, 1: return after adding
-static inline int fuzzy_search_state(const bool prefix, int key_index, bool last_key_char,
-                                     const int query_len, const int* cost_row, int min_cost, int max_cost) {
+static inline int fuzzy_search_state(const bool prefix, int key_index, unsigned char p, unsigned char c,
+                                     const unsigned char* query, const int query_len,
+                                     const int* cost_row, int min_cost, int max_cost) {
 
     // There are 2 scenarios:
     // a) key_len < query_len: "pltninum" (query) on "pst" (key)
     // b) query_len < key_len: "pst" (query) on "pltninum" (key)
 
+    bool last_key_char = (c == '\0');
     int key_len = last_key_char ? key_index : key_index + 1;
 
     if(last_key_char) {
@@ -1527,11 +1529,67 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, bool last
         }
     }
 
-    // Terminate the search early or continue iterating on the key?
-    // We have to account for the case that `cost` could momentarily exceed max_cost but resolve later.
-    // e.g. key=example, query=exZZample, after 5 chars, cost is 3 but drops to 2 at the end.
-    // But we will limit this for longer keys for performance.
-    return cost > max_cost && (key_len > 3 ? cost > (max_cost * 2) : true) ? -1 : 0;
+    /*
+        Terminate the search early or continue iterating on the key?
+        We have to account for the case that `cost` could momentarily exceed max_cost but resolve later.
+        In such cases, we will compare characters in the query with p and/or c to decide.
+    */
+
+    if(cost <= max_cost) {
+        return 0;
+    }
+
+    if(cost == 2 || cost == 3) {
+        /*
+            [1 letter extra]
+            exam ple
+            exZa mple
+
+            [1 letter missing]
+            exam ple
+            exmp le
+
+            [1 letter missing + transpose]
+            dacrycystal gia
+            dacrcyystlg ia
+        */
+        bool letter_more = (key_index+1 < query_len && query[key_index+1] == c);
+        bool letter_less = (key_index > 0 && query[key_index-1] == c);
+        if(letter_more || letter_less) {
+            return 0;
+        }
+    }
+
+    if(cost == 3 || cost == 4) {
+        /*
+            [2 letter extra]
+            exam ple
+            eTxT ample
+
+            abbviat ion
+            abbrevi ation
+        */
+
+        bool extra_matching_letters = (key_index + 1 < query_len && p == query[key_index + 1] &&
+                                       key_index + 2 < query_len && c == query[key_index + 2]);
+
+        if(extra_matching_letters) {
+            return 0;
+        }
+
+        /*
+            [2 letter missing]
+            exam ple
+            expl e
+       */
+
+        bool two_letter_less = (key_index > 1 && query[key_index-2] == c);
+        if(two_letter_less) {
+            return 0;
+        }
+    }
+
+    return -1;
 }
 
 static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *n, int depth, const unsigned char *term,
@@ -1560,10 +1618,9 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
         if(!prefix || !last_key_char) {
             levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
             rotate(i, j, k);
-            p = c;
         }
 
-        int action = fuzzy_search_state(prefix, depth, last_key_char, term_len, rows[j], min_cost, max_cost);
+        int action = fuzzy_search_state(prefix, depth, p, c, term, term_len, rows[j], min_cost, max_cost);
         if(1 == action) {
             results.push_back(n);
             return;
@@ -1573,6 +1630,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
             return;
         }
 
+        p = c;
         depth++;
     }
 
@@ -1591,7 +1649,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 
         if(depth >= iter_len) {
             // when a preceding partial node completely contains the whole leaf (e.g. "[raspberr]y" on "raspberries")
-            int action = fuzzy_search_state(prefix, depth, true, term_len, rows[j], min_cost, max_cost);
+            int action = fuzzy_search_state(prefix, depth, '\0', '\0', term, term_len, rows[j], min_cost, max_cost);
             if(action == 1) {
                 results.push_back(n);
             }
@@ -1611,10 +1669,9 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
                 printf("cost: %d, depth: %d, term_len: %d\n", temp_cost, depth, term_len);
 
                 rotate(i, j, k);
-                p = c;
             }
 
-            int action = fuzzy_search_state(prefix, depth, last_key_char, term_len, rows[j], min_cost, max_cost);
+            int action = fuzzy_search_state(prefix, depth, p, c, term, term_len, rows[j], min_cost, max_cost);
             if(action == 1) {
                 results.push_back(n);
                 return;
@@ -1624,6 +1681,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
                 return;
             }
 
+            p = c;
             depth++;
         }
 
@@ -1640,9 +1698,8 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 
         levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
         rotate(i, j, k);
-        p = c;
 
-        int action = fuzzy_search_state(prefix, depth, false, term_len, rows[j], min_cost, max_cost);
+        int action = fuzzy_search_state(prefix, depth, p, c, term, term_len, rows[j], min_cost, max_cost);
         if(action == 1) {
             results.push_back(n);
             return;
@@ -1652,6 +1709,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
             return;
         }
 
+        p = c;
         depth++;
     }
 
@@ -1660,9 +1718,8 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
         c = term[depth];
         levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
         rotate(i, j, k);
-        p = c;
 
-        int action = fuzzy_search_state(prefix, depth, false, term_len, rows[j], min_cost, max_cost);
+        int action = fuzzy_search_state(prefix, depth, p, c, term, term_len, rows[j], min_cost, max_cost);
         if(action == 1) {
             results.push_back(n);
             return;
@@ -1672,6 +1729,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
             return;
         }
 
+        p = c;
         depth++;
         partial_len++;
     }

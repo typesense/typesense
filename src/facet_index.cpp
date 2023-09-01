@@ -55,7 +55,7 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
                 if(facet_index.has_value_index) {
                     count_list.emplace_back(fvalue.facet_value, seq_ids.size(), facet_id);
                     fis.facet_count_it = std::prev(count_list.end());
-                    fis.seq_ids = SET_COMPACT_IDS(compact_id_list_t::create(seq_ids.size(), seq_ids));
+                    fis.seq_ids = ids_t::create(seq_ids);
                 }
 
                 fvalue_index.emplace(fvalue.facet_value, fis);
@@ -147,12 +147,14 @@ size_t facet_index_t::get_facet_count(const std::string& field_name) {
 }
 
 //returns the count of matching seq_ids from result array
-size_t facet_index_t::intersect(const std::string& field, const uint32_t* result_ids, size_t result_ids_len,
+size_t facet_index_t::intersect(facet& a_facet,
+                                bool has_facet_query, const std::vector<std::string>& fvalue_searched_tokens,
+                                const uint32_t* result_ids, size_t result_ids_len,
                                 size_t max_facet_count, std::map<std::string, uint32_t>& found,
                                 bool is_wildcard_no_filter_query, const std::string& sort_order) {
     //LOG (INFO) << "intersecting field " << field;
 
-    const auto& facet_field_it = facet_field_map.find(field);
+    const auto& facet_field_it = facet_field_map.find(a_facet.field_name);
     if(facet_field_it == facet_field_map.end()) {
         return 0;
     }
@@ -169,6 +171,23 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
 
     auto intersect_fn = [&] (std::list<facet_count_t>::const_iterator facet_count_it) {
         uint32_t count = 0;
+        if(has_facet_query) {
+            bool found_search_token = false;
+            auto facet_str = facet_count_it->facet_value;
+            transform(facet_str.begin(), facet_str.end(), facet_str.begin(), ::tolower);
+
+            for(const auto& searched_token: fvalue_searched_tokens) {
+                if(facet_str.find(searched_token) != std::string::npos) {
+                    found_search_token = true;
+                    a_facet.fvalue_tokens[facet_count_it->facet_value] = fvalue_searched_tokens;
+                    break;
+                }
+            }
+
+            if(!found_search_token) {
+                return;
+            }
+        }
 
         if (is_wildcard_no_filter_query) {
             count = facet_count_it->count;

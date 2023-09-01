@@ -375,6 +375,19 @@ size_t ids_t::intersect_count(void*& obj, const uint32_t* result_ids, size_t res
     }
 }
 
+void* ids_t::create(const std::vector<uint32_t>& ids) {
+    if(ids.size() < COMPACT_LIST_THRESHOLD_LENGTH) {
+        return SET_COMPACT_IDS(compact_id_list_t::create(ids.size(), ids));
+    } else {
+        id_list_t* pl = new id_list_t(ids_t::MAX_BLOCK_ELEMENTS);
+        for(auto id: ids) {
+            pl->upsert(id);
+        }
+
+        return pl;
+    }
+}
+
 void ids_t::block_intersector_t::split_lists(size_t concurrency,
                                              std::vector<std::vector<id_list_t::iterator_t>>& partial_its_vec) {
     const size_t num_blocks = this->id_lists[0]->num_blocks();

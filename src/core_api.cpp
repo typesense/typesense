@@ -730,7 +730,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         }
     }
 
-    res->content_type_header = "text/plain; charset=utf8";
+    res->content_type_header = "text/plain; charset=utf-8";
     res->status_code = 200;
 
     stream_response(req, res);
@@ -903,7 +903,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         }
     }
 
-    res->content_type_header = "text/plain; charset=utf8";
+    res->content_type_header = "text/plain; charset=utf-8";
     res->status_code = 200;
     res->body = response_stream.str();
 
@@ -1902,9 +1902,9 @@ bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
 
     for(const auto& stopwords_kv: stopwords) {
         nlohmann::json stopword;
-        stopword["name"] = stopwords_kv.first;
+        stopword["id"] = stopwords_kv.first;
         for(const auto& val : stopwords_kv.second) {
-            stopword["value"].push_back(val);
+            stopword["stopwords"].push_back(val);
         }
         res_json["stopwords"].push_back(stopword);
     }
@@ -1914,7 +1914,7 @@ bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
 }
 
 bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const std::string & stopword_name = req->params["stopword_name"];
+    const std::string & stopword_name = req->params["name"];
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
     spp::sparse_hash_set<std::string> stopwords;
@@ -1980,9 +1980,9 @@ bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     }
 
     nlohmann::json res_json;
-    res_json["name"] = stopword_name;
+    res_json["id"] = stopword_name;
     for(const auto& stopword : stopwords) {
-        res_json["value"].push_back(stopword);
+        res_json["stopwords"].push_back(stopword);
     }
 
     res->set_200(res_json.dump());

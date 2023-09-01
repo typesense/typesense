@@ -167,7 +167,7 @@ private:
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
-    void process_remove_field_for_embedding_fields(const field& the_field, std::vector<field>& garbage_fields);
+    void process_remove_field_for_embedding_fields(const field& del_field, std::vector<field>& garbage_embed_fields);
 
     void curate_results(string& actual_query, const string& filter_query, bool enable_overrides, bool already_segmented,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
