@@ -4300,6 +4300,27 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
     auto validation_op = field::validate_and_init_embed_fields(embed_json_field_indices, search_schema,
                                                                schema_changes["fields"], diff_fields);
+    
+    for(auto index : embed_json_field_indices) {
+        auto& field = diff_fields[index.second];
+        auto is_reindex = (delete_field_names.count(field.name) != 0);
+        if(is_reindex) {
+            for(auto& reindex_field: reindex_fields) {
+                if(reindex_field.name == field.name) {
+                    reindex_field.num_dim = field.num_dim;
+                    break;
+                }
+            }
+        } else {
+            for(auto& add_field: addition_fields) {
+                if(add_field.name == field.name) {
+                    add_field.num_dim = field.num_dim;
+                    break;
+                }
+            }
+        }
+    }
+
     if(!validation_op.ok()) {
         return validation_op;
     }
