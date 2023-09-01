@@ -2741,7 +2741,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         if (filter_result_iterator->is_valid &&
                             !filter_result_iterator->reference.empty()) {
                             // The doc_id must be valid otherwise it would've been filtered out upstream.
-                            filter_result_iterator->skip_to(doc_id);
+                            filter_result_iterator->skip_to(seq_id);
                             kv.reference_filter_results = std::move(filter_result_iterator->reference);
                             filter_result_iterator->reset();
                         }
