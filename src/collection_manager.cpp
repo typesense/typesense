@@ -219,6 +219,8 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     ThreadPool loading_pool(collection_batch_size);
 
     size_t num_processed = 0;
+    // Collection name -> Referenced in
+    std::map<std::string, std::vector<reference_pair>> referenced_ins = {};
     std::mutex m_process;
     std::condition_variable cv_process;
 
@@ -232,7 +234,8 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
-                              &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit]() {
+                              &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
+                              &referenced_ins]() {
 
             //auto begin = std::chrono::high_resolution_clock::now();
             Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit);
@@ -249,6 +252,20 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
+
+            auto& cm = CollectionManager::get_instance();
+            auto const& collection_name = collection_meta.at("name");
+            auto collection = cm.get_collection(collection_name);
+            if (collection != nullptr) {
+                for (const auto &item: collection->get_reference_fields()) {
+                    auto const& ref_coll_name = item.second.collection;
+                    if (referenced_ins.count(ref_coll_name) == 0) {
+                        referenced_ins[ref_coll_name] = {};
+                    }
+                    auto const field_name = item.first + Collection::REFERENCE_HELPER_FIELD_SUFFIX;
+                    referenced_ins.at(ref_coll_name).emplace_back(reference_pair{collection_name, field_name});
+                }
+            }
             cv_process.notify_one();
 
             size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
@@ -263,6 +280,17 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     cv_process.wait(lock_process, [&](){
         return num_processed == num_collections;
     });
+
+    // Initialize references
+    for (const auto &item: referenced_ins) {
+        auto& cm = CollectionManager::get_instance();
+        auto collection = cm.get_collection(item.first);
+        if (collection != nullptr) {
+            for (const auto &reference_pair: item.second) {
+                collection->add_referenced_in(reference_pair);
+            }
+        }
+    }
 
     // load aliases
 

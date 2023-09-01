@@ -590,6 +590,10 @@ public:
 
     bool is_referenced_in(const std::string& collection_name) const;
 
+    void add_referenced_in(const reference_pair& pair);
+
+    void add_referenced_in(const std::string& collection_name, const std::string& field_name);
+
     Option<std::string> get_reference_field(const std::string& collection_name) const;
 
     Option<uint32_t> get_sort_indexed_field_value(const std::string& field_name, const uint32_t& seq_id) const;

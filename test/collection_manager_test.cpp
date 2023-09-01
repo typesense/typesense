@@ -86,6 +86,10 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ("points", collection1->get_default_sorting_field());
     ASSERT_EQ(false, schema.at("not_stored").index);
 
+    ASSERT_EQ(1, collection1->get_reference_fields().size());
+    ASSERT_EQ("Products", collection1->get_reference_fields().at("product_id").collection);
+    ASSERT_EQ("product_id", collection1->get_reference_fields().at("product_id").field);
+
     // check storage as well
     rocksdb::Iterator* it = store->get_iterator();
     size_t num_keys = 0;
@@ -485,6 +489,10 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ("points", collection1->get_sort_fields()[2].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
+
+    ASSERT_EQ(1, collection1->get_reference_fields().size());
+    ASSERT_EQ("Products", collection1->get_reference_fields().at("product_id").collection);
+    ASSERT_EQ("product_id", collection1->get_reference_fields().at("product_id").field);
 
     auto restored_schema = collection1->get_schema();
     ASSERT_EQ(true, restored_schema.at("cast").optional);

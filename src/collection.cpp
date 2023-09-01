@@ -4033,6 +4033,7 @@ SynonymIndex* Collection::get_synonym_index() {
 }
 
 spp::sparse_hash_map<std::string, reference_pair> Collection::get_reference_fields() {
+    std::shared_lock lock(mutex);
     return reference_fields;
 }
 
@@ -5072,7 +5073,7 @@ Index* Collection::init_index() {
             auto ref_coll = collectionManager.get_collection(ref_coll_name);
             if (ref_coll != nullptr) {
                 // Passing reference helper field helps perform operation on doc_id instead of field value.
-                ref_coll->referenced_in.emplace(name, field.name + REFERENCE_HELPER_FIELD_SUFFIX);
+                ref_coll->add_referenced_in(name, field.name + REFERENCE_HELPER_FIELD_SUFFIX);
             }
         }
     }
@@ -5446,6 +5447,15 @@ int64_t Collection::reference_string_sort_score(const string &field_name,  const
 bool Collection::is_referenced_in(const std::string& collection_name) const {
     std::shared_lock lock(mutex);
     return referenced_in.count(collection_name) > 0;
+}
+
+void Collection::add_referenced_in(const reference_pair& pair) {
+    add_referenced_in(pair.collection, pair.field);
+}
+
+void Collection::add_referenced_in(const std::string& collection_name, const std::string& field_name) {
+    std::shared_lock lock(mutex);
+    referenced_in.emplace(collection_name, field_name);
 }
 
 Option<std::string> Collection::get_reference_field(const std::string& collection_name) const {
