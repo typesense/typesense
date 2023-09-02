@@ -4243,7 +4243,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     return parse_op;
                 }
 
-                const auto& f = diff_fields.back();
+                auto& f = diff_fields.back();
 
                 if(f.is_dynamic()) {
                     new_dynamic_fields[f.name] = f;
@@ -4252,7 +4252,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(!f.embed.empty()) {
-                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], diff_fields.back());
+                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f);
 
                     if(!validate_res.ok()) {
                         return validate_res;
