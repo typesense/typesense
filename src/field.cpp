@@ -1148,48 +1148,6 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
     return Option<bool>(true);
 }
 
-Option<bool> field::validate_and_init_embed_fields(const std::vector<std::pair<size_t, size_t>>& embed_json_field_indices,
-                                                   const tsl::htrie_map<char, field>& search_schema,
-                                                   nlohmann::json& fields_json,
-                                                   std::vector<field>& fields_vec) {
-
-    for(const auto& json_field_index: embed_json_field_indices) {
-        auto& field_json = fields_json[json_field_index.first];
-        const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
-                                    "` can only refer to string or string array fields.";
-
-        for(auto& field_name : field_json[fields::embed][fields::from].get<std::vector<std::string>>()) {
-            auto embed_field = std::find_if(fields_json.begin(), fields_json.end(), [&field_name](const nlohmann::json& x) {
-                return x["name"].get<std::string>() == field_name;
-            });
-
-            if(embed_field == fields_json.end()) {
-                const auto& embed_field2 = search_schema.find(field_name);
-                if (embed_field2 == search_schema.end()) {
-                    return Option<bool>(400, err_msg);
-                } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY) {
-                    return Option<bool>(400, err_msg);
-                }
-            } else if((*embed_field)[fields::type] != field_types::STRING &&
-                      (*embed_field)[fields::type] != field_types::STRING_ARRAY) {
-                return Option<bool>(400, err_msg);
-            }
-        }
-
-        const auto& model_config = field_json[fields::embed][fields::model_config];
-        size_t num_dim = 0;
-        auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
-        if(!res.ok()) {
-            return Option<bool>(res.code(), res.error());
-        }
-
-        LOG(INFO) << "Model init done.";
-        field_json[fields::num_dim] = num_dim;
-        fields_vec[json_field_index.second].num_dim = num_dim;
-    }
-
-    return Option<bool>(true);
-}
 
 void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
     auto lenA = a.count, lenB = b.count;

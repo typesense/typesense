@@ -4156,7 +4156,6 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     }
 
     std::unordered_map<std::string, field> new_dynamic_fields;
-    std::vector<std::pair<size_t, size_t>> embed_json_field_indices;
     int json_array_index = -1;
 
     for(const auto& kv: schema_changes["fields"].items()) {
@@ -4252,7 +4251,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     updated_search_schema[f.name] = f;
                 }
 
-                if(!f.embed.empty() && !diff_fields.empty()) {
+                if(!f.embed.empty()) {
                     auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], diff_fields.back());
 
                     if(!validate_res.ok()) {
@@ -4303,27 +4302,6 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             }
         }
     }
-    
-    for(auto index : embed_json_field_indices) {
-        auto& field = diff_fields[index.second];
-        auto is_reindex = (delete_field_names.count(field.name) != 0);
-        if(is_reindex) {
-            for(auto& reindex_field: reindex_fields) {
-                if(reindex_field.name == field.name) {
-                    reindex_field.num_dim = field.num_dim;
-                    break;
-                }
-            }
-        } else {
-            for(auto& add_field: addition_fields) {
-                if(add_field.name == field.name) {
-                    add_field.num_dim = field.num_dim;
-                    break;
-                }
-            }
-        }
-    }
-
 
     if(num_auto_detect_fields > 1) {
         return Option<bool>(400, "There can be only one field named `.*`.");

@@ -429,10 +429,6 @@ struct field {
                                                        const nlohmann::json& fields_json,
                                                        field& the_field);
 
-    static Option<bool> validate_and_init_embed_fields(const std::vector<std::pair<size_t, size_t>>& embed_json_field_indices,
-                                                       const tsl::htrie_map<char, field>& search_schema,
-                                                       nlohmann::json& fields_json,
-                                                       std::vector<field>& fields_vec);
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
                             bool is_update, const field& the_field, const std::string& flat_name,
