@@ -1719,3 +1719,40 @@ TEST_F(CollectionVectorTest, TestDifferentOpenAIApiKeys) {
     ASSERT_NE(embedder_map.find("openai/text-embedding-ada-002:" + api_key2), embedder_map.end());
     ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002"), embedder_map.end());
 }
+
+
+TEST_F(CollectionVectorTest, TestMultilingualE5) {
+    auto schema_json =
+            R"({
+            "name": "TEST",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/multilingual-e5-small"}}}
+            ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    auto add_op = coll1->add(R"({
+        "name": "john doe"
+    })"_json.dump());
+
+    auto hybrid_results = coll1->search("john", {"name", "embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>());
+    
+    ASSERT_TRUE(hybrid_results.ok());
+
+    auto semantic_results = coll1->search("john", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>());
+    
+    ASSERT_TRUE(semantic_results.ok());
+}

@@ -424,6 +424,11 @@ struct field {
                                               std::string& fallback_field_type,
                                               std::vector<field>& the_fields);
 
+    static Option<bool> validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema,
+                                                       nlohmann::json& field_json,
+                                                       const nlohmann::json& fields_json,
+                                                       field& the_field);
+
     static Option<bool> validate_and_init_embed_fields(const std::vector<std::pair<size_t, size_t>>& embed_json_field_indices,
                                                        const tsl::htrie_map<char, field>& search_schema,
                                                        nlohmann::json& fields_json,

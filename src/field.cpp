@@ -1083,7 +1083,7 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
 Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::json &fields_json, string &fallback_field_type,
                                           std::vector<field>& the_fields) {
     size_t num_auto_detect_fields = 0;
-    std::vector<std::pair<size_t, size_t>> embed_json_field_indices;
+    const tsl::htrie_map<char, field> dummy_search_schema;
 
     for(size_t i = 0; i < fields_json.size(); i++) {
         nlohmann::json& field_json = fields_json[i];
@@ -1094,20 +1094,56 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
         }
 
         if(!the_fields.empty() && !the_fields.back().embed.empty()) {
-            embed_json_field_indices.emplace_back(i, the_fields.size()-1);
+            auto validate_res = validate_and_init_embed_field(dummy_search_schema, field_json, fields_json, the_fields.back());
+            if(!validate_res.ok()) {
+                return validate_res;
+            }
         }
-    }
-
-    const tsl::htrie_map<char, field> dummy_search_schema;
-    auto validation_op = field::validate_and_init_embed_fields(embed_json_field_indices, dummy_search_schema,
-                                                               fields_json, the_fields);
-    if(!validation_op.ok()) {
-        return validation_op;
     }
 
     if(num_auto_detect_fields > 1) {
         return Option<bool>(400,"There can be only one field named `.*`.");
     }
+
+    return Option<bool>(true);
+}
+
+Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema, nlohmann::json& field_json,
+                                                  const nlohmann::json& fields_json,
+                                                  field& the_field) {
+    const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
+                                    "` can only refer to string or string array fields.";
+
+    for(auto& field_name : field_json[fields::embed][fields::from].get<std::vector<std::string>>()) {
+
+        auto embed_field = std::find_if(fields_json.begin(), fields_json.end(), [&field_name](const nlohmann::json& x) {
+            return x["name"].get<std::string>() == field_name;
+        });
+
+
+        if(embed_field == fields_json.end()) {
+            const auto& embed_field2 = search_schema.find(field_name);
+            if (embed_field2 == search_schema.end()) {
+                return Option<bool>(400, err_msg);
+            } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY) {
+                return Option<bool>(400, err_msg);
+            }
+        } else if((*embed_field)[fields::type] != field_types::STRING &&
+                  (*embed_field)[fields::type] != field_types::STRING_ARRAY) {
+            return Option<bool>(400, err_msg);
+        }
+    }
+
+    const auto& model_config = field_json[fields::embed][fields::model_config];
+    size_t num_dim = 0;
+    auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+    if(!res.ok()) {
+        return Option<bool>(res.code(), res.error());
+    }
+    
+    LOG(INFO) << "Model init done.";
+    field_json[fields::num_dim] = num_dim;
+    the_field.num_dim = num_dim;
 
     return Option<bool>(true);
 }
