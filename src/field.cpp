@@ -596,7 +596,7 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
 Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::json &fields_json, string &fallback_field_type,
                                           std::vector<field>& the_fields) {
     size_t num_auto_detect_fields = 0;
-    std::vector<std::pair<size_t, size_t>> embed_json_field_indices;
+    const tsl::htrie_map<char, field> dummy_search_schema;
 
     for(size_t i = 0; i < fields_json.size(); i++) {
         nlohmann::json& field_json = fields_json[i];
@@ -607,15 +607,11 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
         }
 
         if(!the_fields.empty() && !the_fields.back().embed.empty()) {
-            embed_json_field_indices.emplace_back(i, the_fields.size()-1);
+            auto validate_res = validate_and_init_embed_field(dummy_search_schema, field_json, fields_json, the_fields.back());
+            if(!validate_res.ok()) {
+                return validate_res;
+            }
         }
-    }
-
-    const tsl::htrie_map<char, field> dummy_search_schema;
-    auto validation_op = field::validate_and_init_embed_fields(embed_json_field_indices, dummy_search_schema,
-                                                               fields_json, the_fields);
-    if(!validation_op.ok()) {
-        return validation_op;
     }
 
     if(num_auto_detect_fields > 1) {
@@ -625,45 +621,207 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
     return Option<bool>(true);
 }
 
-Option<bool> field::validate_and_init_embed_fields(const std::vector<std::pair<size_t, size_t>>& embed_json_field_indices,
-                                                   const tsl::htrie_map<char, field>& search_schema,
-                                                   nlohmann::json& fields_json,
-                                                   std::vector<field>& fields_vec) {
-
-    for(const auto& json_field_index: embed_json_field_indices) {
-        auto& field_json = fields_json[json_field_index.first];
-        const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
+Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema, nlohmann::json& field_json,
+                                                  const nlohmann::json& fields_json,
+                                                  field& the_field) {
+    const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
                                     "` can only refer to string or string array fields.";
 
-        for(auto& field_name : field_json[fields::embed][fields::from].get<std::vector<std::string>>()) {
-            auto embed_field = std::find_if(fields_json.begin(), fields_json.end(), [&field_name](const nlohmann::json& x) {
-                return x["name"].get<std::string>() == field_name;
-            });
+    for(auto& field_name : field_json[fields::embed][fields::from].get<std::vector<std::string>>()) {
 
-            if(embed_field == fields_json.end()) {
-                const auto& embed_field2 = search_schema.find(field_name);
-                if (embed_field2 == search_schema.end()) {
-                    return Option<bool>(400, err_msg);
-                } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY) {
-                    return Option<bool>(400, err_msg);
-                }
-            } else if((*embed_field)[fields::type] != field_types::STRING &&
-                      (*embed_field)[fields::type] != field_types::STRING_ARRAY) {
+        auto embed_field = std::find_if(fields_json.begin(), fields_json.end(), [&field_name](const nlohmann::json& x) {
+            return x["name"].get<std::string>() == field_name;
+        });
+
+
+        if(embed_field == fields_json.end()) {
+            const auto& embed_field2 = search_schema.find(field_name);
+            if (embed_field2 == search_schema.end()) {
+                return Option<bool>(400, err_msg);
+            } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY) {
                 return Option<bool>(400, err_msg);
             }
+        } else if((*embed_field)[fields::type] != field_types::STRING &&
+                  (*embed_field)[fields::type] != field_types::STRING_ARRAY) {
+            return Option<bool>(400, err_msg);
         }
-
-        const auto& model_config = field_json[fields::embed][fields::model_config];
-        size_t num_dim = 0;
-        auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
-        if(!res.ok()) {
-            return Option<bool>(res.code(), res.error());
-        }
-
-        LOG(INFO) << "Model init done.";
-        field_json[fields::num_dim] = num_dim;
-        fields_vec[json_field_index.second].num_dim = num_dim;
     }
+
+    const auto& model_config = field_json[fields::embed][fields::model_config];
+    size_t num_dim = 0;
+    auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+    if(!res.ok()) {
+        return Option<bool>(res.code(), res.error());
+    }
+    
+    LOG(INFO) << "Model init done.";
+    field_json[fields::num_dim] = num_dim;
+    the_field.num_dim = num_dim;
 
     return Option<bool>(true);
 }
+
+void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
+    auto lenA = a.count, lenB = b.count;
+    if (lenA == 0 || lenB == 0) {
+        return;
+    }
+
+    result.docs = new uint32_t[std::min(lenA, lenB)];
+
+    auto A = a.docs, B = b.docs, out = result.docs;
+    const uint32_t *endA = A + lenA;
+    const uint32_t *endB = B + lenB;
+
+    // Add an entry of references in the result for each unique collection in a and b.
+    for (auto const& item: a.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
+    }
+    for (auto const& item: b.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
+        }
+    }
+
+    while (true) {
+        while (*A < *B) {
+            SKIP_FIRST_COMPARE:
+            if (++A == endA) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        while (*A > *B) {
+            if (++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        }
+        if (*A == *B) {
+            *out = *A;
+
+            // Copy the references of the document from every collection into result.
+            for (auto const& item: a.reference_filter_results) {
+                result.reference_filter_results[item.first][out - result.docs] = item.second[A - a.docs];
+            }
+            for (auto const& item: b.reference_filter_results) {
+                result.reference_filter_results[item.first][out - result.docs] = item.second[B - b.docs];
+            }
+
+            out++;
+
+            if (++A == endA || ++B == endB) {
+                result.count = out - result.docs;
+                return;
+            }
+        } else {
+            goto SKIP_FIRST_COMPARE;
+        }
+    }
+}
+
+void filter_result_t::or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
+    if (a.count == 0 && b.count == 0) {
+        return;
+    }
+
+    // If either one of a or b does not have any matches, copy other into result.
+    if (a.count == 0) {
+        result = b;
+        return;
+    }
+    if (b.count == 0) {
+        result = a;
+        return;
+    }
+
+    size_t indexA = 0, indexB = 0, res_index = 0, lenA = a.count, lenB = b.count;
+    result.docs = new uint32_t[lenA + lenB];
+
+    // Add an entry of references in the result for each unique collection in a and b.
+    for (auto const& item: a.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[lenA + lenB];
+        }
+    }
+    for (auto const& item: b.reference_filter_results) {
+        if (result.reference_filter_results.count(item.first) == 0) {
+            result.reference_filter_results[item.first] = new reference_filter_result_t[lenA + lenB];
+        }
+    }
+
+    while (indexA < lenA && indexB < lenB) {
+        if (a.docs[indexA] < b.docs[indexB]) {
+            // check for duplicate
+            if (res_index == 0 || result.docs[res_index - 1] != a.docs[indexA]) {
+                result.docs[res_index] = a.docs[indexA];
+                res_index++;
+            }
+
+            // Copy references of the last result document from every collection in a.
+            for (auto const& item: a.reference_filter_results) {
+                result.reference_filter_results[item.first][res_index - 1] = item.second[indexA];
+            }
+
+            indexA++;
+        } else {
+            if (res_index == 0 || result.docs[res_index - 1] != b.docs[indexB]) {
+                result.docs[res_index] = b.docs[indexB];
+                res_index++;
+            }
+
+            for (auto const& item: b.reference_filter_results) {
+                result.reference_filter_results[item.first][res_index - 1] = item.second[indexB];
+            }
+
+            indexB++;
+        }
+    }
+
+    while (indexA < lenA) {
+        if (res_index == 0 || result.docs[res_index - 1] != a.docs[indexA]) {
+            result.docs[res_index] = a.docs[indexA];
+            res_index++;
+        }
+
+        for (auto const& item: a.reference_filter_results) {
+            result.reference_filter_results[item.first][res_index - 1] = item.second[indexA];
+        }
+
+        indexA++;
+    }
+
+    while (indexB < lenB) {
+        if(res_index == 0 || result.docs[res_index - 1] != b.docs[indexB]) {
+            result.docs[res_index] = b.docs[indexB];
+            res_index++;
+        }
+
+        for (auto const& item: b.reference_filter_results) {
+            result.reference_filter_results[item.first][res_index - 1] = item.second[indexB];
+        }
+
+        indexB++;
+    }
+
+    result.count = res_index;
+
+    // shrink fit
+    auto out = new uint32_t[res_index];
+    memcpy(out, result.docs, res_index * sizeof(uint32_t));
+    delete[] result.docs;
+    result.docs = out;
+
+    for (auto &item: result.reference_filter_results) {
+        auto out_references = new reference_filter_result_t[res_index];
+
+        for (uint32_t i = 0; i < result.count; i++) {
+            out_references[i] = item.second[i];
+        }
+        delete[] item.second;
+        item.second = out_references;
+    }
+}
+
