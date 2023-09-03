@@ -271,6 +271,88 @@ TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {
                             false, true, "vec:([0.12, 0.44, 0.55])").get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // emplace unchanged doc
+    add_op = coll1->add(doc.dump(), index_operation_t::EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionVectorTest, VectorPartialUpdate) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "points", "type": "int32"},
+                {"name": "vec", "type": "float[]", "num_dim": 3}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<float> vec = {0.12, 0.45, 0.64};
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+    doc["vec"] = vec;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+
+    // emplace partial doc
+    doc.erase("vec");
+    doc["title"] = "Random";
+    add_op = coll1->add(doc.dump(), index_operation_t::EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("Random", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // update portial doc
+
+    doc.erase("vec");
+    doc["title"] = "Random";
+    add_op = coll1->add(doc.dump(), index_operation_t::UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("Random", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionVectorTest, NumVectorGreaterThanNumDim) {
