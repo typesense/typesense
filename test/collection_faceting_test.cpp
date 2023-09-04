@@ -2092,7 +2092,7 @@ TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ("T2", results["facet_counts"][1]["counts"][5]["value"]);
     ASSERT_EQ("Z6 Lite", results["facet_counts"][1]["counts"][6]["value"]);
 
-    //try sort on non stirng field
+    //try sort on non string field
     search_op = coll1->search("*", {}, "", {"rating(sort:desc)"},
                               {}, {2});
 
@@ -2212,4 +2212,111 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherField) {
 
     ASSERT_EQ(400, search_op.code());
     ASSERT_EQ("Sort field should be non string type to apply sort.", search_op.error());
+}
+
+TEST_F(CollectionFacetingTest, FacetSortByOtherFloatField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "investment", "type": "object", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "investment": {
+            "name": "Term Deposits",
+            "interest_rate": 7.1,
+            "class": "fixed"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc2 = R"({
+         "investment": {
+            "name": "Gold",
+            "interest_rate": 5.4,
+            "class": "fixed"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc3 = R"({
+          "investment": {
+            "name": "Mutual Funds",
+            "interest_rate": 12,
+            "class": "Equity"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc3.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc4 = R"({
+          "investment": {
+            "name": "Land",
+            "interest_rate": 9.1,
+            "class": "real estate"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc4.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc5 = R"({
+          "investment": {
+            "name": "Bonds",
+            "interest_rate": 7.24,
+            "class": "g-sec"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc5.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    //search by calories in asc order
+    auto search_op = coll1->search("*", {},"",
+                                   {"investment.name(sort:asc, sort_field:investment.interest_rate)"},
+                                   {}, {2});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Gold", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Term Deposits", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Bonds", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Land", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("Mutual Funds", results["facet_counts"][0]["counts"][4]["value"]);
+
+    //search by calories in desc order
+    search_op = coll1->search("*", {},"",
+                              {"investment.name(sort:desc, sort_field:investment.interest_rate)"},
+                              {}, {2});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Mutual Funds", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Land", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Bonds", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Term Deposits", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("Gold", results["facet_counts"][0]["counts"][4]["value"]);
 }
