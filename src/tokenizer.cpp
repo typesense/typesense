@@ -336,7 +336,7 @@ bool Tokenizer::next(std::string &token, size_t &token_index) {
 }
 
 bool Tokenizer::is_cyrillic(const std::string& locale) {
-    return locale == "el" ||
+    return locale == "el" || locale == "bg" ||
            locale == "ru" || locale == "sr" || locale == "uk" || locale == "be";
 }
 
