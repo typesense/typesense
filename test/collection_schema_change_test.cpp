@@ -1566,6 +1566,14 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
     ASSERT_TRUE(res.ok());
     ASSERT_EQ(1, coll->get_embedding_fields().size());
 
+    auto search_schema = coll->get_schema();
+
+    auto embedding_field_it = search_schema.find("embedding");
+    ASSERT_TRUE(embedding_field_it != coll->get_schema().end());
+    ASSERT_EQ("embedding", embedding_field_it.value().name);
+    ASSERT_EQ("float[]", embedding_field_it.value().type);
+    ASSERT_EQ(384, embedding_field_it.value().num_dim);
+
     nlohmann::json doc;
     doc["names"] = {"hello", "world"};
     auto add_op = coll->add(doc.dump());

@@ -2809,6 +2809,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         kv.text_match_score = 0;
                         kv.vector_distance = vec_result.second;
 
+                        if (filter_result_iterator->is_valid &&
+                            !filter_result_iterator->reference.empty()) {
+                            // The doc_id must be valid otherwise it would've been filtered out upstream.
+                            filter_result_iterator->skip_to(seq_id);
+                            kv.reference_filter_results = std::move(filter_result_iterator->reference);
+                            filter_result_iterator->reset();
+                        }
+
                         topster->add(&kv);
                         vec_search_ids.push_back(seq_id);
                     }

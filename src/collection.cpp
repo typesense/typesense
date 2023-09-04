@@ -4598,7 +4598,6 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     }
 
     std::unordered_map<std::string, field> new_dynamic_fields;
-    std::vector<std::pair<size_t, size_t>> embed_json_field_indices;
     int json_array_index = -1;
 
     for(const auto& kv: schema_changes["fields"].items()) {
@@ -4686,12 +4685,20 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     return parse_op;
                 }
 
-                const auto& f = diff_fields.back();
+                auto& f = diff_fields.back();
 
                 if(f.is_dynamic()) {
                     new_dynamic_fields[f.name] = f;
                 } else {
                     updated_search_schema[f.name] = f;
+                }
+
+                if(!f.embed.empty()) {
+                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f);
+
+                    if(!validate_res.ok()) {
+                        return validate_res;
+                    }
                 }
 
                 if(is_reindex) {
@@ -4728,9 +4735,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     }
                 }
 
-                if(!f.embed.empty() && !diff_fields.empty()) {
-                    embed_json_field_indices.emplace_back(json_array_index, diff_fields.size()-1);
-                }
+
 
             } else {
                 // partial update is not supported for now
@@ -4738,12 +4743,6 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                          "change this field, drop it first before adding it back to the schema.");
             }
         }
-    }
-
-    auto validation_op = field::validate_and_init_embed_fields(embed_json_field_indices, search_schema,
-                                                               schema_changes["fields"], diff_fields);
-    if(!validation_op.ok()) {
-        return validation_op;
     }
 
     if(num_auto_detect_fields > 1) {
