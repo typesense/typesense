@@ -1335,7 +1335,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_EQ('?', coll2->get_token_separators().at(1));
 }
 
-TEST(StringUtilsTest, GetReferenceCollectionNames) {
+TEST_F(CollectionManagerTest, GetReferenceCollectionNames) {
     std::string filter_query = "";
     std::set<std::string> reference_collection_names;
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
@@ -1363,4 +1363,37 @@ TEST(StringUtilsTest, GetReferenceCollectionNames) {
         ASSERT_EQ(1, reference_collection_names.count(item));
     }
     reference_collection_names.clear();
+}
+
+TEST_F(CollectionManagerTest, ReferencedInBacklog) {
+    auto referenced_ins_backlog = collectionManager._get_referenced_in_backlog();
+    ASSERT_EQ(1, referenced_ins_backlog.count("Products"));
+
+    auto const& references = referenced_ins_backlog.at("Products");
+    ASSERT_EQ(1, references.size());
+    ASSERT_EQ("collection1", references.cbegin()->collection);
+    ASSERT_EQ("product_id_sequence_id", references.cbegin()->field);
+
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+
+    auto create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(create_op.ok());
+
+    referenced_ins_backlog = collectionManager._get_referenced_in_backlog();
+    ASSERT_EQ(0, referenced_ins_backlog.count("Products"));
+
+    auto get_reference_field_op = create_op.get()->get_reference_field("collection1");
+    ASSERT_TRUE(get_reference_field_op.ok());
+    ASSERT_EQ("product_id_sequence_id", get_reference_field_op.get());
+
+    get_reference_field_op = create_op.get()->get_reference_field("foo");
+    ASSERT_FALSE(get_reference_field_op.ok());
+    ASSERT_EQ("Could not find any field in `Products` referencing the collection `foo`.", get_reference_field_op.error());
 }

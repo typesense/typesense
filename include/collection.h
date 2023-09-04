@@ -44,6 +44,10 @@ struct reference_pair {
     std::string field;
 
     reference_pair(std::string collection, std::string field) : collection(std::move(collection)), field(std::move(field)) {}
+
+    bool operator < (const reference_pair& pair) const {
+        return collection < pair.collection;
+    }
 };
 
 class Collection {
@@ -591,6 +595,8 @@ public:
     bool is_referenced_in(const std::string& collection_name) const;
 
     void add_referenced_in(const reference_pair& pair);
+
+    void add_referenced_ins(const std::set<reference_pair>& pairs);
 
     void add_referenced_in(const std::string& collection_name, const std::string& field_name);
 

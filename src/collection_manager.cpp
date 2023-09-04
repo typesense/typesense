@@ -220,7 +220,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     size_t num_processed = 0;
     // Collection name -> Referenced in
-    std::map<std::string, std::vector<reference_pair>> referenced_ins = {};
+    std::map<std::string, std::set<reference_pair>> referenced_ins = {};
     std::mutex m_process;
     std::condition_variable cv_process;
 
@@ -263,7 +263,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                         referenced_ins[ref_coll_name] = {};
                     }
                     auto const field_name = item.first + Collection::REFERENCE_HELPER_FIELD_SUFFIX;
-                    referenced_ins.at(ref_coll_name).emplace_back(reference_pair{collection_name, field_name});
+                    referenced_ins.at(ref_coll_name).insert(reference_pair{collection_name, field_name});
                 }
             }
             cv_process.notify_one();
@@ -469,6 +469,11 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     }
 
     add_to_collections(new_collection);
+
+    if (referenced_in_backlog.count(name) > 0) {
+        new_collection->add_referenced_ins(referenced_in_backlog.at(name));
+        referenced_in_backlog.erase(name);
+    }
 
     return Option<Collection*>(new_collection);
 }
@@ -1768,4 +1773,14 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     }
 
     return Option<Collection*>(new_coll);
+}
+
+void CollectionManager::add_referenced_in_backlog(const std::string& collection_name, reference_pair&& pair) {
+    std::shared_lock lock(mutex);
+    referenced_in_backlog[collection_name].insert(pair);
+}
+
+std::map<std::string, std::set<reference_pair>> CollectionManager::_get_referenced_in_backlog() const {
+    std::shared_lock lock(mutex);
+    return referenced_in_backlog;
 }

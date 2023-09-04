@@ -5068,6 +5068,10 @@ Index* Collection::init_index() {
             if (ref_coll != nullptr) {
                 // Passing reference helper field helps perform operation on doc_id instead of field value.
                 ref_coll->add_referenced_in(name, field.name + REFERENCE_HELPER_FIELD_SUFFIX);
+            } else {
+                // Reference collection has not been created yet.
+                collectionManager.add_referenced_in_backlog(ref_coll_name,
+                                                            reference_pair{name, field.name + REFERENCE_HELPER_FIELD_SUFFIX});
             }
         }
     }
@@ -5444,7 +5448,14 @@ bool Collection::is_referenced_in(const std::string& collection_name) const {
 }
 
 void Collection::add_referenced_in(const reference_pair& pair) {
-    add_referenced_in(pair.collection, pair.field);
+    return add_referenced_in(pair.collection, pair.field);
+}
+
+void Collection::add_referenced_ins(const std::set<reference_pair>& pairs) {
+    std::shared_lock lock(mutex);
+    for (const auto &pair: pairs) {
+        referenced_in.emplace(pair.collection, pair.field);
+    }
 }
 
 void Collection::add_referenced_in(const std::string& collection_name, const std::string& field_name) {
