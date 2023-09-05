@@ -2295,6 +2295,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         for (const auto & kv : a_facet.result_map) {
             facet_count_t v = kv.second;
             v.fhash = kv.first;
+            v.sort_field_val = kv.second.sort_field_val;
             facet_counts.emplace_back(v);
         }
 
@@ -2426,12 +2427,34 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     highlightedss << value[i];
                     i++;
                 }
-                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
+                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count, facet_count.sort_field_val};
                 facet_values.emplace_back(facet_value);
             }
         }
-        
-        std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
+
+        if(a_facet.is_sort_by_alpha) {
+            bool is_asc = a_facet.sort_order == "asc";
+            std::stable_sort(facet_values.begin(), facet_values.end(),
+                             [&] (const auto& fv1, const auto& fv2) {
+                if(is_asc) {
+                    return fv1.value < fv2.value;
+                }
+
+                return fv1.value > fv2.value;
+            });
+        } else if(!a_facet.sort_field.empty()) {
+            bool is_asc = a_facet.sort_order == "asc";
+            std::stable_sort(facet_values.begin(), facet_values.end(),
+                             [&] (const auto& fv1, const auto& fv2) {
+                if(is_asc) {
+                    return fv1.sort_field_val < fv2.sort_field_val;
+                }
+
+                return fv1.sort_field_val > fv2.sort_field_val;
+            });
+        } else {
+            std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
+        }
 
         for(const auto & facet_count: facet_values) {
             nlohmann::json facet_value_count = nlohmann::json::object();
@@ -5132,12 +5155,14 @@ bool Collection::get_enable_nested_fields() {
     return enable_nested_fields;
 }
 
-Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const{
-   const std::regex base_pattern(".+\\(.*\\)");
-   const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\,\\s*([0-9]+)\\]");
-   
-   if(facet_field.find(":") != std::string::npos) { //range based facet
-        if(!std::regex_match(facet_field, base_pattern)){
+Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
+    const std::regex base_pattern(".+\\(.*\\)");
+    const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\,\\s*([0-9]+)\\]");
+
+   if ((facet_field.find(":") != std::string::npos)
+        && (facet_field.find("sort") == std::string::npos)) { //range based facet
+
+       if (!std::regex_match(facet_field, base_pattern)) {
             std::string error = "Facet range value is not valid.";
             return Option<bool>(400, error);
         }
@@ -5285,14 +5310,58 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                 facets.back().is_wildcard_match = true;
             }
         }
-   } else {
-        // normal facet
-       if(search_schema.count(facet_field) == 0 || !search_schema.at(facet_field).facet) {
-           std::string error = "Could not find a facet field named `" + facet_field + "` in the schema.";
+    } else {
+       // normal facet
+       std::string order = "";
+       bool sort_alpha = false;
+       std::string sort_field = "";
+       std::string facet_field_copy = facet_field;
+       auto pos = facet_field_copy.find("(");
+       if(pos != std::string::npos) {
+           facet_field_copy = facet_field_copy.substr(0, pos);
+       }
+
+       if (search_schema.count(facet_field_copy) == 0 || !search_schema.at(facet_field_copy).facet) {
+           std::string error = "Could not find a facet field named `" + facet_field_copy + "` in the schema.";
            return Option<bool>(404, error);
        }
-       facets.emplace_back(facet(facet_field));
-    }
+
+       if (facet_field.find("sort") != std::string::npos) { //sort params are supplied with facet
+           pos = facet_field.find("sort_field");
+           if(pos == std::string::npos) { //alpha sort
+               const field &a_field = search_schema.at(facet_field_copy);
+               if (!a_field.is_string()) {
+                   std::string error = "Facet field should be string type to apply alpha sort.";
+                   return Option<bool>(400, error);
+               }
+               sort_alpha = true;
+           } else { //sort_field based sort
+               auto sort_field_fixed_len = strlen("sort_field:");
+               auto sort_field_len = facet_field.size() - pos - sort_field_fixed_len - 1;
+               sort_field = facet_field.substr(pos + sort_field_fixed_len, sort_field_len);
+
+               if (search_schema.count(sort_field) == 0 || !search_schema.at(sort_field).facet) {
+                   std::string error = "Could not find a facet field named `" + sort_field + "` in the schema.";
+                   return Option<bool>(404, error);
+               }
+
+               const field &a_field = search_schema.at(sort_field);
+               if (a_field.is_string()) {
+                   std::string error = "Sort field should be non string type to apply sort.";
+                   return Option<bool>(400, error);
+               }
+           }
+
+           if (facet_field.find("asc") != std::string::npos) {
+               order = "asc";
+           } else if (facet_field.find("desc") != std::string::npos) {
+               order = "desc";
+           }
+       }
+
+       facets.emplace_back(facet(facet_field_copy, {}, false, sort_alpha,
+                                 order, sort_field));
+   }
 
     return Option<bool>(true);
 }

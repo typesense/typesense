@@ -595,6 +595,8 @@ struct facet_count_t {
     // used to fetch the actual document and value for representation
     uint32_t doc_id = 0;
     uint32_t array_pos = 0;
+    //for sorting based on other field
+    int64_t sort_field_val;
 };
 
 struct facet_stats_t {
@@ -629,6 +631,12 @@ struct facet {
     
     bool is_intersected = false;
 
+    bool is_sort_by_alpha = false;
+
+    std::string sort_order="";
+
+    std::string sort_field="";
+
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
         if(facet_range_map.empty()) {
             LOG (ERROR) << "Facet range is not defined!!!";
@@ -646,8 +654,11 @@ struct facet {
     }
 
     explicit facet(const std::string& field_name, std::map<int64_t, std::string> facet_range = {},
-                   bool is_range_q = false) :field_name(field_name), facet_range_map(facet_range),
-                   is_range_query(is_range_q) {
+                   bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
+                   const std::string& sort_by_field="")
+                   : field_name(field_name), facet_range_map(facet_range),
+                   is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
+                   sort_field(sort_by_field) {
     }
 };
 
@@ -670,6 +681,7 @@ struct facet_value_t {
     std::string value;
     std::string highlighted;
     uint32_t count;
+    int64_t sort_field_val;
 };
 
 struct facet_hash_values_t {

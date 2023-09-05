@@ -1326,8 +1326,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           remote_embedding_timeout_ms,
                                                           remote_embedding_num_tries,
                                                           stopwords_set,
-                                                          facet_return_parent
-                                                        );
+                                                          facet_return_parent);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
