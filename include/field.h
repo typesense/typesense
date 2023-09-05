@@ -514,6 +514,8 @@ struct sort_by {
     missing_values_t missing_values;
     eval_t eval;
 
+    std::string reference_collection_name;
+
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
             missing_values(normal) {
@@ -528,6 +530,20 @@ struct sort_by {
 
     }
 
+    sort_by(const sort_by& other) {
+        if (&other == this)
+            return;
+        name = other.name;
+        order = other.order;
+        text_match_buckets = other.text_match_buckets;
+        geopoint = other.geopoint;
+        exclude_radius = other.exclude_radius;
+        geo_precision = other.geo_precision;
+        missing_values = other.missing_values;
+        eval = other.eval;
+        reference_collection_name = other.reference_collection_name;
+    }
+
     sort_by& operator=(const sort_by& other) {
         name = other.name;
         order = other.order;
@@ -537,6 +553,7 @@ struct sort_by {
         geo_precision = other.geo_precision;
         missing_values = other.missing_values;
         eval = other.eval;
+        reference_collection_name = other.reference_collection_name;
         return *this;
     }
 };

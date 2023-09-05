@@ -33,7 +33,7 @@ struct KV {
         this->scores[1] = scores[1];
         this->scores[2] = scores[2];
 
-        if(match_score_index >= 0) {
+        if(match_score_index >= 0){
             this->text_match_score = scores[match_score_index];
         }
     }

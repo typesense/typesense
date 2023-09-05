@@ -86,6 +86,10 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ("points", collection1->get_default_sorting_field());
     ASSERT_EQ(false, schema.at("not_stored").index);
 
+    ASSERT_EQ(1, collection1->get_reference_fields().size());
+    ASSERT_EQ("Products", collection1->get_reference_fields().at("product_id").collection);
+    ASSERT_EQ("product_id", collection1->get_reference_fields().at("product_id").field);
+
     // check storage as well
     rocksdb::Iterator* it = store->get_iterator();
     size_t num_keys = 0;
@@ -485,6 +489,10 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ("points", collection1->get_sort_fields()[2].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
+
+    ASSERT_EQ(1, collection1->get_reference_fields().size());
+    ASSERT_EQ("Products", collection1->get_reference_fields().at("product_id").collection);
+    ASSERT_EQ("product_id", collection1->get_reference_fields().at("product_id").field);
 
     auto restored_schema = collection1->get_schema();
     ASSERT_EQ(true, restored_schema.at("cast").optional);
@@ -1175,6 +1183,23 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ("DESC", sort_fields[1].order);
 
     sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("points:desc,loc(24.56,10.45):ASC,"
+                                                          "$Customers(product_price:DESC)", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(3, sort_fields.size());
+    ASSERT_EQ("points", sort_fields[0].name);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+    ASSERT_EQ("loc(24.56,10.45)", sort_fields[1].name);
+    ASSERT_EQ("ASC", sort_fields[1].order);
+    ASSERT_EQ("$Customers(product_price:DESC)", sort_fields[2].name);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("$foo( _eval(brand:nike && foo:bar):DESC,points:desc) ",
+                                                          sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("$foo( _eval(brand:nike && foo:bar):DESC,points:desc)", sort_fields[0].name);
+
+    sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
     ASSERT_EQ(0, sort_fields.size());
@@ -1310,7 +1335,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_EQ('?', coll2->get_token_separators().at(1));
 }
 
-TEST(StringUtilsTest, GetReferenceCollectionNames) {
+TEST_F(CollectionManagerTest, GetReferenceCollectionNames) {
     std::string filter_query = "";
     std::set<std::string> reference_collection_names;
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
@@ -1338,4 +1363,37 @@ TEST(StringUtilsTest, GetReferenceCollectionNames) {
         ASSERT_EQ(1, reference_collection_names.count(item));
     }
     reference_collection_names.clear();
+}
+
+TEST_F(CollectionManagerTest, ReferencedInBacklog) {
+    auto referenced_ins_backlog = collectionManager._get_referenced_in_backlog();
+    ASSERT_EQ(1, referenced_ins_backlog.count("Products"));
+
+    auto const& references = referenced_ins_backlog.at("Products");
+    ASSERT_EQ(1, references.size());
+    ASSERT_EQ("collection1", references.cbegin()->collection);
+    ASSERT_EQ("product_id_sequence_id", references.cbegin()->field);
+
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+
+    auto create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(create_op.ok());
+
+    referenced_ins_backlog = collectionManager._get_referenced_in_backlog();
+    ASSERT_EQ(0, referenced_ins_backlog.count("Products"));
+
+    auto get_reference_field_op = create_op.get()->get_reference_field("collection1");
+    ASSERT_TRUE(get_reference_field_op.ok());
+    ASSERT_EQ("product_id_sequence_id", get_reference_field_op.get());
+
+    get_reference_field_op = create_op.get()->get_reference_field("foo");
+    ASSERT_FALSE(get_reference_field_op.ok());
+    ASSERT_EQ("Could not find any field in `Products` referencing the collection `foo`.", get_reference_field_op.error());
 }
