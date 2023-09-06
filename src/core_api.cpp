@@ -17,6 +17,7 @@
 #include "event_manager.h"
 #include "http_proxy.h"
 #include "include/stopwords_manager.h"
+#include "conversation_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -2330,4 +2331,54 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
     res->set_200(response.body);
     return true;
+}
+
+
+bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("Invalid ID.");
+        return false;
+    }
+    const int conversation_id = std::stoi(req->params["id"]);
+
+    auto conversation_op = ConversationManager::get_conversation(conversation_id);
+
+    if(!conversation_op.ok()) {
+        res->set(conversation_op.code(), conversation_op.error());
+        return false;
+    }
+
+    res->set_200(conversation_op.get().dump());
+    return true;    
+}
+
+
+bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("Invalid ID.");
+        return false;
+    }
+    const int conversation_id = std::stoi(req->params["id"]);
+
+    auto conversation_op = ConversationManager::delete_conversation(conversation_id);
+
+    if(!conversation_op.ok()) {
+        res->set(conversation_op.code(), conversation_op.error());
+        return false;
+    }
+
+    res->set_200(conversation_op.get().dump());
+    return true;    
+}
+
+bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto conversations_op = ConversationManager::get_all_conversations();
+
+    if(!conversations_op.ok()) {
+        res->set(conversations_op.code(), conversations_op.error());
+        return false;
+    }
+
+    res->set_200(conversations_op.get().dump());
+    return true;    
 }

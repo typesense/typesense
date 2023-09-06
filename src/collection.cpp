@@ -1215,6 +1215,31 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     size_t num_embed_fields = 0;
     std::string query = raw_query;
 
+    if(conversation_id >= 0) {
+        if(!conversation) {
+            return Option<nlohmann::json>(400, "Conversation ID provided but conversation is not enabled for this collection.");
+        }
+
+        auto conversation_history_op = ConversationManager::get_conversation(conversation_id);
+        if(!conversation_history_op.ok()) {
+            return Option<nlohmann::json>(400, conversation_history_op.error());
+        }
+
+        auto truncate_conversation_history = ConversationManager::truncate_conversation(conversation_history_op.get());
+
+        if(!truncate_conversation_history.ok()) {
+            return Option<nlohmann::json>(400, truncate_conversation_history.error());
+        }
+
+        auto standalone_question_op = QAModel::get_standalone_question(truncate_conversation_history.get(), raw_query, this->qa);
+        if(!standalone_question_op.ok()) {
+            return Option<nlohmann::json>(400, standalone_question_op.error());
+        }
+        query = standalone_question_op.get();
+
+        LOG(INFO) << "Conversation ID: " << conversation_id << ", query: " << query;
+    }
+
     for(size_t i = 0; i < raw_search_fields.size(); i++) {
         const std::string& field_name = raw_search_fields[i];
         if(field_name == "id") {
@@ -1279,7 +1304,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     }
                 }
 
-                std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + raw_query;
+                std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + query;
                 auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
                 if(!embedding_op.success) {
                     if(!embedding_op.error["error"].get<std::string>().empty()) {
@@ -1307,6 +1332,17 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         query = "*";
     }
 
+
+    if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
+        std::string error = "Vector query could not find any embedded fields.";
+        return Option<nlohmann::json>(400, error);
+    }
+
+    if(!query_by_weights.empty() && processed_search_fields.size() != query_by_weights.size()) {
+        std::string error = "Error, query_by_weights.size != query_by.size.";
+        return Option<nlohmann::json>(400, error);
+    }
+
     if(conversation) {
         if(vector_query.field_name.empty()) {
             std::string error = "Conversation search is only supported for semantic and hybrid search.";
@@ -1319,15 +1355,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
-    if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
-        std::string error = "Vector query could not find any embedded fields.";
-        return Option<nlohmann::json>(400, error);
-    }
-
-    if(!query_by_weights.empty() && processed_search_fields.size() != query_by_weights.size()) {
-        std::string error = "Error, query_by_weights.size != query_by.size.";
-        return Option<nlohmann::json>(400, error);
-    }
 
 
     for(const std::string & field_name: processed_search_fields) {
@@ -2030,41 +2057,68 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     }
 
     if(conversation) {
-        result["qa"] = nlohmann::json::object();
-        result["qa"]["query"] = raw_query;
-        auto embedding_field_it = search_schema.find(vector_query.field_name);
-        if(embedding_field_it == search_schema.end()) {
-            return Option<nlohmann::json>(400, "Invalid embedding field name.");
+        result["conversation"] = nlohmann::json::object();
+        result["conversation"]["query"] = raw_query;
+
+        // remove all fields with vector type from docs_array
+        for(const auto& field : search_schema) {
+            if(field.type == field_types::FLOAT_ARRAY && field.num_dim > 0) {
+                for(auto& doc : docs_array) {
+                    doc.erase(field.name);
+                }
+            }
         }
 
-        // for each document, remove embedding field to reduce request size
-        for(auto& doc : docs_array) {
-            doc.erase(embedding_field_it->name);
+        // remove document with lowest score until total tokens is less than MAX_TOKENS
+        while(ConversationManager::get_token_count(docs_array) > ConversationManager::MAX_TOKENS) {
+            try {
+                docs_array.erase(docs_array.size() - 1);
+            } catch(...) {
+                return Option<nlohmann::json>(400, "Failed to remove document from search results.");
+            }
         }
 
         bool has_conversation_history = conversation_id >= 0;
-        auto qa_op = QAModel::get_answer(docs_array.dump(), raw_query, system_prompt, this->qa, conversation_id);
+        auto qa_op = QAModel::get_answer(docs_array.dump(0), raw_query, system_prompt, this->qa);
         if(!qa_op.ok()) {
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());
         }
-        result["qa"]["answer"] = qa_op.get();
-        result["qa"]["system_prompt"] = system_prompt;
-        result["qa"]["conversation_id"] = conversation_id;
+        result["conversation"]["answer"] = qa_op.get();
+        result["conversation"]["conversation_id"] = conversation_id;
+
+        auto formatted_question_op = QAModel::format_question(raw_query, this->qa);
+        if(!formatted_question_op.ok()) {
+            return Option<nlohmann::json>(formatted_question_op.code(), formatted_question_op.error());
+        }
+
+        auto formatted_answer_op = QAModel::format_answer(qa_op.get(), this->qa);
+        if(!formatted_answer_op.ok()) {
+            return Option<nlohmann::json>(formatted_answer_op.code(), formatted_answer_op.error());
+        }
 
         if(has_conversation_history) {
+            ConversationManager::append_conversation(conversation_id, formatted_question_op.get());
+            ConversationManager::append_conversation(conversation_id, formatted_answer_op.get());
             auto get_conversation_op = ConversationManager::get_conversation(conversation_id);
             if(!get_conversation_op.ok()) {
                 return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
             }
 
             auto conversation_history = get_conversation_op.get();
-            
-            auto parse_conversation_op = QAModel::parse_conversation_history(conversation_history, this->qa);
-            if(!parse_conversation_op.ok()) {
-                return Option<nlohmann::json>(parse_conversation_op.code(), parse_conversation_op.error());
+
+            result["conversation"]["conversation_history"] = conversation_history;
+        } else {
+            nlohmann::json conversation_history = nlohmann::json::array();
+            conversation_history.push_back(formatted_question_op.get());
+            conversation_history.push_back(formatted_answer_op.get());
+            result["conversation"]["conversation_history"] = conversation_history;
+
+            auto create_conversation_op = ConversationManager::create_conversation(conversation_history);
+            if(!create_conversation_op.ok()) {
+                return Option<nlohmann::json>(create_conversation_op.code(), create_conversation_op.error());
             }
 
-            result["qa"]["conversation_history"] = parse_conversation_op.get();
+            result["conversation"]["conversation_id"] = create_conversation_op.get();
         }
     }
 

@@ -1158,3 +1158,130 @@ TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {
     ASSERT_EQ(408, resp->status_code);
     ASSERT_EQ("Server error on remote server. Please try again later.", nlohmann::json::parse(resp->body)["message"]);
 }
+
+TEST_F(CoreAPIUtilsTest, TestGetConversations) {
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["id"] = "0";
+
+    get_conversations(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    nlohmann::json res_json = nlohmann::json::parse(resp->body);
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(0, res_json.size());
+
+    get_conversation(req, resp);
+
+    ASSERT_EQ(404, resp->status_code);
+
+    auto schema_json =
+        R"({
+        "name": "Products",
+        "fields": [
+            {"name": "product_name", "type": "string", "infix": true},
+            {"name": "category", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+        ],
+        "qa": {
+            "model_name": "openai/gpt-3.5-turbo"
+        }
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+
+    schema_json["qa"]["api_key"] = api_key;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "product_name": "moisturizer",
+        "category": "beauty"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "shampoo",
+        "category": "beauty"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "shirt",
+        "category": "clothing"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "pants",
+        "category": "clothing"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+
+    auto results_op = coll->search("how many products are there for clothing category?", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(), {},
+                                 10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
+                                 true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
+                                 true, 0, max_score, 100, 0, 0, HASH, 30000, 2, "", {}, true);
+    
+    ASSERT_TRUE(results_op.ok());
+
+    get_conversations(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    res_json = nlohmann::json::parse(resp->body);
+
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(1, res_json.size());
+
+    ASSERT_EQ(0, res_json[0]["id"].get<size_t>());
+    ASSERT_TRUE(res_json[0]["conversation"].is_array());
+    ASSERT_EQ(2, res_json[0]["conversation"].size());
+    ASSERT_EQ("how many products are there for clothing category?", res_json[0]["conversation"][0]["user"].get<std::string>());
+
+
+    get_conversation(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    res_json = nlohmann::json::parse(resp->body);
+
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(2, res_json.size());  
+
+
+    ASSERT_EQ("how many products are there for clothing category?", res_json[0]["user"].get<std::string>());
+
+    del_conversation(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    get_conversations(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    res_json = nlohmann::json::parse(resp->body);
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(0, res_json.size());
+}

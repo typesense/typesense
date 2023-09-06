@@ -184,3 +184,10 @@ void init_api(uint32_t cache_num_entries);
 
 
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+
+bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

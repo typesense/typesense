@@ -95,6 +95,10 @@ void master_server_routes() {
     server->post("/operations/db/compact", post_compact_db, false, false);
     server->post("/operations/reset_peers", post_reset_peers, false, false);
 
+    server->get("/conversations", get_conversations);
+    server->get("/conversations/:id", get_conversation);
+    server->del("/conversations/:id", del_conversation);
+
     server->get("/limits", get_rate_limits);
     server->get("/limits/active", get_active_throttles);
     server->get("/limits/exceeds", get_limit_exceed_counts);

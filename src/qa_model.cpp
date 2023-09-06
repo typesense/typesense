@@ -4,13 +4,21 @@
 #include "conversation_manager.h"
 
 
+const std::string get_model_namespace(const std::string& model_name) {
+    if(model_name.find("/") != std::string::npos) {
+        return model_name.substr(0, model_name.find("/"));
+    } else {
+        return "";
+    }
+}
+
 Option<bool> QAModel::validate_model(const nlohmann::json& model_config) {
     // check model_name is exists and it is a string
     if(model_config.count("model_name") == 0 || !model_config["model_name"].is_string()) {
         return Option<bool>(400, "Property `qa.model_name` is not provided or not a string.");
     }
 
-    const std::string model_namespace = TextEmbedderManager::get_model_namespace(model_config["model_name"].get<std::string>());
+    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
     if(model_namespace == "openai") {
         return OpenAIQAModel::validate_model(model_config);
     }
@@ -19,21 +27,51 @@ Option<bool> QAModel::validate_model(const nlohmann::json& model_config) {
 }
 
 Option<std::string> QAModel::get_answer(const std::string& context, const std::string& prompt, 
-                                        const std::string& system_prompt, const nlohmann::json& model_config, int& conversation_id) {
-    const std::string model_namespace = TextEmbedderManager::get_model_namespace(model_config["model_name"].get<std::string>());
+                                        const std::string& system_prompt, const nlohmann::json& model_config) {
+    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
 
     if(model_namespace == "openai") {
-        return OpenAIQAModel::get_answer(context, prompt, system_prompt, model_config, conversation_id);
+        return OpenAIQAModel::get_answer(context, prompt, system_prompt, model_config);
     }
 
     throw Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
 Option<nlohmann::json> QAModel::parse_conversation_history(const nlohmann::json& conversation, const nlohmann::json& model_config) {
-    const std::string model_namespace = TextEmbedderManager::get_model_namespace(model_config["model_name"].get<std::string>());
+    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
 
     if(model_namespace == "openai") {
         return OpenAIQAModel::parse_conversation_history(conversation);
+    }
+
+    throw Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
+}
+
+Option<std::string> QAModel::get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config) {
+    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+
+    if(model_namespace == "openai") {
+        return OpenAIQAModel::get_standalone_question(conversation_history, question, model_config);
+    }
+
+    throw Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
+}
+
+Option<nlohmann::json> QAModel::format_question(const std::string& message, const nlohmann::json& model_config) {
+    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+
+    if(model_namespace == "openai") {
+        return OpenAIQAModel::format_question(message);
+    }
+
+    throw Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
+}
+
+Option<nlohmann::json> QAModel::format_answer(const std::string& message, const nlohmann::json& model_config) {
+    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+
+    if(model_namespace == "openai") {
+        return OpenAIQAModel::format_answer(message);
     }
 
     throw Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
@@ -126,7 +164,7 @@ Option<bool> OpenAIQAModel::validate_model(const nlohmann::json& model_config) {
 }
 
 Option<std::string> OpenAIQAModel::get_answer(const std::string& context, const std::string& prompt, 
-                                              const std::string& system_prompt, const nlohmann::json& model_config, int& conversation_id) {
+                                              const std::string& system_prompt, const nlohmann::json& model_config) {
     const std::string model_name = TextEmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string api_key = model_config["api_key"].get<std::string>();
     std::unordered_map<std::string, std::string> headers;
@@ -137,37 +175,17 @@ Option<std::string> OpenAIQAModel::get_answer(const std::string& context, const 
     req_body["model"] = model_name;
     req_body["messages"] = nlohmann::json::array();
 
-    nlohmann::json current_conversation = nlohmann::json::array();
     if(!system_prompt.empty()) {
         nlohmann::json system_message = nlohmann::json::object();
         system_message["role"] = "system";
         system_message["content"] = system_prompt;
-        current_conversation.push_back(system_message);
+        req_body["messages"].push_back(system_message);
     }
 
-    if(conversation_id < 0) {
-        nlohmann::json message = nlohmann::json::object();
-        message["role"] = "user";
-        message["content"] = "Data:\n" + context + "\n\nQuestion:\n" + prompt;
-        current_conversation.push_back(message);
-        req_body["messages"] = current_conversation;
-    } else {
-        auto conversation_history_op = ConversationManager::get_conversation(conversation_id);
-        if(!conversation_history_op.ok()) {
-            return Option<std::string>(conversation_history_op.code(), conversation_history_op.error());
-        }
-
-        auto conversation_history = conversation_history_op.get();
-        req_body["messages"] = conversation_history;
-        nlohmann::json message = nlohmann::json::object();
-        message["role"] = "user";
-        message["content"] = prompt;
-        if(current_conversation.size() > 0) {
-            req_body["messages"].push_back(current_conversation[0]);
-        }
-        current_conversation.push_back(message);
-        req_body["messages"].push_back(message);
-    }
+    nlohmann::json message = nlohmann::json::object();
+    message["role"] = "user";
+    message["content"] = "<Data>\n" + context + "\n\n<Question>\n" + prompt + "\n\n<Answer>";
+    req_body["messages"].push_back(message);
 
     std::string res;
     auto res_code = RemoteEmbedder::call_remote_api("POST", OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
@@ -194,22 +212,6 @@ Option<std::string> OpenAIQAModel::get_answer(const std::string& context, const 
         json_res = nlohmann::json::parse(res);
     } catch (const std::exception& e) {
         throw Option<std::string>(400, "Got malformed response from OpenAI API.");
-    }
-
-
-    current_conversation.push_back(json_res["choices"][0]["message"]);
-    if(conversation_id < 0) {
-        auto conversation_id_op = ConversationManager::create_conversation(current_conversation);
-        if(!conversation_id_op.ok()) {
-            return Option<std::string>(conversation_id_op.code(), conversation_id_op.error());
-        }
-
-        conversation_id = conversation_id_op.get();
-    } else {
-        auto append_conversation_op = ConversationManager::append_conversation(conversation_id, current_conversation);
-        if(!append_conversation_op.ok()) {
-            return Option<std::string>(append_conversation_op.code(), append_conversation_op.error());
-        }
     }
 
     return Option<std::string>(json_res["choices"][0]["message"]["content"].get<std::string>());
@@ -239,7 +241,80 @@ Option<nlohmann::json> OpenAIQAModel::parse_conversation_history(const nlohmann:
         messages.push_back(parsed_message);
     }
 
-
-
     return Option<nlohmann::json>(messages);
 }
+
+Option<std::string> OpenAIQAModel::get_standalone_question(const nlohmann::json& conversation_history, 
+                                                           const std::string& question, const nlohmann::json& model_config) {
+    const std::string model_name = TextEmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+    const std::string api_key = model_config["api_key"].get<std::string>();
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    headers["Authorization"] = "Bearer " + api_key;
+    headers["Content-Type"] = "application/json";
+    nlohmann::json req_body;
+    req_body["model"] = model_name;
+    req_body["messages"] = nlohmann::json::array();
+    std::string res;
+    
+    std::string standalone_question = STANDALONE_QUESTION_PROMPT;
+
+    standalone_question += "\n\n<Conversation history>\n";
+    for(auto& message : conversation_history) {
+        if(message.count("user") == 0 && message.count("assistant") == 0) {
+            return Option<std::string>(400, "Conversation history is not valid");
+        }
+
+        standalone_question += message.dump(0) + "\n";
+    }
+
+    standalone_question += "\n\n<Question>\n" + question;
+    standalone_question += "\n\n<Standalone question>\n";
+
+    nlohmann::json message = nlohmann::json::object();
+    message["role"] = "user";
+    message["content"] = standalone_question;
+
+    req_body["messages"].push_back(message);
+
+    auto res_code = RemoteEmbedder::call_remote_api("POST", OPENAI_CHAT_COMPLETION, req_body.dump(), res, res_headers, headers);
+
+    if(res_code == 408) {
+        return Option<std::string>(400, "OpenAI API timeout.");
+    }
+
+    if (res_code != 200) {
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(res);
+        } catch (const std::exception& e) {
+            return Option<std::string>(400, "OpenAI API error: " + res);
+        }
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<std::string>(400, "OpenAI API error: " + res);
+        }
+        return Option<std::string>(400, "OpenAI API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+    }
+
+    nlohmann::json json_res;
+    try {
+        json_res = nlohmann::json::parse(res);
+    } catch (const std::exception& e) {
+        return Option<std::string>(400, "Got malformed response from OpenAI API.");
+    }
+
+    return Option<std::string>(json_res["choices"][0]["message"]["content"].get<std::string>());
+}
+
+Option<nlohmann::json> OpenAIQAModel::format_question(const std::string& message) {
+    nlohmann::json json = nlohmann::json::object();
+    json["user"] = message;
+    return Option<nlohmann::json>(json);
+}
+
+Option<nlohmann::json> OpenAIQAModel::format_answer(const std::string& message) {
+    nlohmann::json json = nlohmann::json::object();
+    json["assistant"] = message;
+    return Option<nlohmann::json>(json);
+}
+
