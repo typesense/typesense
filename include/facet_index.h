@@ -6,6 +6,7 @@
 #include <posting_list.h>
 #include <num_tree.h>
 #include <list>
+#include <field.h>
 
 struct facet_value_id_t {
     std::string facet_value;
@@ -72,7 +73,7 @@ private:
     };
     
     struct facet_doc_ids_list_t {
-        tsl::htrie_map<char, facet_id_seq_ids_t> fvalue_seq_ids;
+        std::map<std::string, facet_id_seq_ids_t> fvalue_seq_ids;
         std::list<facet_count_t> counts;
         posting_list_t* seq_id_hashes = nullptr;
 
@@ -89,8 +90,8 @@ private:
 
         ~facet_doc_ids_list_t() {
             for(auto it = fvalue_seq_ids.begin(); it != fvalue_seq_ids.end(); ++it) {
-                if(it.value().seq_ids) {
-                    ids_t::destroy_list(it.value().seq_ids);
+                if(it->second.seq_ids) {
+                    ids_t::destroy_list(it->second.seq_ids);
                 }
             }
     
@@ -113,8 +114,8 @@ public:
 
     ~facet_index_t();
 
-    void insert(const std::string& field_name, bool is_string,
-                std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,
+    void insert(const std::string& field_name, std::unordered_map<facet_value_id_t,
+                std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,
                 std::unordered_map<uint32_t, std::vector<facet_value_id_t>>& seq_id_to_fvalues);
 
     void erase(const std::string& field_name);
@@ -125,9 +126,11 @@ public:
 
     size_t get_facet_count(const std::string& field_name);
 
-    size_t intersect(const std::string& val, const uint32_t* result_ids, size_t result_id_len,
+    size_t intersect(facet& a_facet,
+                     bool has_facet_query, const std::vector<std::string>& fvalue_searched_tokens,
+                     const uint32_t* result_ids, size_t result_id_len,
                      size_t max_facet_count, std::map<std::string, uint32_t>& found,
-                     bool is_wildcard_no_filter_query);
+                     bool is_wildcard_no_filter_query, const std::string& sort_order = "");
     
     size_t get_facet_indexes(const std::string& field, 
         std::map<uint32_t, std::vector<uint32_t>>& seqid_countIndexes);

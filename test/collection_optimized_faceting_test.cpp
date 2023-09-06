@@ -314,10 +314,10 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCounts) {
     ASSERT_STREQ("<mark>7</mark>.812", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
-    ASSERT_FLOAT_EQ(4.880199885368347, results["facet_counts"][0]["stats"]["avg"].get<double>());
-    ASSERT_FLOAT_EQ(0.0, results["facet_counts"][0]["stats"]["min"].get<double>());
-    ASSERT_FLOAT_EQ(9.99899959564209, results["facet_counts"][0]["stats"]["max"].get<double>());
-    ASSERT_FLOAT_EQ(24.400999426841736, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["sum"].get<double>());
     ASSERT_FLOAT_EQ(1, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
 
      // facet with wildcard
@@ -1349,6 +1349,49 @@ TEST_F(CollectionOptimizedFacetingTest, FacetTestWithDeletedDoc) {
     ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
 }
 
+TEST_F(CollectionOptimizedFacetingTest, FacetQueryTest) {
+    std::vector<field> fields = {
+        field("color", field_types::STRING, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    std::vector<std::string> colors = {"apple red", "azure", "amazon green", "apricot orange",
+                                       "blue", "barrel blue", "banana yellow", "ball green", "baikal"};
+
+    for(size_t i = 0; i < 100; i++) {
+        nlohmann::json doc;
+        doc["color"] = colors[i % colors.size()];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // add colors that DON'T start with "b" to push these up the count list
+    for(size_t i = 0; i < 4; i++) {
+        nlohmann::json doc;
+        doc["color"] = colors[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {},
+                                 "", {"color"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 5, "color:b", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(4, results["facet_counts"][0]["counts"].size()); // 4 is default candidate size
+
+    // junk string should produce no facets
+
+    results = coll1->search("*", {},
+                            "", {"color"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 5, "color:xsda", 30, 4, "", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+}
+
 TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
     std::vector<field> fields = {
             field("tags", field_types::STRING_ARRAY, true),
@@ -1397,4 +1440,361 @@ TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
 
     //string facet length is restricted to 100
     ASSERT_TRUE(100 == longStr.size());
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetSortByAlpha) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "phone", "type": "string", "optional": false, "facet": true },
+          {"name": "brand", "type": "string", "optional": false, "facet": true },
+          {"name": "rating", "type": "float", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    nlohmann::json doc;
+
+    doc["phone"] = "Oneplus 11R";
+    doc["brand"] = "Oneplus";
+    doc["rating"] = 4.6;
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "Fusion Plus";
+    doc["brand"] = "Moto";
+    doc["rating"] = 4.2;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "S22 Ultra";
+    doc["brand"] = "Samsung";
+    doc["rating"] = 4.1;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "GT Master";
+    doc["brand"] = "Realme";
+    doc["rating"] = 4.4;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "T2";
+    doc["brand"] = "Vivo";
+    doc["rating"] = 4.0;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "Mi 6";
+    doc["brand"] = "Xiaomi";
+    doc["rating"] = 3.9;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "Z6 Lite";
+    doc["brand"] = "Iqoo";
+    doc["rating"] = 4.3;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    //sort facets by phone in asc order
+    auto search_op = coll1->search("*", {}, "", {"phone(sort:asc)"},
+                                   {}, {2});
+
+    if (!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(7, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("GT Master", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Mi 6", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Oneplus 11R", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("S22 Ultra", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("T2", results["facet_counts"][0]["counts"][5]["value"]);
+    ASSERT_EQ("Z6 Lite", results["facet_counts"][0]["counts"][6]["value"]);
+
+    //sort facets by brand in desc order
+    search_op = coll1->search("*", {}, "", {"brand(sort:desc)"},
+                              {}, {2});
+
+    if (!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+
+    results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(7, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Xiaomi", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Vivo", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Samsung", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Realme", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("Oneplus", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("Moto", results["facet_counts"][0]["counts"][5]["value"]);
+    ASSERT_EQ("Iqoo", results["facet_counts"][0]["counts"][6]["value"]);
+
+    //sort facets by brand in desc order and phone by asc order
+    search_op = coll1->search("*", {}, "", {"brand(sort:desc)", "phone(sort:asc)"},
+                              {}, {2});
+
+    if (!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+
+    results = search_op.get();
+    ASSERT_EQ(2, results["facet_counts"].size());
+
+    ASSERT_EQ(7, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Xiaomi", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Vivo", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Samsung", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Realme", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("Oneplus", results["facet_counts"][0]["counts"][4]["value"]);
+    ASSERT_EQ("Moto", results["facet_counts"][0]["counts"][5]["value"]);
+    ASSERT_EQ("Iqoo", results["facet_counts"][0]["counts"][6]["value"]);
+
+    ASSERT_EQ(7, results["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("Fusion Plus", results["facet_counts"][1]["counts"][0]["value"]);
+    ASSERT_EQ("GT Master", results["facet_counts"][1]["counts"][1]["value"]);
+    ASSERT_EQ("Mi 6", results["facet_counts"][1]["counts"][2]["value"]);
+    ASSERT_EQ("Oneplus 11R", results["facet_counts"][1]["counts"][3]["value"]);
+    ASSERT_EQ("S22 Ultra", results["facet_counts"][1]["counts"][4]["value"]);
+    ASSERT_EQ("T2", results["facet_counts"][1]["counts"][5]["value"]);
+    ASSERT_EQ("Z6 Lite", results["facet_counts"][1]["counts"][6]["value"]);
+
+    //try sort on non string field
+    search_op = coll1->search("*", {}, "", {"rating(sort:desc)"},
+                              {}, {2});
+
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Facet field should be string type to apply alpha sort.", search_op.error());
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetSortByOtherField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "receipe", "type": "object", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "receipe": {
+            "name": "cheese pizza",
+            "calories": 300,
+            "origin": "america"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc2 = R"({
+          "receipe": {
+            "name": "noodles",
+            "calories": 250,
+            "origin": "china"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc3 = R"({
+          "receipe": {
+            "name": "hamburger",
+            "calories": 350,
+            "origin": "america"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc3.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc4 = R"({
+          "receipe": {
+            "name": "schezwan rice",
+            "calories": 150,
+            "origin": "china"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc4.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc5 = R"({
+          "receipe": {
+            "name": "butter chicken",
+            "calories": 270,
+            "origin": "india"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc5.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    //search by calories in asc order
+    auto search_op = coll1->search("*", {},"",
+                                   {"receipe.name(sort:asc, sort_field:receipe.calories)"},
+                                   {}, {2});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("schezwan rice", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("noodles", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("butter chicken", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("cheese pizza", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("hamburger", results["facet_counts"][0]["counts"][4]["value"]);
+
+    //search by calories in desc order
+    search_op = coll1->search("*", {},"",
+                              {"receipe.name(sort:desc, sort_field:receipe.calories)"},
+                              {}, {2});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("hamburger", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("cheese pizza", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("butter chicken", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("noodles", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("schezwan rice", results["facet_counts"][0]["counts"][4]["value"]);
+
+    //try sort by stirng field
+    search_op = coll1->search("*", {}, "", {"receipe.name(sort:desc, sort_field:receipe.origin)"},
+                              {}, {2});
+
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Sort field should be non string type to apply sort.", search_op.error());
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetSortByOtherFloatField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "investment", "type": "object", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "investment": {
+            "name": "Term Deposits",
+            "interest_rate": 7.1,
+            "class": "fixed"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc2 = R"({
+         "investment": {
+            "name": "Gold",
+            "interest_rate": 5.4,
+            "class": "fixed"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc3 = R"({
+          "investment": {
+            "name": "Mutual Funds",
+            "interest_rate": 12,
+            "class": "Equity"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc3.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc4 = R"({
+          "investment": {
+            "name": "Land",
+            "interest_rate": 9.1,
+            "class": "real estate"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc4.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc5 = R"({
+          "investment": {
+            "name": "Bonds",
+            "interest_rate": 7.24,
+            "class": "g-sec"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc5.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    //search by calories in asc order
+    auto search_op = coll1->search("*", {},"",
+                                   {"investment.name(sort:asc, sort_field:investment.interest_rate)"},
+                                   {}, {2});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Gold", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Term Deposits", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Bonds", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Land", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("Mutual Funds", results["facet_counts"][0]["counts"][4]["value"]);
+
+    //search by calories in desc order
+    search_op = coll1->search("*", {},"",
+                              {"investment.name(sort:desc, sort_field:investment.interest_rate)"},
+                              {}, {2});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Mutual Funds", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Land", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("Bonds", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("Term Deposits", results["facet_counts"][0]["counts"][3]["value"]);
+    ASSERT_EQ("Gold", results["facet_counts"][0]["counts"][4]["value"]);
 }

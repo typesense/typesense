@@ -80,6 +80,9 @@ private:
 
     BatchedIndexer* batch_indexer;
 
+    // All the references to a particular collection are stored until it is created.
+    std::map<std::string, std::set<reference_pair>> referenced_in_backlog;
+
     CollectionManager();
 
     ~CollectionManager() = default;
@@ -204,4 +207,8 @@ public:
 
     static void _get_reference_collection_names(const std::string& filter_query,
                                                 std::set<std::string>& reference_collection_names);
+
+    void add_referenced_in_backlog(const std::string& collection_name, reference_pair&& pair);
+
+    std::map<std::string, std::set<reference_pair>> _get_referenced_in_backlog() const;
 };

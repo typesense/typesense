@@ -226,6 +226,8 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     ThreadPool loading_pool(collection_batch_size);
 
     size_t num_processed = 0;
+    // Collection name -> Referenced in
+    std::map<std::string, std::set<reference_pair>> referenced_ins = {};
     std::mutex m_process;
     std::condition_variable cv_process;
 
@@ -239,7 +241,8 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
-                              &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit]() {
+                              &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
+                              &referenced_ins]() {
 
             //auto begin = std::chrono::high_resolution_clock::now();
             Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit);
@@ -256,6 +259,20 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
+
+            auto& cm = CollectionManager::get_instance();
+            auto const& collection_name = collection_meta.at("name");
+            auto collection = cm.get_collection(collection_name);
+            if (collection != nullptr) {
+                for (const auto &item: collection->get_reference_fields()) {
+                    auto const& ref_coll_name = item.second.collection;
+                    if (referenced_ins.count(ref_coll_name) == 0) {
+                        referenced_ins[ref_coll_name] = {};
+                    }
+                    auto const field_name = item.first + Collection::REFERENCE_HELPER_FIELD_SUFFIX;
+                    referenced_ins.at(ref_coll_name).insert(reference_pair{collection_name, field_name});
+                }
+            }
             cv_process.notify_one();
 
             size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
@@ -270,6 +287,17 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     cv_process.wait(lock_process, [&](){
         return num_processed == num_collections;
     });
+
+    // Initialize references
+    for (const auto &item: referenced_ins) {
+        auto& cm = CollectionManager::get_instance();
+        auto collection = cm.get_collection(item.first);
+        if (collection != nullptr) {
+            for (const auto &reference_pair: item.second) {
+                collection->add_referenced_in(reference_pair);
+            }
+        }
+    }
 
     // load aliases
 
@@ -450,6 +478,11 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     }
 
     add_to_collections(new_collection);
+
+    if (referenced_in_backlog.count(name) > 0) {
+        new_collection->add_referenced_ins(referenced_in_backlog.at(name));
+        referenced_in_backlog.erase(name);
+    }
 
     return Option<Collection*>(new_collection);
 }
@@ -632,6 +665,72 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
     char prev_non_space_char = 'a';
 
     for(size_t i=0; i < sort_by_str.size(); i++) {
+        if (sort_field_expr.empty()) {
+            if (sort_by_str[i] == '$') {
+                // Sort by reference field
+                auto open_paren_pos = sort_by_str.find('(', i);
+                if (open_paren_pos == std::string::npos) {
+                    return false;
+                }
+                sort_field_expr = sort_by_str.substr(i, open_paren_pos - i + 1);
+
+                i = open_paren_pos;
+                int paren_count = 1;
+                while (++i < sort_by_str.size() && paren_count > 0) {
+                    if (sort_by_str[i] == '(') {
+                        paren_count++;
+                    } else if (sort_by_str[i] == ')') {
+                        paren_count--;
+                    }
+                    sort_field_expr += sort_by_str[i];
+                }
+                if (paren_count != 0) {
+                    return false;
+                }
+
+                sort_fields.emplace_back(sort_field_expr, "");
+                sort_field_expr = "";
+                continue;
+            } else if (sort_by_str.substr(i, 5) == sort_field_const::eval) {
+                // Optional filtering
+                auto open_paren_pos = sort_by_str.find('(', i);
+                if (open_paren_pos == std::string::npos) {
+                    return false;
+                }
+                sort_field_expr = sort_field_const::eval + "(";
+
+                i = open_paren_pos;
+                int paren_count = 1;
+                while (++i < sort_by_str.size() && paren_count > 0) {
+                    if (sort_by_str[i] == '(') {
+                        paren_count++;
+                    } else if (sort_by_str[i] == ')') {
+                        paren_count--;
+                    }
+                    sort_field_expr += sort_by_str[i];
+                }
+                if (paren_count != 0 || i >= sort_by_str.size()) {
+                    return false;
+                }
+
+                while (sort_by_str[i] != ':' && ++i < sort_by_str.size());
+                if (i >= sort_by_str.size()) {
+                    return false;
+                }
+
+                std::string order_str;
+                while (++i < sort_by_str.size() && sort_by_str[i] != ',') {
+                    order_str += sort_by_str[i];
+                }
+                StringUtils::trim(order_str);
+                StringUtils::toupper(order_str);
+
+                sort_fields.emplace_back(sort_field_expr, order_str);
+                sort_field_expr = "";
+                continue;
+            }
+        }
+
         if(i == sort_by_str.size()-1 || (sort_by_str[i] == ',' && !isdigit(prev_non_space_char))) {
             if(i == sort_by_str.size()-1) {
                 sort_field_expr += sort_by_str[i];
@@ -893,7 +992,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         nlohmann::json preset;
         const auto& preset_op = CollectionManager::get_instance().get_preset(preset_it->second, preset);
 
-        if(preset_op.ok()) {
+        // NOTE: we merge only single preset configuration because multi ("searches") preset value replaces
+        // the request body directly before we reach this single search request function.
+        if(preset_op.ok() && !preset.contains("searches")) {
             if(!preset.is_object()) {
                 return Option<bool>(400, "Search preset is not an object.");
             }
@@ -1252,6 +1353,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           (conversation_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_id)
                                                         );
 
+
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
 
@@ -1266,7 +1368,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
-            std::string analytics_query = raw_query;
+            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
             AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query,
                                                             true, req_params["x-typesense-user-id"]);
         }
@@ -1705,4 +1807,14 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     }
 
     return Option<Collection*>(new_coll);
+}
+
+void CollectionManager::add_referenced_in_backlog(const std::string& collection_name, reference_pair&& pair) {
+    std::shared_lock lock(mutex);
+    referenced_in_backlog[collection_name].insert(pair);
+}
+
+std::map<std::string, std::set<reference_pair>> CollectionManager::_get_referenced_in_backlog() const {
+    std::shared_lock lock(mutex);
+    return referenced_in_backlog;
 }

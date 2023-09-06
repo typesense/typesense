@@ -102,6 +102,8 @@ public:
 
     static void to_expanded_id_lists(const std::vector<void*>& raw_id_lists, std::vector<id_list_t*>& id_lists,
                                      std::vector<id_list_t*>& expanded_id_lists);
+
+    static void* create(const std::vector<uint32_t>& ids);
 };
 
 template<class T>

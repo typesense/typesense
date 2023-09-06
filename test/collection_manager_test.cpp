@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <collection_manager.h>
+#include <analytics_manager.h>
 #include "string_utils.h"
 #include "collection.h"
 
@@ -23,6 +24,8 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        AnalyticsManager::get_instance().init(store);
 
         schema = R"({
             "name": "collection1",
@@ -82,6 +85,10 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
     ASSERT_EQ(false, schema.at("not_stored").index);
+
+    ASSERT_EQ(1, collection1->get_reference_fields().size());
+    ASSERT_EQ("Products", collection1->get_reference_fields().at("product_id").collection);
+    ASSERT_EQ("product_id", collection1->get_reference_fields().at("product_id").field);
 
     // check storage as well
     rocksdb::Iterator* it = store->get_iterator();
@@ -483,6 +490,10 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
 
+    ASSERT_EQ(1, collection1->get_reference_fields().size());
+    ASSERT_EQ("Products", collection1->get_reference_fields().at("product_id").collection);
+    ASSERT_EQ("product_id", collection1->get_reference_fields().at("product_id").field);
+
     auto restored_schema = collection1->get_schema();
     ASSERT_EQ(true, restored_schema.at("cast").optional);
     ASSERT_EQ(true, restored_schema.at("cast").facet);
@@ -583,6 +594,67 @@ TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_EQ("(year: 1922) && (points: 200)", req_params["filter_by"]);
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("year", field_types::INT32, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Tom Sawyer";
+    doc1["year"] = 1876;
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    Config::get_instance().set_enable_search_analytics(true);
+
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["coll1"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    nlohmann::json embedded_params;
+    std::map<std::string, std::string> req_params;
+    req_params["collection"] = "coll1";
+    req_params["q"] = " tom ";
+    req_params["query_by"] = "title";
+
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    json_res.clear();
+    req_params["q"] = "  ";
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    // check that suggestions have been trimmed
+    auto popular_queries = AnalyticsManager::get_instance().get_popular_queries();
+    ASSERT_EQ(2, popular_queries["top_queries"]->get_user_prefix_queries()[""].size());
+    ASSERT_EQ("tom", popular_queries["top_queries"]->get_user_prefix_queries()[""][0].query);
+    ASSERT_EQ("", popular_queries["top_queries"]->get_user_prefix_queries()[""][1].query);
 
     collectionManager.drop_collection("coll1");
 }
@@ -1111,6 +1183,23 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ("DESC", sort_fields[1].order);
 
     sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("points:desc,loc(24.56,10.45):ASC,"
+                                                          "$Customers(product_price:DESC)", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(3, sort_fields.size());
+    ASSERT_EQ("points", sort_fields[0].name);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+    ASSERT_EQ("loc(24.56,10.45)", sort_fields[1].name);
+    ASSERT_EQ("ASC", sort_fields[1].order);
+    ASSERT_EQ("$Customers(product_price:DESC)", sort_fields[2].name);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("$foo( _eval(brand:nike && foo:bar):DESC,points:desc) ",
+                                                          sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("$foo( _eval(brand:nike && foo:bar):DESC,points:desc)", sort_fields[0].name);
+
+    sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
     ASSERT_EQ(0, sort_fields.size());
@@ -1246,7 +1335,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_EQ('?', coll2->get_token_separators().at(1));
 }
 
-TEST(StringUtilsTest, GetReferenceCollectionNames) {
+TEST_F(CollectionManagerTest, GetReferenceCollectionNames) {
     std::string filter_query = "";
     std::set<std::string> reference_collection_names;
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
@@ -1274,4 +1363,37 @@ TEST(StringUtilsTest, GetReferenceCollectionNames) {
         ASSERT_EQ(1, reference_collection_names.count(item));
     }
     reference_collection_names.clear();
+}
+
+TEST_F(CollectionManagerTest, ReferencedInBacklog) {
+    auto referenced_ins_backlog = collectionManager._get_referenced_in_backlog();
+    ASSERT_EQ(1, referenced_ins_backlog.count("Products"));
+
+    auto const& references = referenced_ins_backlog.at("Products");
+    ASSERT_EQ(1, references.size());
+    ASSERT_EQ("collection1", references.cbegin()->collection);
+    ASSERT_EQ("product_id_sequence_id", references.cbegin()->field);
+
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+
+    auto create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(create_op.ok());
+
+    referenced_ins_backlog = collectionManager._get_referenced_in_backlog();
+    ASSERT_EQ(0, referenced_ins_backlog.count("Products"));
+
+    auto get_reference_field_op = create_op.get()->get_reference_field("collection1");
+    ASSERT_TRUE(get_reference_field_op.ok());
+    ASSERT_EQ("product_id_sequence_id", get_reference_field_op.get());
+
+    get_reference_field_op = create_op.get()->get_reference_field("foo");
+    ASSERT_FALSE(get_reference_field_op.ok());
+    ASSERT_EQ("Could not find any field in `Products` referencing the collection `foo`.", get_reference_field_op.error());
 }

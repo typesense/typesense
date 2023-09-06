@@ -1,5 +1,6 @@
 #include <sstream>
 #include <algorithm>
+#include <string_utils.h>
 #include "tokenizer.h"
 
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
@@ -335,7 +336,7 @@ bool Tokenizer::next(std::string &token, size_t &token_index) {
 }
 
 bool Tokenizer::is_cyrillic(const std::string& locale) {
-    return locale == "el" ||
+    return locale == "el" || locale == "bg" ||
            locale == "ru" || locale == "sr" || locale == "uk" || locale == "be";
 }
 
@@ -349,10 +350,15 @@ bool Tokenizer::should_skip_char(char c) {
     return is_ascii_char(c) && get_stream_mode(c) != INDEX;
 }
 
-void Tokenizer::normalize_ascii(std::string& text) {
-    for(size_t i = 0; i < text.size(); i++) {
+std::string Tokenizer::normalize_ascii_no_spaces(const std::string& text) {
+    std::string analytics_query = text;
+    StringUtils::trim(analytics_query);
+
+    for(size_t i = 0; i < analytics_query.size(); i++) {
         if(is_ascii_char(text[i])) {
-            text[i] = std::tolower(text[i]);
+            analytics_query[i] = std::tolower(analytics_query[i]);
         }
     }
+
+    return analytics_query;
 }

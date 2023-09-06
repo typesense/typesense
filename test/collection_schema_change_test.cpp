@@ -1566,6 +1566,14 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
     ASSERT_TRUE(res.ok());
     ASSERT_EQ(1, coll->get_embedding_fields().size());
 
+    auto search_schema = coll->get_schema();
+
+    auto embedding_field_it = search_schema.find("embedding");
+    ASSERT_TRUE(embedding_field_it != coll->get_schema().end());
+    ASSERT_EQ("embedding", embedding_field_it.value().name);
+    ASSERT_EQ("float[]", embedding_field_it.value().type);
+    ASSERT_EQ(384, embedding_field_it.value().num_dim);
+
     nlohmann::json doc;
     doc["names"] = {"hello", "world"};
     auto add_op = coll->add(doc.dump());
@@ -1580,9 +1588,13 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
     nlohmann::json schema = R"({
             "name": "objects",
             "fields": [
-            {"name": "names", "type": "string[]"},
-            {"name": "category", "type":"string"}, 
-            {"name": "embedding", "type":"float[]", "embed":{"from": ["names","category"], "model_config": {"model_name": "ts/e5-small"}}}
+                {"name": "title", "type": "string"},
+                {"name": "names", "type": "string[]"},
+                {"name": "category", "type":"string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["names","category"],
+                    "model_config": {"model_name": "ts/e5-small"}}},
+                {"name": "embedding2", "type":"float[]", "embed":{"from": ["names"],
+                                    "model_config": {"model_name": "ts/e5-small"}}}
             ]
         })"_json;
 
@@ -1594,20 +1606,28 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
 
     LOG(INFO) << "Created collection";
 
+    auto embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(2, embedding_fields.size());
+    ASSERT_EQ(2, embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>().size());
+    ASSERT_EQ(1, embedding_fields["embedding2"].embed[fields::from].get<std::vector<std::string>>().size());
+
+    auto coll_schema = coll->get_schema();
+    ASSERT_EQ(5, coll_schema.size());
+
+    auto the_fields = coll->get_fields();
+    ASSERT_EQ(5, the_fields.size());
+
     auto schema_changes = R"({
         "fields": [
             {"name": "names", "drop": true}
         ]
     })"_json;
 
-
-    auto embedding_fields = coll->get_embedding_fields();
-    ASSERT_EQ(2, embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>().size());
-
     auto alter_op = coll->alter(schema_changes);
     ASSERT_TRUE(alter_op.ok());
 
     embedding_fields = coll->get_embedding_fields();
+    ASSERT_EQ(1, embedding_fields.size());
     ASSERT_EQ(1, embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>().size());
     ASSERT_EQ("category", embedding_fields["embedding"].embed[fields::from].get<std::vector<std::string>>()[0]);
 
@@ -1623,6 +1643,16 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
     embedding_fields = coll->get_embedding_fields();
     ASSERT_EQ(0, embedding_fields.size());
     ASSERT_EQ(0, coll->_get_index()->_get_vector_index().size());
+
+    // only title remains
+
+    coll_schema = coll->get_schema();
+    ASSERT_EQ(1, coll_schema.size());
+    ASSERT_EQ("title", coll_schema["title"].name);
+
+    the_fields = coll->get_fields();
+    ASSERT_EQ(1, the_fields.size());
+    ASSERT_EQ("title", the_fields[0].name);
 }
 
 TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {

@@ -225,6 +225,137 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "points", "type": "int32"},
+                {"name": "vec", "type": "float[]", "num_dim": 3}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<float> vec = {0.12, 0.45, 0.64};
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+    doc["vec"] = vec;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+
+    // upsert unchanged doc
+    add_op = coll1->add(doc.dump(), index_operation_t::UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // emplace unchanged doc
+    add_op = coll1->add(doc.dump(), index_operation_t::EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionVectorTest, VectorPartialUpdate) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "points", "type": "int32"},
+                {"name": "vec", "type": "float[]", "num_dim": 3}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<float> vec = {0.12, 0.45, 0.64};
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+    doc["vec"] = vec;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+
+    // emplace partial doc
+    doc.erase("vec");
+    doc["title"] = "Random";
+    add_op = coll1->add(doc.dump(), index_operation_t::EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("Random", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // update portial doc
+
+    doc.erase("vec");
+    doc["title"] = "Random";
+    add_op = coll1->add(doc.dump(), index_operation_t::UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("Random", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionVectorTest, NumVectorGreaterThanNumDim) {
     nlohmann::json schema = R"({
             "name": "coll1",
@@ -693,6 +824,88 @@ TEST_F(CollectionVectorTest, VectorWithNullValue) {
               nlohmann::json::parse(json_lines[1])["error"].get<std::string>());
 }
 
+TEST_F(CollectionVectorTest, EmbeddedVectorUnchangedUpsert) {
+    nlohmann::json schema = R"({
+                "name": "coll1",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "points", "type": "int32"},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["title"],
+                        "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("title", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    auto embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding.size());
+
+    // upsert unchanged doc
+    doc.clear();
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+
+    add_op = coll1->add(doc.dump(), index_operation_t::UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("title", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding.size());
+
+    // update
+
+    doc.clear();
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+
+    add_op = coll1->add(doc.dump(), index_operation_t::UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("title", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding.size());
+
+    // emplace
+
+    doc.clear();
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+
+    add_op = coll1->add(doc.dump(), index_operation_t::EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("title", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding.size());
+}
+
 TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     nlohmann::json schema = R"({
                             "name": "objects",
@@ -1100,7 +1313,67 @@ TEST_F(CollectionVectorTest, HideCredential) {
     ASSERT_EQ("***********", coll_summary["fields"][1]["embed"]["model_config"]["project_id"].get<std::string>());
 }
 
-TEST_F(CollectionVectorTest, UpdateOfCollWithNonOptionalEmbeddingField) {
+TEST_F(CollectionVectorTest, UpdateOfFieldReferencedByEmbedding) {
+    nlohmann::json schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"],
+                "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json object;
+    object["id"] = "0";
+    object["name"] = "butter";
+
+    auto add_op = coll->add(object.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    auto original_embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+
+    nlohmann::json update_object;
+    update_object["id"] = "0";
+    update_object["name"] = "ghee";
+    auto update_op = coll->add(update_object.dump(), EMPLACE);
+    ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("ghee", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    auto updated_embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_NE(original_embedding, updated_embedding);
+
+    // action = update
+    update_object["name"] = "milk";
+    update_op = coll->add(update_object.dump(), UPDATE);
+    ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("milk", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    updated_embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_NE(original_embedding, updated_embedding);
+
+    // action = upsert
+    update_object["name"] = "cheese";
+    update_op = coll->add(update_object.dump(), UPSERT);
+    ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("cheese", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    updated_embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_NE(original_embedding, updated_embedding);
+}
+
+TEST_F(CollectionVectorTest, UpdateOfFieldNotReferencedByEmbedding) {
+    // test updates to a field that's not referred by an embedding field
     nlohmann::json schema = R"({
         "name": "objects",
         "fields": [
@@ -1124,16 +1397,34 @@ TEST_F(CollectionVectorTest, UpdateOfCollWithNonOptionalEmbeddingField) {
     auto add_op = coll->add(object.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
+    auto results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
     nlohmann::json update_object;
     update_object["id"] = "0";
     update_object["about"] = "something about butter";
     auto update_op = coll->add(update_object.dump(), EMPLACE);
     ASSERT_TRUE(update_op.ok());
 
+    results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
     // action = update
     update_object["about"] = "something about butter 2";
     update_op = coll->add(update_object.dump(), UPDATE);
     ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // action = upsert
+    update_object["name"] = "butter";
+    update_object["about"] = "something about butter 3";
+    update_op = coll->add(update_object.dump(), UPSERT);
+    ASSERT_TRUE(update_op.ok());
+
+    results = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionVectorTest, FreshEmplaceWithOptionalEmbeddingReferencedField) {
@@ -1160,6 +1451,27 @@ TEST_F(CollectionVectorTest, FreshEmplaceWithOptionalEmbeddingReferencedField) {
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ("No valid fields found to create embedding for `embedding`, please provide at least one valid field "
               "or make the embedding field optional.", add_op.error());
+}
+
+TEST_F(CollectionVectorTest, EmbeddingFieldWithIdFieldPrecedingInSchema) {
+    auto schema = R"({
+        "name": "objects",
+        "fields": [
+            {"name": "id", "type": "string"},
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    auto fs = coll->get_fields();
+    ASSERT_EQ(2, fs.size());
+    ASSERT_EQ(384, fs[1].num_dim);
 }
 
 TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExists) {
@@ -1307,6 +1619,58 @@ TEST_F(CollectionVectorTest, KeywordSearchReturnOnlyTextMatchInfo) {
     ASSERT_EQ(1, results["hits"][0].count("text_match_info"));
 }
 
+TEST_F(CollectionVectorTest, GroupByWithVectorSearch) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "group", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::vector<float>> values = {
+        {0.851758, 0.909671, 0.823431, 0.372063},
+        {0.97826, 0.933157, 0.39557, 0.306488},
+        {0.230606, 0.634397, 0.514009, 0.399594}
+    };
+
+    for (size_t i = 0; i < values.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = std::to_string(i) + " title";
+        doc["group"] = "0";
+        doc["vec"] = values[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto res = coll1->search("title", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                     spp::sparse_hash_set<std::string>(),
+                     spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                     "", 10, {}, {}, {"group"}, 1,
+                     "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                     4, {off}, 32767, 32767, 2,
+                     false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488])").get();
+
+    ASSERT_EQ(1, res["grouped_hits"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"][0].count("vector_distance"));
+
+    res = coll1->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                        "", 10, {}, {}, {"group"}, 1,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                        4, {off}, 32767, 32767, 2,
+                        false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488])").get();
+
+    ASSERT_EQ(1, res["grouped_hits"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"][0].count("vector_distance"));
+}
+
 TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
     auto schema_json =
             R"({
@@ -1344,6 +1708,136 @@ TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
     ASSERT_EQ(1, results["hits"][0].count("hybrid_search_info"));
 }
 
+TEST_F(CollectionVectorTest, DISABLED_HybridSortingTest) {
+    auto schema_json =
+            R"({
+            "name": "TEST",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+    })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    auto add_op = coll1->add(R"({
+        "name": "john doe"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll1->add(R"({
+        "name": "john legend"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll1->add(R"({
+        "name": "john krasinski"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll1->add(R"({
+        "name": "john abraham"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // first do keyword search
+    auto results = coll1->search("john", {"name"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>()).get();
+    
+    ASSERT_EQ(4, results["hits"].size());
+
+
+    // now do hybrid search with sort_by: _text_match:desc,_vector_distance:asc
+    std::vector<sort_by> sort_by_list = {{"_text_match", "desc"}, {"_vector_distance", "asc"}};
+
+    auto hybrid_results = coll1->search("john", {"name", "embedding"},
+                                 "", {}, sort_by_list, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>()).get();
+    
+    // first 4 results should be same as keyword search
+    ASSERT_EQ(results["hits"][0]["document"]["name"].get<std::string>(), hybrid_results["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ(results["hits"][1]["document"]["name"].get<std::string>(), hybrid_results["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ(results["hits"][2]["document"]["name"].get<std::string>(), hybrid_results["hits"][2]["document"]["name"].get<std::string>());
+    ASSERT_EQ(results["hits"][3]["document"]["name"].get<std::string>(), hybrid_results["hits"][3]["document"]["name"].get<std::string>());
+}
+
+TEST_F(CollectionVectorTest, TestDifferentOpenAIApiKeys) {
+    if (std::getenv("api_key_1") == nullptr || std::getenv("api_key_2") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key_1 or api_key_2 is not set";
+        return;
+    }
+
+    auto api_key1 = std::string(std::getenv("api_key_1"));
+    auto api_key2 = std::string(std::getenv("api_key_2"));
+
+    auto embedder_map = TextEmbedderManager::get_instance()._get_text_embedders();
+
+    ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002:" + api_key1), embedder_map.end());
+    ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002:" + api_key2), embedder_map.end());
+    ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002"), embedder_map.end());
+
+    nlohmann::json model_config1 = R"({
+                "model_name": "openai/text-embedding-ada-002"
+            })"_json;
+    
+    nlohmann::json model_config2 = model_config1;
+
+    model_config1["api_key"] = api_key1;
+    model_config2["api_key"] = api_key2;
+
+    size_t num_dim;
+    TextEmbedderManager::get_instance().validate_and_init_remote_model(model_config1, num_dim);
+    TextEmbedderManager::get_instance().validate_and_init_remote_model(model_config2, num_dim);
+
+    embedder_map = TextEmbedderManager::get_instance()._get_text_embedders();
+
+    ASSERT_NE(embedder_map.find("openai/text-embedding-ada-002:" + api_key1), embedder_map.end());
+    ASSERT_NE(embedder_map.find("openai/text-embedding-ada-002:" + api_key2), embedder_map.end());
+    ASSERT_EQ(embedder_map.find("openai/text-embedding-ada-002"), embedder_map.end());
+}
+
+
+TEST_F(CollectionVectorTest, TestMultilingualE5) {
+    auto schema_json =
+            R"({
+            "name": "TEST",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/multilingual-e5-small"}}}
+            ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    auto add_op = coll1->add(R"({
+        "name": "john doe"
+    })"_json.dump());
+
+    auto hybrid_results = coll1->search("john", {"name", "embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>());
+    
+    ASSERT_TRUE(hybrid_results.ok());
+
+    auto semantic_results = coll1->search("john", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>());
+    
+    ASSERT_TRUE(semantic_results.ok());
+}
 
 TEST_F(CollectionVectorTest, CreateCollectionWithQA) {
     auto schema_json =
@@ -1565,5 +2059,3 @@ TEST_F(CollectionVectorTest, CollectionWithQAInvalidNamespace) {
 
     ASSERT_EQ("Model namespace `` is not supported.", collection_create_op.error());
 }
-
-

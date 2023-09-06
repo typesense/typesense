@@ -117,6 +117,11 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
         input_shapes.push_back({1, static_cast<int64_t>(encoded_input.input_ids.size())});
         input_shapes.push_back({1, static_cast<int64_t>(encoded_input.attention_mask.size())});
         if(session_->GetInputCount() == 3) {
+            // edge case: xlm_roberta does not have token_type_ids, but if the model has it as input, we need to fill it with 0s
+            if(encoded_input.token_type_ids.size() == 0) {
+                encoded_input.token_type_ids.resize(encoded_input.input_ids.size(), 0);
+            }
+
             input_shapes.push_back({1, static_cast<int64_t>(encoded_input.token_type_ids.size())});
         }
         input_tensors.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, encoded_input.input_ids.data(), encoded_input.input_ids.size(), input_shapes[0].data(), input_shapes[0].size()));

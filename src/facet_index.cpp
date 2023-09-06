@@ -11,8 +11,8 @@ void facet_index_t::initialize(const std::string& field) {
     }
 }
 
-void facet_index_t::insert(const std::string& field_name, bool is_string,
-                           std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,
+void facet_index_t::insert(const std::string& field_name,std::unordered_map<facet_value_id_t,
+                           std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,
                            std::unordered_map<uint32_t, std::vector<facet_value_id_t>>& seq_id_to_fvalues) {
     
     const auto facet_field_map_it = facet_field_map.find(field_name);
@@ -21,7 +21,7 @@ void facet_index_t::insert(const std::string& field_name, bool is_string,
     }
 
     auto& facet_index = facet_field_map_it->second;
-    tsl::htrie_map<char, facet_id_seq_ids_t>& fvalue_index = facet_index.fvalue_seq_ids;
+    auto& fvalue_index = facet_index.fvalue_seq_ids;
     auto fhash_index = facet_index.seq_id_hashes;
 
     for(const auto& seq_id_fvalues: seq_id_to_fvalues) {
@@ -35,7 +35,7 @@ void facet_index_t::insert(const std::string& field_name, bool is_string,
 
             if(fvalue.facet_id == UINT32_MAX) {
                 // float, int32 & bool will provide facet_id as their own numerical values
-                facet_id = (fvalue_index_it == fvalue_index.end()) ? ++next_facet_id : fvalue_index_it->facet_id;
+                facet_id = (fvalue_index_it == fvalue_index.end()) ? ++next_facet_id : fvalue_index_it->second.facet_id;
             }
 
             real_facet_ids.push_back(facet_id);
@@ -55,19 +55,19 @@ void facet_index_t::insert(const std::string& field_name, bool is_string,
                 if(facet_index.has_value_index) {
                     count_list.emplace_back(fvalue.facet_value, seq_ids.size(), facet_id);
                     fis.facet_count_it = std::prev(count_list.end());
-                    fis.seq_ids = SET_COMPACT_IDS(compact_id_list_t::create(seq_ids.size(), seq_ids));
+                    fis.seq_ids = ids_t::create(seq_ids);
                 }
 
                 fvalue_index.emplace(fvalue.facet_value, fis);
             } else if(facet_index.has_value_index) {
                 for(const auto id : seq_ids) {
-                    ids_t::upsert(fvalue_index_it->seq_ids, id);
+                    ids_t::upsert(fvalue_index_it->second.seq_ids, id);
                 }
 
-                auto facet_count_it = fvalue_index_it->facet_count_it;
+                auto facet_count_it = fvalue_index_it->second.facet_count_it;
 
                 if(facet_count_it->facet_id == facet_id) {
-                    facet_count_it->count = ids_t::num_ids(fvalue_index_it->seq_ids);
+                    facet_count_it->count = ids_t::num_ids(fvalue_index_it->second.seq_ids);
                     auto curr = facet_count_it;
                     while (curr != count_list.begin() && std::prev(curr)->count < curr->count) {
                         count_list.splice(curr, count_list, std::prev(curr));  // swaps list nodes
@@ -107,20 +107,22 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
         std::vector<std::string> dead_fvalues;
 
         for(auto facet_ids_seq_ids = facet_index_map.begin(); facet_ids_seq_ids != facet_index_map.end(); facet_ids_seq_ids++) {
-            void*& ids = facet_ids_seq_ids.value().seq_ids;
+            void*& ids = facet_ids_seq_ids->second.seq_ids;
             if(ids && ids_t::contains(ids, seq_id)) {
                 ids_t::erase(ids, seq_id);
                 auto& count_list = facet_field_it->second.counts;
-                auto key = facet_ids_seq_ids.key();
-                auto& facet_id_seq_ids = facet_ids_seq_ids.value();
-                facet_ids_seq_ids.value().facet_count_it->count--;
+                auto key = facet_ids_seq_ids->first;
+                auto& facet_id_seq_ids = facet_ids_seq_ids->second;
+                facet_ids_seq_ids->second.facet_count_it->count--;
 
                 if(ids_t::num_ids(ids) == 0) {
                     ids_t::destroy_list(ids);
                     std::string dead_fvalue;
-                    facet_ids_seq_ids.key(dead_fvalue);
                     dead_fvalues.push_back(dead_fvalue);
-                    count_list.erase(facet_ids_seq_ids.value().facet_count_it);
+                    count_list.erase(facet_ids_seq_ids->second.facet_count_it);
+                    auto node = facet_index_map.extract(facet_ids_seq_ids->first);
+                    node.key() = dead_fvalue;
+                    facet_index_map.insert(std::move(node));
                 }
             }
         }
@@ -145,12 +147,14 @@ size_t facet_index_t::get_facet_count(const std::string& field_name) {
 }
 
 //returns the count of matching seq_ids from result array
-size_t facet_index_t::intersect(const std::string& field, const uint32_t* result_ids, size_t result_ids_len,
+size_t facet_index_t::intersect(facet& a_facet,
+                                bool has_facet_query, const std::vector<std::string>& fvalue_searched_tokens,
+                                const uint32_t* result_ids, size_t result_ids_len,
                                 size_t max_facet_count, std::map<std::string, uint32_t>& found,
-                                bool is_wildcard_no_filter_query) {
+                                bool is_wildcard_no_filter_query, const std::string& sort_order) {
     //LOG (INFO) << "intersecting field " << field;
 
-    const auto& facet_field_it = facet_field_map.find(field);
+    const auto& facet_field_it = facet_field_map.find(a_facet.field_name);
     if(facet_field_it == facet_field_map.end()) {
         return 0;
     }
@@ -165,25 +169,70 @@ size_t facet_index_t::intersect(const std::string& field, const uint32_t* result
     size_t max_facets = is_wildcard_no_filter_query ? std::min((size_t)max_facet_count, counter_list.size()) :
                         std::min((size_t)2 * max_facet_count, counter_list.size());
 
-    for(const auto& facet_count : counter_list) {
-         //LOG(INFO) << "checking ids in facet_value " << facet_count.facet_value << " having total count "
-         //           << facet_count.count << ", is_wildcard_no_filter_query: " << is_wildcard_no_filter_query;
+    auto intersect_fn = [&] (std::list<facet_count_t>::const_iterator facet_count_it) {
         uint32_t count = 0;
+        if(has_facet_query) {
+            bool found_search_token = false;
+            auto facet_str = facet_count_it->facet_value;
+            transform(facet_str.begin(), facet_str.end(), facet_str.begin(), ::tolower);
 
-        if(is_wildcard_no_filter_query) {
-            count = facet_count.count;
+            for(const auto& searched_token: fvalue_searched_tokens) {
+                if(facet_str.find(searched_token) != std::string::npos) {
+                    found_search_token = true;
+                    a_facet.fvalue_tokens[facet_count_it->facet_value] = fvalue_searched_tokens;
+                    break;
+                }
+            }
+
+            if(!found_search_token) {
+                return;
+            }
+        }
+
+        if (is_wildcard_no_filter_query) {
+            count = facet_count_it->count;
         } else {
-            auto ids = facet_index_map.at(facet_count.facet_value).seq_ids;
-            if(!ids) {
-                continue;
+            auto ids = facet_index_map.at(facet_count_it->facet_value).seq_ids;
+            if (!ids) {
+                return;
             }
             count = ids_t::intersect_count(ids, result_ids, result_ids_len);
         }
 
-        if(count) {
-            found[facet_count.facet_value] = count;
-            if(found.size() == max_facets) {
+        if (count) {
+            found[facet_count_it->facet_value] = count;
+        }
+    };
+
+    if(sort_order.empty()) {
+        for (auto facet_count_it = counter_list.begin(); facet_count_it != counter_list.end();
+             ++facet_count_it) {
+            //LOG(INFO) << "checking ids in facet_value " << facet_count.facet_value << " having total count "
+            //           << facet_count.count << ", is_wildcard_no_filter_query: " << is_wildcard_no_filter_query;
+
+            intersect_fn(facet_count_it);
+            if (found.size() == max_facets) {
                 break;
+            }
+        }
+    } else {
+        if(sort_order == "asc") {
+            for(auto facet_index_map_it = facet_index_map.begin();
+                facet_index_map_it != facet_index_map.end(); ++facet_index_map_it) {
+
+                intersect_fn(facet_index_map_it->second.facet_count_it);
+                if (found.size() == max_facets) {
+                    break;
+                }
+            }
+        } else if(sort_order == "desc") {
+            for(auto facet_index_map_it = facet_index_map.rbegin();
+                facet_index_map_it != facet_index_map.rend(); ++facet_index_map_it) {
+
+                intersect_fn(facet_index_map_it->second.facet_count_it);
+                if (found.size() == max_facets) {
+                    break;
+                }
             }
         }
     }
@@ -209,12 +258,14 @@ size_t facet_index_t::get_facet_indexes(const std::string& field_name,
     std::vector<uint32_t> id_list;
 
     for(auto facet_index_map_it = facet_index_map.begin(); facet_index_map_it != facet_index_map.end(); ++facet_index_map_it) {
-        auto ids = facet_index_map_it->seq_ids;
+        //auto ids = facet_index_map_it->seq_ids;
+        auto ids = facet_index_map_it->second.seq_ids;
         ids_t::uncompress(ids, id_list);
 
         // emplacing seq_id => next_facet_id
         for(const auto& id : id_list) {
-            seqid_countIndexes[id].emplace_back(facet_index_map_it->facet_id);
+            //seqid_countIndexes[id].emplace_back(facet_index_map_it->facet_id);
+            seqid_countIndexes[id].emplace_back(facet_index_map_it->second.facet_id);
         }
 
         id_list.clear();
@@ -253,7 +304,7 @@ void facet_index_t::handle_index_change(const std::string& field_name, size_t to
             // drop the value index for this field
             auto& fvalue_seq_ids = facet_index.fvalue_seq_ids;
             for(auto it = fvalue_seq_ids.begin(); it != fvalue_seq_ids.end(); ++it) {
-                ids_t::destroy_list(it.value().seq_ids);
+                ids_t::destroy_list(it->second.seq_ids);
             }
             fvalue_seq_ids.clear();
             facet_index.counts.clear();

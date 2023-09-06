@@ -137,6 +137,7 @@ filegroup(
         "test/**/*.txt",
         "test/**/*.ini",
         "test/**/*.jsonl",
+        "test/**/*.gz",
     ]),
 )
 

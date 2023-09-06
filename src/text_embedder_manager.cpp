@@ -43,9 +43,10 @@ Option<bool> TextEmbedderManager::validate_and_init_remote_model(const nlohmann:
     }
 
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
-    auto text_embedder_it = text_embedders.find(model_name);
+    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
+    auto text_embedder_it = text_embedders.find(model_key);
     if(text_embedder_it == text_embedders.end()) {
-        text_embedders.emplace(model_name, std::make_shared<TextEmbedder>(model_config, num_dims));
+        text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims));
     }
 
     return Option<bool>(true);
@@ -122,7 +123,8 @@ Option<bool> TextEmbedderManager::validate_and_init_local_model(const nlohmann::
 Option<TextEmbedder*> TextEmbedderManager::get_text_embedder(const nlohmann::json& model_config) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     const std::string& model_name = model_config.at("model_name");
-    auto text_embedder_it = text_embedders.find(model_name);
+    std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
+    auto text_embedder_it = text_embedders.find(model_key);
 
     if(text_embedder_it == text_embedders.end()) {
         return Option<TextEmbedder*>(404, "Text embedder was not found.");
