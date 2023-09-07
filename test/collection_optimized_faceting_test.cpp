@@ -1501,7 +1501,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortByAlpha) {
     ASSERT_TRUE(add_op.ok());
 
     //sort facets by phone in asc order
-    auto search_op = coll1->search("*", {}, "", {"phone(sort:asc)"},
+    auto search_op = coll1->search("*", {}, "", {"phone(sort_by:_alphanumeric:asc)"},
                                    {}, {2});
 
     if (!search_op.ok()) {
@@ -1521,7 +1521,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ("Z6 Lite", results["facet_counts"][0]["counts"][6]["value"]);
 
     //sort facets by brand in desc order
-    search_op = coll1->search("*", {}, "", {"brand(sort:desc)"},
+    search_op = coll1->search("*", {}, "", {"brand(sort_by:_alphanumeric:desc)"},
                               {}, {2});
 
     if (!search_op.ok()) {
@@ -1541,7 +1541,8 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ("Iqoo", results["facet_counts"][0]["counts"][6]["value"]);
 
     //sort facets by brand in desc order and phone by asc order
-    search_op = coll1->search("*", {}, "", {"brand(sort:desc)", "phone(sort:asc)"},
+    search_op = coll1->search("*", {}, "", {"brand(sort_by:_alphanumeric:desc)",
+                                            "phone(sort_by:_alphanumeric:asc)"},
                               {}, {2});
 
     if (!search_op.ok()) {
@@ -1571,7 +1572,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ("Z6 Lite", results["facet_counts"][1]["counts"][6]["value"]);
 
     //try sort on non string field
-    search_op = coll1->search("*", {}, "", {"rating(sort:desc)"},
+    search_op = coll1->search("*", {}, "", {"rating(sort_by:_alphanumeric:desc)"},
                               {}, {2});
 
     ASSERT_EQ(400, search_op.code());
@@ -1648,7 +1649,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortByOtherField) {
 
     //search by calories in asc order
     auto search_op = coll1->search("*", {},"",
-                                   {"receipe.name(sort:asc, sort_field:receipe.calories)"},
+                                   {"receipe.name(sort_by:receipe.calories:asc)"},
                                    {}, {2});
 
     if(!search_op.ok()) {
@@ -1667,7 +1668,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortByOtherField) {
 
     //search by calories in desc order
     search_op = coll1->search("*", {},"",
-                              {"receipe.name(sort:desc, sort_field:receipe.calories)"},
+                              {"receipe.name(sort_by:receipe.calories:desc)"},
                               {}, {2});
 
     if(!search_op.ok()) {
@@ -1685,7 +1686,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortByOtherField) {
     ASSERT_EQ("schezwan rice", results["facet_counts"][0]["counts"][4]["value"]);
 
     //try sort by stirng field
-    search_op = coll1->search("*", {}, "", {"receipe.name(sort:desc, sort_field:receipe.origin)"},
+    search_op = coll1->search("*", {}, "", {"receipe.name(sort_by:receipe.origin:desc)"},
                               {}, {2});
 
     ASSERT_EQ(400, search_op.code());
@@ -1762,7 +1763,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortByOtherFloatField) {
 
     //search by calories in asc order
     auto search_op = coll1->search("*", {},"",
-                                   {"investment.name(sort:asc, sort_field:investment.interest_rate)"},
+                                   {"investment.name(sort_by:investment.interest_rate:asc)"},
                                    {}, {2});
 
     if(!search_op.ok()) {
@@ -1781,7 +1782,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortByOtherFloatField) {
 
     //search by calories in desc order
     search_op = coll1->search("*", {},"",
-                              {"investment.name(sort:desc, sort_field:investment.interest_rate)"},
+                              {"investment.name(sort_by:investment.interest_rate:desc)"},
                               {}, {2});
 
     if(!search_op.ok()) {
