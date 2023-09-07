@@ -5289,6 +5289,7 @@ bool Collection::get_enable_nested_fields() {
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
     const std::regex base_pattern(".+\\(.*\\)");
     const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\,\\s*([0-9]+)\\]");
+    const std::string _alpha = "_alpha";
 
    if ((facet_field.find(":") != std::string::npos)
         && (facet_field.find("sort") == std::string::npos)) { //range based facet
@@ -5457,9 +5458,21 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
            return Option<bool>(404, error);
        }
 
-       if (facet_field.find("sort") != std::string::npos) { //sort params are supplied with facet
-           pos = facet_field.find("sort_field");
-           if(pos == std::string::npos) { //alpha sort
+       if (facet_field.find("sort_by") != std::string::npos) { //sort params are supplied with facet
+           std::vector<std::string> tokens;
+           StringUtils::split(facet_field, tokens, ":");
+
+           if(tokens.size() != 3) {
+               std::string error = "Invalid sort format.";
+               return Option<bool>(400, error);
+           }
+
+           //remove possible whitespaces
+           for(auto i=0; i < 3; ++i) {
+               StringUtils::trim(tokens[i]);
+           }
+
+           if(tokens[1] == _alpha) {
                const field &a_field = search_schema.at(facet_field_copy);
                if (!a_field.is_string()) {
                    std::string error = "Facet field should be string type to apply alpha sort.";
@@ -5467,9 +5480,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                }
                sort_alpha = true;
            } else { //sort_field based sort
-               auto sort_field_fixed_len = strlen("sort_field:");
-               auto sort_field_len = facet_field.size() - pos - sort_field_fixed_len - 1;
-               sort_field = facet_field.substr(pos + sort_field_fixed_len, sort_field_len);
+               sort_field = tokens[1];
 
                if (search_schema.count(sort_field) == 0 || !search_schema.at(sort_field).facet) {
                    std::string error = "Could not find a facet field named `" + sort_field + "` in the schema.";
@@ -5483,11 +5494,17 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                }
            }
 
-           if (facet_field.find("asc") != std::string::npos) {
+           if (tokens[2].find("asc") != std::string::npos) {
                order = "asc";
-           } else if (facet_field.find("desc") != std::string::npos) {
+           } else if (tokens[2].find("desc") != std::string::npos) {
                order = "desc";
+           } else {
+               std::string error = "Invalid sort param.";
+               return Option<bool>(400, error);
            }
+       } else if (facet_field != facet_field_copy) {
+           std::string error = "Invalid sort format.";
+           return Option<bool>(400, error);
        }
 
        facets.emplace_back(facet(facet_field_copy, {}, false, sort_alpha,
