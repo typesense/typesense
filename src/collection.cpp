@@ -4855,7 +4855,7 @@ bool Collection::get_enable_nested_fields() {
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
     const std::regex base_pattern(".+\\(.*\\)");
     const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\,\\s*([0-9]+)\\]");
-    const std::string _alphanumeric = "_alphanumeric";
+    const std::string _alpha = "_alpha";
 
    if ((facet_field.find(":") != std::string::npos)
         && (facet_field.find("sort") == std::string::npos)) { //range based facet
@@ -5033,7 +5033,12 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                return Option<bool>(400, error);
            }
 
-           if(tokens[1] == _alphanumeric) {
+           //remove possible whitespaces
+           for(auto i=0; i < 3; ++i) {
+               StringUtils::trim(tokens[i]);
+           }
+
+           if(tokens[1] == _alpha) {
                const field &a_field = search_schema.at(facet_field_copy);
                if (!a_field.is_string()) {
                    std::string error = "Facet field should be string type to apply alpha sort.";
@@ -5059,7 +5064,13 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                order = "asc";
            } else if (tokens[2].find("desc") != std::string::npos) {
                order = "desc";
+           } else {
+               std::string error = "Invalid sort param.";
+               return Option<bool>(400, error);
            }
+       } else if (facet_field != facet_field_copy) {
+           std::string error = "Invalid sort format.";
+           return Option<bool>(400, error);
        }
 
        facets.emplace_back(facet(facet_field_copy, {}, false, sort_alpha,

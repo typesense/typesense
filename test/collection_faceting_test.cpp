@@ -2023,7 +2023,7 @@ TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
     ASSERT_TRUE(add_op.ok());
 
     //sort facets by phone in asc order
-    auto search_op = coll1->search("*", {}, "", {"phone(sort_by:_alphanumeric:asc)"},
+    auto search_op = coll1->search("*", {}, "", {"phone(sort_by:_alpha:asc)"},
                                    {}, {2});
 
     if (!search_op.ok()) {
@@ -2043,7 +2043,7 @@ TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ("Z6 Lite", results["facet_counts"][0]["counts"][6]["value"]);
 
     //sort facets by brand in desc order
-    search_op = coll1->search("*", {}, "", {"brand(sort_by:_alphanumeric:desc)"},
+    search_op = coll1->search("*", {}, "", {"brand(sort_by:_alpha:desc)"},
                               {}, {2});
 
     if (!search_op.ok()) {
@@ -2063,8 +2063,8 @@ TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ("Iqoo", results["facet_counts"][0]["counts"][6]["value"]);
 
     //sort facets by brand in desc order and phone by asc order
-    search_op = coll1->search("*", {}, "", {"brand(sort_by:_alphanumeric:desc)",
-                                            "phone(sort_by:_alphanumeric:asc)"},
+    search_op = coll1->search("*", {}, "", {"brand(sort_by:_alpha:desc)",
+                                            "phone(sort_by:_alpha:asc)"},
                               {}, {2});
 
     if (!search_op.ok()) {
@@ -2092,13 +2092,6 @@ TEST_F(CollectionFacetingTest, FacetSortByAlpha) {
     ASSERT_EQ("S22 Ultra", results["facet_counts"][1]["counts"][4]["value"]);
     ASSERT_EQ("T2", results["facet_counts"][1]["counts"][5]["value"]);
     ASSERT_EQ("Z6 Lite", results["facet_counts"][1]["counts"][6]["value"]);
-
-    //try sort on non string field
-    search_op = coll1->search("*", {}, "", {"rating(sort_by:_alphanumeric:desc)"},
-                              {}, {2});
-
-    ASSERT_EQ(400, search_op.code());
-    ASSERT_EQ("Facet field should be string type to apply alpha sort.", search_op.error());
 }
 
 TEST_F(CollectionFacetingTest, FacetSortByOtherField) {
@@ -2206,13 +2199,6 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherField) {
     ASSERT_EQ("butter chicken", results["facet_counts"][0]["counts"][2]["value"]);
     ASSERT_EQ("noodles", results["facet_counts"][0]["counts"][3]["value"]);
     ASSERT_EQ("schezwan rice", results["facet_counts"][0]["counts"][4]["value"]);
-
-    //try sort by stirng field
-    search_op = coll1->search("*", {}, "", {"receipe.name(sort_by:receipe.origin:desc)"},
-                              {}, {2});
-
-    ASSERT_EQ(400, search_op.code());
-    ASSERT_EQ("Sort field should be non string type to apply sort.", search_op.error());
 }
 
 TEST_F(CollectionFacetingTest, FacetSortByOtherFloatField) {
@@ -2320,4 +2306,89 @@ TEST_F(CollectionFacetingTest, FacetSortByOtherFloatField) {
     ASSERT_EQ("Bonds", results["facet_counts"][0]["counts"][2]["value"]);
     ASSERT_EQ("Term Deposits", results["facet_counts"][0]["counts"][3]["value"]);
     ASSERT_EQ("Gold", results["facet_counts"][0]["counts"][4]["value"]);
+}
+
+TEST_F(CollectionFacetingTest, FacetSortValidation) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "phone", "type": "string", "optional": false, "facet": true },
+          {"name": "brand", "type": "string", "optional": false, "facet": true },
+          {"name": "rating", "type": "float", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    nlohmann::json doc;
+
+    doc["phone"] = "Oneplus 11R";
+    doc["brand"] = "Oneplus";
+    doc["rating"] = 4.6;
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "Fusion Plus";
+    doc["brand"] = "Moto";
+    doc["rating"] = 4.2;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "S22 Ultra";
+    doc["brand"] = "Samsung";
+    doc["rating"] = 4.1;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    //try sort on non string field
+    auto search_op = coll1->search("*", {}, "", {"rating(sort_by:_alpha:desc)"},
+                              {}, {2});
+
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Facet field should be string type to apply alpha sort.", search_op.error());
+
+    //try sort by string field
+    search_op = coll1->search("*", {}, "", {"phone(sort_by:brand:desc)"},
+                              {}, {2});
+
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Sort field should be non string type to apply sort.", search_op.error());
+
+    //incorrect syntax
+    search_op = coll1->search("*", {}, "", {"phone(sort_by:desc)"},
+                              {}, {2});
+
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Invalid sort format.", search_op.error());
+
+    search_op = coll1->search("*", {}, "", {"phone(sort:_alpha:desc)"},
+                              {}, {2});
+
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Invalid sort format.", search_op.error());
+
+    //invalid param
+    search_op = coll1->search("*", {}, "", {"phone(sort_by:_alpha:foo)"},
+                              {}, {2});
+
+    ASSERT_EQ(400, search_op.code());
+    ASSERT_EQ("Invalid sort param.", search_op.error());
+
+    //whitespace is allowed
+    search_op = coll1->search("*", {}, "", {"phone(  sort_by: _alpha : asc)"},
+                              {}, {2});
+
+    if (!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("Oneplus 11R", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("S22 Ultra", results["facet_counts"][0]["counts"][2]["value"]);
 }
