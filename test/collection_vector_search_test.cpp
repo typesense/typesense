@@ -47,6 +47,9 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
+    auto coll_summary = coll1->get_summary_json();
+    ASSERT_EQ("cosine", coll_summary["fields"][2]["vec_dist"].get<std::string>());
+
     std::vector<std::vector<float>> values = {
         {0.851758, 0.909671, 0.823431, 0.372063},
         {0.97826, 0.933157, 0.39557, 0.306488},
@@ -222,6 +225,22 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     ASSERT_EQ("Property `num_dim` must be a positive integer.", coll_op.error());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionVectorTest, VectorDistanceConfig) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 4, "vec_dist": "ip"}
+        ]
+    })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    auto coll_summary = coll1->get_summary_json();
+    ASSERT_EQ("ip", coll_summary["fields"][2]["vec_dist"].get<std::string>());
 }
 
 TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {

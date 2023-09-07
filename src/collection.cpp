@@ -276,6 +276,7 @@ nlohmann::json Collection::get_summary_json() const {
 
         if(coll_field.num_dim > 0) {
             field_json[fields::num_dim] = coll_field.num_dim;
+            field_json[fields::vec_dist] = magic_enum::enum_name(coll_field.vec_dist);
         }
 
         if (!coll_field.reference.empty()) {
