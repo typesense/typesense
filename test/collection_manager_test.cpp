@@ -255,7 +255,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
           ],
           "token_separators":[
             "-"
-          ]
+          ],
+          "qa": {}
         }
     )"_json;
 
