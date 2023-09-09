@@ -3981,8 +3981,6 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         dropped_token_its.push_back(std::move(token_fields));
     }
 
-
-
     // one iterator for each token, each underlying iterator contains results of token across multiple fields
     std::vector<or_iterator_t> token_its;
 
@@ -4074,6 +4072,28 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
             }
         }
 
+        size_t query_len = query_tokens.size();
+
+        // check if seq_id exists in any of the dropped_token iters
+        for(size_t ti = 0; ti < dropped_token_its.size(); ti++) {
+            or_iterator_t& token_fields_iters = dropped_token_its[ti];
+            if(token_fields_iters.skip_to(seq_id) && token_fields_iters.id() == seq_id) {
+                query_len++;
+                const std::vector<posting_list_t::iterator_t>& field_iters = token_fields_iters.get_its();
+                for(size_t fi = 0; fi < field_iters.size(); fi++) {
+                    const posting_list_t::iterator_t& field_iter = field_iters[fi];
+                    if(field_iter.id() == seq_id) {
+                        // not all fields might contain a given token
+                        field_to_tokens[field_iter.get_field_id()].push_back(field_iter.clone());
+                    }
+                }
+            }
+        }
+
+        if(syn_orig_num_tokens != -1) {
+            query_len = syn_orig_num_tokens;
+        }
+
         int64_t best_field_match_score = 0, best_field_weight = 0;
         uint32_t num_matching_fields = 0;
 
@@ -4127,18 +4147,6 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices, seq_id, filter_index,
                             best_field_match_score, scores, match_score_index);
 
-        size_t query_len = query_tokens.size();
-
-        // check if seq_id exists in any of the dropped_token iters and increment matching fields accordingly
-        for(auto& dropped_token_it: dropped_token_its) {
-            if(dropped_token_it.skip_to(seq_id) && dropped_token_it.id() == seq_id) {
-                query_len++;
-            }
-        }
-
-        if(syn_orig_num_tokens != -1) {
-            query_len = syn_orig_num_tokens;
-        }
         query_len = std::min<size_t>(15, query_len);
 
         // NOTE: `query_len` is total tokens matched across fields.
