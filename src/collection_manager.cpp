@@ -766,7 +766,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         nlohmann::json preset;
         const auto& preset_op = CollectionManager::get_instance().get_preset(preset_it->second, preset);
 
-        if(preset_op.ok()) {
+        // NOTE: we merge only single preset configuration because multi ("searches") preset value replaces
+        // the request body directly before we reach this single search request function.
+        if(preset_op.ok() && !preset.contains("searches")) {
             if(!preset.is_object()) {
                 return Option<bool>(400, "Search preset is not an object.");
             }
@@ -1112,7 +1114,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(Config::get_instance().get_enable_search_analytics()) {
         if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
-            std::string analytics_query = raw_query;
+            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
             AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query,
                                                             true, req_params["x-typesense-user-id"]);
         }

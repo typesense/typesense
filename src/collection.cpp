@@ -52,12 +52,6 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         index(init_index()) {
 
-    for (auto const& field: fields) {
-        if (field.embed.count(fields::from) != 0) {
-            embedding_fields.emplace(field.name, field);
-        }
-    }
-
     this->num_documents = 0;
 }
 
@@ -3942,7 +3936,6 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         }
     }
 
-
     // hide credentials in the alter payload return
     for(auto& field_json : alter_payload["fields"]) {
         if(field_json[fields::embed].count(fields::model_config) != 0) {
@@ -3954,8 +3947,6 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
             hide_credential(field_json[fields::embed][fields::model_config], "project_id");
         }
     }
-
-    
 
     return Option<bool>(true);
 }
@@ -4165,7 +4156,6 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     }
 
     std::unordered_map<std::string, field> new_dynamic_fields;
-    std::vector<std::pair<size_t, size_t>> embed_json_field_indices;
     int json_array_index = -1;
 
     for(const auto& kv: schema_changes["fields"].items()) {
@@ -4253,12 +4243,20 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     return parse_op;
                 }
 
-                const auto& f = diff_fields.back();
+                auto& f = diff_fields.back();
 
                 if(f.is_dynamic()) {
                     new_dynamic_fields[f.name] = f;
                 } else {
                     updated_search_schema[f.name] = f;
+                }
+
+                if(!f.embed.empty()) {
+                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f);
+
+                    if(!validate_res.ok()) {
+                        return validate_res;
+                    }
                 }
 
                 if(is_reindex) {
@@ -4295,9 +4293,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     }
                 }
 
-                if(!f.embed.empty() && !diff_fields.empty()) {
-                    embed_json_field_indices.emplace_back(json_array_index, diff_fields.size()-1);
-                }
+
 
             } else {
                 // partial update is not supported for now
@@ -4305,12 +4301,6 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                          "change this field, drop it first before adding it back to the schema.");
             }
         }
-    }
-
-    auto validation_op = field::validate_and_init_embed_fields(embed_json_field_indices, search_schema,
-                                                               schema_changes["fields"], diff_fields);
-    if(!validation_op.ok()) {
-        return validation_op;
     }
 
     if(num_auto_detect_fields > 1) {
@@ -4904,27 +4894,43 @@ Option<bool> Collection::populate_include_exclude_fields_lk(const spp::sparse_ha
 }
 
 // Removes the dropped field from embed_from of all embedding fields.
-void Collection::process_remove_field_for_embedding_fields(const field& the_field, std::vector<field>& garbage_fields) {
+void Collection::process_remove_field_for_embedding_fields(const field& del_field,
+                                                           std::vector<field>& garbage_embed_fields) {
     for(auto& field : fields) {
         if(field.embed.count(fields::from) == 0) {
             continue;
         }
-        auto embed_from = field.embed[fields::from].get<std::vector<std::string>>();
-        embed_from.erase(std::remove_if(embed_from.begin(), embed_from.end(), [&the_field](std::string field_name) {
-            return the_field.name == field_name;
-        }));
-        field.embed[fields::from] = std::move(embed_from);
-        embedding_fields[field.name] = field;
 
-        // mark this embedding field as "garbage" if it has no more embed_from fields
-        if(embed_from.empty()) {
-            embedding_fields.erase(field.name);
-            garbage_fields.push_back(field);
+        bool found_field = false;
+        nlohmann::json& embed_from_names = field.embed[fields::from];
+        for(auto it = embed_from_names.begin(); it != embed_from_names.end();) {
+            if(it.value() == del_field.name) {
+                it = embed_from_names.erase(it);
+                found_field = true;
+            } else {
+                it++;
+            }
         }
 
-
+        if(found_field) {
+            // mark this embedding field as "garbage" if it has no more embed_from fields
+            if(embed_from_names.empty()) {
+                garbage_embed_fields.push_back(field);
+            } else {
+                // the dropped field was present in `embed_from`, so we have to update the field objects
+                field.embed[fields::from] = embed_from_names;
+                embedding_fields[field.name].embed[fields::from] = embed_from_names;
+            }
+        }
     }
 
+    for(auto& garbage_field: garbage_embed_fields) {
+        embedding_fields.erase(garbage_field.name);
+        search_schema.erase(garbage_field.name);
+        fields.erase(std::remove_if(fields.begin(), fields.end(), [&garbage_field](const auto &f) {
+            return f.name == garbage_field.name;
+        }), fields.end());
+    }
 }
 
 void Collection::hide_credential(nlohmann::json& json, const std::string& credential_name) {
@@ -4939,9 +4945,14 @@ void Collection::hide_credential(nlohmann::json& json, const std::string& creden
         }
     }
 }
+
 Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k) {
+    std::shared_lock slock(mutex);
+
     std::vector<uint32_t> seq_ids;
     auto op = index->seq_ids_outside_top_k(field_name, k, seq_ids);
+
+    slock.unlock();
 
     if(!op.ok()) {
         return op;
