@@ -1388,7 +1388,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_tries,
                                   const std::string& stopwords_set,
-                                  const std::vector<std::string>& facet_return_parent) const {
+                                  const std::vector<std::string>& facet_return_parent,
+                                  const std::vector<std::string>& ref_include_fields_vec) const {
 
     std::shared_lock lock(mutex);
 
@@ -2214,7 +2215,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                       "",
                                       0,
                                       field_order_kv->reference_filter_results,
-                                      const_cast<Collection *>(this), get_seq_id_from_key(seq_id_key));
+                                      const_cast<Collection *>(this), get_seq_id_from_key(seq_id_key),
+                                      ref_include_fields_vec);
             if (!prune_op.ok()) {
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
             }
@@ -4364,7 +4366,8 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                    const tsl::htrie_set<char>& exclude_names,
                                    const std::string& parent_name, size_t depth,
                                    const std::map<std::string, reference_filter_result_t>& reference_filter_results,
-                                   Collection *const collection, const uint32_t& seq_id) {
+                                   Collection *const collection, const uint32_t& seq_id,
+                                   const std::vector<std::string>& ref_includes) {
     // doc can only be an object
     auto it = doc.begin();
     while(it != doc.end()) {
@@ -4440,9 +4443,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         it++;
     }
 
-    auto include_reference_it_pair = include_names.equal_prefix_range("$");
-    for (auto reference = include_reference_it_pair.first; reference != include_reference_it_pair.second; reference++) {
-        auto ref = reference.key();
+    for (auto const& ref: ref_includes) {
         size_t parenthesis_index = ref.find('(');
 
         auto ref_collection_name = ref.substr(1, parenthesis_index - 1);
@@ -4484,9 +4485,9 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         StringUtils::split(reference_fields, ref_include_fields_vec, ",");
         auto exclude_reference_it = exclude_names.equal_prefix_range("$" + ref_collection_name);
         if (exclude_reference_it.first != exclude_reference_it.second) {
-            ref = exclude_reference_it.first.key();
-            parenthesis_index = ref.find('(');
-            reference_fields = ref.substr(parenthesis_index + 1, ref.size() - parenthesis_index - 2);
+            auto ref_exclude = exclude_reference_it.first.key();
+            parenthesis_index = ref_exclude.find('(');
+            reference_fields = ref_exclude.substr(parenthesis_index + 1, ref_exclude.size() - parenthesis_index - 2);
             StringUtils::split(reference_fields, ref_exclude_fields_vec, ",");
         }
 

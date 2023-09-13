@@ -836,21 +836,22 @@ void CollectionManager::_get_reference_collection_names(const std::string& filte
     }
 }
 
-void initialize_include_fields_vec(const std::string& filter_query, std::vector<std::string>& include_fields_vec) {
-    if (filter_query.empty()) {
-        return;
-    }
-
+// Separate out the reference includes into `ref_include_fields_vec`.
+void initialize_ref_include_fields_vec(const std::string& filter_query, std::vector<std::string>& include_fields_vec,
+                                       std::vector<std::string>& ref_include_fields_vec) {
     std::set<std::string> reference_collection_names;
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
-    if (reference_collection_names.empty()) {
-        return;
-    }
 
-    bool non_reference_include_found = false;
+    std::vector<std::string> result_include_fields_vec;
+    auto wildcard_include_all = true;
     for (auto include_field: include_fields_vec) {
         if (include_field[0] != '$') {
-            non_reference_include_found = true;
+            if (include_field == "*") {
+                continue;
+            }
+
+            wildcard_include_all = false;
+            result_include_fields_vec.emplace_back(include_field);
             continue;
         }
 
@@ -865,19 +866,23 @@ void initialize_include_fields_vec(const std::string& filter_query, std::vector<
             continue;
         }
 
-        // Referenced collection in filter_query is already mentioned in include_fields.
+        ref_include_fields_vec.emplace_back(include_field);
+
+        // Referenced collection in filter_query is already mentioned in ref_include_fields.
         reference_collection_names.erase(reference_collection_name);
     }
 
     // Get all the fields of the referenced collection in the filter but not mentioned in include_fields.
     for (const auto &reference_collection_name: reference_collection_names) {
-        include_fields_vec.emplace_back("$" + reference_collection_name + "(*)");
+        ref_include_fields_vec.emplace_back("$" + reference_collection_name + "(*)");
     }
 
     // Since no field of the collection is mentioned in include_fields, get all the fields.
-    if (!include_fields_vec.empty() && !non_reference_include_found) {
-        include_fields_vec.emplace_back("*");
+    if (wildcard_include_all) {
+        result_include_fields_vec.clear();
     }
+
+    include_fields_vec = std::move(result_include_fields_vec);
 }
 
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
@@ -1043,6 +1048,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     std::vector<std::string> include_fields_vec;
     std::vector<std::string> exclude_fields_vec;
+    std::vector<std::string> ref_include_fields_vec;
     spp::sparse_hash_set<std::string> include_fields;
     spp::sparse_hash_set<std::string> exclude_fields;
 
@@ -1235,7 +1241,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
-    initialize_include_fields_vec(filter_query, include_fields_vec);
+    initialize_ref_include_fields_vec(filter_query, include_fields_vec, ref_include_fields_vec);
 
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
     exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
@@ -1326,7 +1332,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           remote_embedding_timeout_ms,
                                                           remote_embedding_num_tries,
                                                           stopwords_set,
-                                                          facet_return_parent);
+                                                          facet_return_parent,
+                                                          ref_include_fields_vec);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

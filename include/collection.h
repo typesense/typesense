@@ -395,7 +395,8 @@ public:
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
                                   size_t depth = 0,
                                   const std::map<std::string, reference_filter_result_t>& reference_filter_results = {},
-                                  Collection *const collection = nullptr, const uint32_t& seq_id = 0);
+                                  Collection *const collection = nullptr, const uint32_t& seq_id = 0,
+                                  const std::vector<std::string>& ref_include_fields_vec = {});
 
     const Index* _get_index() const;
 
@@ -494,7 +495,8 @@ public:
                                   const size_t remote_embedding_timeout_ms = 30000,
                                   const size_t remote_embedding_num_tries = 2,
                                   const std::string& stopwords_set="",
-                                  const std::vector<std::string>& facet_return_parent = {}) const;
+                                  const std::vector<std::string>& facet_return_parent = {},
+                                  const std::vector<std::string>& ref_include_fields_vec = {}) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

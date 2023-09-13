@@ -1167,7 +1167,8 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     // No fields are mentioned in `include_fields`, should include all fields of Products and Customers by default.
-    ASSERT_EQ(8, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(9, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_description"));
@@ -1191,7 +1192,8 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
     // No fields of Products collection are mentioned in `include_fields`, should include all of its fields by default.
-    ASSERT_EQ(4, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(5, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_description"));
@@ -1210,7 +1212,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(5, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
 
@@ -1227,7 +1229,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(7, res_obj["hits"][0]["document"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("customer_id"));
@@ -1246,8 +1248,8 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    // 4 fields in Products document and 2 fields from Customers document
-    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    // 5 fields in Products document and 2 fields from Customers document
+    ASSERT_EQ(7, res_obj["hits"][0]["document"].size());
 
     req_params = {
             {"collection", "Products"},
@@ -1262,8 +1264,9 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    // 4 fields in Products document and 2 fields from Customers document
-    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
+    // 5 fields in Products document and 2 fields from Customers document
+    ASSERT_EQ(7, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id_sequence_id"));
 
     req_params = {
@@ -1280,8 +1283,8 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    // 4 fields in Products document and 1 fields from Customers document
-    ASSERT_EQ(5, res_obj["hits"][0]["document"].size());
+    // 5 fields in Products document and 1 fields from Customers document
+    ASSERT_EQ(6, res_obj["hits"][0]["document"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_description"));
