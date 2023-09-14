@@ -419,4 +419,12 @@ TEST(StringUtilsTest, SplitIncludeFields) {
     include_fields = "id, $Collection(title, pref*), count, ";
     tokens = {"id", "$Collection(title, pref*)", "count"};
     splitIncludeTestHelper(include_fields, tokens);
+
+    include_fields = "$Collection(title, pref*) as coll";
+    tokens = {"$Collection(title, pref*) as coll"};
+    splitIncludeTestHelper(include_fields, tokens);
+
+    include_fields = "id, $Collection(title, pref*)  as coll , count, ";
+    tokens = {"id", "$Collection(title, pref*) as coll", "count"};
+    splitIncludeTestHelper(include_fields, tokens);
 }

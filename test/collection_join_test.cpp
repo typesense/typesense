@@ -1511,6 +1511,26 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
     ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
 
+    // Add alias using `as`
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "Joe"},
+            {"query_by", "customer_name"},
+            {"filter_by", "product_price:<100"},
+            {"include_fields", "$Products(product_name) as p, product_price"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("p.product_name"));
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"].at("p.product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
+    ASSERT_EQ(73.5, res_obj["hits"][0]["document"].at("product_price"));
+
     schema_json =
             R"({
                 "name": "Users",
@@ -1649,13 +1669,19 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
                 "name": "Organizations",
                 "fields": [
                     {"name": "org_id", "type": "string"},
-                    {"name": "org_name", "type": "string"}
-                ]
+                    {"name": "name", "type": "object"},
+                    {"name": "name.first", "type": "string"},
+                    {"name": "name.last", "type": "string"}
+                ],
+                "enable_nested_fields": true
             })"_json;
     documents = {
             R"({
                 "org_id": "org_a",
-                "org_name": "Typesense"
+                "name": {
+                    "first": "type",
+                    "last": "sense"
+                }
             })"_json
     };
     collection_create_op = collectionManager.create_collection(schema_json);
@@ -1708,7 +1734,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
             {"q", "R"},
             {"query_by", "user_name"},
             {"filter_by", "$Participants(org_id:=org_a) && $Links(repo_id:=repo_b)"},
-            {"include_fields", "user_id, user_name, $Repos(repo_content), $Organizations(org_name)"},
+            {"include_fields", "user_id, user_name, $Repos(repo_content), $Organizations(name) as org"},
             {"exclude_fields", "$Participants(*), $Links(*), "}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -1718,14 +1744,18 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ(2, res_obj["found"].get<size_t>());
     ASSERT_EQ(2, res_obj["hits"].size());
     ASSERT_EQ(4, res_obj["hits"][0]["document"].size());
+
     ASSERT_EQ("user_b", res_obj["hits"][0]["document"].at("user_id"));
     ASSERT_EQ("Ruby", res_obj["hits"][0]["document"].at("user_name"));
     ASSERT_EQ("body2", res_obj["hits"][0]["document"].at("repo_content"));
-    ASSERT_EQ("Typesense", res_obj["hits"][0]["document"].at("org_name"));
+    ASSERT_EQ("type", res_obj["hits"][0]["document"]["org.name"].at("first"));
+    ASSERT_EQ("sense", res_obj["hits"][0]["document"]["org.name"].at("last"));
+
     ASSERT_EQ("user_a", res_obj["hits"][1]["document"].at("user_id"));
     ASSERT_EQ("Roshan", res_obj["hits"][1]["document"].at("user_name"));
     ASSERT_EQ("body2", res_obj["hits"][1]["document"].at("repo_content"));
-    ASSERT_EQ("Typesense", res_obj["hits"][1]["document"].at("org_name"));
+    ASSERT_EQ("type", res_obj["hits"][0]["document"]["org.name"].at("first"));
+    ASSERT_EQ("sense", res_obj["hits"][0]["document"]["org.name"].at("last"));
 }
 
 TEST_F(CollectionJoinTest, CascadeDeletion) {

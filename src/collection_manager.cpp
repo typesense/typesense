@@ -9,6 +9,7 @@
 #include "logger.h"
 #include "magic_enum.hpp"
 #include "stopwords_manager.h"
+#include "field.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -838,35 +839,42 @@ void CollectionManager::_get_reference_collection_names(const std::string& filte
 
 // Separate out the reference includes into `ref_include_fields_vec`.
 void initialize_ref_include_fields_vec(const std::string& filter_query, std::vector<std::string>& include_fields_vec,
-                                       std::vector<std::string>& ref_include_fields_vec) {
+                                       std::vector<ref_include_fields>& ref_include_fields_vec) {
     std::set<std::string> reference_collection_names;
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
 
     std::vector<std::string> result_include_fields_vec;
     auto wildcard_include_all = true;
-    for (auto include_field: include_fields_vec) {
-        if (include_field[0] != '$') {
-            if (include_field == "*") {
+    for (auto include_field_exp: include_fields_vec) {
+        if (include_field_exp[0] != '$') {
+            if (include_field_exp == "*") {
                 continue;
             }
 
             wildcard_include_all = false;
-            result_include_fields_vec.emplace_back(include_field);
+            result_include_fields_vec.emplace_back(include_field_exp);
             continue;
         }
 
-        auto open_paren_pos = include_field.find('(');
+        auto as_pos = include_field_exp.find(" as ");
+        auto ref_include = include_field_exp.substr(0, as_pos),
+                alias = (as_pos == std::string::npos) ? "" :
+                        include_field_exp.substr(as_pos + 4, include_field_exp.size() - (as_pos + 4));
+
+        // For an alias `foo`, we need append `foo.` to all the top level keys of reference doc.
+        ref_include_fields_vec.emplace_back(ref_include_fields{ref_include, alias.empty() ? alias :
+                                                                                StringUtils::trim(alias) + "."});
+
+        auto open_paren_pos = include_field_exp.find('(');
         if (open_paren_pos == std::string::npos) {
             continue;
         }
 
-        auto reference_collection_name = include_field.substr(1, open_paren_pos - 1);
+        auto reference_collection_name = include_field_exp.substr(1, open_paren_pos - 1);
         StringUtils::trim(reference_collection_name);
         if (reference_collection_name.empty()) {
             continue;
         }
-
-        ref_include_fields_vec.emplace_back(include_field);
 
         // Referenced collection in filter_query is already mentioned in ref_include_fields.
         reference_collection_names.erase(reference_collection_name);
@@ -874,7 +882,7 @@ void initialize_ref_include_fields_vec(const std::string& filter_query, std::vec
 
     // Get all the fields of the referenced collection in the filter but not mentioned in include_fields.
     for (const auto &reference_collection_name: reference_collection_names) {
-        ref_include_fields_vec.emplace_back("$" + reference_collection_name + "(*)");
+        ref_include_fields_vec.emplace_back(ref_include_fields{"$" + reference_collection_name + "(*)", ""});
     }
 
     // Since no field of the collection is mentioned in include_fields, get all the fields.
@@ -1048,7 +1056,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     std::vector<std::string> include_fields_vec;
     std::vector<std::string> exclude_fields_vec;
-    std::vector<std::string> ref_include_fields_vec;
+    std::vector<ref_include_fields> ref_include_fields_vec;
     spp::sparse_hash_set<std::string> include_fields;
     spp::sparse_hash_set<std::string> exclude_fields;
 
