@@ -2879,6 +2879,36 @@ TEST_F(CollectionSpecificTest, NonIndexField) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(1, coll1->_get_index()->_get_search_index().size());
 
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"include_fields", "*, "}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(3, results["hits"][0].at("document").size());
+    ASSERT_EQ(1, results["hits"][0].at("document").count("description"));
+
+    req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"include_fields", "*, title"}  // Adding a field name overrides include all wildcard
+    };
+
+    collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+
+    results = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["hits"][0].at("document").size());
+    ASSERT_EQ(1, results["hits"][0].at("document").count("title"));
+
     collectionManager.drop_collection("coll1");
 }
 

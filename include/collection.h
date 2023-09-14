@@ -386,6 +386,7 @@ public:
 
     static Option<bool> add_reference_fields(nlohmann::json& doc,
                                              Collection *const ref_collection,
+                                             const std::string& alias,
                                              const reference_filter_result_t& references,
                                              const tsl::htrie_set<char>& ref_include_fields_full,
                                              const tsl::htrie_set<char>& ref_exclude_fields_full,
@@ -395,7 +396,8 @@ public:
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
                                   size_t depth = 0,
                                   const std::map<std::string, reference_filter_result_t>& reference_filter_results = {},
-                                  Collection *const collection = nullptr, const uint32_t& seq_id = 0);
+                                  Collection *const collection = nullptr, const uint32_t& seq_id = 0,
+                                  const std::vector<ref_include_fields>& ref_include_fields_vec = {});
 
     const Index* _get_index() const;
 
@@ -498,7 +500,8 @@ public:
                                   const bool converstaion = false,
                                   const int conversation_model_id = -1,
                                   const std::string& system_prompt = "",
-                                  int conversation_id = -1) const;
+                                  int conversation_id = -1,
+                                  const std::vector<ref_include_fields>& ref_include_fields_vec = {}) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

@@ -489,6 +489,11 @@ namespace sort_field_const {
     static const std::string vector_distance = "_vector_distance";
 }
 
+struct ref_include_fields {
+    std::string expression;
+    std::string alias;
+};
+
 struct sort_by {
     enum missing_values_t {
         first,
