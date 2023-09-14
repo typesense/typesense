@@ -9,7 +9,7 @@
 #include "logger.h"
 #include "magic_enum.hpp"
 #include "stopwords_manager.h"
-#include "qa_model.h"
+#include "conversation_model.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -128,12 +128,6 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     std::vector<std::string> symbols_to_index;
     std::vector<std::string> token_separators;
 
-    nlohmann::json qa = nlohmann::json::object();
-
-    if(collection_meta.count(Collection::COLLECTION_QA) != 0) {
-        qa = collection_meta[Collection::COLLECTION_QA];
-    }
-
     if(collection_meta.count(Collection::COLLECTION_SYMBOLS_TO_INDEX) != 0) {
         symbols_to_index = collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX].get<std::vector<std::string>>();
     }
@@ -155,7 +149,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             fallback_field_type,
                                             symbols_to_index,
                                             token_separators,
-                                            enable_nested_fields, qa);
+                                            enable_nested_fields);
 
     return collection;
 }
@@ -423,8 +417,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::string& fallback_field_type,
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
-                                                         const bool enable_nested_fields,
-                                                         const nlohmann::json& qa) {
+                                                         const bool enable_nested_fields) {
     std::unique_lock lock(coll_create_mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -458,13 +451,12 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
-    collection_meta[Collection::COLLECTION_QA] = qa;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
                                                 default_sorting_field,
                                                 this->max_memory_ratio, fallback_field_type,
                                                 symbols_to_index, token_separators,
-                                                enable_nested_fields, qa);
+                                                enable_nested_fields);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
@@ -975,6 +967,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *CONVERSATION = "conversation";
     const char *CONVERSATION_ID = "conversation_id";
     const char *SYSTEM_PROMPT = "system_prompt";
+    const char *CONVERSATION_MODEL_ID = "conversation_model_id";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -1098,6 +1091,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool conversation = false;
     size_t conversation_id = std::numeric_limits<size_t>::max();
     std::string system_prompt;
+    size_t conversation_model_id = std::numeric_limits<size_t>::max();
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -1124,6 +1118,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
         {CONVERSATION_ID, &conversation_id},
+        {CONVERSATION_MODEL_ID, &conversation_model_id},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1349,6 +1344,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           stopwords_set,
                                                           facet_return_parent,
                                                           conversation,
+                                                          (conversation_model_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_model_id),
                                                           system_prompt,
                                                           (conversation_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_id)
                                                         );
@@ -1510,14 +1506,6 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         return Option<Collection*>(parse_op.code(), parse_op.error());
     }
 
-    if(req_json.count("qa") != 0) {
-        auto validate_qa_res = QAModel::validate_model(req_json["qa"]);
-        if(!validate_qa_res.ok()) {
-            return Option<Collection*>(validate_qa_res.code(), validate_qa_res.error());
-        }
-    } else {
-        req_json["qa"] = nlohmann::json::object();
-    }
 
     const auto created_at = static_cast<uint64_t>(std::time(nullptr));
 
@@ -1526,7 +1514,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
-                                                                req_json[ENABLE_NESTED_FIELDS], req_json["qa"]);
+                                                                req_json[ENABLE_NESTED_FIELDS]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,

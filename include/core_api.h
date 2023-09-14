@@ -191,3 +191,14 @@ bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_p
 bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+
+bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_conversation_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

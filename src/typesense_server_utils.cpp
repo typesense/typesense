@@ -22,6 +22,8 @@
 #include "file_utils.h"
 #include "threadpool.h"
 #include "stopwords_manager.h"
+#include "conversation_manager.h"
+#include "conversation_model_manager.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -436,6 +438,22 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
     }
     TextEmbedderManager::set_model_dir(config.get_data_dir() + "/models");
+
+    auto conversations_init = ConversationManager::init(&meta_store);
+
+    if(!conversations_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << conversations_init.get() << "(s) conversations.";
+    }
+
+    auto conversation_models_init = ConversationModelManager::init(&meta_store);
+
+    if(!conversation_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << conversation_models_init.get() << "(s) conversation models.";
+    }
 
     // first we start the peering service
 

@@ -2,8 +2,11 @@
 
 #include <string>
 #include <unordered_map>
+#include <shared_mutex>
+#include <mutex>
 #include <json.hpp>
 #include "option.h"
+#include "store.h"
 
 
 class ConversationManager {
@@ -17,7 +20,16 @@ class ConversationManager {
         static Option<nlohmann::json> delete_conversation(int conversation_id);
         static Option<nlohmann::json> get_all_conversations();
         static constexpr size_t MAX_TOKENS = 3000;
+        static Option<int> init(Store* store);
     private:
         static inline std::unordered_map<int, nlohmann::json> conversations;
         static inline int conversation_id = 0;
+        static inline std::shared_mutex conversations_mutex;
+
+        static constexpr char* CONVERSATION_NEXT_ID = "$CNVN";
+        static constexpr char* CONVERSATION_RPEFIX = "$CNVP";
+        
+        static inline Store* store;
+
+        static const std::string get_conversation_key(int conversation_id);
 };

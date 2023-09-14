@@ -1,4 +1,4 @@
-#include "qa_model.h"
+#include "conversation_model.h"
 #include "text_embedder_manager.h"
 #include "text_embedder_remote.h"
 #include "conversation_manager.h"
@@ -12,7 +12,7 @@ const std::string get_model_namespace(const std::string& model_name) {
     }
 }
 
-Option<bool> QAModel::validate_model(const nlohmann::json& model_config) {
+Option<bool> ConversationModel::validate_model(const nlohmann::json& model_config) {
     // check model_name is exists and it is a string
     if(model_config.count("model_name") == 0 || !model_config["model_name"].is_string()) {
         return Option<bool>(400, "Property `qa.model_name` is not provided or not a string.");
@@ -20,65 +20,67 @@ Option<bool> QAModel::validate_model(const nlohmann::json& model_config) {
 
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
     if(model_namespace == "openai") {
-        return OpenAIQAModel::validate_model(model_config);
+        return OpenAIConversationModel::validate_model(model_config);
     }
 
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
 }
 
-Option<std::string> QAModel::get_answer(const std::string& context, const std::string& prompt, 
+Option<std::string> ConversationModel::get_answer(const std::string& context, const std::string& prompt, 
                                         const std::string& system_prompt, const nlohmann::json& model_config) {
+    
+
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
 
     if(model_namespace == "openai") {
-        return OpenAIQAModel::get_answer(context, prompt, system_prompt, model_config);
+        return OpenAIConversationModel::get_answer(context, prompt, system_prompt, model_config);
     }
 
     throw Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
-Option<nlohmann::json> QAModel::parse_conversation_history(const nlohmann::json& conversation, const nlohmann::json& model_config) {
+Option<nlohmann::json> ConversationModel::parse_conversation_history(const nlohmann::json& conversation, const nlohmann::json& model_config) {
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
 
     if(model_namespace == "openai") {
-        return OpenAIQAModel::parse_conversation_history(conversation);
+        return OpenAIConversationModel::parse_conversation_history(conversation);
     }
 
     throw Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
-Option<std::string> QAModel::get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config) {
+Option<std::string> ConversationModel::get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config) {
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
 
     if(model_namespace == "openai") {
-        return OpenAIQAModel::get_standalone_question(conversation_history, question, model_config);
+        return OpenAIConversationModel::get_standalone_question(conversation_history, question, model_config);
     }
 
     throw Option<std::string>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
-Option<nlohmann::json> QAModel::format_question(const std::string& message, const nlohmann::json& model_config) {
+Option<nlohmann::json> ConversationModel::format_question(const std::string& message, const nlohmann::json& model_config) {
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
 
     if(model_namespace == "openai") {
-        return OpenAIQAModel::format_question(message);
+        return OpenAIConversationModel::format_question(message);
     }
 
     throw Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
-Option<nlohmann::json> QAModel::format_answer(const std::string& message, const nlohmann::json& model_config) {
+Option<nlohmann::json> ConversationModel::format_answer(const std::string& message, const nlohmann::json& model_config) {
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
 
     if(model_namespace == "openai") {
-        return OpenAIQAModel::format_answer(message);
+        return OpenAIConversationModel::format_answer(message);
     }
 
     throw Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
 
-Option<bool> OpenAIQAModel::validate_model(const nlohmann::json& model_config) {
+Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model_config) {
     if(model_config.count("api_key") == 0) {
         return Option<bool>(400, "API key is not provided");
     }
@@ -163,10 +165,11 @@ Option<bool> OpenAIQAModel::validate_model(const nlohmann::json& model_config) {
     return Option<bool>(true);
 }
 
-Option<std::string> OpenAIQAModel::get_answer(const std::string& context, const std::string& prompt, 
+Option<std::string> OpenAIConversationModel::get_answer(const std::string& context, const std::string& prompt, 
                                               const std::string& system_prompt, const nlohmann::json& model_config) {
     const std::string model_name = TextEmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string api_key = model_config["api_key"].get<std::string>();
+
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;
     headers["Authorization"] = "Bearer " + api_key;
@@ -217,7 +220,7 @@ Option<std::string> OpenAIQAModel::get_answer(const std::string& context, const 
     return Option<std::string>(json_res["choices"][0]["message"]["content"].get<std::string>());
 }
 
-Option<nlohmann::json> OpenAIQAModel::parse_conversation_history(const nlohmann::json& conversation) {
+Option<nlohmann::json> OpenAIConversationModel::parse_conversation_history(const nlohmann::json& conversation) {
     if(!conversation.is_array()) {
         return Option<nlohmann::json>(400, "Conversation is not an array");
     }
@@ -244,7 +247,7 @@ Option<nlohmann::json> OpenAIQAModel::parse_conversation_history(const nlohmann:
     return Option<nlohmann::json>(messages);
 }
 
-Option<std::string> OpenAIQAModel::get_standalone_question(const nlohmann::json& conversation_history, 
+Option<std::string> OpenAIConversationModel::get_standalone_question(const nlohmann::json& conversation_history, 
                                                            const std::string& question, const nlohmann::json& model_config) {
     const std::string model_name = TextEmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string api_key = model_config["api_key"].get<std::string>();
@@ -306,13 +309,13 @@ Option<std::string> OpenAIQAModel::get_standalone_question(const nlohmann::json&
     return Option<std::string>(json_res["choices"][0]["message"]["content"].get<std::string>());
 }
 
-Option<nlohmann::json> OpenAIQAModel::format_question(const std::string& message) {
+Option<nlohmann::json> OpenAIConversationModel::format_question(const std::string& message) {
     nlohmann::json json = nlohmann::json::object();
     json["user"] = message;
     return Option<nlohmann::json>(json);
 }
 
-Option<nlohmann::json> OpenAIQAModel::format_answer(const std::string& message) {
+Option<nlohmann::json> OpenAIConversationModel::format_answer(const std::string& message) {
     nlohmann::json json = nlohmann::json::object();
     json["assistant"] = message;
     return Option<nlohmann::json>(json);

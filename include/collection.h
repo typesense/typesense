@@ -289,7 +289,6 @@ private:
 
     Option<uint32_t> get_reference_doc_id(const std::string& ref_collection_name, const uint32_t& seq_id) const;
 
-    static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
 public:
 
@@ -319,9 +318,6 @@ public:
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
 
     static constexpr const char* REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
-
-    static constexpr const char* COLLECTION_QA = "qa";
-
     // methods
 
     Collection() = delete;
@@ -331,7 +327,7 @@ public:
                const std::string& default_sorting_field,
                const float max_memory_ratio, const std::string& fallback_field_type,
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
-               const bool enable_nested_fields, const nlohmann::json& qa);
+               const bool enable_nested_fields);
 
     ~Collection();
 
@@ -500,6 +496,7 @@ public:
                                   const std::string& stopwords_set="",
                                   const std::vector<std::string>& facet_return_parent = {},
                                   const bool converstaion = false,
+                                  const int conversation_model_id = -1,
                                   const std::string& system_prompt = "",
                                   int conversation_id = -1) const;
 
@@ -610,6 +607,8 @@ public:
     Option<std::string> get_reference_field(const std::string& collection_name) const;
 
     Option<uint32_t> get_sort_indexed_field_value(const std::string& field_name, const uint32_t& seq_id) const;
+
+    static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
     friend class filter_result_iterator_t;
 };

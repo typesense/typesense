@@ -6,9 +6,9 @@
 
 
 
-class QAModel {
+class ConversationModel {
     public:
-        virtual ~QAModel() {};
+        virtual ~ConversationModel() {};
         static Option<std::string> get_answer(const std::string& context, const std::string& prompt, const std::string& system_prompt, const nlohmann::json& model_config);
         static Option<nlohmann::json> parse_conversation_history(const nlohmann::json& conversation, const nlohmann::json& model_config);
         static Option<bool> validate_model(const nlohmann::json& model_config);
@@ -19,7 +19,7 @@ class QAModel {
 };
 
 
-class OpenAIQAModel : public QAModel {
+class OpenAIConversationModel : public ConversationModel {
     public:
         static Option<std::string> get_answer(const std::string& context, const std::string& prompt, const std::string& system_prompt, const nlohmann::json& model_config);
         static Option<bool> validate_model(const nlohmann::json& model_config);
@@ -31,7 +31,7 @@ class OpenAIQAModel : public QAModel {
             Rewrite the follow-up question on top of a human-assistant conversation history as a standalone question that encompasses all pertinent context.
         )";
         // prevent instantiation
-        OpenAIQAModel() = delete;
+        OpenAIConversationModel() = delete;
     private:
         static constexpr char* OPENAI_LIST_MODELS = "https://api.openai.com/v1/models";
         static constexpr char* OPENAI_CHAT_COMPLETION = "https://api.openai.com/v1/chat/completions";

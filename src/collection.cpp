@@ -19,8 +19,9 @@
 #include "vector_query_ops.h"
 #include "text_embedder_manager.h"
 #include "stopwords_manager.h"
-#include "qa_model.h"
+#include "conversation_model.h"
 #include "conversation_manager.h"
+#include "conversation_model_manager.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -46,14 +47,14 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const float max_memory_ratio, const std::string& fallback_field_type,
                        const std::vector<std::string>& symbols_to_index,
                        const std::vector<std::string>& token_separators,
-                       const bool enable_nested_fields, const nlohmann::json& qa):
+                       const bool enable_nested_fields):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
-        index(init_index()), qa(qa) {
+        index(init_index()) {
 
     this->num_documents = 0;
 }
@@ -289,13 +290,6 @@ nlohmann::json Collection::get_summary_json() const {
 
     json_response["fields"] = fields_arr;
     json_response["default_sorting_field"] = default_sorting_field;
-    json_response["qa"] = qa;
-    hide_credential(json_response["qa"], "api_key");
-    hide_credential(json_response["qa"], "access_token");
-    hide_credential(json_response["qa"], "refresh_token");
-    hide_credential(json_response["qa"], "client_id");
-    hide_credential(json_response["qa"], "client_secret");
-    hide_credential(json_response["qa"], "project_id");
     return json_response;
 }
 
@@ -1398,6 +1392,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::string& stopwords_set,
                                   const std::vector<std::string>& facet_return_parent,
                                   const bool conversation,
+                                  const int conversation_model_id,
                                   const std::string& system_prompt,
                                   int conversation_id) const {
 
@@ -1482,6 +1477,18 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     size_t num_embed_fields = 0;
     std::string query = raw_query;
 
+    if(conversation) {
+        if(conversation_model_id == -1) {
+            return Option<nlohmann::json>(400, "Conversation is enabled but no conversation model ID is provided.");
+        }
+
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
+
+        if(!conversation_model_op.ok()) {
+            return Option<nlohmann::json>(400, conversation_model_op.error());
+        }
+    }
+
     if(conversation_id >= 0) {
         if(!conversation) {
             return Option<nlohmann::json>(400, "Conversation ID provided but conversation is not enabled for this collection.");
@@ -1498,13 +1505,13 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, truncate_conversation_history.error());
         }
 
-        auto standalone_question_op = QAModel::get_standalone_question(truncate_conversation_history.get(), raw_query, this->qa);
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
+
+        auto standalone_question_op = ConversationModel::get_standalone_question(truncate_conversation_history.get(), raw_query, conversation_model_op.get());
         if(!standalone_question_op.ok()) {
             return Option<nlohmann::json>(400, standalone_question_op.error());
         }
         query = standalone_question_op.get();
-
-        LOG(INFO) << "Conversation ID: " << conversation_id << ", query: " << query;
     }
 
     for(size_t i = 0; i < raw_search_fields.size(); i++) {
@@ -1609,20 +1616,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         std::string error = "Error, query_by_weights.size != query_by.size.";
         return Option<nlohmann::json>(400, error);
     }
-
-    if(conversation) {
-        if(vector_query.field_name.empty()) {
-            std::string error = "Conversation search is only supported for semantic and hybrid search.";
-            return Option<nlohmann::json>(400, error);
-        }
-
-        if(this->qa.empty()) {
-            std::string error = "Conversation search is not enabled for this collection.";
-            return Option<nlohmann::json>(400, error);
-        }
-    }
-
-
 
     for(const std::string & field_name: processed_search_fields) {
         field search_field = search_schema.at(field_name);
@@ -2345,20 +2338,22 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
         }
 
+        auto conversation_model = ConversationModelManager::get_model(conversation_id).get();
+
         bool has_conversation_history = conversation_id >= 0;
-        auto qa_op = QAModel::get_answer(docs_array.dump(0), raw_query, system_prompt, this->qa);
+        auto qa_op = ConversationModel::get_answer(docs_array.dump(0), raw_query, system_prompt, conversation_model);
         if(!qa_op.ok()) {
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());
         }
         result["conversation"]["answer"] = qa_op.get();
         result["conversation"]["conversation_id"] = conversation_id;
 
-        auto formatted_question_op = QAModel::format_question(raw_query, this->qa);
+        auto formatted_question_op = ConversationModel::format_question(raw_query, conversation_model);
         if(!formatted_question_op.ok()) {
             return Option<nlohmann::json>(formatted_question_op.code(), formatted_question_op.error());
         }
 
-        auto formatted_answer_op = QAModel::format_answer(qa_op.get(), this->qa);
+        auto formatted_answer_op = ConversationModel::format_answer(qa_op.get(), conversation_model);
         if(!formatted_answer_op.ok()) {
             return Option<nlohmann::json>(formatted_answer_op.code(), formatted_answer_op.error());
         }
@@ -4697,13 +4692,6 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
     if(schema_changes.size() != 1) {
         return Option<bool>(400, "Only `fields` can be updated at the moment.");
-    }
-
-    if(schema_changes.count("qa") != 0) {
-        auto qa_op = QAModel::validate_model(schema_changes["qa"]);
-        if(!qa_op.ok()) {
-            return qa_op;
-        }
     }
 
     const std::string err_msg = "The `fields` value should be an array of objects containing "

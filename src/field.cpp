@@ -2,7 +2,7 @@
 #include "field.h"
 #include "magic_enum.hpp"
 #include "text_embedder_manager.h"
-#include "qa_model.h"
+#include "conversation_model.h"
 #include <stack>
 #include <collection_manager.h>
 #include <regex>
