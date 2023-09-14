@@ -665,7 +665,8 @@ public:
                 const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
                 const std::string& collection_name) const;
 
-    void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name);
+    void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
+                      const bool is_update);
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document,
                             const std::vector<field>& del_fields, const bool is_update);

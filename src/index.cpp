@@ -5852,7 +5852,8 @@ void Index::remove_facet_token(const field& search_field, spp::sparse_hash_map<s
     }
 }
 
-void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name) {
+void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
+                         const bool is_update) {
     const auto& search_field_it = search_schema.find(field_name);
     if(search_field_it == search_schema.end()) {
         return;
@@ -5912,7 +5913,10 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
             }
         }
     } else if(search_field.num_dim) {
-        vector_index[search_field.name]->vecdex->markDelete(seq_id);
+        if(!is_update) {
+            // since vector index supports upsert natively, we should not attempt to delete for update
+            vector_index[search_field.name]->vecdex->markDelete(seq_id);
+        }
     } else if(search_field.is_float()) {
         const std::vector<float>& values = search_field.is_single_float() ?
                                            std::vector<float>{document[field_name].get<float>()} :
@@ -6018,7 +6022,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
             }
 
             try {
-                remove_field(seq_id, document, the_field.name);
+                remove_field(seq_id, document, the_field.name, is_update);
             } catch(const std::exception& e) {
                 LOG(WARNING) << "Error while removing field `" << the_field.name << "` from document, message: "
                              << e.what();
@@ -6028,7 +6032,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
         for(auto it = document.begin(); it != document.end(); ++it) {
             const std::string& field_name = it.key();
             try {
-                remove_field(seq_id, document, field_name);
+                remove_field(seq_id, document, field_name, is_update);
             } catch(const std::exception& e) {
                 LOG(WARNING) << "Error while removing field `" << field_name << "` from document, message: "
                              << e.what();

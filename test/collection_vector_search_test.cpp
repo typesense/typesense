@@ -287,6 +287,97 @@ TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionVectorTest, VectorManyUpserts) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "points", "type": "int32"},
+                {"name": "vec", "type": "float[]", "num_dim": 3}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    size_t d = 3;
+    size_t n = 50;
+
+    std::mt19937 rng;
+    rng.seed(47);
+    std::uniform_real_distribution<> distrib;
+
+    std::vector<std::string> import_records;
+
+    // first insert n docs
+    for (size_t i = 0; i < n; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = std::to_string(i) + " title";
+        doc["points"] = i;
+
+        std::vector<float> values;
+        for (size_t j = 0; j < d; j++) {
+            values.push_back(distrib(rng));
+        }
+        doc["vec"] = values;
+        import_records.push_back(doc.dump());
+    }
+
+    nlohmann::json document;
+    nlohmann::json import_response = coll1->add_many(import_records, document);
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(n, import_response["num_imported"].get<int>());
+    import_records.clear();
+
+    size_t num_new_records = 0;
+
+    // upsert mix of old + new docs50
+    for (size_t i = 0; i < n; i++) {
+        nlohmann::json doc;
+        auto id = i;
+        if(i % 2 != 0) {
+            id = (i + 1000);
+            num_new_records++;
+        }
+
+        doc["id"] = std::to_string(id);
+        doc["title"] = std::to_string(id) + " title";
+        doc["points"] = id;
+
+        std::vector<float> values;
+        for (size_t j = 0; j < d; j++) {
+            values.push_back(distrib(rng) + 0.01);
+        }
+        doc["vec"] = values;
+        import_records.push_back(doc.dump());
+    }
+
+    import_response = coll1->add_many(import_records, document, UPSERT);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(n, import_response["num_imported"].get<int>());
+    import_records.clear();
+
+    /*for(size_t i = 0; i < 100; i++) {
+        auto results = coll1->search("*", {}, "", {}, {}, {0}, 200, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                     spp::sparse_hash_set<std::string>(),
+                                     spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                     "", 10, {}, {}, {}, 0,
+                                     "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                     4, {off}, 32767, 32767, 2,
+                                     false, true, "vec:([0.12, 0.44, 0.55])").get();
+
+        if(results["found"].get<size_t>() != n+num_new_records) {
+            LOG(INFO) << results["found"].get<size_t>();
+        }
+    }*/
+
+    //LOG(INFO) << "Expected: " << n + num_new_records;
+    //ASSERT_EQ(n + num_new_records, results["found"].get<size_t>());
+    //ASSERT_EQ(n + num_new_records, results["hits"].size());
+}
+
+
 TEST_F(CollectionVectorTest, VectorPartialUpdate) {
     nlohmann::json schema = R"({
             "name": "coll1",
