@@ -601,22 +601,63 @@ void filter_result_iterator_t::init() {
         }
 
         auto coll = cm.get_collection(collection_name);
-        if (coll->referenced_in.count(ref_collection_name) == 0 || coll->referenced_in.at(ref_collection_name).empty()) {
-            status = Option<bool>(400, "Could not find a reference to `" + collection_name + "` in `" +
-                                        ref_collection_name + "` collection.");
+        bool is_referenced = coll->referenced_in.count(ref_collection_name) > 0,
+                has_reference = ref_collection->is_referenced_in(collection_name);
+        if (!is_referenced && !has_reference) {
+            status = Option<bool>(400, "Failed to join on `" + ref_collection_name + "`: No reference field found.");
             is_valid = false;
             return;
         }
 
-        auto const& field_name = coll->referenced_in.at(ref_collection_name);
-        auto reference_filter_op = ref_collection->get_reference_filter_ids(a_filter.field_name,
-                                                                            filter_result,
-                                                                            field_name);
-        if (!reference_filter_op.ok()) {
-            status = Option<bool>(400, "Failed to apply reference filter on `" + a_filter.referenced_collection_name
-                                       + "` collection: " + reference_filter_op.error());
-            is_valid = false;
-            return;
+        if (is_referenced) {
+            auto const& field_name = coll->referenced_in.at(ref_collection_name);
+            auto reference_filter_op = ref_collection->get_reference_filter_ids(a_filter.field_name,
+                                                                                filter_result,
+                                                                                field_name);
+            if (!reference_filter_op.ok()) {
+                status = Option<bool>(400, "Failed to join on `" + a_filter.referenced_collection_name
+                                           + "` collection: " + reference_filter_op.error());
+                is_valid = false;
+                return;
+            }
+        } else if (has_reference) {
+            // Get the doc ids of reference collection matching the filter then apply filter on the current collection's
+            // reference helper field.
+            filter_result_t result;
+            auto reference_filter_op = ref_collection->get_filter_ids(a_filter.field_name, result);
+            if (!reference_filter_op.ok()) {
+                status = Option<bool>(400, "Failed to join on `" + a_filter.referenced_collection_name
+                                           + "` collection: " + reference_filter_op.error());
+                is_valid = false;
+                return;
+            }
+
+            auto get_reference_field_op = ref_collection->get_reference_field(collection_name);
+            if (!get_reference_field_op.ok()) {
+                status = Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
+                is_valid = false;
+                return;
+            }
+
+            std::vector<std::string> values;
+            for (uint32_t i = 0; i < result.count; i++) {
+                values.push_back(std::to_string(result.docs[i]));
+            }
+
+            filter filter_exp = {get_reference_field_op.get(), std::move(values), {EQUALS}};
+
+            auto filter_tree_root = new filter_node_t(filter_exp);
+            std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
+            auto fit = filter_result_iterator_t(collection_name, index, filter_tree_root);
+            auto filter_init_op = fit.init_status();
+            if (!filter_init_op.ok()) {
+                status = Option<bool>(filter_init_op.code(), filter_init_op.error());
+                is_valid = false;
+                return;
+            }
+
+            filter_result = std::move(fit.filter_result);
         }
 
         if (filter_result.count == 0) {
