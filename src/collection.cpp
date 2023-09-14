@@ -1388,7 +1388,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_tries,
                                   const std::string& stopwords_set,
-                                  const std::vector<std::string>& facet_return_parent) const {
+                                  const std::vector<std::string>& facet_return_parent,
+                                  const std::vector<ref_include_fields>& ref_include_fields_vec) const {
 
     std::shared_lock lock(mutex);
 
@@ -2214,7 +2215,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                       "",
                                       0,
                                       field_order_kv->reference_filter_results,
-                                      const_cast<Collection *>(this), get_seq_id_from_key(seq_id_key));
+                                      const_cast<Collection *>(this), get_seq_id_from_key(seq_id_key),
+                                      ref_include_fields_vec);
             if (!prune_op.ok()) {
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
             }
@@ -4312,6 +4314,7 @@ void Collection::remove_flat_fields(nlohmann::json& document) {
 
 Option<bool> Collection::add_reference_fields(nlohmann::json& doc,
                                               Collection *const ref_collection,
+                                              const std::string& alias,
                                               const reference_filter_result_t& references,
                                               const tsl::htrie_set<char>& ref_include_fields_full,
                                               const tsl::htrie_set<char>& ref_exclude_fields_full,
@@ -4326,9 +4329,19 @@ Option<bool> Collection::add_reference_fields(nlohmann::json& doc,
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
         }
 
+        remove_flat_fields(ref_doc);
+
         auto prune_op = prune_doc(ref_doc, ref_include_fields_full, ref_exclude_fields_full);
         if (!prune_op.ok()) {
             return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
+        }
+
+        if (!alias.empty()) {
+            auto temp_doc = ref_doc;
+            ref_doc.clear();
+            for (const auto &item: temp_doc.items()) {
+                ref_doc[alias + item.key()] = item.value();
+            }
         }
 
         doc.update(ref_doc);
@@ -4345,9 +4358,19 @@ Option<bool> Collection::add_reference_fields(nlohmann::json& doc,
             return Option<bool>(get_doc_op.code(), error_prefix + get_doc_op.error());
         }
 
+        remove_flat_fields(ref_doc);
+
         auto prune_op = prune_doc(ref_doc, ref_include_fields_full, ref_exclude_fields_full);
         if (!prune_op.ok()) {
             return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
+        }
+
+        if (!alias.empty()) {
+            auto temp_doc = ref_doc;
+            ref_doc.clear();
+            for (const auto &item: temp_doc.items()) {
+                ref_doc[alias + item.key()] = item.value();
+            }
         }
 
         for (auto ref_doc_it = ref_doc.begin(); ref_doc_it != ref_doc.end(); ref_doc_it++) {
@@ -4364,7 +4387,8 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                    const tsl::htrie_set<char>& exclude_names,
                                    const std::string& parent_name, size_t depth,
                                    const std::map<std::string, reference_filter_result_t>& reference_filter_results,
-                                   Collection *const collection, const uint32_t& seq_id) {
+                                   Collection *const collection, const uint32_t& seq_id,
+                                   const std::vector<ref_include_fields>& ref_includes) {
     // doc can only be an object
     auto it = doc.begin();
     while(it != doc.end()) {
@@ -4440,9 +4464,8 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         it++;
     }
 
-    auto include_reference_it_pair = include_names.equal_prefix_range("$");
-    for (auto reference = include_reference_it_pair.first; reference != include_reference_it_pair.second; reference++) {
-        auto ref = reference.key();
+    for (auto const& ref_include: ref_includes) {
+        auto const& ref = ref_include.expression;
         size_t parenthesis_index = ref.find('(');
 
         auto ref_collection_name = ref.substr(1, parenthesis_index - 1);
@@ -4484,9 +4507,9 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         StringUtils::split(reference_fields, ref_include_fields_vec, ",");
         auto exclude_reference_it = exclude_names.equal_prefix_range("$" + ref_collection_name);
         if (exclude_reference_it.first != exclude_reference_it.second) {
-            ref = exclude_reference_it.first.key();
-            parenthesis_index = ref.find('(');
-            reference_fields = ref.substr(parenthesis_index + 1, ref.size() - parenthesis_index - 2);
+            auto ref_exclude = exclude_reference_it.first.key();
+            parenthesis_index = ref_exclude.find('(');
+            reference_fields = ref_exclude.substr(parenthesis_index + 1, ref_exclude.size() - parenthesis_index - 2);
             StringUtils::split(reference_fields, ref_exclude_fields_vec, ",");
         }
 
@@ -4506,7 +4529,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
 
         Option<bool> add_reference_fields_op = Option<bool>(true);
         if (has_filter_reference) {
-            add_reference_fields_op = add_reference_fields(doc, ref_collection.get(),
+            add_reference_fields_op = add_reference_fields(doc, ref_collection.get(), ref_include.alias,
                                                            reference_filter_results.at(ref_collection_name),
                                                            ref_include_fields_full, ref_exclude_fields_full,
                                                            error_prefix);
@@ -4522,7 +4545,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
             }
 
             reference_filter_result_t r{1, new uint32[1]{get_reference_doc_id_op.get()}};
-            add_reference_fields_op = add_reference_fields(doc, ref_collection.get(), r,
+            add_reference_fields_op = add_reference_fields(doc, ref_collection.get(), ref_include.alias, r,
                                                            ref_include_fields_full, ref_exclude_fields_full,
                                                            error_prefix);
         } else if (joined_coll_has_reference) {
@@ -4551,7 +4574,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                 r.docs[i] = op.get();
             }
 
-            add_reference_fields_op = add_reference_fields(doc, ref_collection.get(), r,
+            add_reference_fields_op = add_reference_fields(doc, ref_collection.get(), ref_include.alias, r,
                                                            ref_include_fields_full, ref_exclude_fields_full,
                                                            error_prefix);
         }
