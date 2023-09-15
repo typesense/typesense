@@ -287,6 +287,97 @@ TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionVectorTest, VectorChangedUpsert) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "points", "type": "int32"},
+                {"name": "vec", "type": "float[]", "num_dim": 2}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+    doc["vec"] = {0.15, 0.25};
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "vec:([0.44, 0.44])").get();
+
+    ASSERT_FLOAT_EQ(0.029857516288757324, results["hits"][0]["vector_distance"].get<float>());
+
+    // upsert changed doc
+
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+    doc["vec"] = {0.75, 0.95};
+
+    add_op = coll1->add(doc.dump(), index_operation_t::UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "vec:([0.44, 0.44])").get();
+
+    ASSERT_FLOAT_EQ(0.006849408149719238, results["hits"][0]["vector_distance"].get<float>());
+
+    // put old doc back using update
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+    doc["vec"] = {0.15, 0.25};
+
+    add_op = coll1->add(doc.dump(), index_operation_t::UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.44, 0.44])").get();
+
+    ASSERT_FLOAT_EQ(0.029857516288757324, results["hits"][0]["vector_distance"].get<float>());
+
+    // revert using emplace
+
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["points"] = 100;
+    doc["vec"] = {0.75, 0.95};
+
+    add_op = coll1->add(doc.dump(), index_operation_t::EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.44, 0.44])").get();
+
+    ASSERT_FLOAT_EQ(0.006849408149719238, results["hits"][0]["vector_distance"].get<float>());
+}
+
 TEST_F(CollectionVectorTest, VectorManyUpserts) {
     nlohmann::json schema = R"({
             "name": "coll1",
