@@ -589,6 +589,7 @@ size_t Index::batch_memory_index(Index *index,
     }
 
     num_queued = num_processed = 0;
+    std::unique_lock ulock(index->mutex);
 
     for(const auto& field_name: found_fields) {
         //LOG(INFO) << "field name: " << field_name;
