@@ -1,6 +1,5 @@
 #include <chrono>
 #include <thread>
-#include <cstdlib> 
 #include <app_metrics.h>
 #include <regex>
 #include <analytics_manager.h>
@@ -23,8 +22,18 @@ using namespace std::chrono_literals;
 std::shared_mutex mutex;
 LRU::Cache<uint64_t, cached_res_t> res_cache;
 
+std::atomic<bool> alter_in_progress = false;
+
 void init_api(uint32_t cache_num_entries) {
     res_cache.capacity(cache_num_entries);
+}
+
+void set_alter_in_progress(bool in_progress) {
+    alter_in_progress = in_progress;
+}
+
+bool get_alter_in_progress() {
+    return alter_in_progress;
 }
 
 bool handle_authentication(std::map<std::string, std::string>& req_params,
@@ -218,6 +227,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     } catch(const std::exception& e) {
         //LOG(ERROR) << "JSON error: " << e.what();
         res->set_400("Bad JSON.");
+        alter_in_progress = false;
         return false;
     }
 
@@ -226,15 +236,18 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 
     if(collection == nullptr) {
         res->set_404();
+        alter_in_progress = false;
         return false;
     }
 
     auto alter_op = collection->alter(req_json);
     if(!alter_op.ok()) {
         res->set(alter_op.code(), alter_op.error());
+        alter_in_progress = false;
         return false;
     }
 
+    alter_in_progress = false;
     res->set_200(req_json.dump());
     return true;
 }
