@@ -1,4 +1,6 @@
 #include "conversation_manager.h"
+#include "logger.h"
+#include <chrono>
 
 
 Option<int> ConversationManager::create_conversation(const nlohmann::json& conversation) {
@@ -11,13 +13,15 @@ Option<int> ConversationManager::create_conversation(const nlohmann::json& conve
     nlohmann::json conversation_store_json;
     conversation_store_json["id"] = conversation_id;
     conversation_store_json["conversation"] = conversation;
+    conversation_store_json["last_updated"] = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    conversation_store_json["ttl"] = CONVERSATION_TTL;
     bool insert_op = store->insert(conversation_key, conversation_store_json.dump(0));
     if(!insert_op) {
         return Option<int>(500, "Error while inserting conversation into the store");
     }
     store->increment(std::string(CONVERSATION_NEXT_ID), 1);
 
-    conversations[conversation_id] = conversation;
+    conversations[conversation_id] = conversation_store_json;
 
     return Option<int>(conversation_id++);
 }
@@ -39,13 +43,11 @@ Option<bool> ConversationManager::append_conversation(int conversation_id, const
         return Option<bool>(404, "Conversation not found");
     }
 
-    if(!conversation_it->second.is_array()) {
-        return Option<bool>(400, "Conversation is not an array");
+    if(!message.is_object() && !message.is_array()) {
+        return Option<bool>(400, "Message is not an object or array");
     }
 
-    nlohmann::json conversation = nlohmann::json::object();
-    conversation["id"] = conversation_id;
-    conversation["conversation"] = conversation_it->second;
+    nlohmann::json conversation = conversation_it->second;
 
     if(!message.is_array()) {
         conversation["conversation"].push_back(message);
@@ -55,13 +57,15 @@ Option<bool> ConversationManager::append_conversation(int conversation_id, const
         }
     }
 
+    conversation["last_updated"] = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
     auto conversation_key = get_conversation_key(conversation_id);
     bool insert_op = store->insert(conversation_key, conversation.dump(0));
     if(!insert_op) {
         return Option<bool>(500, "Error while inserting conversation into the store");
     }
 
-    conversations[conversation_id] = conversation["conversation"];
+    conversations[conversation_id] = conversation;
 
     return Option<bool>(true);
 }
@@ -75,7 +79,11 @@ size_t ConversationManager::get_token_count(const nlohmann::json& message) {
     return message.dump(0).size() / 4;
 }
 
+// pop front elements until the conversation is less than MAX_TOKENS
 Option<nlohmann::json> ConversationManager::truncate_conversation(nlohmann::json conversation) {
+    if(!conversation.is_array()) {
+        return Option<nlohmann::json>(400, "Conversation history is not an array");
+    }
     while(get_token_count(conversation) > MAX_TOKENS) {
         // pop front element from json array
         try {
@@ -95,7 +103,9 @@ Option<nlohmann::json> ConversationManager::delete_conversation(int conversation
         return Option<nlohmann::json>(404, "Conversation not found");
     }
 
-    Option<nlohmann::json> conversation_res(*conversation);
+
+
+    Option<nlohmann::json> conversation_res(conversation->second);
 
     auto conversation_key = get_conversation_key(conversation_id);
     bool delete_op = store->remove(conversation_key);
@@ -111,16 +121,18 @@ Option<nlohmann::json> ConversationManager::get_all_conversations() {
     std::shared_lock lock(conversations_mutex);
     nlohmann::json all_conversations = nlohmann::json::array();
     for(auto& conversation : conversations) {
-        nlohmann::json conversation_json;
-        conversation_json["id"] = conversation.first;
-        conversation_json["conversation"] = conversation.second;
-        all_conversations.push_back(conversation_json);
+        all_conversations.push_back(conversation.second);
     }
 
     return Option<nlohmann::json>(all_conversations);
 }
 
 Option<int> ConversationManager::init(Store* store) {
+
+    if(store == nullptr) {
+        return Option<int>(500, "Store is null");
+    }
+
     std::unique_lock lock(conversations_mutex);
     ConversationManager::store = store;
 
@@ -142,8 +154,11 @@ Option<int> ConversationManager::init(Store* store) {
 
     for(auto& conversation_str : conversation_strs) {
         nlohmann::json conversation_json = nlohmann::json::parse(conversation_str);
-        int conversation_id = conversation_json["id"];
-        conversations[conversation_id] = conversation_json["conversation"];
+        if(conversation_json.count("id") == 0) {
+            LOG(INFO) << "key: " << conversation_str << " is missing id";
+            continue;
+        }
+        conversations[conversation_json["id"]] = conversation_json;
         loaded_conversations++;
     }
 
@@ -151,5 +166,37 @@ Option<int> ConversationManager::init(Store* store) {
 }   
 
 const std::string ConversationManager::get_conversation_key(int conversation_id) {
-    return std::string(CONVERSATION_RPEFIX) + "_" + StringUtils::serialize_uint32_t(conversation_id);
+    return std::string(CONVERSATION_RPEFIX) + "_" + std::to_string(conversation_id);
+}
+
+void ConversationManager::clear_expired_conversations() {
+    std::unique_lock lock(conversations_mutex);
+
+    int cleared_conversations = 0;
+
+    for(auto& conversation : conversations) {
+        int conversation_id = conversation.first;
+        nlohmann::json conversation_json = conversation.second;
+        if(conversation_json.count("last_updated") == 0 || conversation_json.count("ttl") == 0) {
+            bool delete_op = store->remove(get_conversation_key(conversation_id));
+            if(!delete_op) {
+                LOG(ERROR) << "Error while deleting conversation from the store";
+            }
+            conversations.erase(conversation_id);
+            cleared_conversations++;
+            continue;   
+        }
+        int last_updated = conversation_json["last_updated"];
+        int ttl = conversation_json["ttl"];
+        if(last_updated + ttl < TTL_OFFSET + std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) {
+            auto delete_op = store->remove(get_conversation_key(conversation_id));
+            if(!delete_op) {
+                LOG(ERROR) << "Error while deleting conversation from the store";
+            }
+            conversations.erase(conversation_id);
+            cleared_conversations++;
+        }
+    }
+
+    LOG(INFO) << "Cleared " << cleared_conversations << " expired conversations";
 }

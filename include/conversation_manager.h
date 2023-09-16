@@ -21,6 +21,10 @@ class ConversationManager {
         static Option<nlohmann::json> get_all_conversations();
         static constexpr size_t MAX_TOKENS = 3000;
         static Option<int> init(Store* store);
+        static void clear_expired_conversations();
+        static void _set_ttl_offset(size_t offset) {
+            TTL_OFFSET = offset;
+        }
     private:
         static inline std::unordered_map<int, nlohmann::json> conversations;
         static inline int conversation_id = 0;
@@ -32,4 +36,7 @@ class ConversationManager {
         static inline Store* store;
 
         static const std::string get_conversation_key(int conversation_id);
+
+        static constexpr size_t CONVERSATION_TTL = 60 * 60 * 24;
+        static inline size_t TTL_OFFSET = 0;
 };

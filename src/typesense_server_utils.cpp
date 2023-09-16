@@ -475,6 +475,18 @@ int run_server(const Config & config, const std::string & version, void (*master
             AnalyticsManager::get_instance().run(&replication_state);
         });
 
+        std::thread conersation_garbage_collector_thread([]() {
+            LOG(INFO) << "Conversation garbage collector thread started.";
+            int last_clear_time = 0;
+            while(!brpc::IsAskedToQuit()) {
+                if(last_clear_time + 60 < std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) {
+                    last_clear_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                    ConversationManager::clear_expired_conversations();
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+            }
+        });
+
         RemoteEmbedder::init(&replication_state);
 
         std::string path_to_nodes = config.get_nodes();
@@ -510,6 +522,10 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Shutting down replication_thread_pool.";
 
         replication_thread_pool.shutdown();
+
+        LOG(INFO) << "Shutting down conversation garbage collector thread.";
+
+        conersation_garbage_collector_thread.join();
 
         server->stop();
     });

@@ -15,7 +15,7 @@ const std::string get_model_namespace(const std::string& model_name) {
 Option<bool> ConversationModel::validate_model(const nlohmann::json& model_config) {
     // check model_name is exists and it is a string
     if(model_config.count("model_name") == 0 || !model_config["model_name"].is_string()) {
-        return Option<bool>(400, "Property `qa.model_name` is not provided or not a string.");
+        return Option<bool>(400, "Property `model_name` is not provided or not a string.");
     }
 
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
@@ -130,7 +130,7 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
     }
 
     if(!found) {
-        return Option<bool>(400, "Property `qa.model_name` is not a valid OpenAI model.");
+        return Option<bool>(400, "Property `model_name` is not a valid OpenAI model.");
     }
 
     nlohmann::json req_body;
@@ -263,7 +263,7 @@ Option<std::string> OpenAIConversationModel::get_standalone_question(const nlohm
     std::string standalone_question = STANDALONE_QUESTION_PROMPT;
 
     standalone_question += "\n\n<Conversation history>\n";
-    for(auto& message : conversation_history) {
+    for(auto& message : conversation_history["conversation"]) {
         if(message.count("user") == 0 && message.count("assistant") == 0) {
             return Option<std::string>(400, "Conversation history is not valid");
         }

@@ -111,5 +111,5 @@ Option<int> ConversationModelManager::init(Store* store) {
 }
 
 const std::string ConversationModelManager::get_model_key(uint32_t model_id) {
-    return std::string(MODEL_KEY_PREFIX) + "_" + StringUtils::serialize_uint32_t(model_id);
+    return std::string(MODEL_KEY_PREFIX) + "_" + std::to_string(model_id);
 }

@@ -729,6 +729,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         if(conversation_history) {
+            LOG(INFO) << "Appending to conversation history.";
             uint32_t conversation_id = std::stoul(orig_req_params["conversation_id"]);
             ConversationManager::append_conversation(conversation_id, formatted_question_op.get());
             ConversationManager::append_conversation(conversation_id, formatted_answer_op.get());
@@ -746,7 +747,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             nlohmann::json conversation_history = nlohmann::json::array();
             conversation_history.push_back(formatted_question_op.get());
             conversation_history.push_back(formatted_answer_op.get());
-            response["conversation"]["conversation_history"] = conversation_history;
 
             auto create_conversation_op = ConversationManager::create_conversation(conversation_history);
             if(!create_conversation_op.ok()) {
@@ -754,6 +754,13 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 return false;
             }
 
+            auto get_conversation_op = ConversationManager::get_conversation(create_conversation_op.get());
+            if(!get_conversation_op.ok()) {
+                res->set_400(get_conversation_op.error());
+                return false;
+            }
+
+            response["conversation"]["conversation_history"] = get_conversation_op.get();
             response["conversation"]["conversation_id"] = create_conversation_op.get();
         }
 

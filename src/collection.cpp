@@ -2341,7 +2341,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
         }
 
-        auto conversation_model = ConversationModelManager::get_model(conversation_id).get();
+        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
 
         bool has_conversation_history = conversation_id >= 0;
         auto qa_op = ConversationModel::get_answer(docs_array.dump(0), raw_query, system_prompt, conversation_model);
@@ -2372,17 +2372,23 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             auto conversation_history = get_conversation_op.get();
 
             result["conversation"]["conversation_history"] = conversation_history;
+            result["conversation"]["conversation_id"] = conversation_id;
         } else {
             nlohmann::json conversation_history = nlohmann::json::array();
             conversation_history.push_back(formatted_question_op.get());
             conversation_history.push_back(formatted_answer_op.get());
-            result["conversation"]["conversation_history"] = conversation_history;
 
             auto create_conversation_op = ConversationManager::create_conversation(conversation_history);
             if(!create_conversation_op.ok()) {
                 return Option<nlohmann::json>(create_conversation_op.code(), create_conversation_op.error());
             }
 
+            auto get_conversation_op = ConversationManager::get_conversation(create_conversation_op.get());
+            if(!get_conversation_op.ok()) {
+                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
+            }
+
+            result["conversation"]["conversation_history"] = get_conversation_op.get();
             result["conversation"]["conversation_id"] = create_conversation_op.get();
         }
     }
