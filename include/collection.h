@@ -145,8 +145,6 @@ private:
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
-    nlohmann::json qa;
-
     // methods
 
     std::string get_doc_id_key(const std::string & doc_id) const;
