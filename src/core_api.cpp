@@ -699,9 +699,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             result_docs_arr.push_back(result_docs);
         }
 
-
-        LOG(INFO) << "Result docs: " << result_docs_arr.dump();
-
         // We have to pop a document from the search result with max size
         // Until we do not exceed MAX_TOKENS limit
         while(ConversationManager::get_token_count(result_docs_arr) > ConversationManager::MAX_TOKENS) {
