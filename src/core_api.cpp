@@ -656,24 +656,51 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     if(conversation) {
         nlohmann::json result_docs_arr = nlohmann::json::array();
+        int res_index = 0;
         for(const auto& result : response["results"]) {
             nlohmann::json result_docs = nlohmann::json::array();
+
+            std::vector<std::string> vector_fields;
+
+            auto collection = CollectionManager::get_instance().get_collection(searches[res_index]["collection"].get<std::string>());
+            auto search_schema = collection->get_schema();
+
+            for(const auto& field : search_schema) {
+                if(field.type == field_types::FLOAT_ARRAY) {
+                    vector_fields.push_back(field.name);
+                }
+            }
 
             if(result.contains("grouped_hits")) {
                 for(const auto& grouped_hit : result["grouped_hits"]) {
                     for(const auto& hit : grouped_hit["hits"]) {
-                        result_docs.push_back(hit["document"]);
+                        auto doc = hit["document"];
+                        for(const auto& vector_field : vector_fields) {
+                            if(doc.contains(vector_field)) {
+                                doc.erase(vector_field);
+                            }
+                        }
+                        result_docs.push_back(doc);
                     }
                 }
             }
             else {
                 for(const auto& hit : result["hits"]) {
-                    result_docs.push_back(hit["document"]);
+                    auto doc = hit["document"];
+                    for(const auto& vector_field : vector_fields) {
+                        if(doc.contains(vector_field)) {
+                            doc.erase(vector_field);
+                        }
+                    }
+                    result_docs.push_back(doc);
                 }
             }
 
             result_docs_arr.push_back(result_docs);
         }
+
+
+        LOG(INFO) << "Result docs: " << result_docs_arr.dump();
 
         // We have to pop a document from the search result with max size
         // Until we do not exceed MAX_TOKENS limit
