@@ -2583,6 +2583,36 @@ bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_p
     return true;    
 }
 
+bool put_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if(!StringUtils::is_uint32_t(req->params["id"])) {
+        res->set_400("Invalid ID.");
+        return false;
+    }
+    const int conversation_id = std::stoi(req->params["id"]);
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    req_json["id"] = conversation_id;
+
+    auto conversation_op = ConversationManager::update_conversation(req_json);
+
+    if(!conversation_op.ok()) {
+        res->set(conversation_op.code(), conversation_op.error());
+        return false;
+    }
+
+    res->set_200(conversation_op.get().dump());
+    return true;
+}
+
 bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
 

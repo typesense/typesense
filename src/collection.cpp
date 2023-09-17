@@ -1501,7 +1501,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, conversation_history_op.error());
         }
 
-        auto truncate_conversation_history = ConversationManager::truncate_conversation(conversation_history_op.get());
+        auto conversation_history = conversation_history_op.get();
+
+        auto truncate_conversation_history = ConversationManager::truncate_conversation(conversation_history_op.get()["conversation"]);
+
+        conversation_history["conversation"] = truncate_conversation_history.get();
+       
 
         if(!truncate_conversation_history.ok()) {
             return Option<nlohmann::json>(400, truncate_conversation_history.error());
@@ -1509,7 +1514,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
 
-        auto standalone_question_op = ConversationModel::get_standalone_question(truncate_conversation_history.get(), raw_query, conversation_model_op.get());
+        auto standalone_question_op = ConversationModel::get_standalone_question(conversation_history, raw_query, conversation_model_op.get());
         if(!standalone_question_op.ok()) {
             return Option<nlohmann::json>(400, standalone_question_op.error());
         }

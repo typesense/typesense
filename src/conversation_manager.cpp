@@ -200,3 +200,40 @@ void ConversationManager::clear_expired_conversations() {
 
     LOG(INFO) << "Cleared " << cleared_conversations << " expired conversations";
 }
+
+Option<nlohmann::json> ConversationManager::update_conversation(nlohmann::json conversation) {
+    std::unique_lock lock(conversations_mutex);
+    if(!conversation.is_object()) {
+        return Option<nlohmann::json>(400, "Conversation is not an object");
+    }
+
+    if(conversation.count("id") == 0) {
+        return Option<nlohmann::json>(400, "Conversation is missing id");
+    }
+
+    int conversation_id = conversation["id"];
+
+    auto conversation_it = conversations.find(conversation_id);
+    if (conversation_it == conversations.end()) {
+        return Option<nlohmann::json>(404, "Conversation not found");
+    }
+
+    auto conversation_key = get_conversation_key(conversation_id);
+
+    auto actual_conversation = conversation_it->second;
+
+    if(conversation.count("ttl") == 0) {
+        return Option<nlohmann::json>(400, "Only `ttl` can be updated");
+    }
+    
+    actual_conversation["ttl"] = conversation["ttl"];
+
+    bool insert_op = store->insert(conversation_key, actual_conversation.dump(0));
+    if(!insert_op) {
+        return Option<nlohmann::json>(500, "Error while inserting conversation into the store");
+    }
+
+    conversations[conversation_id] = actual_conversation;
+
+    return Option<nlohmann::json>(actual_conversation);
+}
