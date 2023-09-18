@@ -2330,18 +2330,21 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             auto the_field = search_schema.at(a_facet.field_name);
             bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
                                                   the_field.name) != facet_return_parent.end();
+            bool should_fetch_doc_from_store = ((a_facet.is_intersected && should_return_parent) || !a_facet.is_intersected);
 
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
                 auto & facet_count = facet_counts[fi];
                 std::string value;
-
-                const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
                 nlohmann::json document;
-                const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
-                if(!document_op.ok()) {
-                    LOG(ERROR) << "Facet fetch error. " << document_op.error();
-                    continue;
+
+                if(should_fetch_doc_from_store) {
+                    const std::string &seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
+                    const Option<bool> &document_op = get_document_from_store(seq_id_key, document);
+                    if (!document_op.ok()) {
+                        LOG(ERROR) << "Facet fetch error. " << document_op.error();
+                        continue;
+                    }
                 }
 
                 if(a_facet.is_intersected) {
