@@ -2330,11 +2330,22 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             auto the_field = search_schema.at(a_facet.field_name);
             bool should_return_parent = std::find(facet_return_parent.begin(), facet_return_parent.end(),
                                                   the_field.name) != facet_return_parent.end();
+            bool should_fetch_doc_from_store = ((a_facet.is_intersected && should_return_parent) || !a_facet.is_intersected);
 
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
                 auto & facet_count = facet_counts[fi];
                 std::string value;
+                nlohmann::json document;
+
+                if(should_fetch_doc_from_store) {
+                    const std::string &seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
+                    const Option<bool> &document_op = get_document_from_store(seq_id_key, document);
+                    if (!document_op.ok()) {
+                        LOG(ERROR) << "Facet fetch error. " << document_op.error();
+                        continue;
+                    }
+                }
 
                 if(a_facet.is_intersected) {
                     value = facet_count.fvalue;
@@ -2342,22 +2353,14 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 } else {
                     // fetch actual facet value from representative doc id
                     //LOG(INFO) << "used hashes";
-                    const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
-                    nlohmann::json document;
-                    const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
-                    if(!document_op.ok()) {
-                        LOG(ERROR) << "Facet fetch error. " << document_op.error();
-                        continue;
-                    }
-
                     bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
                     if(!facet_found) {
                         continue;
                     }
+                }
 
-                    if(the_field.nested && should_return_parent) {
-                        value = get_facet_parent(the_field.name, document);
-                    }
+                if(the_field.nested && should_return_parent) {
+                    value = get_facet_parent(the_field.name, document);
                 }
 
                 std::unordered_map<std::string, size_t> ftoken_pos;

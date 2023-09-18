@@ -150,7 +150,7 @@ size_t facet_index_t::get_facet_count(const std::string& field_name) {
 size_t facet_index_t::intersect(facet& a_facet,
                                 bool has_facet_query, const std::vector<std::string>& fvalue_searched_tokens,
                                 const uint32_t* result_ids, size_t result_ids_len,
-                                size_t max_facet_count, std::map<std::string, uint32_t>& found,
+                                size_t max_facet_count, std::map<std::string, docid_count_t>& found,
                                 bool is_wildcard_no_filter_query, const std::string& sort_order) {
     //LOG (INFO) << "intersecting field " << field;
 
@@ -171,6 +171,7 @@ size_t facet_index_t::intersect(facet& a_facet,
 
     auto intersect_fn = [&] (std::list<facet_count_t>::const_iterator facet_count_it) {
         uint32_t count = 0;
+        uint32_t doc_id = 0;
         if(has_facet_query) {
             bool found_search_token = false;
             auto facet_str = facet_count_it->facet_value;
@@ -189,18 +190,20 @@ size_t facet_index_t::intersect(facet& a_facet,
             }
         }
 
+        auto ids = facet_index_map.at(facet_count_it->facet_value).seq_ids;
+        if (!ids) {
+            return;
+        }
+
         if (is_wildcard_no_filter_query) {
             count = facet_count_it->count;
         } else {
-            auto ids = facet_index_map.at(facet_count_it->facet_value).seq_ids;
-            if (!ids) {
-                return;
-            }
             count = ids_t::intersect_count(ids, result_ids, result_ids_len);
         }
 
         if (count) {
-            found[facet_count_it->facet_value] = count;
+            doc_id = ids_t::first_id(ids);
+            found[facet_count_it->facet_value] = {doc_id, count};
         }
     };
 

@@ -34,6 +34,11 @@ struct facet_value_id_t {
     }
 };
 
+struct docid_count_t {
+    uint32_t doc_id;
+    uint32_t count;
+};
+
 class facet_index_t {
 private:
     struct facet_count_t {
@@ -129,7 +134,7 @@ public:
     size_t intersect(facet& a_facet,
                      bool has_facet_query, const std::vector<std::string>& fvalue_searched_tokens,
                      const uint32_t* result_ids, size_t result_id_len,
-                     size_t max_facet_count, std::map<std::string, uint32_t>& found,
+                     size_t max_facet_count, std::map<std::string, docid_count_t>& found,
                      bool is_wildcard_no_filter_query, const std::string& sort_order = "");
     
     size_t get_facet_indexes(const std::string& field, 
