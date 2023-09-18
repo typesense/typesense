@@ -1298,7 +1298,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             // LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
 
-            std::map<std::string, uint32_t> facet_results;
+            std::map<std::string, docid_count_t> facet_results;
             std::string sort_order = a_facet.is_sort_by_alpha ? a_facet.sort_order : "";
 
             facet_index_v4->intersect(a_facet, use_facet_query,
@@ -1314,16 +1314,17 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     if(a_facet.get_range(std::stoll(doc_val), range_pair)) {
                         const auto& range_id = range_pair.first;
                         facet_count_t& facet_count = a_facet.result_map[range_id];
-                        facet_count.count = kv.second;
+                        facet_count.count = kv.second.count;
                     }
                 } else { 
                     facet_count_t& facet_count = a_facet.value_result_map[kv.first];
-                    facet_count.count = kv.second;
+                    facet_count.count = kv.second.count;
+                    facet_count.doc_id = kv.second.doc_id;
                 }
 
                 if(should_compute_stats) {
                     //LOG(INFO) << "Computing facet stas for facet " << a_facet.field_name;
-                    for(size_t i = 0; i < kv.second; ++i) {
+                    for(size_t i = 0; i < kv.second.count; ++i) {
                         compute_facet_stats(a_facet, kv.first, facet_field.type);
                     }
                 } 
