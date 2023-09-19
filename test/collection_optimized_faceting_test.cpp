@@ -1503,8 +1503,10 @@ TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParent) {
     auto results = search_op.get();
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["parent"].dump());
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
 
     //not passing facet_fields in facet_return_parent list will only return facet value, not immediate parent for those field
     search_op = coll1->search("*", {},"", {"value.color"},
@@ -1559,8 +1561,10 @@ TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParent) {
     ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
 
     ASSERT_EQ(2, results["facet_counts"][1]["counts"].size());
-    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][1]["counts"][0]["value"]);
-    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][1]["counts"][1]["value"]);
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][1]["counts"][0]["parent"].dump());
+    ASSERT_EQ("0", results["facet_counts"][1]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][1]["counts"][1]["parent"].dump());
+    ASSERT_EQ("255", results["facet_counts"][1]["counts"][1]["value"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentDeepNested) {
@@ -1623,8 +1627,10 @@ TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentDeepNested) {
     auto results = search_op.get();
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":30}}}", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":25}}}", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":30}}}", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("30", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":25}}}", results["facet_counts"][0]["counts"][1]["parent"].dump());
+    ASSERT_EQ("25", results["facet_counts"][0]["counts"][1]["value"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentObject) {
@@ -1685,8 +1691,10 @@ TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentObject) {
     auto results = search_op.get();
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["parent"].dump());
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, FacetSortByAlpha) {
