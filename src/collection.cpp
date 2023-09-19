@@ -2335,7 +2335,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
                 auto & facet_count = facet_counts[fi];
-                std::string value;
+                std::string value, parent;
                 nlohmann::json document;
 
                 if(should_fetch_doc_from_store) {
@@ -2360,7 +2360,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 }
 
                 if(the_field.nested && should_return_parent) {
-                    value = get_facet_parent(the_field.name, document);
+                    parent = get_facet_parent(the_field.name, document);
                 }
 
                 std::unordered_map<std::string, size_t> ftoken_pos;
@@ -2433,7 +2433,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     highlightedss << value[i];
                     i++;
                 }
-                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count, facet_count.sort_field_val};
+                facet_value_t facet_value = {value, highlightedss.str(), facet_count.count,
+                                             facet_count.sort_field_val, parent};
                 facet_values.emplace_back(facet_value);
             }
         }
@@ -2469,6 +2470,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             facet_value_count["value"] = value;
             facet_value_count["highlighted"] = facet_count.highlighted;
             facet_value_count["count"] = facet_count.count;
+
+            if(!facet_count.parent.empty()) {
+                facet_value_count["parent"] = facet_count.parent;
+            }
             facet_result["counts"].push_back(facet_value_count);
         }
 

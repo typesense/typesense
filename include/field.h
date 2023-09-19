@@ -687,6 +687,7 @@ struct facet_value_t {
     std::string highlighted;
     uint32_t count;
     int64_t sort_field_val;
+    std::string parent;
 };
 
 struct facet_hash_values_t {
