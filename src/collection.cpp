@@ -2335,8 +2335,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             for(size_t fi = 0; fi < max_facets; fi++) {
                 // remap facet value hash with actual string
                 auto & facet_count = facet_counts[fi];
-                std::string value, parent;
-                nlohmann::json document;
+                std::string value;
+                nlohmann::json document, parent;
 
                 if(should_fetch_doc_from_store) {
                     const std::string &seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
@@ -3081,7 +3081,7 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
     return true;
 }
 
-std::string Collection::get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const {
+nlohmann::json Collection::get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const {
     std::vector<std::string> tokens;
     StringUtils::split(facet_field_name, tokens, ".");
     std::vector<nlohmann::json> level_docs;
@@ -3108,7 +3108,7 @@ std::string Collection::get_facet_parent(const std::string& facet_field_name, co
     if(!parent_found) {
         doc = level_docs[0]; //return the top most root
     }
-    return doc.dump();
+    return doc;
 }
 
 bool Collection::is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const {
