@@ -4,6 +4,7 @@
 #include <map>
 #include <utility>
 #include <vector>
+#include <memory>
 #include "option.h"
 #include "posting_list.h"
 
@@ -14,6 +15,17 @@ struct reference_filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
 
+    explicit reference_filter_result_t(uint32_t count = 0, uint32_t* docs = nullptr) : count(count), docs(docs) {}
+
+    reference_filter_result_t(const reference_filter_result_t& obj) {
+        if (&obj == this)
+            return;
+
+        count = obj.count;
+        docs = new uint32_t[count];
+        memcpy(docs, obj.docs, count * sizeof(uint32_t));
+    }
+
     reference_filter_result_t& operator=(const reference_filter_result_t& obj) noexcept {
         if (&obj == this)
             return *this;
@@ -21,6 +33,18 @@ struct reference_filter_result_t {
         count = obj.count;
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
+
+        return *this;
+    }
+
+    reference_filter_result_t& operator=(reference_filter_result_t&& obj) noexcept {
+        if (&obj == this)
+            return *this;
+
+        count = obj.count;
+        docs = obj.docs;
+
+        obj.docs = nullptr;
 
         return *this;
     }
@@ -58,7 +82,7 @@ struct filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
     // Collection name -> Reference filter result
-    std::map<std::string, reference_filter_result_t*> reference_filter_results;
+    std::unique_ptr<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []> reference_filter_results;
 
     filter_result_t() = default;
 
@@ -72,14 +96,7 @@ struct filter_result_t {
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
 
-        // Copy every collection's references.
-        for (const auto &item: obj.reference_filter_results) {
-            auto& ref_coll_name = item.first;
-            reference_filter_results[ref_coll_name] = new reference_filter_result_t[count];
-            for (uint32_t i = 0; i < count; i++) {
-                reference_filter_results[ref_coll_name][i] = item.second[i];
-            }
-        }
+        copy_references(obj, *this);
     }
 
     filter_result_t& operator=(const filter_result_t& obj) noexcept {
@@ -90,14 +107,7 @@ struct filter_result_t {
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
 
-        // Copy every collection's references.
-        for (const auto &item: obj.reference_filter_results) {
-            reference_filter_results[item.first] = new reference_filter_result_t[count];
-
-            for (uint32_t i = 0; i < count; i++) {
-                reference_filter_results[item.first][i] = item.second[i];
-            }
-        }
+        copy_references(obj, *this);
 
         return *this;
     }
@@ -108,24 +118,22 @@ struct filter_result_t {
 
         count = obj.count;
         docs = obj.docs;
-        reference_filter_results = std::map(obj.reference_filter_results);
+        reference_filter_results = std::move(obj.reference_filter_results);
 
         obj.docs = nullptr;
-        obj.reference_filter_results.clear();
 
         return *this;
     }
 
     ~filter_result_t() {
         delete[] docs;
-        for (const auto &item: reference_filter_results) {
-            delete[] item.second;
-        }
     }
 
     static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
 
     static void or_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
+
+    static void copy_references(const filter_result_t& from, filter_result_t& to);
 };
 
 class filter_result_iterator_t {
@@ -175,7 +183,8 @@ private:
     explicit filter_result_iterator_t(uint32_t approx_filter_ids_length);
 
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
-    void get_n_ids(const uint32_t& n, filter_result_t& result);
+    /// **The references are moved from filter_result_iterator_t.
+    void get_n_ids(const uint32_t& n, filter_result_t*& result);
 
 public:
     uint32_t seq_id = 0;
@@ -221,11 +230,11 @@ public:
     void next();
 
     /// Collects n doc ids while advancing the iterator. The ids present in excluded_result_ids are ignored. The
-    /// iterator may become invalid during this operation.
+    /// iterator may become invalid during this operation. **The references are moved from filter_result_iterator_t.
     void get_n_ids(const uint32_t& n,
                    uint32_t& excluded_result_index,
                    uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                   filter_result_t& result);
+                   filter_result_t*& result);
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.

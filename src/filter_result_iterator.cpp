@@ -13,6 +13,24 @@
 #include "posting.h"
 #include "collection_manager.h"
 
+void filter_result_t::copy_references(const filter_result_t& from, filter_result_t& to) {
+    if (from.reference_filter_results == nullptr) {
+        return;
+    }
+
+    auto const& count = from.count;
+    to.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(count);
+    for (uint32_t i = 0; i < count; i++) {
+        if (from.reference_filter_results[i] == nullptr) {
+            continue;
+        }
+
+        auto& ref = to.reference_filter_results[i];
+        ref = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+        ref->insert(from.reference_filter_results[i]->begin(), from.reference_filter_results[i]->end());
+    }
+}
+
 void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
     auto lenA = a.count, lenB = b.count;
     if (lenA == 0 || lenB == 0) {
@@ -25,16 +43,8 @@ void filter_result_t::and_filter_results(const filter_result_t& a, const filter_
     const uint32_t *endA = A + lenA;
     const uint32_t *endB = B + lenB;
 
-    // Add an entry of references in the result for each unique collection in a and b.
-    for (auto const& item: a.reference_filter_results) {
-        if (result.reference_filter_results.count(item.first) == 0) {
-            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
-        }
-    }
-    for (auto const& item: b.reference_filter_results) {
-        if (result.reference_filter_results.count(item.first) == 0) {
-            result.reference_filter_results[item.first] = new reference_filter_result_t[std::min(lenA, lenB)];
-        }
+    if (a.reference_filter_results != nullptr || b.reference_filter_results != nullptr) {
+        result.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(std::min(lenA, lenB));
     }
 
     while (true) {
@@ -54,12 +64,18 @@ void filter_result_t::and_filter_results(const filter_result_t& a, const filter_
         if (*A == *B) {
             *out = *A;
 
-            // Copy the references of the document from every collection into result.
-            for (auto const& item: a.reference_filter_results) {
-                result.reference_filter_results[item.first][out - result.docs] = item.second[A - a.docs];
-            }
-            for (auto const& item: b.reference_filter_results) {
-                result.reference_filter_results[item.first][out - result.docs] = item.second[B - b.docs];
+            if (result.reference_filter_results != nullptr) {
+                // Copy the references of the document from every collection into result.
+                auto& ref = result.reference_filter_results[out - result.docs];
+                ref = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+                if (a.reference_filter_results != nullptr && a.reference_filter_results[A - a.docs] != nullptr) {
+                    ref->insert(a.reference_filter_results[A - a.docs]->begin(),
+                                a.reference_filter_results[A - a.docs]->end());
+                }
+                if (b.reference_filter_results != nullptr && b.reference_filter_results[B - b.docs] != nullptr) {
+                    ref->insert(b.reference_filter_results[B - b.docs]->begin(),
+                                b.reference_filter_results[B - b.docs]->end());
+                }
             }
 
             out++;
@@ -92,16 +108,8 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
     size_t indexA = 0, indexB = 0, res_index = 0, lenA = a.count, lenB = b.count;
     result.docs = new uint32_t[lenA + lenB];
 
-    // Add an entry of references in the result for each unique collection in a and b.
-    for (auto const& item: a.reference_filter_results) {
-        if (result.reference_filter_results.count(item.first) == 0) {
-            result.reference_filter_results[item.first] = new reference_filter_result_t[lenA + lenB];
-        }
-    }
-    for (auto const& item: b.reference_filter_results) {
-        if (result.reference_filter_results.count(item.first) == 0) {
-            result.reference_filter_results[item.first] = new reference_filter_result_t[lenA + lenB];
-        }
+    if (a.reference_filter_results != nullptr || b.reference_filter_results != nullptr) {
+        result.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(lenA + lenB);
     }
 
     while (indexA < lenA && indexB < lenB) {
@@ -112,9 +120,13 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
                 res_index++;
             }
 
-            // Copy references of the last result document from every collection in a.
-            for (auto const& item: a.reference_filter_results) {
-                result.reference_filter_results[item.first][res_index - 1] = item.second[indexA];
+            if (a.reference_filter_results != nullptr && a.reference_filter_results[indexA] != nullptr) {
+                // Copy references of the last result document from every collection in a.
+                auto &ref = result.reference_filter_results[res_index - 1];
+                if (ref == nullptr) {
+                    ref = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+                }
+                ref->insert(a.reference_filter_results[indexA]->begin(), a.reference_filter_results[indexA]->end());
             }
 
             indexA++;
@@ -124,8 +136,12 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
                 res_index++;
             }
 
-            for (auto const& item: b.reference_filter_results) {
-                result.reference_filter_results[item.first][res_index - 1] = item.second[indexB];
+            if (b.reference_filter_results != nullptr && b.reference_filter_results[indexB] != nullptr) {
+                auto &ref = result.reference_filter_results[res_index - 1];
+                if (ref == nullptr) {
+                    ref = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+                }
+                ref->insert(b.reference_filter_results[indexB]->begin(), b.reference_filter_results[indexB]->end());
             }
 
             indexB++;
@@ -138,8 +154,12 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
             res_index++;
         }
 
-        for (auto const& item: a.reference_filter_results) {
-            result.reference_filter_results[item.first][res_index - 1] = item.second[indexA];
+        if (a.reference_filter_results != nullptr && a.reference_filter_results[indexA] != nullptr) {
+            auto &ref = result.reference_filter_results[res_index - 1];
+            if (ref == nullptr) {
+                ref = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+            }
+            ref->insert(a.reference_filter_results[indexA]->begin(), a.reference_filter_results[indexA]->end());
         }
 
         indexA++;
@@ -151,8 +171,12 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
             res_index++;
         }
 
-        for (auto const& item: b.reference_filter_results) {
-            result.reference_filter_results[item.first][res_index - 1] = item.second[indexB];
+        if (b.reference_filter_results != nullptr && b.reference_filter_results[indexB] != nullptr) {
+            auto &ref = result.reference_filter_results[res_index - 1];
+            if (ref == nullptr) {
+                ref = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+            }
+            ref->insert(b.reference_filter_results[indexB]->begin(), b.reference_filter_results[indexB]->end());
         }
 
         indexB++;
@@ -160,21 +184,32 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
 
     result.count = res_index;
 
+    if (res_index == lenA + lenB) {
+        return;
+    }
+
     // shrink fit
     auto out = new uint32_t[res_index];
     memcpy(out, result.docs, res_index * sizeof(uint32_t));
     delete[] result.docs;
     result.docs = out;
 
-    for (auto &item: result.reference_filter_results) {
-        auto out_references = new reference_filter_result_t[res_index];
-
-        for (uint32_t i = 0; i < result.count; i++) {
-            out_references[i] = item.second[i];
-        }
-        delete[] item.second;
-        item.second = out_references;
+    if (result.reference_filter_results == nullptr) {
+        return;
     }
+
+    auto out_references = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(res_index);
+    for (uint32_t i = 0; i < res_index; i++) {
+        if (result.reference_filter_results[i] == nullptr) {
+            continue;
+        }
+
+        auto& ref = out_references[i];
+        ref = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+        ref->insert(result.reference_filter_results[i]->begin(), result.reference_filter_results[i]->end());
+    }
+
+    result.reference_filter_results = std::move(out_references);
 }
 
 void filter_result_iterator_t::and_filter_iterators() {
@@ -410,8 +445,10 @@ void filter_result_iterator_t::next() {
 
         seq_id = filter_result.docs[result_index];
         reference.clear();
-        for (auto const& item: filter_result.reference_filter_results) {
-            reference[item.first] = item.second[result_index];
+        if (filter_result.reference_filter_results != nullptr &&
+            filter_result.reference_filter_results[result_index] != nullptr) {
+            auto& ref = *filter_result.reference_filter_results[result_index];
+            reference.insert(ref.begin(), ref.end());
         }
 
         return;
@@ -666,8 +703,10 @@ void filter_result_iterator_t::init() {
         }
 
         seq_id = filter_result.docs[result_index];
-        for (auto const& item: filter_result.reference_filter_results) {
-            reference[item.first] = item.second[result_index];
+        if (filter_result.reference_filter_results != nullptr &&
+            filter_result.reference_filter_results[result_index] != nullptr) {
+            auto& ref = *filter_result.reference_filter_results[result_index];
+            reference.insert(ref.begin(), ref.end());
         }
 
         is_filter_result_initialized = true;
@@ -1141,8 +1180,10 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
         seq_id = filter_result.docs[result_index];
         reference.clear();
-        for (auto const& item: filter_result.reference_filter_results) {
-            reference[item.first] = item.second[result_index];
+        if (filter_result.reference_filter_results != nullptr &&
+            filter_result.reference_filter_results[result_index] != nullptr) {
+            auto& ref = *filter_result.reference_filter_results[result_index];
+            reference.insert(ref.begin(), ref.end());
         }
 
         return;
@@ -1374,8 +1415,10 @@ void filter_result_iterator_t::reset() {
         seq_id = filter_result.docs[result_index];
 
         reference.clear();
-        for (auto const& item: filter_result.reference_filter_results) {
-            reference[item.first] = item.second[result_index];
+        if (filter_result.reference_filter_results != nullptr &&
+            filter_result.reference_filter_results[result_index] != nullptr) {
+            auto& ref = *filter_result.reference_filter_results[result_index];
+            reference.insert(ref.begin(), ref.end());
         }
 
         is_valid = true;
@@ -1480,7 +1523,7 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
         return;
     }
 
-    if (filter_result.reference_filter_results.empty()) {
+    if (filter_result.reference_filter_results == nullptr) {
         if (is_filter_result_initialized) {
             result.count = ArrayUtils::and_scalar(A, lenA, filter_result.docs, filter_result.count, &result.docs);
             return;
@@ -1528,16 +1571,20 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
 
     result.count = match_indexes.size();
     result.docs = new uint32_t[match_indexes.size()];
-    for (auto const& item: filter_result.reference_filter_results) {
-        result.reference_filter_results[item.first] = new reference_filter_result_t[match_indexes.size()];
-    }
+    result.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(match_indexes.size());
 
     for (uint32_t i = 0; i < match_indexes.size(); i++) {
         auto const& match_index = match_indexes[i];
         result.docs[i] = filter_result.docs[match_index];
-        for (auto const& item: filter_result.reference_filter_results) {
-            result.reference_filter_results[item.first][i] = item.second[match_index];
+
+        if (filter_result.reference_filter_results[match_index] == nullptr) {
+            continue;
         }
+
+        auto& result_reference = result.reference_filter_results[i];
+        result_reference = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+        result_reference->insert(filter_result.reference_filter_results[match_index]->begin(),
+                                 filter_result.reference_filter_results[match_index]->end());
     }
 }
 
@@ -1618,22 +1665,28 @@ filter_result_iterator_t &filter_result_iterator_t::operator=(filter_result_iter
     return *this;
 }
 
-void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t& result) {
+void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result) {
     if (!is_filter_result_initialized) {
         return;
     }
 
-    auto result_length = result.count = std::min(n, filter_result.count - result_index);
-    result.docs = new uint32_t[result_length];
-    for (const auto &item: filter_result.reference_filter_results) {
-        result.reference_filter_results[item.first] = new reference_filter_result_t[result_length];
+    auto result_length = result->count = std::min(n, filter_result.count - result_index);
+    result->docs = new uint32_t[result_length];
+    if (filter_result.reference_filter_results != nullptr) {
+        result->reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>>[]>(result_length);
     }
 
     for (uint32_t i = 0; i < result_length; i++, result_index++) {
-        result.docs[i] = filter_result.docs[result_index];
-        for (const auto &item: filter_result.reference_filter_results) {
-            result.reference_filter_results[item.first][i] = item.second[result_index];
+        result->docs[i] = filter_result.docs[result_index];
+
+        if (filter_result.reference_filter_results == nullptr) {
+            continue;
         }
+
+        auto& result_reference = result->reference_filter_results[i];
+        // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
+        // not used afterwards.
+        result_reference = std::move(filter_result.reference_filter_results[result_index]);
     }
 
     is_valid = result_index < filter_result.count;
@@ -1642,7 +1695,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t& res
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
                                          uint32_t& excluded_result_index,
                                          uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                                         filter_result_t& result) {
+                                         filter_result_t*& result) {
     if (excluded_result_ids == nullptr || excluded_result_ids_size == 0 ||
         excluded_result_index >= excluded_result_ids_size) {
         return get_n_ids(n, result);
@@ -1663,18 +1716,24 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         }
     }
 
-    result.count = match_indexes.size();
-    result.docs = new uint32_t[match_indexes.size()];
-    for (auto const& item: filter_result.reference_filter_results) {
-        result.reference_filter_results[item.first] = new reference_filter_result_t[match_indexes.size()];
+    result->count = match_indexes.size();
+    result->docs = new uint32_t[match_indexes.size()];
+    if (filter_result.reference_filter_results != nullptr) {
+        result->reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>>[]>(match_indexes.size());
     }
 
     for (uint32_t i = 0; i < match_indexes.size(); i++) {
         auto const& match_index = match_indexes[i];
-        result.docs[i] = filter_result.docs[match_index];
-        for (auto const& item: filter_result.reference_filter_results) {
-            result.reference_filter_results[item.first][i] = item.second[match_index];
+        result->docs[i] = filter_result.docs[match_index];
+
+        if (filter_result.reference_filter_results == nullptr) {
+            continue;
         }
+
+        auto& result_reference = result->reference_filter_results[i];
+        // Moving references since get_n_ids is only called in wildcard search flow and filter_result_iterator is
+        // not used afterwards.
+        result_reference = std::move(filter_result.reference_filter_results[match_index]);
     }
 
     is_valid = result_index < filter_result.count;
