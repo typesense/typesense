@@ -2020,3 +2020,61 @@ TEST_F(CollectionVectorTest, TestMultilingualE5) {
     
     ASSERT_TRUE(semantic_results.ok());
 }
+
+
+TEST_F(CollectionVectorTest, TestTwoEmbeddingFieldsSamePrefix) {
+    nlohmann::json schema = R"({
+                            "name": "docs",
+                            "fields": [
+                                {
+                                "name": "title",
+                                "type": "string"
+                                },
+                                {
+                                "name": "embedding",
+                                "type": "float[]",
+                                "embed": {
+                                    "from": [
+                                    "title"
+                                    ],
+                                    "model_config": {
+                                    "model_name": "ts/e5-small"
+                                    }
+                                }
+                                },
+                                {
+                                "name": "embedding_en",
+                                "type": "float[]",
+                                "embed": {
+                                    "from": [
+                                    "title"
+                                    ],
+                                    "model_config": {
+                                    "model_name": "ts/e5-small"
+                                    }
+                                }
+                                }
+                            ]
+                            })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll1 = collection_create_op.get();
+
+    auto add_op = coll1->add(R"({
+        "title": "john doe"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    auto semantic_results = coll1->search("john", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>());
+
+    ASSERT_TRUE(semantic_results.ok());
+}

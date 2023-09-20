@@ -1044,6 +1044,10 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
             continue;
         }
 
+        if(!exact_key_match && text_embedding) {
+            continue;
+        }
+
         if (exact_primitive_match || is_wildcard || text_embedding ||
             // field_name prefix must be followed by a "." to indicate an object search
             (enable_nested_fields && kv.key().size() > field_name.size() && kv.key()[field_name.size()] == '.')) {
