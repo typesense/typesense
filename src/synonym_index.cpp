@@ -4,7 +4,8 @@
 void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& tokens,
                                             size_t start_window_size, size_t start_index_pos,
                                             std::set<uint64_t>& processed_syn_hashes,
-                                            std::vector<std::vector<std::string>>& results) const {
+                                            std::vector<std::vector<std::string>>& results,
+                                            const std::vector<std::string>& orig_tokens) const {
 
     bool recursed = false;
 
@@ -59,10 +60,11 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
                             syn_def_hashes.push_back(token_hash);
                         }
 
-                        if (syn_def_hash == syn_hash) {
-                            // skip over token matching itself in the group
-                            continue;
-                        }
+//                        if (syn_def_hash == syn_hash) {
+//                            // skip over token matching itself in the group
+//                            LOG(INFO) << "skipping";
+//                            continue;
+//                        }
 
                         for (size_t i = start_index + window_len; i < tokens.size(); i++) {
                             new_tokens.push_back(tokens[i]);
@@ -80,7 +82,8 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
                         }
 
                         recursed = true;
-                        synonym_reduction_internal(new_tokens, window_len, start_index, processed_syn_hashes, results);
+                        synonym_reduction_internal(new_tokens, window_len,
+                                                   start_index, processed_syn_hashes, results, orig_tokens);
                     }
                 }
             }
@@ -90,7 +93,7 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
         start_index_pos = 0;
     }
 
-    if(!recursed && !processed_syn_hashes.empty()) {
+    if(!recursed && !processed_syn_hashes.empty() && tokens != orig_tokens) {
         results.emplace_back(tokens);
     }
 }
@@ -102,7 +105,7 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
     }
 
     std::set<uint64_t> processed_syn_hashes;
-    synonym_reduction_internal(tokens, tokens.size(), 0, processed_syn_hashes, results);
+    synonym_reduction_internal(tokens, tokens.size(), 0, processed_syn_hashes, results, tokens);
 }
 
 Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, const synonym_t& synonym,

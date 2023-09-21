@@ -56,7 +56,8 @@ private:
                                     size_t start_window_size,
                                     size_t start_index_pos,
                                     std::set<uint64_t>& processed_syn_hashes,
-                                    std::vector<std::vector<std::string>>& results) const;
+                                    std::vector<std::vector<std::string>>& results,
+                                    const std::vector<std::string>& orig_tokens) const;
 
 public:
 
