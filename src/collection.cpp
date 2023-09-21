@@ -3756,6 +3756,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
     std::vector<std::string> nested_field_names;
 
+    bool found_embedding_field = false;
+
     for(auto& f: alter_fields) {
         if(f.name == ".*") {
             fields.push_back(f);
@@ -3776,6 +3778,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(f.embed.count(fields::from) != 0) {
+            found_embedding_field = true;
             embedding_fields.emplace(f.name, f);
         }
 
@@ -3834,8 +3837,24 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                 }
             }
             
-            Index::batch_memory_index(index, iter_batch, default_sorting_field, schema_additions, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true, 200, false);
+            Index::batch_memory_index(index, iter_batch, default_sorting_field, search_schema, embedding_fields,
+                                      fallback_field_type, token_separators, symbols_to_index, true, 200, found_embedding_field);
+            if(found_embedding_field) {
+                for(auto& index_record : iter_batch) {
+                    if(index_record.indexed.ok()) {
+                        remove_flat_fields(index_record.doc);
+                        const std::string& serialized_json = index_record.doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+                        bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+
+                        if(!write_ok) {
+                            LOG(ERROR) << "Inserting doc with new embedding field failed for seq id: " << index_record.seq_id;
+                            index_record.index_failure(500, "Could not write to on-disk storage.");
+                        } else {
+                            index_record.index_success();
+                        }
+                    }
+                }
+            }
 
             iter_batch.clear();
         }
