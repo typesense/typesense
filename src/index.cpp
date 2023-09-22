@@ -1732,18 +1732,17 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 
     filter_result.count = result.size();
     filter_result.docs = new uint32_t[result.size()];
-    filter_result.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(result.size());
+    filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[result.size()] {};
 
     for (uint32_t result_index = 0; result_index < result.size(); result_index++) {
         filter_result.docs[result_index] = result[result_index].first;
 
-        auto& reference_result = filter_result.reference_filter_results[result_index];
-        reference_result = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+        auto& reference_result = filter_result.coll_to_references[result_index];
 
         auto const& references = result[result_index].second;
         auto r = reference_filter_result_t(references.size(), new uint32_t[references.size()]);
         std::copy(references.begin(), references.end(), r.docs);
-        (*reference_result)[collection_name] = std::move(r);
+        reference_result[collection_name] = std::move(r);
     }
 
     return Option(true);
@@ -4707,9 +4706,8 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                 for(size_t i = 0; i < raw_infix_ids_length; i++) {
                     auto seq_id = raw_infix_ids[i];
                     std::map<std::string, reference_filter_result_t> references;
-                    if (filtered_infix_ids.reference_filter_results != nullptr &&
-                        filtered_infix_ids.reference_filter_results[i] != nullptr) {
-                        references = std::move(*filtered_infix_ids.reference_filter_results[i]);
+                    if (filtered_infix_ids.coll_to_references != nullptr) {
+                        references = std::move(filtered_infix_ids.coll_to_references[i]);
                     }
 
                     int64_t match_score = 0;
@@ -5093,9 +5091,8 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
             for(size_t i = 0; i < batch_result->count; i++) {
                 const uint32_t seq_id = batch_result->docs[i];
                 std::map<basic_string<char>, reference_filter_result_t> references;
-                if (batch_result->reference_filter_results != nullptr &&
-                    batch_result->reference_filter_results[i] != nullptr) {
-                    references = std::move(*batch_result->reference_filter_results[i]);
+                if (batch_result->coll_to_references != nullptr) {
+                    references = std::move(batch_result->coll_to_references[i]);
                 }
 
                 int64_t match_score = 0;

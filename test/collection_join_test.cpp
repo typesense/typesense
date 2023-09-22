@@ -651,7 +651,7 @@ TEST_F(CollectionJoinTest, AndFilterResults_NoReference) {
     filter_result_t::and_filter_results(a, b, result);
 
     ASSERT_EQ(2, result.count);
-    ASSERT_EQ(nullptr, result.reference_filter_results);
+    ASSERT_EQ(nullptr, result.coll_to_references);
 
     std::vector<uint32_t> docs = {3, 6};
 
@@ -664,31 +664,31 @@ TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
     filter_result_t a;
     a.count = 9;
     a.docs = new uint32_t[a.count];
-    a.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(a.count);
+    a.coll_to_references = new std::map<std::string, reference_filter_result_t>[a.count] {};
 
     for (size_t i = 0; i < a.count; i++) {
         a.docs[i] = i;
 
-        auto& reference = a.reference_filter_results[i] = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+        auto& reference = a.coll_to_references[i];
         // Having only one reference of each document for brevity.
         auto reference_docs = new uint32_t[1];
         reference_docs[0] = 10 - i;
-        (*reference)["foo"] = reference_filter_result_t(1, reference_docs);
+        reference["foo"] = reference_filter_result_t(1, reference_docs);
     }
 
     filter_result_t b;
     b.count = 0;
     uint32_t limit = 10;
     b.docs = new uint32_t[limit];
-    b.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(limit);
+    b.coll_to_references = new std::map<std::string, reference_filter_result_t>[limit] {};
     for (size_t i = 2; i < limit; i++) {
         if (i % 3 == 0) {
             b.docs[b.count] = i;
 
-            auto& reference = b.reference_filter_results[b.count++] = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+            auto& reference = b.coll_to_references[b.count++];
             auto reference_docs = new uint32_t[1];
             reference_docs[0] = 2 * i;
-            (*reference)["bar"] = reference_filter_result_t(1, reference_docs);
+            reference["bar"] = reference_filter_result_t(1, reference_docs);
         }
     }
 
@@ -697,9 +697,9 @@ TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
     filter_result_t::and_filter_results(a, b, result);
 
     ASSERT_EQ(2, result.count);
-    ASSERT_EQ(2, result.reference_filter_results[0]->size());
-    ASSERT_EQ(1, result.reference_filter_results[0]->count("foo"));
-    ASSERT_EQ(1, result.reference_filter_results[0]->count("bar"));
+    ASSERT_EQ(2, result.coll_to_references[0].size());
+    ASSERT_EQ(1, result.coll_to_references[0].count("foo"));
+    ASSERT_EQ(1, result.coll_to_references[0].count("bar"));
 
     std::vector<uint32_t> docs = {3, 6}, foo_reference = {7, 4}, bar_reference = {6, 12};
 
@@ -707,10 +707,10 @@ TEST_F(CollectionJoinTest, AndFilterResults_WithReferences) {
         ASSERT_EQ(docs[i], result.docs[i]);
 
         // result should contain correct references to the foo and bar collection.
-        ASSERT_EQ(1, result.reference_filter_results[i]->at("foo").count);
-        ASSERT_EQ(foo_reference[i], result.reference_filter_results[i]->at("foo").docs[0]);
-        ASSERT_EQ(1, result.reference_filter_results[i]->at("bar").count);
-        ASSERT_EQ(bar_reference[i], result.reference_filter_results[i]->at("bar").docs[0]);
+        ASSERT_EQ(1, result.coll_to_references[i].at("foo").count);
+        ASSERT_EQ(foo_reference[i], result.coll_to_references[i].at("foo").docs[0]);
+        ASSERT_EQ(1, result.coll_to_references[i].at("bar").count);
+        ASSERT_EQ(bar_reference[i], result.coll_to_references[i].at("bar").docs[0]);
     }
 }
 
@@ -729,7 +729,7 @@ TEST_F(CollectionJoinTest, OrFilterResults_NoReference) {
     filter_result_t result1;
     filter_result_t::or_filter_results(a, b, result1);
     ASSERT_EQ(3, result1.count);
-    ASSERT_EQ(nullptr, result1.reference_filter_results);
+    ASSERT_EQ(nullptr, result1.coll_to_references);
 
     std::vector<uint32_t> expected = {3, 6, 9};
     for (size_t i = 0; i < result1.count; i++) {
@@ -746,7 +746,7 @@ TEST_F(CollectionJoinTest, OrFilterResults_NoReference) {
     filter_result_t result2;
     filter_result_t::or_filter_results(a, b, result2);
     ASSERT_EQ(10, result2.count);
-    ASSERT_EQ(nullptr, result2.reference_filter_results);
+    ASSERT_EQ(nullptr, result2.coll_to_references);
 
     expected = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     for (size_t i = 0; i < result2.count; i++) {
@@ -766,7 +766,7 @@ TEST_F(CollectionJoinTest, OrFilterResults_NoReference) {
     // b.docs: [0..8], c.docs: [0, 4, 5]
     filter_result_t::or_filter_results(b, c, result3);
     ASSERT_EQ(9, result3.count);
-    ASSERT_EQ(nullptr, result3.reference_filter_results);
+    ASSERT_EQ(nullptr, result3.coll_to_references);
 
     expected = {0, 1, 2, 3, 4, 5, 6, 7, 8};
     for(size_t i = 0; i < result3.count; i++) {
@@ -780,15 +780,15 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
 
     a.count = 0;
     a.docs = new uint32_t[limit];
-    a.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(limit);
+    a.coll_to_references = new std::map<std::string, reference_filter_result_t>[limit] {};
     for (size_t i = 2; i < limit; i++) {
         if (i % 3 == 0) {
             a.docs[a.count] = i;
 
-            auto& reference = a.reference_filter_results[a.count++] = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+            auto& reference = a.coll_to_references[a.count++];
             auto reference_docs = new uint32_t[1];
             reference_docs[0] = 2 * i;
-            (*reference)["foo"] = reference_filter_result_t(1, reference_docs);
+            reference["foo"] = reference_filter_result_t(1, reference_docs);
         }
     }
 
@@ -797,27 +797,27 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
     filter_result_t::or_filter_results(a, b, result1);
 
     ASSERT_EQ(3, result1.count);
-    ASSERT_EQ(1, result1.reference_filter_results[0]->size());
-    ASSERT_EQ(1, result1.reference_filter_results[0]->count("foo"));
+    ASSERT_EQ(1, result1.coll_to_references[0].size());
+    ASSERT_EQ(1, result1.coll_to_references[0].count("foo"));
 
     std::vector<uint32_t> expected = {3, 6, 9}, foo_reference = {6, 12, 18};
     for (size_t i = 0; i < result1.count; i++) {
         ASSERT_EQ(expected[i], result1.docs[i]);
 
-        ASSERT_EQ(1, result1.reference_filter_results[i]->at("foo").count);
-        ASSERT_EQ(foo_reference[i], result1.reference_filter_results[i]->at("foo").docs[0]);
+        ASSERT_EQ(1, result1.coll_to_references[i].at("foo").count);
+        ASSERT_EQ(foo_reference[i], result1.coll_to_references[i].at("foo").docs[0]);
     }
 
     b.count = 9;
     b.docs = new uint32_t[b.count];
-    b.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(b.count);
+    b.coll_to_references = new std::map<std::string, reference_filter_result_t>[b.count] {};
     for (size_t i = 0; i < b.count; i++) {
         b.docs[i] = i;
 
-        auto& reference = b.reference_filter_results[i] = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+        auto& reference = b.coll_to_references[i];
         auto reference_docs = new uint32_t[1];
         reference_docs[0] = 10 - i;
-        (*reference)["bar"] = reference_filter_result_t(1, reference_docs);
+        reference["bar"] = reference_filter_result_t(1, reference_docs);
     }
 
     // a.docs: [3, 6, 9], b.docs: [0..8]
@@ -834,18 +834,18 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
         ASSERT_EQ(expected[i], result2.docs[i]);
 
         if (foo_map.count(i) != 0) {
-            ASSERT_EQ(1, result2.reference_filter_results[i]->at("foo").count);
-            ASSERT_EQ(foo_map[i], result2.reference_filter_results[i]->at("foo").docs[0]);
+            ASSERT_EQ(1, result2.coll_to_references[i].at("foo").count);
+            ASSERT_EQ(foo_map[i], result2.coll_to_references[i].at("foo").docs[0]);
         } else {
             // foo didn't have any reference to current doc.
-            ASSERT_EQ(0, result2.reference_filter_results[i]->count("foo"));
+            ASSERT_EQ(0, result2.coll_to_references[i].count("foo"));
         }
 
         if (bar_map.count(i) != 0) {
-            ASSERT_EQ(1, result2.reference_filter_results[i]->at("bar").count);
-            ASSERT_EQ(bar_map[i], result2.reference_filter_results[i]->at("bar").docs[0]);
+            ASSERT_EQ(1, result2.coll_to_references[i].at("bar").count);
+            ASSERT_EQ(bar_map[i], result2.coll_to_references[i].at("bar").docs[0]);
         } else {
-            ASSERT_EQ(0, result2.reference_filter_results[i]->count("bar"));
+            ASSERT_EQ(0, result2.coll_to_references[i].count("bar"));
         }
     }
 
@@ -854,15 +854,15 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
     std::map<uint32_t, uint32_t> baz_map = {{0, 2}, {4, 0}, {5, 8}};
     c.count = baz_map.size();
     c.docs = new uint32_t[baz_map.size()];
-    c.reference_filter_results = std::make_unique<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []>(baz_map.size());
+    c.coll_to_references = new std::map<std::string, reference_filter_result_t>[baz_map.size()] {};
     auto j = 0;
     for(auto i: baz_map) {
         c.docs[j] = i.first;
 
-        auto& reference = c.reference_filter_results[j++] = std::make_unique<std::map<std::string, reference_filter_result_t>>();
+        auto& reference = c.coll_to_references[j++];
         auto reference_docs = new uint32_t[1];
         reference_docs[0] = i.second;
-        (*reference)["baz"] = reference_filter_result_t(1, reference_docs);
+        reference["baz"] = reference_filter_result_t(1, reference_docs);
     }
 
     // b.docs: [0..8], c.docs: [0, 4, 5]
@@ -874,17 +874,17 @@ TEST_F(CollectionJoinTest, OrFilterResults_WithReferences) {
         ASSERT_EQ(expected[i], result3.docs[i]);
 
         if (bar_map.count(i) != 0) {
-            ASSERT_EQ(1, result3.reference_filter_results[i]->at("bar").count);
-            ASSERT_EQ(bar_map[i], result3.reference_filter_results[i]->at("bar").docs[0]);
+            ASSERT_EQ(1, result3.coll_to_references[i].at("bar").count);
+            ASSERT_EQ(bar_map[i], result3.coll_to_references[i].at("bar").docs[0]);
         } else {
-            ASSERT_EQ(0, result3.reference_filter_results[i]->count("bar"));
+            ASSERT_EQ(0, result3.coll_to_references[i].count("bar"));
         }
 
         if (baz_map.count(i) != 0) {
-            ASSERT_EQ(1, result3.reference_filter_results[i]->at("baz").count);
-            ASSERT_EQ(baz_map[i], result3.reference_filter_results[i]->at("baz").docs[0]);
+            ASSERT_EQ(1, result3.coll_to_references[i].at("baz").count);
+            ASSERT_EQ(baz_map[i], result3.coll_to_references[i].at("baz").docs[0]);
         } else {
-            ASSERT_EQ(0, result3.reference_filter_results[i]->count("baz"));
+            ASSERT_EQ(0, result3.coll_to_references[i].count("baz"));
         }
     }
 }

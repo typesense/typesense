@@ -18,8 +18,9 @@ struct reference_filter_result_t {
     explicit reference_filter_result_t(uint32_t count = 0, uint32_t* docs = nullptr) : count(count), docs(docs) {}
 
     reference_filter_result_t(const reference_filter_result_t& obj) {
-        if (&obj == this)
+        if (&obj == this) {
             return;
+        }
 
         count = obj.count;
         docs = new uint32_t[count];
@@ -27,8 +28,9 @@ struct reference_filter_result_t {
     }
 
     reference_filter_result_t& operator=(const reference_filter_result_t& obj) noexcept {
-        if (&obj == this)
+        if (&obj == this) {
             return *this;
+        }
 
         count = obj.count;
         docs = new uint32_t[count];
@@ -38,8 +40,9 @@ struct reference_filter_result_t {
     }
 
     reference_filter_result_t& operator=(reference_filter_result_t&& obj) noexcept {
-        if (&obj == this)
+        if (&obj == this) {
             return *this;
+        }
 
         count = obj.count;
         docs = obj.docs;
@@ -65,8 +68,9 @@ struct single_filter_result_t {
                             seq_id(seq_id), reference_filter_results(std::move(reference_filter_results)) {}
 
     single_filter_result_t(const single_filter_result_t& obj) {
-        if (&obj == this)
+        if (&obj == this) {
             return;
+        }
 
         seq_id = obj.seq_id;
 
@@ -82,15 +86,16 @@ struct filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
     // Collection name -> Reference filter result
-    std::unique_ptr<std::unique_ptr<std::map<std::string, reference_filter_result_t>> []> reference_filter_results;
+    std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr;
 
     filter_result_t() = default;
 
     filter_result_t(uint32_t count, uint32_t* docs) : count(count), docs(docs) {}
 
     filter_result_t(const filter_result_t& obj) {
-        if (&obj == this)
+        if (&obj == this) {
             return;
+        }
 
         count = obj.count;
         docs = new uint32_t[count];
@@ -100,8 +105,9 @@ struct filter_result_t {
     }
 
     filter_result_t& operator=(const filter_result_t& obj) noexcept {
-        if (&obj == this)
+        if (&obj == this) {
             return *this;
+        }
 
         count = obj.count;
         docs = new uint32_t[count];
@@ -113,20 +119,23 @@ struct filter_result_t {
     }
 
     filter_result_t& operator=(filter_result_t&& obj) noexcept {
-        if (&obj == this)
+        if (&obj == this) {
             return *this;
+        }
 
         count = obj.count;
         docs = obj.docs;
-        reference_filter_results = std::move(obj.reference_filter_results);
+        coll_to_references = obj.coll_to_references;
 
         obj.docs = nullptr;
+        obj.coll_to_references = nullptr;
 
         return *this;
     }
 
     ~filter_result_t() {
         delete[] docs;
+        delete[] coll_to_references;
     }
 
     static void and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result);
