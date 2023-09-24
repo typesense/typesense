@@ -3205,21 +3205,34 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 for(size_t res_index = 0; res_index < vec_results.size(); res_index++) {
                     auto& vec_result = vec_results[res_index];
                     auto seq_id = vec_result.first;
-                    auto result_it = topster->kv_map.find(seq_id);
-
-                    if(result_it != topster->kv_map.end()) {
-                        if(result_it->second->match_score_index < 0 || result_it->second->match_score_index > 2) {
+                    KV* found_kv = nullptr;
+                    if(group_limit == 0) {
+                        auto result_it = topster->kv_map.find(seq_id);
+                        if(result_it != topster->kv_map.end()) {
+                            found_kv = result_it->second;
+                        }
+                    } else {
+                        auto g_topster_it = topster->group_kv_map.find(get_distinct_id(group_by_fields, seq_id));
+                        if(g_topster_it != topster->group_kv_map.end()) {
+                            auto g_topster = g_topster_it->second;
+                            auto result_it = g_topster->kv_map.find(seq_id);
+                            if(result_it != g_topster->kv_map.end()) {
+                                found_kv = result_it->second;
+                            }
+                        }
+                    }
+                    if(found_kv) {
+                        if(found_kv->match_score_index < 0 || found_kv->match_score_index > 2) {
                             continue;
                         }
 
                         // result overlaps with keyword search: we have to combine the scores
 
-                        KV* kv = result_it->second;
                         // old_score + (1 / rank_of_document) * WEIGHT)
-                        kv->vector_distance = vec_result.second;
-                        kv->text_match_score  = kv->scores[kv->match_score_index];
+                        found_kv->vector_distance = vec_result.second;
+                        found_kv->text_match_score  = found_kv->scores[found_kv->match_score_index];
                         int64_t match_score = float_to_int64_t(
-                                (int64_t_to_float(kv->scores[kv->match_score_index])) +
+                                (int64_t_to_float(found_kv->scores[found_kv->match_score_index])) +
                                 ((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT));
                         int64_t match_score_index = -1;
                         int64_t scores[3] = {0};
@@ -3228,9 +3241,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                             match_score, scores, match_score_index, vec_result.second);
 
                         for(int i = 0; i < 3; i++) {
-                            kv->scores[i] = scores[i];
+                            found_kv->scores[i] = scores[i];
                         }
-                        kv->match_score_index = match_score_index;
+                        found_kv->match_score_index = match_score_index;
 
                     } else {
                         // Result has been found only in vector search: we have to add it to both KV and result_ids
@@ -3251,8 +3264,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores);
                         kv.text_match_score = 0;
                         kv.vector_distance = vec_result.second;
-                        topster->add(&kv);
+                        auto ret = topster->add(&kv);
                         vec_search_ids.push_back(seq_id);
+
+                        if(group_limit != 0 && ret < 2) {
+                            groups_processed[distinct_id]++;
+                        }
                     }
                 }
 
