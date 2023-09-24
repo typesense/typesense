@@ -1487,6 +1487,30 @@ TEST_F(CollectionNestedFieldsTest, ExplicitSchemaForNestedArrayTypeValidation) {
               "Hint: field inside an array of objects must be an array type as well.", add_op.error());
 }
 
+TEST_F(CollectionNestedFieldsTest, UnindexedNestedFieldShouldNotClutterSchema) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "block", "type": "object", "optional": true, "index": false}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "block": {"text": "Hello world."}
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // child fields should not become part of schema
+    ASSERT_EQ(1, coll1->get_fields().size());
+}
+
 TEST_F(CollectionNestedFieldsTest, SortByNestedField) {
     nlohmann::json schema = R"({
         "name": "coll1",
