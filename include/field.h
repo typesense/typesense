@@ -367,10 +367,6 @@ struct field {
                 return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
             }
 
-            if(!field.index && !field.optional) {
-                return Option<bool>(400, "Field `" + field.name + "` must be optional since it is marked as non-indexable.");
-            }
-
             if(field.name == ".*" && !field.index) {
                 return Option<bool>(400, "Field `" + field.name + "` cannot be marked as non-indexable.");
             }
