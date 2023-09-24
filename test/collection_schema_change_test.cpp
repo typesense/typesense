@@ -1793,3 +1793,46 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterDropTest) {
     ASSERT_EQ(0, vec_index.size());
     ASSERT_EQ(0, vec_index.count("embedding"));
 }
+
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "nested", "type": "object"}
+            ],
+            "enable_nested_fields": true
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["title"] = "hello";
+    doc["nested"] = nlohmann::json::object();
+    doc["nested"]["hello"] = "world";
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json schema_change = R"({
+            "fields": [
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["title"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+    
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
+
+    auto search_res = coll->search("*", {}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+
+    ASSERT_EQ(1, search_res.get()["found"].get<size_t>());
+    ASSERT_EQ(384, search_res.get()["hits"][0]["document"]["embedding"].get<std::vector<float>>().size());
+    ASSERT_EQ(1, search_res.get()["hits"][0]["document"]["nested"].size());
+    ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count(".flat"));
+    ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count("nested.hello"));
+}
