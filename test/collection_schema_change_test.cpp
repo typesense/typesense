@@ -1799,8 +1799,10 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
     nlohmann::json schema = R"({
             "name": "objects",
             "fields": [
-                {"name": "title", "type": "string"}
-            ]
+                {"name": "title", "type": "string"},
+                {"name": "nested", "type": "object"}
+            ],
+            "enable_nested_fields": true
         })"_json;
 
     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
@@ -1811,6 +1813,8 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
 
     nlohmann::json doc;
     doc["title"] = "hello";
+    doc["nested"] = nlohmann::json::object();
+    doc["nested"]["hello"] = "world";
 
     auto add_op = coll->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
@@ -1828,4 +1832,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
 
     ASSERT_EQ(1, search_res.get()["found"].get<size_t>());
     ASSERT_EQ(384, search_res.get()["hits"][0]["document"]["embedding"].get<std::vector<float>>().size());
+    ASSERT_EQ(1, search_res.get()["hits"][0]["document"]["nested"].size());
+    ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count(".flat"));
+    ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count("nested.hello"));
 }
