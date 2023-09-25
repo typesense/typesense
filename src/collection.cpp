@@ -1116,7 +1116,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_tries,
                                   const bool prioritize_num_matching_fields,
-                                  const bool group_missing_values) const {
+                                  const bool group_missing_values,
+                                  const drop_tokens_mode_t drop_tokens_mode) const {
 
     std::shared_lock lock(mutex);
 
@@ -1631,7 +1632,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query,
-                                                 facet_sample_percent, facet_sample_threshold);
+                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_mode);
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 

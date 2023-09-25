@@ -96,6 +96,11 @@ enum text_match_type_t {
     max_weight
 };
 
+enum drop_tokens_mode_t {
+    left_to_right,
+    right_to_left,
+};
+
 struct search_args {
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<search_field_t> search_fields;
@@ -146,6 +151,7 @@ struct search_args {
     vector_query_t& vector_query;
     size_t facet_sample_percent;
     size_t facet_sample_threshold;
+    drop_tokens_mode_t drop_tokens_mode;
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 const text_match_type_t match_type,
@@ -162,7 +168,7 @@ struct search_args {
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<enable_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
-                size_t facet_sample_percent, size_t facet_sample_threshold) :
+                size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_mode_t drop_tokens_mode) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -180,7 +186,8 @@ struct search_args {
             infixes(infixes), max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix),
             facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits),
             split_join_tokens(split_join_tokens), vector_query(vector_query),
-            facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold) {
+            facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold),
+            drop_tokens_mode(drop_tokens_mode) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -679,7 +686,8 @@ public:
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, enable_t split_join_tokens,
                 const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
-                const std::string& collection_name) const;
+                const std::string& collection_name,
+                const drop_tokens_mode_t drop_tokens_mode = right_to_left) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
                       const bool is_update);

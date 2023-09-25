@@ -760,6 +760,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
 
     const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
+    const char *DROP_TOKENS_MODE = "drop_tokens_mode";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -872,6 +873,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t facet_sample_threshold = 0;
 
     bool prioritize_num_matching_fields = true;
+    std::string drop_tokens_mode_str = "right_to_left";
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -909,6 +911,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {HIGHLIGHT_END_TAG, &highlight_end_tag},
         {PINNED_HITS, &pinned_hits_str},
         {HIDDEN_HITS, &hidden_hits_str},
+        {DROP_TOKENS_MODE, &drop_tokens_mode_str},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -1069,6 +1072,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
+    auto drop_tokens_mode_op = magic_enum::enum_cast<drop_tokens_mode_t>(drop_tokens_mode_str);
+    drop_tokens_mode_t drop_tokens_mode;
+    if(drop_tokens_mode_op.has_value()) {
+        drop_tokens_mode = drop_tokens_mode_op.value();
+    }
+
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
                                                           sort_fields, num_typos,
                                                           per_page,
@@ -1115,8 +1124,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           remote_embedding_timeout_ms,
                                                           remote_embedding_num_tries,
                                                           prioritize_num_matching_fields,
-                                                          group_missing_values
-                                                        );
+                                                          group_missing_values,
+                                                          drop_tokens_mode);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
