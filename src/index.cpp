@@ -1,5 +1,6 @@
 #include "index.h"
 
+#include <memory>
 #include <numeric>
 #include <chrono>
 #include <set>
@@ -1697,29 +1698,61 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
     uint32_t count = filter_result_iterator.to_filter_id_array(reference_docs);
     std::unique_ptr<uint32_t[]> docs_guard(reference_docs);
 
-    // doc id -> reference doc ids
-    std::map<uint32_t, std::vector<uint32_t>> reference_map;
-    for (uint32_t i = 0; i < count; i++) {
-        auto reference_doc_id = reference_docs[i];
-        auto doc_id = sort_index.at(reference_helper_field_name)->at(reference_doc_id);
-
-        reference_map[doc_id].push_back(reference_doc_id);
+    if (count == 0) {
+        return Option(true);
     }
 
-    filter_result.count = reference_map.size();
-    filter_result.docs = new uint32_t[reference_map.size()];
-    filter_result.reference_filter_results[collection_name] = new reference_filter_result_t[reference_map.size()];
+    // Collect all the doc ids from the reference ids.
+    std::vector<std::pair<uint32_t, uint32_t>> id_pairs;
+    std::unordered_set<uint32_t> unique_doc_ids;
+    auto const& ref_index = *sort_index.at(reference_helper_field_name);
+    for (uint32_t i = 0; i < count; i++) {
+        auto& reference_doc_id = reference_docs[i];
+        auto doc_id = ref_index.at(reference_doc_id);
 
-    size_t doc_index = 0;
-    for (auto &item: reference_map) {
-        filter_result.docs[doc_index] = item.first;
+        id_pairs.emplace_back(std::pair(doc_id, reference_doc_id));
+        unique_doc_ids.insert(doc_id);
+    }
 
-        auto& reference_result = filter_result.reference_filter_results[collection_name][doc_index];
-        reference_result.count = item.second.size();
-        reference_result.docs = new uint32_t[item.second.size()];
-        std::copy(item.second.begin(), item.second.end(), reference_result.docs);
+    std::sort(id_pairs.begin(), id_pairs.end(), [](auto const& left, auto const& right) {
+        return left.first < right.first;
+    });
 
-        doc_index++;
+    filter_result.count = unique_doc_ids.size();
+    filter_result.docs = new uint32_t[unique_doc_ids.size()];
+    filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[unique_doc_ids.size()] {};
+
+    std::vector<uint32_t> previous_doc_references;
+    for (uint32_t i = 0, previous_doc = id_pairs[0].first + 1, result_index = 0; i < id_pairs.size(); i++) {
+        auto const& current_doc = id_pairs[i].first;
+        auto const& reference_doc_id = id_pairs[i].second;
+
+        if (current_doc != previous_doc) {
+            filter_result.docs[result_index] = current_doc;
+            if (result_index > 0) {
+                auto& reference_result = filter_result.coll_to_references[result_index - 1];
+
+                auto r = reference_filter_result_t(previous_doc_references.size(), new uint32_t[previous_doc_references.size()]);
+                std::copy(previous_doc_references.begin(), previous_doc_references.end(), r.docs);
+                reference_result[collection_name] = std::move(r);
+
+                previous_doc_references.clear();
+            }
+
+            result_index++;
+            previous_doc = current_doc;
+            previous_doc_references.push_back(reference_doc_id);
+        } else {
+            previous_doc_references.push_back(reference_doc_id);
+        }
+    }
+
+    if (!previous_doc_references.empty()) {
+        auto& reference_result = filter_result.coll_to_references[filter_result.count - 1];
+
+        auto r = reference_filter_result_t(previous_doc_references.size(), new uint32_t[previous_doc_references.size()]);
+        std::copy(previous_doc_references.begin(), previous_doc_references.end(), r.docs);
+        reference_result[collection_name] = std::move(r);
     }
 
     return Option(true);
@@ -2287,6 +2320,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         filter_iterator_guard.reset(filter_result_iterator);
 
         if (!do_phrase_search_op.ok()) {
+            delete [] all_result_ids;
             return do_phrase_search_op;
         }
 
@@ -4692,9 +4726,9 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
 
                 for(size_t i = 0; i < raw_infix_ids_length; i++) {
                     auto seq_id = raw_infix_ids[i];
-                    std::map<basic_string<char>, reference_filter_result_t> references;
-                    for (const auto& item: filtered_infix_ids.reference_filter_results) {
-                        references[item.first] = item.second[i];
+                    std::map<std::string, reference_filter_result_t> references;
+                    if (filtered_infix_ids.coll_to_references != nullptr) {
+                        references = std::move(filtered_infix_ids.coll_to_references[i]);
                     }
 
                     int64_t match_score = 0;
@@ -5049,9 +5083,9 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     Option<bool>* compute_sort_score_statuses[num_threads];
 
     for(size_t thread_id = 0; thread_id < num_threads && filter_result_iterator->is_valid; thread_id++) {
-        filter_result_t batch_result;
+        auto batch_result = new filter_result_t();
         filter_result_iterator->get_n_ids(window_size, excluded_result_index, exclude_token_ids,
-                                              exclude_token_ids_size, batch_result);
+                                          exclude_token_ids_size, batch_result);
 
         num_queued++;
 
@@ -5067,6 +5101,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                               check_for_circuit_break,
                               batch_result,
                               &num_processed, &m_process, &cv_process, &compute_sort_score_status, collection_name]() {
+            std::unique_ptr<filter_result_t> batch_result_guard(batch_result);
 
             search_begin_us = parent_search_begin;
             search_stop_us = parent_search_stop_ms;
@@ -5074,11 +5109,11 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
             size_t filter_index = 0;
 
-            for(size_t i = 0; i < batch_result.count; i++) {
-                const uint32_t seq_id = batch_result.docs[i];
+            for(size_t i = 0; i < batch_result->count; i++) {
+                const uint32_t seq_id = batch_result->docs[i];
                 std::map<basic_string<char>, reference_filter_result_t> references;
-                for (const auto& item: batch_result.reference_filter_results) {
-                    references[item.first] = item.second[i];
+                if (batch_result->coll_to_references != nullptr) {
+                    references = std::move(batch_result->coll_to_references[i]);
                 }
 
                 int64_t match_score = 0;
