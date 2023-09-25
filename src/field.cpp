@@ -549,6 +549,10 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
     std::unordered_map<std::string, field> flattened_fields_map;
 
     for(auto& nested_field: nested_fields) {
+        if(!nested_field.index) {
+            continue;
+        }
+
         std::vector<std::string> field_parts;
         StringUtils::split(nested_field.name, field_parts, ".");
 

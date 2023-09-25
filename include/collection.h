@@ -497,7 +497,8 @@ public:
                                   const size_t remote_embedding_num_tries = 2,
                                   const std::string& stopwords_set="",
                                   const std::vector<std::string>& facet_return_parent = {},
-                                  const std::vector<ref_include_fields>& ref_include_fields_vec = {}) const;
+                                  const std::vector<ref_include_fields>& ref_include_fields_vec = {},
+                                  const drop_tokens_mode_t drop_tokens_mode = right_to_left) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

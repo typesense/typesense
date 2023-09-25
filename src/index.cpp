@@ -1795,7 +1795,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->facet_sample_percent,
            search_params->facet_sample_threshold,
            collection_name,
-           facet_index_type);
+           facet_index_type,
+           search_params->drop_tokens_mode);
 }
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
@@ -2244,7 +2245,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const bool filter_curated_hits, const enable_t split_join_tokens,
                    const vector_query_t& vector_query,
                    size_t facet_sample_percent, size_t facet_sample_threshold,
-                   const std::string& collection_name, facet_index_type_t facet_index_type) const {
+                   const std::string& collection_name,
+                   facet_index_type_t facet_index_type,
+                   const drop_tokens_mode_t drop_tokens_mode) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root);
@@ -2644,16 +2647,24 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             for (size_t qi = 0; qi < all_queries.size(); qi++) {
                 auto& orig_tokens = all_queries[qi];
                 size_t num_tokens_dropped = 0;
+                auto curr_direction = drop_tokens_mode;
+                size_t total_dirs_done = 0;
 
                 while(exhaustive_search || all_result_ids_len < drop_tokens_threshold) {
                     // When atleast two tokens from the query are available we can drop one
                     std::vector<token_t> truncated_tokens;
                     std::vector<token_t> dropped_tokens;
 
-                    if(orig_tokens.size() > 1 && num_tokens_dropped < 2*(orig_tokens.size()-1)) {
-                        bool prefix_search = false;
+                    if(num_tokens_dropped >= orig_tokens.size() - 1) {
+                        // swap direction and reset counter
+                        curr_direction = (curr_direction == right_to_left) ? left_to_right : right_to_left;
+                        num_tokens_dropped = 0;
+                        total_dirs_done++;
+                    }
 
-                        if (num_tokens_dropped < orig_tokens.size() - 1) {
+                    if(orig_tokens.size() > 1 && total_dirs_done < 2) {
+                        bool prefix_search = false;
+                        if (curr_direction == right_to_left) {
                             // drop from right
                             size_t truncated_len = orig_tokens.size() - num_tokens_dropped - 1;
                             for (size_t i = 0; i < orig_tokens.size(); i++) {
@@ -2666,7 +2677,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         } else {
                             // drop from left
                             prefix_search = true;
-                            size_t start_index = (num_tokens_dropped + 1) - orig_tokens.size() + 1;
+                            size_t start_index = (num_tokens_dropped + 1);
                             for(size_t i = 0; i < orig_tokens.size(); i++) {
                                 if(i >= start_index) {
                                     truncated_tokens.emplace_back(orig_tokens[i]);
