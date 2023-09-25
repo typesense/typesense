@@ -4,7 +4,6 @@
 #include <map>
 #include <utility>
 #include <vector>
-#include <memory>
 #include "option.h"
 #include "posting_list.h"
 

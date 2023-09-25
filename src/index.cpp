@@ -1704,44 +1704,54 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 
     // Collect all the doc ids from the reference ids.
     std::vector<std::pair<uint32_t, uint32_t>> id_pairs;
+    std::unordered_set<uint32_t> unique_doc_ids;
     auto const& ref_index = *sort_index.at(reference_helper_field_name);
     for (uint32_t i = 0; i < count; i++) {
         auto& reference_doc_id = reference_docs[i];
         auto doc_id = ref_index.at(reference_doc_id);
 
         id_pairs.emplace_back(std::pair(doc_id, reference_doc_id));
+        unique_doc_ids.insert(doc_id);
     }
 
     std::sort(id_pairs.begin(), id_pairs.end(), [](auto const& left, auto const& right) {
         return left.first < right.first;
     });
 
-    // Aggregate reference ids of every doc.
-    std::vector<std::pair<uint32_t, std::vector<uint32_t>>> result;
-    for (uint32_t i = 0, current_doc = id_pairs[0].first + 1; i < id_pairs.size(); i++) {
-        auto const& doc_id = id_pairs[i].first;
+    filter_result.count = unique_doc_ids.size();
+    filter_result.docs = new uint32_t[unique_doc_ids.size()];
+    filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[unique_doc_ids.size()] {};
+
+    std::vector<uint32_t> previous_doc_references;
+    for (uint32_t i = 0, previous_doc = id_pairs[0].first + 1, result_index = 0; i < id_pairs.size(); i++) {
+        auto const& current_doc = id_pairs[i].first;
         auto const& reference_doc_id = id_pairs[i].second;
 
-        if (doc_id != current_doc) {
-            result.emplace_back(std::pair<uint32_t, std::vector<uint32_t>>(doc_id, {reference_doc_id}));
-            current_doc = doc_id;
+        if (current_doc != previous_doc) {
+            filter_result.docs[result_index] = current_doc;
+            if (result_index > 0) {
+                auto& reference_result = filter_result.coll_to_references[result_index - 1];
+
+                auto r = reference_filter_result_t(previous_doc_references.size(), new uint32_t[previous_doc_references.size()]);
+                std::copy(previous_doc_references.begin(), previous_doc_references.end(), r.docs);
+                reference_result[collection_name] = std::move(r);
+
+                previous_doc_references.clear();
+            }
+
+            result_index++;
+            previous_doc = current_doc;
+            previous_doc_references.push_back(reference_doc_id);
         } else {
-            result.back().second.push_back(reference_doc_id);
+            previous_doc_references.push_back(reference_doc_id);
         }
     }
 
-    filter_result.count = result.size();
-    filter_result.docs = new uint32_t[result.size()];
-    filter_result.coll_to_references = new std::map<std::string, reference_filter_result_t>[result.size()] {};
+    if (!previous_doc_references.empty()) {
+        auto& reference_result = filter_result.coll_to_references[filter_result.count - 1];
 
-    for (uint32_t result_index = 0; result_index < result.size(); result_index++) {
-        filter_result.docs[result_index] = result[result_index].first;
-
-        auto& reference_result = filter_result.coll_to_references[result_index];
-
-        auto const& references = result[result_index].second;
-        auto r = reference_filter_result_t(references.size(), new uint32_t[references.size()]);
-        std::copy(references.begin(), references.end(), r.docs);
+        auto r = reference_filter_result_t(previous_doc_references.size(), new uint32_t[previous_doc_references.size()]);
+        std::copy(previous_doc_references.begin(), previous_doc_references.end(), r.docs);
         reference_result[collection_name] = std::move(r);
     }
 
