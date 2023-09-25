@@ -1689,3 +1689,116 @@ TEST_F(CollectionFacetingTest, FacetOnArrayFieldWithSpecialChars) {
         }
     }
 }
+
+TEST_F(CollectionFacetingTest, RangeFacetTestWithGroupBy) {
+    std::vector<field> fields = {field("place", field_types::STRING, false),
+                                 field("state", field_types::STRING, true),
+                                 field("visitors", field_types::INT32, true),
+                                 field("rating", field_types::FLOAT, true),
+                                 field("trackingFrom", field_types::INT32, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "", {}, {}
+    ).get();
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["place"] = "Mysore Palace";
+    doc1["state"] = "Karnataka";
+    doc1["visitors"] = 235486;
+    doc1["rating"] = 4.7;
+    doc1["trackingFrom"] = 1900;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["place"] = "Hampi";
+    doc2["state"] = "Karnataka";
+    doc2["visitors"] = 187654;
+    doc2["rating"] = 2.9;
+    doc2["trackingFrom"] = 1900;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["place"] = "Mahabalipuram";
+    doc3["state"] = "TamilNadu";
+    doc3["visitors"] = 174684;
+    doc3["rating"] = 3.8;
+    doc3["trackingFrom"] = 1900;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["place"] = "Meenakshi Amman Temple";
+    doc4["state"] = "TamilNadu";
+    doc4["visitors"] = 246676;
+    doc4["rating"] = 4.5;
+    doc4["trackingFrom"] = 2000;
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["place"] = "Staue of Unity";
+    doc5["state"] = "Gujarat";
+    doc5["visitors"] = 345878;
+    doc5["rating"] = 3.5;
+    doc5["trackingFrom"] = 2000;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    auto result = coll1->search("Karnataka", {"state"},
+                                "", {"visitors(Busy:[0, 200000], VeryBusy:[200000, 500000])"},
+                                {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                10, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000,
+                                true, false, true, "", true);
+    if(!result.ok()) {
+        LOG(INFO) << result.error();
+    }
+
+    auto results = result.get();
+
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("Busy", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("VeryBusy", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+
+    //apply group_by
+    result = coll1->search("*", {"state"},
+                           "", {"visitors(Busy:[0, 200000], VeryBusy:[200000, 500000])"},
+                           {}, {2}, 10,
+                           1, FREQUENCY, {true},
+                           10, spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "",
+                           30, 4, "", 10,
+                           {}, {}, {"state"}, 10,"<mark>",
+                           "</mark>", {}, 1000,true,
+                           false, true, "", true);
+
+    if(!result.ok()) {
+        LOG(INFO) << result.error();
+    }
+
+    results = result.get();
+
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("VeryBusy", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("Busy", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+
+    ASSERT_EQ(3, results["grouped_hits"].size());
+
+    ASSERT_EQ(1, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ("Gujarat", results["grouped_hits"][0]["group_key"][0]);
+
+    ASSERT_EQ(2, results["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ("TamilNadu", results["grouped_hits"][1]["group_key"][0]);
+
+    ASSERT_EQ(2, results["grouped_hits"][2]["hits"].size());
+    ASSERT_EQ("Karnataka", results["grouped_hits"][2]["group_key"][0]);
+
+    collectionManager.drop_collection("coll1");
+}

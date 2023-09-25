@@ -3351,22 +3351,21 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 auto& acc_facet = facets[fi];
 
                 for(auto & facet_kv: this_facet.result_map) {
-                    if(group_limit) {
+                    if (group_limit) {
                         // we have to add all group sets
                         acc_facet.hash_groups[facet_kv.first].insert(
-                            this_facet.hash_groups[facet_kv.first].begin(),
-                            this_facet.hash_groups[facet_kv.first].end()
+                                this_facet.hash_groups[facet_kv.first].begin(),
+                                this_facet.hash_groups[facet_kv.first].end()
                         );
-                    } else {
-                        size_t count = 0;
-                        if(acc_facet.result_map.count(facet_kv.first) == 0) {
-                            // not found, so set it
-                            count = facet_kv.second.count;
-                        } else {
-                            count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
-                        }
-                        acc_facet.result_map[facet_kv.first].count = count;
                     }
+                    size_t count = 0;
+                    if (acc_facet.result_map.count(facet_kv.first) == 0) {
+                        // not found, so set it
+                        count = facet_kv.second.count;
+                    } else {
+                        count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
+                    }
+                    acc_facet.result_map[facet_kv.first].count = count;
 
                     acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
                     acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
@@ -3384,7 +3383,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         for(auto & acc_facet: facets) {
             for(auto& facet_kv: acc_facet.result_map) {
-                if(group_limit) {
+                if(group_limit && !acc_facet.is_range_query) {
                     facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
                 }
 
