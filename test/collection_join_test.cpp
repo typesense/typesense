@@ -482,6 +482,21 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ("soap", result["hits"][0]["document"]["product_name"].get<std::string>());
 
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "Dan"},
+            {"query_by", "customer_name"},
+            {"filter_by", "$Products(id:*) && product_price:<100"},
+    };
+
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("soap", result["hits"][0]["document"]["product_name"].get<std::string>());
+
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
 }

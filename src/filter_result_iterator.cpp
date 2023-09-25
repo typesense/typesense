@@ -659,7 +659,8 @@ void filter_result_iterator_t::init() {
                 values.push_back(std::to_string(result.docs[i]));
             }
 
-            filter filter_exp = {get_reference_field_op.get(), std::move(values), {EQUALS}};
+            filter filter_exp = {get_reference_field_op.get(), std::move(values),
+                                 std::vector<NUM_COMPARATOR>(result.count, EQUALS)};
 
             auto filter_tree_root = new filter_node_t(filter_exp);
             std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
