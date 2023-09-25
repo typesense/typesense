@@ -1972,7 +1972,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 wrapper_doc["geo_distance_meters"] = geo_distances;
             }
 
-            if(!vector_query.field_name.empty()) {
+            if(!vector_query.field_name.empty() && field_order_kv->vector_distance > 0) {
                 wrapper_doc["vector_distance"] = field_order_kv->vector_distance;
             }
 
