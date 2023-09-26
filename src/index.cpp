@@ -1257,6 +1257,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                                 int64_t range_id = range_pair.first;
                                 facet_count_t& facet_count = a_facet.result_map[range_id];
                                 facet_count.count += 1;
+
+                                if(group_limit) {
+                                    a_facet.hash_groups[range_id].emplace(distinct_id);
+                                }
                             }
                         }
                     }
@@ -3359,7 +3363,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         );
                     } else {
                         size_t count = 0;
-                        if(acc_facet.result_map.count(facet_kv.first) == 0) {
+                        if (acc_facet.result_map.count(facet_kv.first) == 0) {
                             // not found, so set it
                             count = facet_kv.second.count;
                         } else {
