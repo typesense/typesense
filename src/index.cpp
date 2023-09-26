@@ -1257,6 +1257,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                                 int64_t range_id = range_pair.first;
                                 facet_count_t& facet_count = a_facet.result_map[range_id];
                                 facet_count.count += 1;
+
+                                if(group_limit) {
+                                    a_facet.hash_groups[range_id].emplace(distinct_id);
+                                }
                             }
                         }
                     }
@@ -3357,15 +3361,16 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                 this_facet.hash_groups[facet_kv.first].begin(),
                                 this_facet.hash_groups[facet_kv.first].end()
                         );
-                    }
-                    size_t count = 0;
-                    if (acc_facet.result_map.count(facet_kv.first) == 0) {
-                        // not found, so set it
-                        count = facet_kv.second.count;
                     } else {
-                        count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
+                        size_t count = 0;
+                        if (acc_facet.result_map.count(facet_kv.first) == 0) {
+                            // not found, so set it
+                            count = facet_kv.second.count;
+                        } else {
+                            count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
+                        }
+                        acc_facet.result_map[facet_kv.first].count = count;
                     }
-                    acc_facet.result_map[facet_kv.first].count = count;
 
                     acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
                     acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
@@ -3383,7 +3388,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         for(auto & acc_facet: facets) {
             for(auto& facet_kv: acc_facet.result_map) {
-                if(group_limit && !acc_facet.is_range_query) {
+                if(group_limit) {
                     facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
                 }
 
