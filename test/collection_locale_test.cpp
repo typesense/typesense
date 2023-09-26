@@ -839,6 +839,34 @@ TEST_F(CollectionLocaleTest, SearchOnArabicTextWithTypo) {
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionLocaleTest, SearchOnBulgarianText) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, "bg"),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    std::string title1 = "Сърце от любов";
+    std::string title2 = "Съблезъб тигър";
+    std::string title3 = "Сърна";
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = title1;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = title2;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["title"] = title3;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("Сърце", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionLocaleTest, HighlightOfAllQueryTokensShouldConsiderUnicodePoints) {
     // For perfomance reasons, we highlight all query tokens in a text only on smaller text
     // Here, "small" threshold must be defined using unicode points and not raw string size.

@@ -418,7 +418,11 @@ Option<bool> toFilter(const std::string expression,
         filter_exp = {field_name, {}, {}};
         NUM_COMPARATOR id_comparator = EQUALS;
         size_t filter_value_index = 0;
-        if (raw_value[0] == '=') {
+        if (raw_value == "*") { // Match all.
+            // NOT_EQUALS comparator with no id match will get all the ids.
+            id_comparator = NOT_EQUALS;
+            filter_exp.apply_not_equals = true;
+        } else if (raw_value[0] == '=') {
             id_comparator = EQUALS;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         } else if (raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {

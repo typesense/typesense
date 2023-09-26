@@ -233,6 +233,15 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
             break;
         }
 
+        auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        if(now_ts_seconds - prev_persistence_s < Config::get_instance().get_analytics_flush_interval()) {
+            // we will persist aggregation every hour
+            // LOG(INFO) << "QuerySuggestions::run interval is less, continuing";
+            continue;
+        }
+
         persist_suggestions(raft_server, prev_persistence_s);
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -263,13 +272,6 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
         auto now = std::chrono::system_clock::now().time_since_epoch();
         auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
         popularQueries->compact_user_queries(now_ts_us);
-
-        auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(now).count();
-
-        if(now_ts_seconds - prev_persistence_s < Config::get_instance().get_analytics_flush_interval()) {
-            // we will persist aggregation every hour
-            continue;
-        }
 
         std::string import_payload;
         popularQueries->serialize_as_docs(import_payload);

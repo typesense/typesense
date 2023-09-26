@@ -221,6 +221,7 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
     }
 
     nlohmann::json res_json;
+
     try {
         res_json = nlohmann::json::parse(res);
     } catch (const std::exception& e) {
@@ -232,8 +233,21 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
         }
         return outputs;
     }
+
+    if(res_json.count("data") == 0 || !res_json["data"].is_array() || res_json["data"].size() != inputs.size()) {
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from OpenAI API."));
+        }
+        return outputs;
+    }
+
     std::vector<embedding_res_t> outputs;
     for(auto& data : res_json["data"]) {
+        if(data.count("embedding") == 0 || !data["embedding"].is_array() || data["embedding"].size() == 0) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from OpenAI API."));
+            continue;
+        }
         outputs.push_back(embedding_res_t(data["embedding"].get<std::vector<float>>()));
     }
 
@@ -577,7 +591,20 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
         return outputs;
     }
     std::vector<embedding_res_t> outputs;
+
+    if(res_json.count("predictions") == 0 || !res_json["predictions"].is_array() || res_json["predictions"].size() != inputs.size()) {
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from GCP API."));
+        }
+        return outputs;
+    }
+
     for(const auto& prediction : res_json["predictions"]) {
+        if(prediction.count("embeddings") == 0 || !prediction["embeddings"].is_object() || prediction["embeddings"].count("values") == 0 || !prediction["embeddings"]["values"].is_array() || prediction["embeddings"]["values"].size() == 0) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from GCP API."));
+            continue;
+        }
         outputs.push_back(embedding_res_t(prediction["embeddings"]["values"].get<std::vector<float>>()));
     }
 

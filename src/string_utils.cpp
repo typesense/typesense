@@ -516,6 +516,14 @@ Option<bool> StringUtils::split_include_fields(const std::string& include_fields
             }
 
             include_field = include_fields.substr(range_pos, (end - range_pos) + 1);
+
+            comma_pos = include_fields.find(',', end);
+            auto as_pos = include_fields.find(" as ", end);
+            if (as_pos != std::string::npos && as_pos < comma_pos) {
+                auto alias = include_fields.substr(as_pos, (comma_pos - as_pos));
+                end += alias.size() + 1;
+                include_field += (" " + trim(alias));
+            }
         } else {
             end = comma_pos;
             include_field = include_fields.substr(start, end - start);

@@ -1014,6 +1014,65 @@ TEST_F(CollectionSynonymsTest, SynonymForKorean) {
     ASSERT_EQ(3, res["hits"].size());
 }
 
+TEST_F(CollectionSynonymsTest, MultipleSynonymSubstitution) {
+    nlohmann::json schema = R"({
+        "name": "coll2",
+        "fields": [
+          {"name": "title", "type": "string"},
+          {"name": "gender", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+
+    std::vector<std::vector<std::string>> records = {
+            {"Beautiful Blazer", "Male"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["gender"] = records[i][1];
+
+        auto add_op = coll2->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    nlohmann::json synonym1 = R"({
+        "id": "foobar",
+        "synonyms": ["blazer", "suit"]
+    })"_json;
+
+    nlohmann::json synonym2 = R"({
+        "id": "foobar2",
+        "synonyms": ["male", "man"]
+    })"_json;
+
+
+    ASSERT_TRUE(coll2->add_synonym(synonym1).ok());
+    ASSERT_TRUE(coll2->add_synonym(synonym2).ok());
+
+    auto res = coll2->search("blazer male", {"title", "gender"}, "", {},
+                             {}, {0}, 10, 1, FREQUENCY, {true},0).get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    res = coll2->search("blazer man", {"title", "gender"}, "", {},
+                             {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    res = coll2->search("suit male", {"title", "gender"}, "", {},
+                             {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    res = coll2->search("suit man", {"title", "gender"}, "", {},
+                             {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+}
+
 TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
     std::shared_ptr<http_res> resp = std::make_shared<http_res>(nullptr);

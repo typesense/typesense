@@ -128,6 +128,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
                 transliterator->transliterate(raw_text);
                 raw_text.toUTF8String(word);
+                StringUtils::replace_all(word, "\"", "");
             } else if(normalize && locale == "th") {
                 UErrorCode errcode = U_ZERO_ERROR;
                 icu::UnicodeString src = unicode_text.tempSubStringBetween(start_pos, end_pos);
@@ -336,7 +337,7 @@ bool Tokenizer::next(std::string &token, size_t &token_index) {
 }
 
 bool Tokenizer::is_cyrillic(const std::string& locale) {
-    return locale == "el" ||
+    return locale == "el" || locale == "bg" ||
            locale == "ru" || locale == "sr" || locale == "uk" || locale == "be";
 }
 
