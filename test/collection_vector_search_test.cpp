@@ -1830,13 +1830,13 @@ TEST_F(CollectionVectorTest, GroupByWithVectorSearch) {
     auto res = coll1->search("title", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                      spp::sparse_hash_set<std::string>(),
                      spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
-                     "", 10, {}, {}, {"group"}, 1,
+                     "", 10, {}, {}, {"group"}, 3,
                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                      4, {off}, 32767, 32767, 2,
                      false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488])").get();
 
     ASSERT_EQ(1, res["grouped_hits"].size());
-    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(3, res["grouped_hits"][0]["hits"].size());
     ASSERT_EQ(1, res["grouped_hits"][0]["hits"][0].count("vector_distance"));
 
     res = coll1->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,

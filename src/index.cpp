@@ -3187,11 +3187,26 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     return a.second < b.second;
                 });
 
+                std::vector<KV*> kvs;
+                if(group_limit != 0) {
+                    for(auto& kv_map : topster->group_kv_map) {
+                        for(int i = 0; i < kv_map.second->size; i++) {
+                            kvs.push_back(kv_map.second->getKV(i));
+                        }
+                    }
+                } else {
+                    for(int i = 0; i < topster->size; i++) {
+                        kvs.push_back(topster->getKV(i));
+                    }
+                }
+
+                std::sort(kvs.begin(), kvs.end(), Topster::is_greater);
+
                 topster->sort();
                 // Reciprocal rank fusion
                 // Score is  sum of (1 / rank_of_document) * WEIGHT from each list (text match and vector search)
-                for(uint32_t i = 0; i < topster->size; i++) {
-                    auto result = topster->getKV(i);
+                for(uint32_t i = 0; i < kvs.size(); i++) {
+                    auto result = kvs[i];
                     if(result->match_score_index < 0 || result->match_score_index > 2) {
                         continue;
                     }
