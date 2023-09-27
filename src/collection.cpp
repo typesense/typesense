@@ -1114,7 +1114,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t facet_sample_threshold,
                                   const size_t page_offset,
                                   const size_t remote_embedding_timeout_ms,
-                                  const size_t remote_embedding_num_tries) const {
+                                  const size_t remote_embedding_num_tries,
+                                  const bool prioritize_num_matching_fields) const {
 
     std::shared_lock lock(mutex);
 
@@ -1608,6 +1609,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  drop_tokens_threshold, typo_tokens_threshold,
                                                  group_by_fields, group_limit, default_sorting_field,
                                                  prioritize_exact_match, prioritize_token_position,
+                                                 prioritize_num_matching_fields,
                                                  exhaustive_search, 4,
                                                  search_stop_millis,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,

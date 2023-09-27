@@ -119,6 +119,7 @@ struct search_args {
     std::string default_sorting_field;
     bool prioritize_exact_match;
     bool prioritize_token_position;
+    bool prioritize_num_matching_fields;
     size_t all_result_ids_len;
     bool exhaustive_search;
     size_t concurrency;
@@ -154,7 +155,7 @@ struct search_args {
                 const std::vector<bool>& prefixes, size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
                 const string& default_sorting_field, bool prioritize_exact_match,
-                const bool prioritize_token_position, bool exhaustive_search,
+                const bool prioritize_token_position, const bool prioritize_num_matching_fields, bool exhaustive_search,
                 size_t concurrency, size_t search_cutoff_ms,
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<enable_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
@@ -168,6 +169,7 @@ struct search_args {
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
             prioritize_exact_match(prioritize_exact_match), prioritize_token_position(prioritize_token_position),
+            prioritize_num_matching_fields(prioritize_num_matching_fields),
             all_result_ids_len(0), exhaustive_search(exhaustive_search), concurrency(concurrency),
             search_cutoff_ms(search_cutoff_ms),
             min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo), max_candidates(max_candidates),
@@ -436,6 +438,7 @@ private:
                                bool prioritize_exact_match,
                                const bool prioritize_token_position,
                                const bool exhaustive_search,
+                               const bool prioritize_num_matching_fields,
                                const size_t max_candidates,
                                int syn_orig_num_tokens,
                                const int* sort_order,
@@ -657,7 +660,8 @@ public:
                 const size_t typo_tokens_threshold, const size_t group_limit,
                 const std::vector<std::string>& group_by_fields,
                 const string& default_sorting_field, bool prioritize_exact_match,
-                const bool prioritize_token_position, bool exhaustive_search,
+                const bool prioritize_token_position, const bool prioritize_num_matching_fields,
+                bool exhaustive_search,
                 size_t concurrency, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
                 size_t max_candidates, const std::vector<enable_t>& infixes, const size_t max_extra_prefix,
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
@@ -802,6 +806,7 @@ public:
                            const size_t typo_tokens_threshold, const size_t group_limit,
                            const std::vector<std::string>& group_by_fields, bool prioritize_exact_match,
                            const bool prioritize_token_position,
+                           const bool prioritize_num_matching_fields,
                            const bool exhaustive_search, const size_t concurrency,
                            const std::vector<bool>& prefixes,
                            size_t min_len_1typo,
@@ -860,6 +865,7 @@ public:
                              const size_t group_limit, const std::vector<std::string>& group_by_fields,
                              bool prioritize_exact_match,
                              const bool prioritize_token_position,
+                             const bool prioritize_num_matching_fields,
                              std::set<uint64>& query_hashes,
                              const token_ordering token_order,
                              const std::vector<bool>& prefixes,
@@ -899,6 +905,7 @@ public:
                               const std::vector<std::string>& group_by_fields,
                               bool prioritize_exact_match,
                               const bool search_all_candidates,
+                              const bool prioritize_num_matching_fields,
                               const uint32_t* filter_ids, uint32_t filter_ids_length,
                               const uint32_t total_cost,
                               const int syn_orig_num_tokens,
