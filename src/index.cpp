@@ -3202,7 +3202,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 std::sort(kvs.begin(), kvs.end(), Topster::is_greater);
 
-                topster->sort();
                 // Reciprocal rank fusion
                 // Score is  sum of (1 / rank_of_document) * WEIGHT from each list (text match and vector search)
                 for(uint32_t i = 0; i < kvs.size(); i++) {
