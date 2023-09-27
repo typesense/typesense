@@ -750,6 +750,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_SAMPLE_PERCENT = "facet_sample_percent";
     const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
 
+    const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -859,6 +861,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
 
+    bool prioritize_num_matching_fields = true;
+
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
         {MIN_LEN_2TYPO, &min_len_2typo},
@@ -904,6 +908,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
         {ENABLE_OVERRIDES, &enable_overrides},
         {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
+        {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1097,7 +1102,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           facet_sample_threshold,
                                                           offset,
                                                           remote_embedding_timeout_ms,
-                                                          remote_embedding_num_tries
+                                                          remote_embedding_num_tries,
+                                                          prioritize_num_matching_fields
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
