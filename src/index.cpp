@@ -3221,7 +3221,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     auto seq_id = vec_result.first;
                     KV* found_kv = nullptr;
                     for(auto& kv : kvs) {
-                        if(kv->seq_id == seq_id) {
+                        if(kv->key == seq_id) {
                             found_kv = kv;
                             break;
                         }
