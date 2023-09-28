@@ -3194,18 +3194,19 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             kvs.push_back(kv_map.second->getKV(i));
                         }
                     }
+                    
+                    std::sort(kvs.begin(), kvs.end(), Topster::is_greater);
                 } else {
-                    for(int i = 0; i < topster->size; i++) {
-                        kvs.push_back(topster->getKV(i));
-                    }
+                    topster->sort();
                 }
 
-                std::sort(kvs.begin(), kvs.end(), Topster::is_greater);
+                
 
                 // Reciprocal rank fusion
                 // Score is  sum of (1 / rank_of_document) * WEIGHT from each list (text match and vector search)
-                for(uint32_t i = 0; i < kvs.size(); i++) {
-                    auto result = kvs[i];
+                auto size = (group_limit != 0) ? kvs.size() : topster->size;
+                for(uint32_t i = 0; i < size; i++) {
+                    auto result = (group_limit != 0) ? kvs[i] : topster->getKV(i);
                     if(result->match_score_index < 0 || result->match_score_index > 2) {
                         continue;
                     }
