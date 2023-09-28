@@ -109,7 +109,7 @@ private:
 
     // field -> facet_index
     std::unordered_map<std::string, facet_doc_ids_list_t> facet_field_map;
-
+    std::unordered_map<uint32_t, int64_t> index_to_int64_map;
     // auto incrementing ID that is assigned to each unique facet value string
     uint32_t next_facet_id = 0;
 
@@ -121,7 +121,8 @@ public:
 
     void insert(const std::string& field_name, std::unordered_map<facet_value_id_t,
                 std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,
-                std::unordered_map<uint32_t, std::vector<facet_value_id_t>>& seq_id_to_fvalues);
+                std::unordered_map<uint32_t, std::vector<facet_value_id_t>>& seq_id_to_fvalues,
+                bool is_string_field = false);
 
     void erase(const std::string& field_name);
 
@@ -150,4 +151,7 @@ public:
     bool has_value_index(const std::string& field_name);
 
     posting_list_t* get_facet_hash_index(const std::string& field_name);
+
+    //get int64 val from index for stats
+    int64_t get_facet_val(uint32_t index);
 };

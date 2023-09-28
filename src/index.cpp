@@ -781,7 +781,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             }
         }
 
-        facet_index_v4->insert(afield.name, fvalue_to_seq_ids, seq_id_to_fvalues);
+        facet_index_v4->insert(afield.name, fvalue_to_seq_ids, seq_id_to_fvalues, afield.is_string());
 
         auto tree_it = search_index.find(afield.faceted_name());
         if(tree_it == search_index.end()) {
@@ -1384,7 +1384,12 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     }
 
                     if(should_compute_stats) {
-                        compute_facet_stats(a_facet, fhash, facet_field.type);
+                        int64_t val = fhash;
+                        if(facet_field.is_int64()) {
+                            val = facet_index_v4->get_facet_val(fhash);
+                        }
+
+                        compute_facet_stats(a_facet, val, facet_field.type);
                     }
 
                     if(a_facet.is_range_query) {
@@ -4860,9 +4865,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
         facet_infos[findex].should_compute_stats = (facet_field.type != field_types::STRING &&
                                                     facet_field.type != field_types::BOOL &&
                                                     facet_field.type != field_types::STRING_ARRAY &&
-                                                    facet_field.type != field_types::BOOL_ARRAY &&
-                                                    facet_field.type != field_types::INT64 &&
-                                                    facet_field.type != field_types::INT64_ARRAY);
+                                                    facet_field.type != field_types::BOOL_ARRAY);
 
         size_t num_facet_values = facet_index_v4->get_facet_count(facet_field.name);
         facet_infos[findex].use_value_index = (group_limit == 0) && (a_facet.sort_field.empty()) &&

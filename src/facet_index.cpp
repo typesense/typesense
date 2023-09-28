@@ -13,7 +13,8 @@ void facet_index_t::initialize(const std::string& field) {
 
 void facet_index_t::insert(const std::string& field_name,std::unordered_map<facet_value_id_t,
                            std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,
-                           std::unordered_map<uint32_t, std::vector<facet_value_id_t>>& seq_id_to_fvalues) {
+                           std::unordered_map<uint32_t, std::vector<facet_value_id_t>>& seq_id_to_fvalues,
+                           bool is_string_field) {
     
     const auto facet_field_map_it = facet_field_map.find(field_name);
     if(facet_field_map_it == facet_field_map.end()) {
@@ -36,6 +37,11 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
             if(fvalue.facet_id == UINT32_MAX) {
                 // float, int32 & bool will provide facet_id as their own numerical values
                 facet_id = (fvalue_index_it == fvalue_index.end()) ? ++next_facet_id : fvalue_index_it->second.facet_id;
+
+                if(!is_string_field) {
+                    int64_t val = std::stoll(fvalue.facet_value);
+                    index_to_int64_map[facet_id] = val;
+                }
             }
 
             real_facet_ids.push_back(facet_id);
@@ -332,4 +338,14 @@ posting_list_t* facet_index_t::get_facet_hash_index(const std::string &field_nam
         return facet_index_it->second.seq_id_hashes;
     }
     return nullptr;
+}
+
+int64_t facet_index_t::get_facet_val(uint32_t index) {
+    auto it = index_to_int64_map.find(index);
+
+    if(it != index_to_int64_map.end()) {
+        return it->second;
+    }
+
+    return INT64_MAX;
 }
