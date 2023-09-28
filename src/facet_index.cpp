@@ -40,7 +40,7 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
 
                 if(!is_string_field) {
                     int64_t val = std::stoll(fvalue.facet_value);
-                    index_to_int64_map[facet_id] = val;
+                    fhash_to_int64_map[facet_id] = val;
                 }
             }
 
@@ -341,9 +341,9 @@ posting_list_t* facet_index_t::get_facet_hash_index(const std::string &field_nam
 }
 
 int64_t facet_index_t::get_facet_val(uint32_t index) {
-    auto it = index_to_int64_map.find(index);
+    auto it = fhash_to_int64_map.find(index);
 
-    if(it != index_to_int64_map.end()) {
+    if(it != fhash_to_int64_map.end()) {
         return it->second;
     }
 

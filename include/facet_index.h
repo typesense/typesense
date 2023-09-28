@@ -109,7 +109,7 @@ private:
 
     // field -> facet_index
     std::unordered_map<std::string, facet_doc_ids_list_t> facet_field_map;
-    std::unordered_map<uint32_t, int64_t> index_to_int64_map;
+    spp::sparse_hash_map<uint32_t, int64_t> fhash_to_int64_map;
     // auto incrementing ID that is assigned to each unique facet value string
     uint32_t next_facet_id = 0;
 
