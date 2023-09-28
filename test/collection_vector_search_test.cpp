@@ -1154,7 +1154,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     ASSERT_FLOAT_EQ((1.0/3.0 * 0.7) + (1.0/2.0 * 0.3), search_res["hits"][2]["hybrid_search_info"]["rank_fusion_score"].get<float>());
 
     // hybrid search with empty vector (to pass distance threshold param)
-    std::string vec_query = "embedding:([], distance_threshold: 0.20)";
+    std::string vec_query = "embedding:([], distance_threshold: 0.13)";
 
     search_res_op = coll->search("butter", {"embedding"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                                  spp::sparse_hash_set<std::string>(),
@@ -1217,9 +1217,9 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     ASSERT_EQ(3, search_res["found"].get<size_t>());
     ASSERT_EQ(3, search_res["hits"].size());
 
-    ASSERT_FLOAT_EQ(2.0f, search_res["hits"][0]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(2.0f, search_res["hits"][1]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(2.0f, search_res["hits"][2]["vector_distance"].get<float>());
+    ASSERT_TRUE(search_res["hits"][0].count("vector_distance") == 0);
+    ASSERT_TRUE(search_res["hits"][1].count("vector_distance") == 0);
+    ASSERT_TRUE(search_res["hits"][2].count("vector_distance") == 0);
 }
 
 TEST_F(CollectionVectorTest, HybridSearchOnlyVectorMatches) {
@@ -1830,13 +1830,13 @@ TEST_F(CollectionVectorTest, GroupByWithVectorSearch) {
     auto res = coll1->search("title", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                      spp::sparse_hash_set<std::string>(),
                      spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
-                     "", 10, {}, {}, {"group"}, 1,
+                     "", 10, {}, {}, {"group"}, 3,
                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                      4, {off}, 32767, 32767, 2,
                      false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488])").get();
 
     ASSERT_EQ(1, res["grouped_hits"].size());
-    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(3, res["grouped_hits"][0]["hits"].size());
     ASSERT_EQ(1, res["grouped_hits"][0]["hits"][0].count("vector_distance"));
 
     res = coll1->search("*", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
@@ -1846,7 +1846,7 @@ TEST_F(CollectionVectorTest, GroupByWithVectorSearch) {
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                         4, {off}, 32767, 32767, 2,
                         false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488])").get();
-
+    
     ASSERT_EQ(1, res["grouped_hits"].size());
     ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
     ASSERT_EQ(1, res["grouped_hits"][0]["hits"][0].count("vector_distance"));
@@ -2122,4 +2122,59 @@ TEST_F(CollectionVectorTest, TestOneEmbeddingOneKeywordFieldsHaveSamePrefix) {
                                  0, spp::sparse_hash_set<std::string>());
 
     ASSERT_TRUE(keyword_results.ok());
+}
+
+TEST_F(CollectionVectorTest, HybridSearchOnlyKeyworMatchDoNotHaveVectorDistance) {
+    nlohmann::json schema = R"({
+                        "name": "test",
+                        "fields": [
+                            {
+                                "name": "title",
+                                "type": "string"
+                            },
+                            {
+                            "name": "embedding",
+                            "type": "float[]",
+                            "embed": {
+                                "from": [
+                                    "title"
+                                ],
+                                "model_config": {
+                                    "model_name": "ts/e5-small"
+                                }
+                            }
+                            }
+                        ]
+                        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll1 = collection_create_op.get();
+
+    auto add_op = coll1->add(R"({
+        "title": "john doe"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    // hybrid search with empty vector (to pass distance threshold param)
+    std::string vec_query = "embedding:([], distance_threshold: 0.05)";
+
+    auto hybrid_results = coll1->search("john", {"title", "embedding"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, vec_query);
+
+    ASSERT_TRUE(hybrid_results.ok());
+
+    ASSERT_EQ(1, hybrid_results.get()["hits"].size());
+    ASSERT_EQ(0, hybrid_results.get()["hits"][0].count("vector_distance"));
 }
