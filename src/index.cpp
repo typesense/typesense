@@ -3220,10 +3220,17 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     auto& vec_result = vec_results[res_index];
                     auto seq_id = vec_result.first;
                     KV* found_kv = nullptr;
-                    for(auto& kv : kvs) {
-                        if(kv->key == seq_id) {
-                            found_kv = kv;
-                            break;
+                    if(group_limit != 0) {
+                        for(auto& kv : kvs) {
+                            if(kv->key == seq_id) {
+                                found_kv = kv;
+                                break;
+                            }
+                        }
+                    } else {
+                        auto result_it = topster->kv_map.find(seq_id);
+                        if(result_it != topster->kv_map.end()) {
+                            found_kv = result_it->second;
                         }
                     }
                     if(found_kv) {
