@@ -1233,6 +1233,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     continue;
                 }
 
+                if(embedding_fields.find(search_field.name) == embedding_fields.end()) {
+                    std::string error = "Vector field `" + search_field.name + "` is not an auto-embedding field, do not use `query_by` with it, use `vector_query` instead.";
+                    return Option<nlohmann::json>(400, error);
+                }
+
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
                 auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
                 if(!embedder_op.ok()) {

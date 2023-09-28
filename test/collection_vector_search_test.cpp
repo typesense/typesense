@@ -2178,3 +2178,41 @@ TEST_F(CollectionVectorTest, HybridSearchOnlyKeyworMatchDoNotHaveVectorDistance)
     ASSERT_EQ(1, hybrid_results.get()["hits"].size());
     ASSERT_EQ(0, hybrid_results.get()["hits"][0].count("vector_distance"));
 }
+
+
+TEST_F(CollectionVectorTest, QueryByNotAutoEmbeddingVectorField) {
+    nlohmann::json schema = R"({
+                    "name": "test",
+                    "fields": [
+                        {
+                            "name": "title",
+                            "type": "string"
+                        },
+                        {
+                        "name": "embedding",
+                        "type": "float[]",
+                        "num_dim": 384
+                        }
+                    ]
+                    })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto search_res = coll->search("john", {"title", "embedding"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "embedding:([0.96826, 0.94, 0.39557, 0.306488])");
+    
+    ASSERT_FALSE(search_res.ok());
+
+    ASSERT_EQ("Vector field `embedding` is not an auto-embedding field, do not use `query_by` with it, use `vector_query` instead.", search_res.error());
+}
