@@ -1386,7 +1386,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     if(should_compute_stats) {
                         int64_t val = fhash;
                         if(facet_field.is_int64()) {
-                            val = facet_index_v4->get_facet_val(fhash);
+                            val = facet_index_v4->get_facet_val(a_facet.field_name,fhash);
                         }
 
                         compute_facet_stats(a_facet, val, facet_field.type);

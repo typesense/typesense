@@ -2404,3 +2404,38 @@ TEST_F(CollectionFacetingTest, FacetSortValidation) {
     ASSERT_EQ("Oneplus 11R", results["facet_counts"][0]["counts"][1]["value"]);
     ASSERT_EQ("S22 Ultra", results["facet_counts"][0]["counts"][2]["value"]);
 }
+
+TEST_F(CollectionFacetingTest, FhashInt64MapTest) {
+    std::vector<int64_t> visitors = {227489798,124098972,180247624};
+    facet_index_t facet_index_v4;
+    std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash> fvalue_to_seq_ids;
+    std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
+
+    facet_index_v4.initialize("visitors");
+
+    //insert timestamps
+    int seq_id = 0;
+    for(auto it = visitors.begin(); it != visitors.end(); ++it) {
+        auto val = std::to_string(*it);
+        facet_value_id_t facet_value_id(val);
+        fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
+        seq_id_to_fvalues[seq_id].push_back(facet_value_id);
+        ++seq_id;
+    }
+
+    facet_index_v4.insert("visitors", fvalue_to_seq_ids, seq_id_to_fvalues);
+    ASSERT_EQ(3, facet_index_v4.get_fhash_int64_map_count("visitors"));
+
+    facet_index_v4.remove("visitors", 0);
+    ASSERT_EQ(2, facet_index_v4.get_fhash_int64_map_count("visitors"));
+
+    fvalue_to_seq_ids.clear();
+    seq_id_to_fvalues.clear();
+
+    facet_value_id_t facet_value_id("124798721");
+    fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
+    seq_id_to_fvalues[seq_id].push_back(facet_value_id);
+
+    facet_index_v4.insert("visitors", fvalue_to_seq_ids, seq_id_to_fvalues);
+    ASSERT_EQ(3, facet_index_v4.get_fhash_int64_map_count("visitors"));
+}
