@@ -1337,6 +1337,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 continue;
             }
 
+            const auto& fhash_int64_map = facet_index_v4->get_fhash_int64_map(a_facet.field_name);
+
             const auto facet_field_is_array = facet_field.is_array();
 
             const auto& facet_index = facet_index_v4->get_facet_hash_index(facet_field.name);
@@ -1386,7 +1388,11 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     if(should_compute_stats) {
                         int64_t val = fhash;
                         if(facet_field.is_int64()) {
-                            val = facet_index_v4->get_facet_val(fhash);
+                            if(fhash_int64_map.find(fhash) != fhash_int64_map.end()) {
+                                val = fhash_int64_map.at(fhash);
+                            } else {
+                                val = INT64_MAX;
+                            }
                         }
 
                         compute_facet_stats(a_facet, val, facet_field.type);

@@ -81,6 +81,7 @@ private:
         std::map<std::string, facet_id_seq_ids_t> fvalue_seq_ids;
         std::list<facet_count_t> counts;
         posting_list_t* seq_id_hashes = nullptr;
+        spp::sparse_hash_map<uint32_t, int64_t> fhash_to_int64_map;
 
         bool has_value_index = true;
         bool has_hash_index = true;
@@ -109,9 +110,8 @@ private:
 
     // field -> facet_index
     std::unordered_map<std::string, facet_doc_ids_list_t> facet_field_map;
-    spp::sparse_hash_map<uint32_t, int64_t> fhash_to_int64_map;
     // auto incrementing ID that is assigned to each unique facet value string
-    uint32_t next_facet_id = 0;
+    std::atomic_uint32_t next_facet_id = 0;
 
 public:
 
@@ -152,6 +152,6 @@ public:
 
     posting_list_t* get_facet_hash_index(const std::string& field_name);
 
-    //get int64 val from index for stats
-    int64_t get_facet_val(uint32_t index);
+    //get fhash=>int64 map for stats
+    const spp::sparse_hash_map<uint32_t, int64_t>& get_fhash_int64_map(const std::string& field_name);
 };
