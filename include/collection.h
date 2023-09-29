@@ -468,7 +468,8 @@ public:
                                   const size_t page_offset = 0,
                                   const size_t remote_embedding_timeout_ms = 30000,
                                   const size_t remote_embedding_num_tries = 2,
-                                  const bool prioritize_num_matching_fields = true) const;
+                                  const bool prioritize_num_matching_fields = true,
+                                  const bool group_missing_values = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
