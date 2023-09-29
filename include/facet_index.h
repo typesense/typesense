@@ -111,7 +111,7 @@ private:
     // field -> facet_index
     std::unordered_map<std::string, facet_doc_ids_list_t> facet_field_map;
     // auto incrementing ID that is assigned to each unique facet value string
-    uint32_t next_facet_id = 0;
+    std::atomic_uint32_t next_facet_id = 0;
 
 public:
 
@@ -152,10 +152,6 @@ public:
 
     posting_list_t* get_facet_hash_index(const std::string& field_name);
 
-    //get int64 val from index for stats
-    int64_t get_facet_val(const std::string& field_name, uint32_t index);
-
-#ifdef TEST_BUILD
-    size_t get_fhash_int64_map_count(const std::string& field_name);
-#endif
+    //get fhash=>int64 map for stats
+    const spp::sparse_hash_map<uint32_t, int64_t>& get_fhash_int64_map(const std::string& field_name);
 };

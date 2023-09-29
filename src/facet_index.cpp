@@ -132,9 +132,7 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
                     auto& fhash_int64_map = facet_field_it->second.fhash_to_int64_map;
                     uint32_t fhash = facet_ids_seq_ids->second.facet_id;
 
-                    if(fhash_int64_map.find(fhash) != fhash_int64_map.end()) {
-                        fhash_int64_map.erase(fhash);
-                    }
+                    fhash_int64_map.erase(fhash);
                 }
             }
         }
@@ -346,30 +344,12 @@ posting_list_t* facet_index_t::get_facet_hash_index(const std::string &field_nam
     return nullptr;
 }
 
-int64_t facet_index_t::get_facet_val(const std::string& field_name, uint32_t index) {
+const spp::sparse_hash_map<uint32_t , int64_t >& facet_index_t::get_fhash_int64_map(const std::string& field_name) {
     const auto facet_field_map_it = facet_field_map.find(field_name);
     if(facet_field_map_it == facet_field_map.end()) {
-        return INT64_MAX; // field is not initialized or dropped
+        return spp::sparse_hash_map<uint32_t , int64_t >{}; // field is not initialized or dropped
     }
 
-    auto& facet_index = facet_field_map_it->second;
-
-    auto it = facet_index.fhash_to_int64_map.find(index);
-
-    if(it != facet_index.fhash_to_int64_map.end()) {
-        return it->second;
-    }
-
-    return INT64_MAX;
+    const auto& facet_index = facet_field_map_it->second;
+    return facet_index.fhash_to_int64_map;
 }
-
-#ifdef TEST_BUILD
-size_t facet_index_t::get_fhash_int64_map_count(const std::string& field_name) {
-    const auto facet_field_map_it = facet_field_map.find(field_name);
-    if(facet_field_map_it == facet_field_map.end()) {
-        return 0; // field is not initialized or dropped
-    }
-
-    return facet_field_map_it->second.fhash_to_int64_map.size();
-}
-#endif

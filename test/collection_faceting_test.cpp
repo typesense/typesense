@@ -2424,10 +2424,10 @@ TEST_F(CollectionFacetingTest, FhashInt64MapTest) {
     }
 
     facet_index_v4.insert("visitors", fvalue_to_seq_ids, seq_id_to_fvalues);
-    ASSERT_EQ(3, facet_index_v4.get_fhash_int64_map_count("visitors"));
+    ASSERT_EQ(3, facet_index_v4.get_fhash_int64_map("visitors").size());
 
     facet_index_v4.remove("visitors", 0);
-    ASSERT_EQ(2, facet_index_v4.get_fhash_int64_map_count("visitors"));
+    ASSERT_EQ(2, facet_index_v4.get_fhash_int64_map("visitors").size());
 
     fvalue_to_seq_ids.clear();
     seq_id_to_fvalues.clear();
@@ -2437,5 +2437,5 @@ TEST_F(CollectionFacetingTest, FhashInt64MapTest) {
     seq_id_to_fvalues[seq_id].push_back(facet_value_id);
 
     facet_index_v4.insert("visitors", fvalue_to_seq_ids, seq_id_to_fvalues);
-    ASSERT_EQ(3, facet_index_v4.get_fhash_int64_map_count("visitors"));
+    ASSERT_EQ(3, facet_index_v4.get_fhash_int64_map("visitors").size());
 }
