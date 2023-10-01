@@ -689,7 +689,8 @@ public:
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,
-                                     const bool do_validation, const size_t remote_embedding_batch_size = 200, const bool generate_embeddings = true);
+                                     const bool do_validation, const size_t remote_embedding_batch_size = 200, const bool generate_embeddings = true, 
+                                     const bool use_addition_fields = false, const tsl::htrie_map<char, field>& addition_fields = {});
 
     void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
 

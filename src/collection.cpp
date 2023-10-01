@@ -3843,7 +3843,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             }
             
             Index::batch_memory_index(index, iter_batch, default_sorting_field, search_schema, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true, 200, found_embedding_field);
+                                      fallback_field_type, token_separators, symbols_to_index, true, 200, found_embedding_field, true, schema_additions);
             if(found_embedding_field) {
                 for(auto& index_record : iter_batch) {
                     if(index_record.indexed.ok()) {
