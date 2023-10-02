@@ -525,7 +525,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
                                (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
-    const auto& search_schema = use_addition_fields ? addition_fields : actual_search_schema;
+    const auto& indexable_schema = use_addition_fields ? addition_fields : actual_search_schema;
     
 
     size_t num_indexed = 0;
@@ -591,7 +591,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
 
     for(const auto& field_name: found_fields) {
         //LOG(INFO) << "field name: " << field_name;
-        if(field_name != "id" && search_schema.count(field_name) == 0) {
+        if(field_name != "id" && indexable_schema.count(field_name) == 0) {
             continue;
         }
 
@@ -601,7 +601,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
             write_log_index = local_write_log_index;
 
             const field& f = (field_name == "id") ?
-                             field("id", field_types::STRING, false) : search_schema.at(field_name);
+                             field("id", field_types::STRING, false) : indexable_schema.at(field_name);
             try {
                 index->index_field_in_memory(f, iter_batch);
             } catch(std::exception& e) {
