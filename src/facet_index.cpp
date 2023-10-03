@@ -344,6 +344,14 @@ posting_list_t* facet_index_t::get_facet_hash_index(const std::string &field_nam
     return nullptr;
 }
 
+posting_list_t::iterator_t* facet_index_t::get_facet_index_it(const std::string& field_name) {
+    auto facet_index_it = facet_field_map.find(field_name);
+    if(facet_index_it != facet_field_map.end()) {
+         return &facet_index_it->second.facet_index_it;
+    }
+    return nullptr;
+}
+
 const spp::sparse_hash_map<uint32_t , int64_t >& facet_index_t::get_fhash_int64_map(const std::string& field_name) {
     const auto facet_field_map_it = facet_field_map.find(field_name);
     if(facet_field_map_it == facet_field_map.end()) {

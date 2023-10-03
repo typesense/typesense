@@ -5894,23 +5894,24 @@ uint64_t Index::get_distinct_id(const std::vector<std::string>& group_by_fields,
             continue;
         }
 
-        posting_list_t* facet_hash_index = facet_index_v4->get_facet_hash_index(field_name);
         std::vector<uint32_t> facet_hashes;
-        posting_list_t::iterator_t facet_index_it = facet_hash_index->new_iterator();
-        facet_index_it.skip_to(seq_id);
+        posting_list_t::iterator_t* facet_index_it = facet_index_v4->get_facet_index_it(field_name);
+        if(facet_index_it) {
+            facet_index_it->skip_to(seq_id);
 
-        if(facet_index_it.valid() && facet_index_it.id() == seq_id) {
-            posting_list_t::get_offsets(facet_index_it, facet_hashes);
+            if (facet_index_it->valid() && facet_index_it->id() == seq_id) {
+                posting_list_t::get_offsets(*facet_index_it, facet_hashes);
 
-            if(search_schema.at(field_name).is_array()) {
-                //LOG(INFO) << "combining hashes for facet array ";
-                for(size_t i = 0; i < facet_hashes.size(); i++) {
-                    distinct_id = StringUtils::hash_combine(distinct_id, facet_hashes[i]);
+                if (search_schema.at(field_name).is_array()) {
+                    //LOG(INFO) << "combining hashes for facet array ";
+                    for (size_t i = 0; i < facet_hashes.size(); i++) {
+                        distinct_id = StringUtils::hash_combine(distinct_id, facet_hashes[i]);
+                    }
+                } else {
+                    const auto &facet_hash = facet_hashes[0];
+                    //LOG(INFO) << "combining hashes for facet ";
+                    distinct_id = StringUtils::hash_combine(distinct_id, facet_hash);
                 }
-            } else {
-                const auto& facet_hash = facet_hashes[0];
-                //LOG(INFO) << "combining hashes for facet ";
-                distinct_id = StringUtils::hash_combine(distinct_id, facet_hash);
             }
         }
     }
