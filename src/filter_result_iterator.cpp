@@ -1596,9 +1596,10 @@ filter_result_iterator_t::~filter_result_iterator_t() {
     delete right_it;
 }
 
-filter_result_iterator_t &filter_result_iterator_t::operator=(filter_result_iterator_t &&obj) noexcept {
-    if (&obj == this)
+filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iterator_t&& obj) noexcept {
+    if (&obj == this) {
         return *this;
+    }
 
     // In case the filter was on string field.
     for(auto expanded_plist: expanded_plists) {

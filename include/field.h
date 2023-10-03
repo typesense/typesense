@@ -496,12 +496,14 @@ struct sort_by {
     };
 
     struct eval_t {
-        filter_node_t* filter_tree_root = nullptr;
-        uint32_t* ids = nullptr;
-        uint32_t  size = 0;
+        filter_node_t* filter_trees = nullptr;
+        std::vector<uint32_t*> eval_ids_vec;
+        std::vector<uint32_t> eval_ids_count_vec;
+        std::vector<int64_t> scores;
     };
 
     std::string name;
+    std::vector<std::string> eval_expressions;
     std::string order;
 
     // for text_match score bucketing
@@ -523,6 +525,13 @@ struct sort_by {
 
     }
 
+    sort_by(std::vector<std::string> eval_expressions, std::vector<int64_t> scores, std::string  order):
+            eval_expressions(std::move(eval_expressions)), order(std::move(order)), text_match_buckets(0), geopoint(0), exclude_radius(0),
+            geo_precision(0), missing_values(normal) {
+        name = sort_field_const::eval;
+        eval.scores = std::move(scores);
+    }
+
     sort_by(const std::string &name, const std::string &order, uint32_t text_match_buckets, int64_t geopoint,
             uint32_t exclude_radius, uint32_t geo_precision) :
             name(name), order(order), text_match_buckets(text_match_buckets),
@@ -535,6 +544,7 @@ struct sort_by {
         if (&other == this)
             return;
         name = other.name;
+        eval_expressions = other.eval_expressions;
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         geopoint = other.geopoint;
@@ -547,6 +557,7 @@ struct sort_by {
 
     sort_by& operator=(const sort_by& other) {
         name = other.name;
+        eval_expressions = other.eval_expressions;
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         geopoint = other.geopoint;

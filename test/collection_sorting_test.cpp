@@ -2007,7 +2007,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     }
 
     std::vector<sort_by> sort_fields = {
-        sort_by("_eval(brand:nike)", "DESC"),
+        sort_by({"brand:nike"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2021,7 +2021,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
 
     // compound query
     sort_fields = {
-        sort_by("_eval(brand:nike && points:0)", "DESC"),
+        sort_by({"brand:nike && points:0"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2033,9 +2033,22 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
+    sort_fields = {
+            sort_by({"brand:nike", "points:1"}, {2, 1}, "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    expected_ids = {"3", "0", "1", "4", "2"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
     // when no results are found for eval query
     sort_fields = {
-            sort_by("_eval(brand:foobar)", "DESC"),
+            sort_by({"brand:foobar"}, {1}, "DESC"),
             sort_by("points", "DESC"),
     };
 
@@ -2049,7 +2062,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
 
     // bad syntax for eval query
     sort_fields = {
-        sort_by("_eval(brandnike || points:0)", "DESC"),
+        sort_by({"brandnike || points:0"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2058,13 +2071,20 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     ASSERT_EQ("Error parsing eval expression in sort_by clause.", res_op.error());
 
     // when eval condition is empty
-    sort_fields = {
-        sort_by("_eval()", "DESC"),
-        sort_by("points", "DESC"),
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"sort_by", "_eval():desc"},
     };
-    res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("The eval expression in sort_by is empty.", res_op.error());
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("The eval expression in sort_by is empty.", search_op.error());
 
     // more bad syntax!
     sort_fields = {
@@ -2078,8 +2098,8 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
 
     // don't allow multiple sorting eval expressions
     sort_fields = {
-        sort_by("_eval(brand: nike || points:0)", "DESC"),
-        sort_by("_eval(brand: nike || points:0)", "DESC"),
+        sort_by({"brand: nike || points:0"}, {1}, "DESC"),
+        sort_by({"brand: nike || points:0"}, {1}, "DESC"),
     };
 
     res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
@@ -2114,7 +2134,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
     }
 
     std::vector<sort_by> sort_fields = {
-        sort_by("_eval(brand:nike)", "DESC"),
+        sort_by({"brand:nike"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2128,7 +2148,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
 
     // compound query
     sort_fields = {
-        sort_by("_eval(brand:nike && points:0)", "DESC"),
+        sort_by({"brand:nike && points:0"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2158,7 +2178,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
 
     // when no results are found for eval query
     sort_fields = {
-        sort_by("_eval(brand:foobar)", "DESC"),
+        sort_by({"brand:foobar"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2172,7 +2192,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
 
     // bad syntax for eval query
     sort_fields = {
-        sort_by("_eval(brandnike || points:0)", "DESC"),
+        sort_by({"brandnike || points:0"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2237,7 +2257,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
 
     std::vector<sort_by> sort_fields = {
         sort_by("val", "DESC"),
-        sort_by("_eval(brand:nike)", "DESC"),
+        sort_by({"brand:nike"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2253,7 +2273,32 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
     sort_fields = {
         sort_by("val", "DESC"),
         sort_by("val", "DESC"),
-        sort_by("_eval(brand:nike)", "DESC"),
+        sort_by({"brand:nike"}, {1}, "DESC"),
+    };
+
+    results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    sort_fields = {
+            sort_by("val", "DESC"),
+            sort_by({"brand:adidas", "brand:nike"}, {2, 1}, "DESC"),
+            sort_by("points", "DESC"),
+    };
+    expected_ids = {"4", "2", "1","3", "0"};
+
+    results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    sort_fields = {
+            sort_by("val", "DESC"),
+            sort_by("val", "DESC"),
+            sort_by({"brand:adidas", "brand:nike"}, {2, 1}, "DESC"),
     };
 
     results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
