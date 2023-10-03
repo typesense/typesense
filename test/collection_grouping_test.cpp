@@ -606,6 +606,79 @@ TEST_F(CollectionGroupingTest, RepeatedFieldNameGroupHitCount) {
     ASSERT_EQ(1, res["grouped_hits"][0]["found"].get<int32_t>());
 }
 
+TEST_F(CollectionGroupingTest, ControlMissingValues) {
+    std::vector<field> fields = {
+        field("brand", field_types::STRING, true, true),
+    };
+
+    Collection* coll2 = collectionManager.get_collection("coll2").get();
+    if(coll2 == nullptr) {
+        coll2 = collectionManager.create_collection("coll2", 1, fields).get();
+    }
+
+    LOG(INFO) << "----------------------";
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["brand"] = "Omega";
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["brand"] = nullptr;
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["brand"] = nullptr;
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["id"] = "3";
+    doc["brand"] = "Omega";
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    // disable null value aggregation
+
+    auto res = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                             {true}, 10,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 10,
+                             {}, {}, {"brand"}, 2,
+                             "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                             100, 0, 0, HASH, 30000, 2, "", {}, {}, right_to_left, true, false).get();
+
+    ASSERT_EQ(3, res["grouped_hits"].size());
+    ASSERT_EQ("Omega", res["grouped_hits"][0]["group_key"][0].get<std::string>());
+    ASSERT_EQ(2, res["grouped_hits"][0]["hits"].size());
+
+    ASSERT_EQ(0, res["grouped_hits"][1]["group_key"].size());
+    ASSERT_EQ(1, res["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ("2", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(0, res["grouped_hits"][2]["group_key"].size());
+    ASSERT_EQ(1, res["grouped_hits"][2]["hits"].size());
+    ASSERT_EQ("1", res["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>());
+
+    // with null value aggregation (default)
+    res = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                        {true}, 10,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                        "", 10,
+                        {}, {}, {"brand"}, 2,
+                        "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                        100, 0, 0, HASH, 30000, 2, "", {}, {}, right_to_left, true, true).get();
+
+    ASSERT_EQ(2, res["grouped_hits"].size());
+
+    ASSERT_EQ("Omega", res["grouped_hits"][0]["group_key"][0].get<std::string>());
+    ASSERT_EQ(2, res["grouped_hits"][0]["hits"].size());
+
+    ASSERT_EQ(0, res["grouped_hits"][1]["group_key"].size());
+    ASSERT_EQ(2, res["grouped_hits"][1]["hits"].size());
+}
+
 TEST_F(CollectionGroupingTest, SortingOnGroupCount) {
 
     std::vector<sort_by> sort_fields = {sort_by("_group_found", "DESC")};

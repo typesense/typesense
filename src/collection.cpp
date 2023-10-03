@@ -1318,6 +1318,10 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
             continue;
         }
 
+        if(!exact_key_match && text_embedding) {
+            continue;
+        }
+
         if (exact_primitive_match || is_wildcard || text_embedding ||
             // field_name prefix must be followed by a "." to indicate an object search
             (enable_nested_fields && kv.key().size() > field_name.size() && kv.key()[field_name.size()] == '.')) {
@@ -1390,7 +1394,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::string& stopwords_set,
                                   const std::vector<std::string>& facet_return_parent,
                                   const std::vector<ref_include_fields>& ref_include_fields_vec,
-                                  const drop_tokens_mode_t drop_tokens_mode) const {
+                                  const drop_tokens_mode_t drop_tokens_mode,
+                                  const bool prioritize_num_matching_fields,
+                                  const bool group_missing_values) const {
 
     std::shared_lock lock(mutex);
 
@@ -1507,6 +1513,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 if(raw_query == "*") {
                     // ignore embedding field if query is a wildcard
                     continue;
+                }
+
+                if(embedding_fields.find(search_field.name) == embedding_fields.end()) {
+                    std::string error = "Vector field `" + search_field.name + "` is not an auto-embedding field, do not use `query_by` with it, use `vector_query` instead.";
+                    return Option<nlohmann::json>(400, error);
                 }
 
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
@@ -1882,8 +1893,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                  per_page, offset, token_order, prefixes,
                                                  drop_tokens_threshold, typo_tokens_threshold,
-                                                 group_by_fields, group_limit, default_sorting_field,
+                                                 group_by_fields, group_limit, group_missing_values,
+                                                 default_sorting_field,
                                                  prioritize_exact_match, prioritize_token_position,
+                                                 prioritize_num_matching_fields,
                                                  exhaustive_search, 4,
                                                  search_stop_millis,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
@@ -2251,7 +2264,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 wrapper_doc["geo_distance_meters"] = geo_distances;
             }
 
-            if(!vector_query.field_name.empty()) {
+            if(!vector_query.field_name.empty() && field_order_kv->vector_distance > 0) {
                 wrapper_doc["vector_distance"] = field_order_kv->vector_distance;
             }
 
@@ -4111,6 +4124,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     std::vector<field> new_fields;
     tsl::htrie_map<char, field> schema_additions;
     std::vector<std::string> nested_field_names;
+    bool found_embedding_field = false;
 
     std::unique_lock ulock(mutex);
 
@@ -4134,6 +4148,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(f.embed.count(fields::from) != 0) {
+            found_embedding_field = true;
             embedding_fields.emplace(f.name, f);
         }
 
@@ -4195,8 +4210,25 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                 }
             }
 
-            Index::batch_memory_index(index, iter_batch, default_sorting_field, schema_additions, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true, 200, false);
+            Index::batch_memory_index(index, iter_batch, default_sorting_field, search_schema, embedding_fields,
+                                      fallback_field_type, token_separators, symbols_to_index, true, 200,
+                                      found_embedding_field, true, schema_additions);
+            if(found_embedding_field) {
+                for(auto& index_record : iter_batch) {
+                    if(index_record.indexed.ok()) {
+                        remove_flat_fields(index_record.doc);
+                        const std::string& serialized_json = index_record.doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+                        bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+
+                        if(!write_ok) {
+                            LOG(ERROR) << "Inserting doc with new embedding field failed for seq id: " << index_record.seq_id;
+                            index_record.index_failure(500, "Could not write to on-disk storage.");
+                        } else {
+                            index_record.index_success();
+                        }
+                    }
+                }
+            }
 
             iter_batch.clear();
         }

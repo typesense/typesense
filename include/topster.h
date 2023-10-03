@@ -17,7 +17,7 @@ struct KV {
     int64_t scores[3]{};  // match score + 2 custom attributes
 
     // only to be used in hybrid search
-    float vector_distance = 2.0f;
+    float vector_distance = -1.0f;
     int64_t text_match_score = 0;
 
     // to be used only in final aggregation
@@ -45,7 +45,7 @@ struct KV {
     KV(KV&& kv) noexcept : match_score_index(kv.match_score_index),
                  query_index(kv.query_index), array_index(kv.array_index),
                  key(kv.key), distinct_key(kv.distinct_key) {
-
+                    
         scores[0] = kv.scores[0];
         scores[1] = kv.scores[1];
         scores[2] = kv.scores[2];

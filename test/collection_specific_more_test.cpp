@@ -1856,6 +1856,62 @@ TEST_F(CollectionSpecificMoreTest, ConsiderDroppedTokensDuringTextMatchScoring2)
     ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "brand", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Alpha beta gamma";
+    doc["brand"] = "Alpha beta gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "Alpha beta gamma";
+    doc["brand"] = "Theta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                                100, 0, 0, HASH, 30000, 2, "", {}, {}, right_to_left, true);
+
+
+    auto res = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                             100, 0, 0, HASH, 30000, 2, "", {}, {}, right_to_left, false).get();
+
+    size_t score1 = std::stoul(res["hits"][0]["text_match_info"]["score"].get<std::string>());
+    size_t score2 = std::stoul(res["hits"][1]["text_match_info"]["score"].get<std::string>());
+    ASSERT_TRUE(score1 == score2);
+
+    res = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                        100, 0, 0, HASH, 30000, 2, "", {}, {}, right_to_left, true).get();
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    score1 = std::stoul(res["hits"][0]["text_match_info"]["score"].get<std::string>());
+    score2 = std::stoul(res["hits"][1]["text_match_info"]["score"].get<std::string>());
+    ASSERT_TRUE(score1 > score2);
+}
+
 TEST_F(CollectionSpecificMoreTest, NonNestedFieldNameWithDot) {
     nlohmann::json schema = R"({
         "name": "coll1",

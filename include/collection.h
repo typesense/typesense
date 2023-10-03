@@ -498,7 +498,9 @@ public:
                                   const std::string& stopwords_set="",
                                   const std::vector<std::string>& facet_return_parent = {},
                                   const std::vector<ref_include_fields>& ref_include_fields_vec = {},
-                                  const drop_tokens_mode_t drop_tokens_mode = right_to_left) const;
+                                  const drop_tokens_mode_t drop_tokens_mode = right_to_left,
+                                  const bool prioritize_num_matching_fields = true,
+                                  const bool group_missing_values = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

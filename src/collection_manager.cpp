@@ -927,6 +927,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
+    const char *GROUP_MISSING_VALUES = "group_missing_values";
 
     const char *LIMIT_HITS = "limit_hits";
     const char *PER_PAGE = "per_page";
@@ -977,6 +978,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
 
     const char *DROP_TOKENS_MODE = "drop_tokens_mode";
+    const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -1072,6 +1074,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::string hidden_hits_str;
     std::vector<std::string> group_by_fields;
     size_t group_limit = 3;
+    bool group_missing_values = true;
     std::string highlight_start_tag = "<mark>";
     std::string highlight_end_tag = "</mark>";
     std::vector<uint32_t> query_by_weights;
@@ -1099,6 +1102,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t facet_sample_threshold = 0;
 
     std::string drop_tokens_mode_str = "right_to_left";
+    bool prioritize_num_matching_fields = true;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -1146,6 +1150,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
         {ENABLE_OVERRIDES, &enable_overrides},
         {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
+        {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
+        {GROUP_MISSING_VALUES, &group_missing_values},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1353,7 +1359,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           stopwords_set,
                                                           facet_return_parent,
                                                           ref_include_fields_vec,
-                                                          drop_tokens_mode);
+                                                          drop_tokens_mode,
+                                                          prioritize_num_matching_fields,
+                                                          group_missing_values
+                                                        );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
