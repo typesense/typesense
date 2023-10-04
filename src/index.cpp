@@ -2479,6 +2479,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             }
 
             std::vector<uint32_t> nearest_ids;
+            std::vector<uint32_t> eval_filter_indexes;
 
             for (auto& dist_result : dist_results) {
                 auto& seq_id = dist_result.second.seq_id;
@@ -2507,8 +2508,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 int64_t match_score_index = -1;
 
                 auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
-                                                                  geopoint_indices, seq_id, references, 0, 0, scores,
-                                                                  match_score_index, vec_dist_score, collection_name);
+                                                                  geopoint_indices, seq_id, references, eval_filter_indexes,
+                                                                  0, scores, match_score_index, vec_dist_score,
+                                                                  collection_name);
                 if (!compute_sort_scores_op.ok()) {
                     return compute_sort_scores_op;
                 }
@@ -2848,6 +2850,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 }
 
                 std::vector<uint32_t> vec_search_ids;  // list of IDs found only in vector search
+                std::vector<uint32_t> eval_filter_indexes;
 
                 for(size_t res_index = 0; res_index < vec_results.size(); res_index++) {
                     auto& vec_result = vec_results[res_index];
@@ -2888,7 +2891,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         int64_t scores[3] = {0};
 
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
-                                                                          geopoint_indices, seq_id, references, 0,
+                                                                          geopoint_indices, seq_id, references, eval_filter_indexes,
                                                                           match_score, scores, match_score_index,
                                                                           vec_result.second, collection_name);
                         if (!compute_sort_scores_op.ok()) {
@@ -2909,7 +2912,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         int64_t match_score_index = -1;
 
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
-                                                                          geopoint_indices, seq_id, references, 0,
+                                                                          geopoint_indices, seq_id, references, eval_filter_indexes,
                                                                           match_score, scores, match_score_index,
                                                                           vec_result.second, collection_name);
                         if (!compute_sort_scores_op.ok()) {
@@ -3808,7 +3811,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
     }
 
     std::vector<uint32_t> result_ids;
-    size_t filter_index = 0;
+    std::vector<uint32_t> eval_filter_indexes;
     Option<bool> status(true);
 
     or_iterator_t::intersect(token_its, istate,
@@ -3905,7 +3908,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
         int64_t match_score_index = -1;
 
         auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
-                                                          seq_id, references, filter_index, best_field_match_score,
+                                                          seq_id, references, eval_filter_indexes, best_field_match_score,
                                                           scores, match_score_index, 0, collection_name);
         if (!compute_sort_scores_op.ok()) {
             status = Option<bool>(compute_sort_scores_op.code(), compute_sort_scores_op.error());
@@ -4013,7 +4016,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                                         std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
                                         const std::vector<size_t>& geopoint_indices,
                                         uint32_t seq_id, const std::map<basic_string<char>, reference_filter_result_t>& references,
-                                        size_t filter_index, int64_t max_field_match_score, int64_t* scores,
+                                        std::vector<uint32_t>& filter_indexes, int64_t max_field_match_score, int64_t* scores,
                                         int64_t& match_score_index, float vector_distance,
                                         const std::string& collection_name) const {
 
@@ -4189,22 +4192,32 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 }
             }
         } else if(field_values[0] == &eval_sentinel_value) {
-            // Returns iterator to the first element that is >= to value or last if no such element is found.
-            bool found = false;
-            if (filter_index == 0 || filter_index < sort_fields[0].eval.size) {
-                size_t found_index = std::lower_bound(sort_fields[0].eval.ids + filter_index,
-                                                      sort_fields[0].eval.ids + sort_fields[0].eval.size, seq_id) -
-                                     sort_fields[0].eval.ids;
-
-                if (found_index != sort_fields[0].eval.size && sort_fields[0].eval.ids[found_index] == seq_id) {
-                    filter_index = found_index + 1;
-                    found = true;
-                }
-
-                filter_index = found_index;
+            auto const& count = sort_fields[0].eval_expressions.size();
+            if (filter_indexes.empty()) {
+                filter_indexes = std::vector<uint32_t>(count, 0);
             }
 
-            scores[0] = int64_t(found);
+            bool found = false;
+            uint32_t index = 0;
+            auto const& eval = sort_fields[0].eval;
+            for (; index < count; index++) {
+                auto& filter_index = filter_indexes[index];
+                auto const& eval_ids = eval.eval_ids_vec[index];
+                auto const& eval_ids_count = eval.eval_ids_count_vec[index];
+                if (filter_index == 0 || filter_index < eval_ids_count) {
+                    // Returns iterator to the first element that is >= to value or last if no such element is found.
+                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, seq_id) -
+                                                            eval_ids;
+
+                    if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
+                        filter_index++;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            scores[0] = found ? eval.scores[index] : 0;
         } else if(field_values[0] == &vector_distance_sentinel_value) {
             scores[0] = float_to_int64_t(vector_distance);
         } else {
@@ -4342,22 +4355,32 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 }
             }
         } else if(field_values[1] == &eval_sentinel_value) {
-            // Returns iterator to the first element that is >= to value or last if no such element is found.
-            bool found = false;
-            if (filter_index == 0 || filter_index < sort_fields[1].eval.size) {
-                size_t found_index = std::lower_bound(sort_fields[1].eval.ids + filter_index,
-                                                      sort_fields[1].eval.ids + sort_fields[1].eval.size, seq_id) -
-                                     sort_fields[1].eval.ids;
-
-                if (found_index != sort_fields[1].eval.size && sort_fields[1].eval.ids[found_index] == seq_id) {
-                    filter_index = found_index + 1;
-                    found = true;
-                }
-
-                filter_index = found_index;
+            auto const& count = sort_fields[1].eval_expressions.size();
+            if (filter_indexes.empty()) {
+                filter_indexes = std::vector<uint32_t>(count, 0);
             }
 
-            scores[1] = int64_t(found);
+            bool found = false;
+            uint32_t index = 0;
+            auto const& eval = sort_fields[1].eval;
+            for (; index < count; index++) {
+                auto& filter_index = filter_indexes[index];
+                auto const& eval_ids = eval.eval_ids_vec[index];
+                auto const& eval_ids_count = eval.eval_ids_count_vec[index];
+                if (filter_index == 0 || filter_index < eval_ids_count) {
+                    // Returns iterator to the first element that is >= to value or last if no such element is found.
+                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, seq_id) -
+                                   eval_ids;
+
+                    if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
+                        filter_index++;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            scores[1] = found ? eval.scores[index] : 0;
         }  else if(field_values[1] == &vector_distance_sentinel_value) {
             scores[1] = float_to_int64_t(vector_distance);
         } else {
@@ -4491,22 +4514,32 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 }
             }
         } else if(field_values[2] == &eval_sentinel_value) {
-            // Returns iterator to the first element that is >= to value or last if no such element is found.
-            bool found = false;
-            if (filter_index == 0 || filter_index < sort_fields[2].eval.size) {
-                size_t found_index = std::lower_bound(sort_fields[2].eval.ids + filter_index,
-                                                      sort_fields[2].eval.ids + sort_fields[2].eval.size, seq_id) -
-                                     sort_fields[2].eval.ids;
-
-                if (found_index != sort_fields[2].eval.size && sort_fields[2].eval.ids[found_index] == seq_id) {
-                    filter_index = found_index + 1;
-                    found = true;
-                }
-
-                filter_index = found_index;
+            auto const& count = sort_fields[2].eval_expressions.size();
+            if (filter_indexes.empty()) {
+                filter_indexes = std::vector<uint32_t>(count, 0);
             }
 
-            scores[2] = int64_t(found);
+            bool found = false;
+            uint32_t index = 0;
+            auto const& eval = sort_fields[2].eval;
+            for (; index < count; index++) {
+                auto& filter_index = filter_indexes[index];
+                auto const& eval_ids = eval.eval_ids_vec[index];
+                auto const& eval_ids_count = eval.eval_ids_count_vec[index];
+                if (filter_index == 0 || filter_index < eval_ids_count) {
+                    // Returns iterator to the first element that is >= to value or last if no such element is found.
+                    filter_index = std::lower_bound(eval_ids + filter_index, eval_ids + eval_ids_count, seq_id) -
+                                   eval_ids;
+
+                    if (filter_index < eval_ids_count && eval_ids[filter_index] == seq_id) {
+                        filter_index++;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            scores[2] = found ? eval.scores[index] : 0;
         } else if(field_values[2] == &vector_distance_sentinel_value) {
             scores[2] = float_to_int64_t(vector_distance);
         } else {
@@ -4654,7 +4687,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
     all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
     filter_result_iterator->reset();
 
-    size_t filter_index = 0;
+    std::vector<uint32_t> eval_filter_indexes;
     // populate topster
     for(size_t i = 0; i < std::min<size_t>(10000, all_result_ids_len); i++) {
         auto seq_id = filter_result_iterator->seq_id;
@@ -4666,7 +4699,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         int64_t match_score_index = -1;
 
         auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
-                                                          seq_id, references, filter_index, match_score, scores,
+                                                          seq_id, references, eval_filter_indexes, match_score, scores,
                                                           match_score_index, 0, collection_name);
         if (!compute_sort_scores_op.ok()) {
             return compute_sort_scores_op;
@@ -4810,7 +4843,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                 }
 
                 bool field_is_array = search_schema.at(the_fields[field_id].name).is_array();
-                size_t filter_index = 0;
+                std::vector<uint32_t> eval_filter_indexes;
 
                 for(size_t i = 0; i < raw_infix_ids_length; i++) {
                     auto seq_id = raw_infix_ids[i];
@@ -4828,7 +4861,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
 
                     auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values,
                                                                       geopoint_indices, seq_id, references,
-                                                                      filter_index, 100, scores, match_score_index,
+                                                                      eval_filter_indexes, 100, scores, match_score_index,
                                                                       0, collection_name);
                     if (!compute_sort_scores_op.ok()) {
                         return compute_sort_scores_op;
@@ -5196,7 +5229,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
             search_stop_us = parent_search_stop_ms;
             search_cutoff = parent_search_cutoff;
 
-            size_t filter_index = 0;
+            std::vector<uint32_t> filter_indexes;
 
             for(size_t i = 0; i < batch_result->count; i++) {
                 const uint32_t seq_id = batch_result->docs[i];
@@ -5214,7 +5247,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                 int64_t match_score_index = -1;
 
                 auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
-                                                                  seq_id, references, filter_index, 100, scores,
+                                                                  seq_id, references, filter_indexes, 100, scores,
                                                                   match_score_index, 0, collection_name);
                 if (!compute_sort_scores_op.ok()) {
                     compute_sort_score_status = new Option<bool>(compute_sort_scores_op.code(), compute_sort_scores_op.error());
@@ -5325,12 +5358,20 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             field_values[i] = &seq_id_sentinel_value;
         } else if (sort_fields_std[i].name == sort_field_const::eval) {
             field_values[i] = &eval_sentinel_value;
-            auto filter_result_iterator = filter_result_iterator_t("", this, sort_fields_std[i].eval.filter_tree_root);
-            auto filter_init_op = filter_result_iterator.init_status();
-            if (!filter_init_op.ok()) {
-                return;
+            auto& eval_exp = sort_fields_std[i].eval;
+            auto count = sort_fields_std[i].eval_expressions.size();
+            for (uint32_t j = 0; j < count; j++) {
+                auto filter_result_iterator = filter_result_iterator_t("", this, &eval_exp.filter_trees[j]);
+                auto filter_init_op = filter_result_iterator.init_status();
+                if (!filter_init_op.ok()) {
+                    return;
+                }
+                uint32_t* eval_ids = nullptr;
+                auto eval_ids_count = filter_result_iterator.to_filter_id_array(eval_ids);
+
+                eval_exp.eval_ids_vec.push_back(eval_ids);
+                eval_exp.eval_ids_count_vec.push_back(eval_ids_count);
             }
-            sort_fields_std[i].eval.size = filter_result_iterator.to_filter_id_array(sort_fields_std[i].eval.ids);
         } else if(sort_fields_std[i].name == sort_field_const::vector_distance) {
             field_values[i] = &vector_distance_sentinel_value;
         } else if (search_schema.count(sort_fields_std[i].name) != 0 && search_schema.at(sort_fields_std[i].name).sort) {
