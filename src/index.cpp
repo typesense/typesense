@@ -1274,6 +1274,16 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
     size_t total_docs = seq_ids->num_ids();
 
+    std::vector<std::pair<posting_list_t::iterator_t, std::string>> group_by_it_field_vec;
+    for(const auto& field_name: group_by_fields) {
+        if (!facet_index_v4->has_hash_index(field_name)) {
+            continue;
+        }
+        auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+        auto facet_index_it = facet_index->new_iterator();
+        group_by_it_field_vec.emplace_back(std::make_pair(std::move(facet_index_it), field_name));
+    }
+
     // assumed that facet fields have already been validated upstream
     for(size_t findex=0; findex < facets.size(); findex++) {
         auto& a_facet = facets[findex];
@@ -1371,7 +1381,13 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 facet_hashes.clear();
                 posting_list_t::get_offsets(facet_index_it, facet_hashes);
 
-                const uint64_t distinct_id = group_limit ? get_distinct_id(group_by_fields, doc_seq_id, group_missing_values) : 0;
+                uint64_t distinct_id = 0;
+                if(group_limit) {
+                    distinct_id = 1;
+                    for(auto& kv : group_by_it_field_vec) {
+                        get_distinct_id(kv.second, kv.first, doc_seq_id, group_missing_values, distinct_id);
+                    }
+                }
                 //LOG(INFO) << "facet_hash_count " << facet_hash_count;
                 if(((i + 1) % 16384) == 0) {
                     RETURN_CIRCUIT_BREAKER
@@ -2370,7 +2386,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 uint32_t seq_id = it.id();
                 uint64_t distinct_id = seq_id;
                 if (group_limit != 0) {
-                    distinct_id = get_distinct_id(group_by_fields, seq_id, group_missing_values);
+                    distinct_id = 1;
+                    for(const auto& field_name: group_by_fields) {
+                        if (!facet_index_v4->has_hash_index(field_name)) {
+                            continue;
+                        }
+                        auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+                        auto facet_index_it = facet_index->new_iterator();
+                        get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+                    }
                     if(excluded_group_ids.count(distinct_id) != 0) {
                        continue;
                    }
@@ -2490,7 +2514,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 uint64_t distinct_id = seq_id;
                 if (group_limit != 0) {
-                    distinct_id = get_distinct_id(group_by_fields, seq_id, group_missing_values);
+                    distinct_id = 1;
+                    for(const auto& field_name: group_by_fields) {
+                        if (!facet_index_v4->has_hash_index(field_name)) {
+                            continue;
+                        }
+                        auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+                        auto facet_index_it = facet_index->new_iterator();
+                        get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+                    }
                     if(excluded_group_ids.count(distinct_id) != 0) {
                        continue;
                    }
@@ -2918,7 +2950,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                         uint64_t distinct_id = seq_id;
                         if (group_limit != 0) {
-                            distinct_id = get_distinct_id(group_by_fields, seq_id, group_missing_values);
+                            distinct_id = 1;
+                            for(const auto& field_name: group_by_fields) {
+                                if (!facet_index_v4->has_hash_index(field_name)) {
+                                    continue;
+                                }
+                                auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+                                auto facet_index_it = facet_index->new_iterator();
+                                get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+                            }
                             if(excluded_group_ids.count(distinct_id) != 0) {
                                 continue;
                             }
@@ -3177,7 +3217,15 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
     if(group_limit != 0) {
         // if one `id` of a group is present in curated hits, we have to exclude that entire group from results
         for(auto seq_id: included_ids_vec) {
-            uint64_t distinct_id = get_distinct_id(group_by_fields, seq_id, group_missing_values);
+            uint64_t distinct_id = 1;
+            for(const auto& field_name: group_by_fields) {
+                if (!facet_index_v4->has_hash_index(field_name)) {
+                    continue;
+                }
+                auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+                auto facet_index_it = facet_index->new_iterator();
+                get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+            }
             excluded_group_ids.emplace(distinct_id);
         }
     }
@@ -3895,7 +3943,15 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
 
         uint64_t distinct_id = seq_id;
         if(group_limit != 0) {
-            distinct_id = get_distinct_id(group_by_fields, seq_id, group_missing_values);
+            distinct_id = 1;
+            for(const auto& field_name: group_by_fields) {
+                if (!facet_index_v4->has_hash_index(field_name)) {
+                    continue;
+                }
+                auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+                auto facet_index_it = facet_index->new_iterator();
+                get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+            }
             if(excluded_group_ids.count(distinct_id) != 0) {
                return;
            }
@@ -4674,7 +4730,15 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
 
         uint64_t distinct_id = seq_id;
         if(group_limit != 0) {
-            distinct_id = get_distinct_id(group_by_fields, seq_id, group_missing_values);
+            distinct_id = 1;
+            for(const auto& field_name: group_by_fields) {
+                if (!facet_index_v4->has_hash_index(field_name)) {
+                    continue;
+                }
+                auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+                auto facet_index_it = facet_index->new_iterator();
+                get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+            }
             if(excluded_group_ids.count(distinct_id) != 0) {
                 continue;
             }
@@ -4836,7 +4900,15 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
 
                     uint64_t distinct_id = seq_id;
                     if(group_limit != 0) {
-                        distinct_id = get_distinct_id(group_by_fields, seq_id, group_missing_values);
+                        distinct_id = 1;
+                        for(const auto& field_name: group_by_fields) {
+                            if (!facet_index_v4->has_hash_index(field_name)) {
+                                continue;
+                            }
+                            auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+                            auto facet_index_it = facet_index->new_iterator();
+                            get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+                        }
                         if(excluded_group_ids.count(distinct_id) != 0) {
                            continue;
                        }
@@ -5197,6 +5269,15 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
             search_cutoff = parent_search_cutoff;
 
             size_t filter_index = 0;
+            std::vector<std::pair<posting_list_t::iterator_t, std::string>> group_by_it_field_vec;
+            for(const auto& field_name: group_by_fields) {
+                if (!facet_index_v4->has_hash_index(field_name)) {
+                    continue;
+                }
+                auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+                auto facet_index_it = facet_index->new_iterator();
+                group_by_it_field_vec.emplace_back(std::make_pair(std::move(facet_index_it), field_name));
+            }
 
             for(size_t i = 0; i < batch_result->count; i++) {
                 const uint32_t seq_id = batch_result->docs[i];
@@ -5224,14 +5305,8 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                 uint64_t distinct_id = seq_id;
                 if(group_limit != 0) {
                     distinct_id = 1;
-                    for(const auto& field_name: group_by_fields) {
-                        if (!facet_index_v4->has_hash_index(field_name)) {
-                            continue;
-                        }
-                        auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
-                        auto facet_index_it = facet_index->new_iterator();
-
-                        get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+                    for(auto& kv: group_by_it_field_vec) {
+                        get_distinct_id(kv.second, kv.first, seq_id, group_missing_values, distinct_id);
                     }
 
                     if(excluded_group_ids.count(distinct_id) != 0) {
@@ -5879,7 +5954,15 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
     uint64_t distinct_id = seq_id;
 
     if(group_limit != 0) {
-        distinct_id = get_distinct_id(group_by_fields, seq_id, group_missing_values);
+        distinct_id = 1;
+        for(const auto& field_name: group_by_fields) {
+            if (!facet_index_v4->has_hash_index(field_name)) {
+                continue;
+            }
+            auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+            auto facet_index_it = facet_index->new_iterator();
+            get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+        }
     }
 
     //LOG(INFO) << "Seq id: " << seq_id << ", match_score: " << match_score;
@@ -5893,45 +5976,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
     //LOG(INFO) << "Time taken for results iteration: " << timeNanos << "ms";
 }
 
-// pre-filter group_by_fields such that we can avoid the find() check
-uint64_t Index::get_distinct_id(const std::vector<std::string>& group_by_fields,
-                                const uint32_t seq_id,  const bool group_missing_values) const {
-    uint32_t distinct_id = 1; // some constant initial value
-
-    // calculate hash from group_by_fields
-    for(const auto& field_name: group_by_fields) {
-        if (!facet_index_v4->has_hash_index(field_name)) {
-            continue;
-        }
-
-        std::vector<uint32_t> facet_hashes;
-        auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
-        auto facet_index_it = facet_index->new_iterator();
-        facet_index_it.skip_to(seq_id);
-
-        if (facet_index_it.valid() && facet_index_it.id() == seq_id) {
-            posting_list_t::get_offsets(facet_index_it, facet_hashes);
-
-            if (search_schema.at(field_name).is_array()) {
-                //LOG(INFO) << "combining hashes for facet array ";
-                for (size_t i = 0; i < facet_hashes.size(); i++) {
-                    distinct_id = StringUtils::hash_combine(distinct_id, facet_hashes[i]);
-                }
-            } else {
-                const auto &facet_hash = facet_hashes[0];
-                //LOG(INFO) << "combining hashes for facet ";
-                distinct_id = StringUtils::hash_combine(distinct_id, facet_hash);
-            }
-        }
-    }
-
-    //LOG(INFO) << "seq_id: " << seq_id << ", distinct_id: " << distinct_id;
-    return (distinct_id == 1 && !group_missing_values) ? seq_id : distinct_id;
-}
-
 void Index::get_distinct_id(const std::string& field_name, posting_list_t::iterator_t& facet_index_it,
                                 const uint32_t seq_id,  const bool group_missing_values, uint64_t& distinct_id) const {
-
     // calculate hash from group_by_fields
         std::vector<uint32_t> facet_hashes;
         facet_index_it.skip_to(seq_id);

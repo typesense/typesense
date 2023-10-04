@@ -620,9 +620,6 @@ public:
 
     static float int64_t_to_float(int64_t n);
 
-    uint64_t get_distinct_id(const std::vector<std::string>& group_by_fields,
-                             const uint32_t seq_id, const bool group_missing_values) const;
-
     void get_distinct_id(const std::string& field_name, posting_list_t::iterator_t& facet_index_it,
                                 const uint32_t seq_id,  const bool group_missing_values, uint64_t& distinct_id) const;
 
