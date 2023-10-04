@@ -5223,7 +5223,17 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
                 uint64_t distinct_id = seq_id;
                 if(group_limit != 0) {
-                    distinct_id = get_distinct_id(group_by_fields, seq_id, group_missing_values);
+                    distinct_id = 1;
+                    for(const auto& field_name: group_by_fields) {
+                        if (!facet_index_v4->has_hash_index(field_name)) {
+                            continue;
+                        }
+                        auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+                        auto facet_index_it = facet_index->new_iterator();
+
+                        get_distinct_id(field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+                    }
+
                     if(excluded_group_ids.count(distinct_id) != 0) {
                        continue;
                    }
@@ -5890,34 +5900,63 @@ uint64_t Index::get_distinct_id(const std::vector<std::string>& group_by_fields,
 
     // calculate hash from group_by_fields
     for(const auto& field_name: group_by_fields) {
-        if(!facet_index_v4->has_hash_index(field_name)) {
+        if (!facet_index_v4->has_hash_index(field_name)) {
             continue;
         }
 
         std::vector<uint32_t> facet_hashes;
-        posting_list_t::iterator_t* facet_index_it = facet_index_v4->get_facet_index_it(field_name);
-        if(facet_index_it) {
-            facet_index_it->skip_to(seq_id);
+        auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
+        auto facet_index_it = facet_index->new_iterator();
+        facet_index_it.skip_to(seq_id);
 
-            if (facet_index_it->valid() && facet_index_it->id() == seq_id) {
-                posting_list_t::get_offsets(*facet_index_it, facet_hashes);
+        if (facet_index_it.valid() && facet_index_it.id() == seq_id) {
+            posting_list_t::get_offsets(facet_index_it, facet_hashes);
 
-                if (search_schema.at(field_name).is_array()) {
-                    //LOG(INFO) << "combining hashes for facet array ";
-                    for (size_t i = 0; i < facet_hashes.size(); i++) {
-                        distinct_id = StringUtils::hash_combine(distinct_id, facet_hashes[i]);
-                    }
-                } else {
-                    const auto &facet_hash = facet_hashes[0];
-                    //LOG(INFO) << "combining hashes for facet ";
-                    distinct_id = StringUtils::hash_combine(distinct_id, facet_hash);
+            if (search_schema.at(field_name).is_array()) {
+                //LOG(INFO) << "combining hashes for facet array ";
+                for (size_t i = 0; i < facet_hashes.size(); i++) {
+                    distinct_id = StringUtils::hash_combine(distinct_id, facet_hashes[i]);
                 }
+            } else {
+                const auto &facet_hash = facet_hashes[0];
+                //LOG(INFO) << "combining hashes for facet ";
+                distinct_id = StringUtils::hash_combine(distinct_id, facet_hash);
             }
         }
     }
 
     //LOG(INFO) << "seq_id: " << seq_id << ", distinct_id: " << distinct_id;
     return (distinct_id == 1 && !group_missing_values) ? seq_id : distinct_id;
+}
+
+void Index::get_distinct_id(const std::string& field_name, posting_list_t::iterator_t& facet_index_it,
+                                const uint32_t seq_id,  const bool group_missing_values, uint64_t& distinct_id) const {
+
+    // calculate hash from group_by_fields
+        std::vector<uint32_t> facet_hashes;
+        facet_index_it.skip_to(seq_id);
+
+        if (facet_index_it.valid() && facet_index_it.id() == seq_id) {
+            posting_list_t::get_offsets(facet_index_it, facet_hashes);
+
+            if (search_schema.at(field_name).is_array()) {
+                //LOG(INFO) << "combining hashes for facet array ";
+                for (size_t i = 0; i < facet_hashes.size(); i++) {
+                    distinct_id = StringUtils::hash_combine(distinct_id, facet_hashes[i]);
+                }
+            } else {
+                const auto &facet_hash = facet_hashes[0];
+                //LOG(INFO) << "combining hashes for facet ";
+                distinct_id = StringUtils::hash_combine(distinct_id, facet_hash);
+            }
+        }
+
+    //LOG(INFO) << "seq_id: " << seq_id << ", distinct_id: " << distinct_id;
+     if (distinct_id == 1 && !group_missing_values) {
+         distinct_id = seq_id;
+     }
+
+    return;
 }
 
 inline uint32_t Index::next_suggestion2(const std::vector<tok_candidates>& token_candidates_vec,

@@ -82,16 +82,14 @@ private:
         std::list<facet_count_t> counts;
         posting_list_t* seq_id_hashes = nullptr;
         spp::sparse_hash_map<uint32_t, int64_t> fhash_to_int64_map;
-        posting_list_t::iterator_t facet_index_it;
 
         bool has_value_index = true;
         bool has_hash_index = true;
 
-        facet_doc_ids_list_t() :
-        seq_id_hashes(new posting_list_t(256)),
-        facet_index_it(seq_id_hashes->new_iterator()) {
+        facet_doc_ids_list_t() {
             fvalue_seq_ids.clear();
             counts.clear();
+            seq_id_hashes = new posting_list_t(256);
         }
 
         facet_doc_ids_list_t(const facet_doc_ids_list_t& other) = delete;
@@ -153,8 +151,6 @@ public:
     bool has_value_index(const std::string& field_name);
 
     posting_list_t* get_facet_hash_index(const std::string& field_name);
-
-    posting_list_t::iterator_t* get_facet_index_it(const std::string& field_name);
 
     //get fhash=>int64 map for stats
     const spp::sparse_hash_map<uint32_t, int64_t>& get_fhash_int64_map(const std::string& field_name);

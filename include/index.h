@@ -623,6 +623,9 @@ public:
     uint64_t get_distinct_id(const std::vector<std::string>& group_by_fields,
                              const uint32_t seq_id, const bool group_missing_values) const;
 
+    void get_distinct_id(const std::string& field_name, posting_list_t::iterator_t& facet_index_it,
+                                const uint32_t seq_id,  const bool group_missing_values, uint64_t& distinct_id) const;
+
     static void compute_token_offsets_facets(index_record& record,
                                              const tsl::htrie_map<char, field>& search_schema,
                                              const std::vector<char>& local_token_separators,
