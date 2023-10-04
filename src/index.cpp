@@ -2478,7 +2478,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 }
             }
 
-            std::vector<uint32_t> nearest_ids, filter_indexes;
+            std::vector<uint32_t> nearest_ids;
+            std::vector<uint32_t> eval_filter_indexes;
 
             for (auto& dist_result : dist_results) {
                 auto& seq_id = dist_result.second.seq_id;
@@ -2507,7 +2508,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 int64_t match_score_index = -1;
 
                 auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
-                                                                  geopoint_indices, seq_id, references, filter_indexes,
+                                                                  geopoint_indices, seq_id, references, eval_filter_indexes,
                                                                   0, scores, match_score_index, vec_dist_score,
                                                                   collection_name);
                 if (!compute_sort_scores_op.ok()) {
@@ -2848,7 +2849,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     result->scores[result->match_score_index] = float_to_int64_t((1.0 / (i + 1)) * TEXT_MATCH_WEIGHT);
                 }
 
-                std::vector<uint32_t> vec_search_ids, filter_indexes;  // list of IDs found only in vector search
+                std::vector<uint32_t> vec_search_ids;  // list of IDs found only in vector search
+                std::vector<uint32_t> eval_filter_indexes;
 
                 for(size_t res_index = 0; res_index < vec_results.size(); res_index++) {
                     auto& vec_result = vec_results[res_index];
@@ -2889,7 +2891,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         int64_t scores[3] = {0};
 
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
-                                                                          geopoint_indices, seq_id, references, filter_indexes,
+                                                                          geopoint_indices, seq_id, references, eval_filter_indexes,
                                                                           match_score, scores, match_score_index,
                                                                           vec_result.second, collection_name);
                         if (!compute_sort_scores_op.ok()) {
@@ -2910,7 +2912,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         int64_t match_score_index = -1;
 
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
-                                                                          geopoint_indices, seq_id, references, filter_indexes,
+                                                                          geopoint_indices, seq_id, references, eval_filter_indexes,
                                                                           match_score, scores, match_score_index,
                                                                           vec_result.second, collection_name);
                         if (!compute_sort_scores_op.ok()) {
@@ -3808,7 +3810,8 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
         token_its.push_back(std::move(token_fields));
     }
 
-    std::vector<uint32_t> result_ids, filter_indexes;
+    std::vector<uint32_t> result_ids;
+    std::vector<uint32_t> eval_filter_indexes;
     Option<bool> status(true);
 
     or_iterator_t::intersect(token_its, istate,
@@ -3905,7 +3908,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
         int64_t match_score_index = -1;
 
         auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
-                                                          seq_id, references, filter_indexes, best_field_match_score,
+                                                          seq_id, references, eval_filter_indexes, best_field_match_score,
                                                           scores, match_score_index, 0, collection_name);
         if (!compute_sort_scores_op.ok()) {
             status = Option<bool>(compute_sort_scores_op.code(), compute_sort_scores_op.error());
@@ -4684,7 +4687,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
     all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
     filter_result_iterator->reset();
 
-    std::vector<uint32_t> filter_indexes;
+    std::vector<uint32_t> eval_filter_indexes;
     // populate topster
     for(size_t i = 0; i < std::min<size_t>(10000, all_result_ids_len); i++) {
         auto seq_id = filter_result_iterator->seq_id;
@@ -4696,7 +4699,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         int64_t match_score_index = -1;
 
         auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices,
-                                                          seq_id, references, filter_indexes, match_score, scores,
+                                                          seq_id, references, eval_filter_indexes, match_score, scores,
                                                           match_score_index, 0, collection_name);
         if (!compute_sort_scores_op.ok()) {
             return compute_sort_scores_op;
@@ -4840,7 +4843,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                 }
 
                 bool field_is_array = search_schema.at(the_fields[field_id].name).is_array();
-                std::vector<uint32_t> filter_indexes;
+                std::vector<uint32_t> eval_filter_indexes;
 
                 for(size_t i = 0; i < raw_infix_ids_length; i++) {
                     auto seq_id = raw_infix_ids[i];
@@ -4858,7 +4861,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
 
                     auto compute_sort_scores_op = compute_sort_scores(sort_fields, sort_order, field_values,
                                                                       geopoint_indices, seq_id, references,
-                                                                      filter_indexes, 100, scores, match_score_index,
+                                                                      eval_filter_indexes, 100, scores, match_score_index,
                                                                       0, collection_name);
                     if (!compute_sort_scores_op.ok()) {
                         return compute_sort_scores_op;

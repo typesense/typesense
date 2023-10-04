@@ -2060,6 +2060,28 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
+    nlohmann::json doc = R"(
+        {
+            "title": "title5",
+            "brand": "puma",
+            "points": 5
+        }
+    )"_json;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    sort_fields = {
+            sort_by({"brand:nike", "brand:adidas"}, {3, 2}, "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, results["hits"].size());
+
+    expected_ids = {"3", "0", "4", "2", "1", "5"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
     // bad syntax for eval query
     sort_fields = {
         sort_by({"brandnike || points:0"}, {1}, "DESC"),
@@ -2071,7 +2093,6 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     ASSERT_EQ("Error parsing eval expression in sort_by clause.", res_op.error());
 
     // when eval condition is empty
-
     std::map<std::string, std::string> req_params = {
             {"collection", "coll1"},
             {"q", "*"},
