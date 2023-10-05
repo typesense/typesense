@@ -711,6 +711,30 @@ TEST_F(CollectionFacetingTest, FacetStatOnFloatFields) {
     collectionManager.drop_collection("coll_float_fields");
 }
 
+TEST_F(CollectionFacetingTest, FacetStatsFloatLon) {
+    std::vector<field> fields = {
+        field("lon", field_types::FLOAT, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["lon"] = -99.184319;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"lon"}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
+
+    ASSERT_FLOAT_EQ(-99.1843, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(-99.1843, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(-99.1843, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(-99.1843, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(1, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+}
+
 TEST_F(CollectionFacetingTest, FacetCountOnSimilarStrings) {
     Collection *coll1;
 

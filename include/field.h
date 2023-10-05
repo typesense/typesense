@@ -754,7 +754,7 @@ struct facet_count_t {
 
 struct facet_stats_t {
     double fvmin = std::numeric_limits<double>::max(),
-            fvmax = -std::numeric_limits<double>::min(),
+            fvmax = -std::numeric_limits<double>::max(),
             fvcount = 0,
             fvsum = 0;
 };
