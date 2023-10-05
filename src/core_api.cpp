@@ -344,7 +344,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
         //LOG(INFO) << "req_hash = " << req_hash;
 
-        std::shared_lock lock(mutex);
+        std::unique_lock lock(mutex);
         auto hit_it = res_cache.find(req_hash);
         if(hit_it != res_cache.end()) {
             //LOG(INFO) << "Result found in cache.";
@@ -361,8 +361,6 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
             }
 
             // Result found in cache but ttl has lapsed.
-            lock.unlock();
-            std::unique_lock ulock(mutex);
             res_cache.erase(req_hash);
         }
     }
@@ -417,7 +415,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         //LOG(INFO) << "req_hash = " << req_hash;
 
-        std::shared_lock lock(mutex);
+        std::unique_lock lock(mutex);
         auto hit_it = res_cache.find(req_hash);
         if(hit_it != res_cache.end()) {
             //LOG(INFO) << "Result found in cache.";
@@ -434,8 +432,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
 
             // Result found in cache but ttl has lapsed.
-            lock.unlock();
-            std::unique_lock ulock(mutex);
             res_cache.erase(req_hash);
         }
     }
