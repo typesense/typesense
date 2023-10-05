@@ -652,11 +652,120 @@ AuthManager& CollectionManager::getAuthManager() {
     return auth_manager;
 }
 
+bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sort_by>& sort_fields) {
+    // FORMAT:
+    // _eval([ (<expr_1>): <score_1>, (<expr_2>): <score_2> ]):<order>
+
+    std::vector<std::string> eval_expressions;
+    std::vector<std::int64_t> scores;
+    while (true) {
+        if (index >= sort_by_str.size()) {
+            return false;
+        } else if (sort_by_str[index] == ']') {
+            break;
+        }
+
+        auto open_paren_pos = sort_by_str.find('(', index);
+        if (open_paren_pos == std::string::npos) {
+            return false;
+        }
+        index = open_paren_pos;
+        std::string eval_expr = "(";
+        int paren_count = 1;
+        while (++index < sort_by_str.size() && paren_count > 0) {
+            if (sort_by_str[index] == '(') {
+                paren_count++;
+            } else if (sort_by_str[index] == ')') {
+                paren_count--;
+            }
+            eval_expr += sort_by_str[index];
+        }
+
+        // Removing outer parenthesis.
+        eval_expr = eval_expr.substr(1, eval_expr.size() - 2);
+        if (paren_count != 0 || index >= sort_by_str.size()) {
+            return false;
+        }
+
+        while (sort_by_str[index] != ':' && ++index < sort_by_str.size());
+        if (index >= sort_by_str.size()) {
+            return false;
+        }
+
+        std::string score;
+        while (++index < sort_by_str.size() && !(sort_by_str[index] == ',' || sort_by_str[index] == ']')) {
+            score += sort_by_str[index];
+        }
+        StringUtils::trim(score);
+        if (!StringUtils::is_int64_t(score)) {
+            return false;
+        }
+
+        eval_expressions.emplace_back(eval_expr);
+        scores.emplace_back(std::stoll(score));
+    }
+
+    while (++index < sort_by_str.size() && sort_by_str[index] != ':');
+    if (index >= sort_by_str.size()) {
+        return false;
+    }
+
+    std::string order_str;
+    while (++index < sort_by_str.size() && sort_by_str[index] != ',') {
+        order_str += sort_by_str[index];
+    }
+    StringUtils::trim(order_str);
+    StringUtils::toupper(order_str);
+
+    sort_fields.emplace_back(eval_expressions, scores, order_str);
+    return true;
+}
+
+bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sort_by>& sort_fields) {
+    // FORMAT:
+    // _eval(<expr>):<order>
+    std::string eval_expr = "(";
+    int paren_count = 1;
+    while (++index < sort_by_str.size() && paren_count > 0) {
+        if (sort_by_str[index] == '(') {
+            paren_count++;
+        } else if (sort_by_str[index] == ')') {
+            paren_count--;
+        }
+        eval_expr += sort_by_str[index];
+    }
+
+    // Removing outer parenthesis.
+    eval_expr = eval_expr.substr(1, eval_expr.size() - 2);
+
+    if (paren_count != 0 || index >= sort_by_str.size()) {
+        return false;
+    }
+
+    while (sort_by_str[index] != ':' && ++index < sort_by_str.size());
+    if (index >= sort_by_str.size()) {
+        return false;
+    }
+
+    std::string order_str;
+    while (++index < sort_by_str.size() && sort_by_str[index] != ',') {
+        order_str += sort_by_str[index];
+    }
+    StringUtils::trim(order_str);
+    StringUtils::toupper(order_str);
+
+    std::vector<std::string> eval_expressions = {eval_expr};
+    std::vector<int64_t> scores = {1};
+    sort_fields.emplace_back(eval_expressions, scores, order_str);
+
+    return true;
+}
+
 bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields) {
     std::string sort_field_expr;
     char prev_non_space_char = 'a';
 
-    for(size_t i=0; i < sort_by_str.size(); i++) {
+    for(uint32_t i=0; i < sort_by_str.size(); i++) {
         if (sort_field_expr.empty()) {
             if (sort_by_str[i] == '$') {
                 // Sort by reference field
@@ -689,36 +798,15 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
                 if (open_paren_pos == std::string::npos) {
                     return false;
                 }
-                sort_field_expr = sort_field_const::eval + "(";
 
                 i = open_paren_pos;
-                int paren_count = 1;
-                while (++i < sort_by_str.size() && paren_count > 0) {
-                    if (sort_by_str[i] == '(') {
-                        paren_count++;
-                    } else if (sort_by_str[i] == ')') {
-                        paren_count--;
-                    }
-                    sort_field_expr += sort_by_str[i];
-                }
-                if (paren_count != 0 || i >= sort_by_str.size()) {
+                while(sort_by_str[++i] == ' ');
+
+                auto result = sort_by_str[i] == '[' ? parse_multi_eval(sort_by_str, i, sort_fields) :
+                                                        parse_eval(sort_by_str, --i, sort_fields);
+                if (!result) {
                     return false;
                 }
-
-                while (sort_by_str[i] != ':' && ++i < sort_by_str.size());
-                if (i >= sort_by_str.size()) {
-                    return false;
-                }
-
-                std::string order_str;
-                while (++i < sort_by_str.size() && sort_by_str[i] != ',') {
-                    order_str += sort_by_str[i];
-                }
-                StringUtils::trim(order_str);
-                StringUtils::toupper(order_str);
-
-                sort_fields.emplace_back(sort_field_expr, order_str);
-                sort_field_expr = "";
                 continue;
             }
         }

@@ -28,12 +28,10 @@ struct sort_fields_guard_t {
 
     ~sort_fields_guard_t() {
         for(auto& sort_by_clause: sort_fields_std) {
-            delete sort_by_clause.eval.filter_tree_root;
-            if(sort_by_clause.eval.ids) {
-                delete [] sort_by_clause.eval.ids;
-                sort_by_clause.eval.ids = nullptr;
-                sort_by_clause.eval.size = 0;
+            for (auto& eval_ids: sort_by_clause.eval.eval_ids_vec) {
+                delete [] eval_ids;
             }
+            delete [] sort_by_clause.eval.filter_trees;
         }
     }
 };
@@ -774,7 +772,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                               const bool is_vector_query,
                                                               const bool is_group_by_query) const {
 
-    size_t num_sort_expressions = 0;
+    uint32_t eval_sort_count = 0;
 
     for(size_t i = 0; i < sort_fields.size(); i++) {
         const sort_by& _sort_field = sort_fields[i];
@@ -814,6 +812,37 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
 
             continue;
+        } else if (_sort_field.name == sort_field_const::eval) {
+            sort_by sort_field_std(sort_field_const::eval, _sort_field.order);
+
+            auto const& count = _sort_field.eval_expressions.size();
+            sort_field_std.eval.filter_trees = new filter_node_t[count];
+            std::unique_ptr<filter_node_t []> filter_trees_guard(sort_field_std.eval.filter_trees);
+
+            for (uint32_t j = 0; j < count; j++) {
+                auto const& filter_exp = _sort_field.eval_expressions[j];
+                if (filter_exp.empty()) {
+                    return Option<bool>(400, "The eval expression in sort_by is empty.");
+                }
+
+                filter_node_t* filter_tree_root = nullptr;
+                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
+                                                                          store, "", filter_tree_root);
+                std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
+                if (!parse_filter_op.ok()) {
+                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
+                }
+
+                sort_field_std.eval.filter_trees[j] = std::move(*filter_tree_root);
+            }
+
+            eval_sort_count++;
+            sort_field_std.eval_expressions = _sort_field.eval_expressions;
+            sort_field_std.eval.scores = _sort_field.eval.scores;
+            sort_fields_std.emplace_back(sort_field_std);
+            filter_trees_guard.release();
+            continue;
         }
 
         sort_by sort_field_std(_sort_field.name, _sort_field.order);
@@ -842,23 +871,6 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 sort_field_std.name = actual_field_name;
                 sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
-
-            } else if(actual_field_name == sort_field_const::eval) {
-                const std::string& filter_exp = sort_field_std.name.substr(paran_start + 1,
-                                                                           sort_field_std.name.size() - paran_start -
-                                                                           2);
-                if(filter_exp.empty()) {
-                    return Option<bool>(400, "The eval expression in sort_by is empty.");
-                }
-
-                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filter_tree_root);
-                if(!parse_filter_op.ok()) {
-                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
-                }
-
-                sort_field_std.name = actual_field_name;
-                num_sort_expressions++;
 
             } else {
                 if(field_it == search_schema.end()) {
@@ -1063,7 +1075,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         return Option<bool>(422, message);
     }
 
-    if(num_sort_expressions > 1) {
+    if(eval_sort_count > 1) {
         std::string message = "Only one sorting eval expression is allowed.";
         return Option<bool>(422, message);
     }
@@ -1105,22 +1117,6 @@ Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const st
 
                 sort_field_std.name = actual_field_name;
                 sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
-
-            } else if(actual_field_name == sort_field_const::eval) {
-                const std::string& filter_exp = sort_field_std.name.substr(paran_start + 1,
-                                                                           sort_field_std.name.size() - paran_start -
-                                                                           2);
-                if(filter_exp.empty()) {
-                    return Option<bool>(400, "The eval expression in sort_by is empty.");
-                }
-
-                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filter_tree_root);
-                if(!parse_filter_op.ok()) {
-                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
-                }
-
-                sort_field_std.name = actual_field_name;
 
             } else {
                 if(field_it == search_schema.end()) {
@@ -1243,6 +1239,35 @@ Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const st
 
                 sort_field_std.name = actual_field_name;
             }
+        } else if (sort_field.name == sort_field_const::eval) {
+            auto const& count = sort_field.eval_expressions.size();
+            sort_field_std.eval.filter_trees = new filter_node_t[count];
+            std::unique_ptr<filter_node_t []> filter_trees_guard(sort_field_std.eval.filter_trees);
+
+            for (uint32_t j = 0; j < count; j++) {
+                auto const& filter_exp = sort_field.eval_expressions[j];
+                if (filter_exp.empty()) {
+                    return Option<bool>(400, "The eval expression in sort_by is empty.");
+                }
+
+                filter_node_t* filter_tree_root = nullptr;
+                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
+                                                                          store, "", filter_tree_root);
+                std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
+                if (!parse_filter_op.ok()) {
+                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
+                }
+
+                sort_field_std.eval.filter_trees[j] = std::move(*filter_tree_root);
+            }
+
+            sort_field_std.name = sort_field.name;
+            sort_field_std.eval_expressions = sort_field.eval_expressions;
+            sort_field_std.eval.scores = sort_field.eval.scores;
+            sort_fields_std.emplace_back(sort_field_std);
+            filter_trees_guard.release();
+            continue;
         }
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
