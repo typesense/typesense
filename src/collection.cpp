@@ -4376,6 +4376,23 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
             for(auto& new_field: new_fields) {
                 if(updated_search_schema.find(new_field.name) == updated_search_schema.end()) {
+                    if(new_field.nested) {
+                        auto del_field_it = std::find_if(del_fields.begin(), del_fields.end(), [&new_field](const field& f) {
+                            return f.name == new_field.name;
+                        });
+
+                        auto re_field_it = std::find_if(reindex_fields.begin(),
+                                                        reindex_fields.end(), [&new_field](const field& f) {
+                            return f.name == new_field.name;
+                        });
+
+                        if(del_field_it != del_fields.end() && re_field_it == reindex_fields.end()) {
+                            // If the discovered field is already being deleted and is not part of reindex fields,
+                            // we should ignore. This can happen when we are trying to drop a nested object's child.
+                            continue;
+                        }
+                    }
+
                     reindex_fields.push_back(new_field);
                     updated_search_schema[new_field.name] = new_field;
                     if(new_field.nested) {

@@ -1540,6 +1540,75 @@ TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {
     ASSERT_EQ(2, res_op.get()["found"].get<size_t>());
 }
 
+TEST_F(CollectionSchemaChangeTest, NestedFieldDrop) {
+    nlohmann::json schema = R"({
+                "name": "docs",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "shops", "type": "object[]", "index": true, "optional": true},
+                    {"name": "shops.is_available", "type": "bool[]", "index": true, "optional": true}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["shops"][0]["is_available"] = false;
+    coll->add(doc.dump());
+
+    nlohmann::json schema_change = R"({
+        "fields": [
+            {"name": "shops.is_available", "drop": true}
+        ]
+    })"_json;
+
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
+
+    auto actual_schema = coll->get_schema();
+    ASSERT_EQ(1, actual_schema.size());
+    ASSERT_EQ(1, actual_schema.count("shops"));
+}
+
+TEST_F(CollectionSchemaChangeTest, NestedFieldReIndex) {
+    nlohmann::json schema = R"({
+                "name": "docs",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "shops", "type": "object[]"},
+                    {"name": "shops.is_available", "type": "bool[]"}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["shops"][0]["is_available"] = false;
+    coll->add(doc.dump());
+
+    nlohmann::json schema_change = R"({
+        "fields": [
+            {"name": "shops.is_available", "drop": true},
+            {"name": "shops.is_available", "type": "bool[]", "facet": true}
+        ]
+    })"_json;
+
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
+
+    auto actual_schema = coll->get_schema();
+    ASSERT_EQ(2, actual_schema.size());
+    ASSERT_TRUE(actual_schema["shops.is_available"].facet);
+}
+
 TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
     nlohmann::json schema = R"({
                 "name": "objects",
