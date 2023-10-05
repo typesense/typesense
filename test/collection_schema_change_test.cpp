@@ -697,6 +697,41 @@ TEST_F(CollectionSchemaChangeTest, AddAndDropFieldImmediately) {
     ASSERT_EQ(0, coll1->get_dynamic_fields().size());
 }
 
+TEST_F(CollectionSchemaChangeTest, DropSpecificDynamicField) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": ".*_int", "type": "int32", "facet": true}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["quantity_int"] = 1000;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+
+    // drop specific field via alter which we will try dropping later
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "quantity_int", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+    ASSERT_EQ(1, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_schema().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+}
+
 TEST_F(CollectionSchemaChangeTest, AddDynamicFieldMatchingMultipleFields) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", 1, 1),
                                  field("points", field_types::INT32, true),};
