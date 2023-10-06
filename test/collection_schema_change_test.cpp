@@ -1607,6 +1607,21 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldDrop) {
     auto actual_schema = coll->get_schema();
     ASSERT_EQ(1, actual_schema.size());
     ASSERT_EQ(1, actual_schema.count("shops"));
+
+    // add the field back
+
+    schema_change = R"({
+        "fields": [
+            {"name": "shops.is_available", "type": "bool[]", "index": true, "optional": true}
+        ]
+    })"_json;
+
+    schema_change_op = coll->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
+    actual_schema = coll->get_schema();
+    ASSERT_EQ(2, actual_schema.size());
+    ASSERT_EQ(1, actual_schema.count("shops"));
+    ASSERT_EQ(1, actual_schema.count("shops.is_available"));
 }
 
 TEST_F(CollectionSchemaChangeTest, NestedFieldReIndex) {
