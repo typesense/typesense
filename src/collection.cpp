@@ -1071,7 +1071,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::vector<std::string>& raw_search_fields,
                                   const std::string & filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
-                                  const size_t per_page, const size_t page,
+                                  size_t per_page, const size_t page,
                                   token_ordering token_order, const std::vector<bool>& prefixes,
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
@@ -1171,7 +1171,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         group_limit = 0;
     }
 
-
     vector_query_t vector_query;
     if(!vector_query_str.empty()) {
         bool is_wildcard_query = (raw_query == "*" || raw_query.empty());
@@ -1187,9 +1186,19 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
         }
 
-        if(is_wildcard_query && vector_field_it.value().num_dim != vector_query.values.size()) {
-            return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
-                                               std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+        if(is_wildcard_query) {
+            if(vector_query.values.empty() && !vector_query.query_doc_given) {
+                // for usability we will treat this as non-vector query
+                vector_query.field_name.clear();
+                if(vector_query.k != 0) {
+                    per_page = std::min(per_page, vector_query.k);
+                }
+            }
+
+            else if(vector_field_it.value().num_dim != vector_query.values.size()) {
+                return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
+                                                   std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+            }
         }
     }
 

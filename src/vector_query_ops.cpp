@@ -158,10 +158,6 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                 }
             }
 
-            if(is_wildcard_query && !vector_query.query_doc_given && vector_query.values.empty()) {
-                return Option<bool>(400, "When a vector query value is empty, an `id` parameter must be present.");
-            }
-
             return Option<bool>(true);
         }
     }

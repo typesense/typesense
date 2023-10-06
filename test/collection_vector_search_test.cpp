@@ -1188,6 +1188,20 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     ASSERT_EQ(1, search_res["found"].get<size_t>());
     ASSERT_EQ(1, search_res["hits"].size());
 
+    // allow wildcard with empty vector (for convenience)
+    search_res_op = coll->search("*", {"embedding"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, vec_query);
+    ASSERT_TRUE(search_res_op.ok());
+    search_res = search_res_op.get();
+    ASSERT_EQ(3, search_res["found"].get<size_t>());
+    ASSERT_EQ(1, search_res["hits"].size());
+
     // when no embedding field is passed, it should not be allowed
     search_res_op = coll->search("butter", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                                  spp::sparse_hash_set<std::string>(),
