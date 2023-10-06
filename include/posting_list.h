@@ -91,7 +91,7 @@ public:
         uint32_t* offsets = nullptr;
 
         explicit iterator_t(const std::map<last_id_t, block_t*>* id_block_map,
-                            block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0);
+                            block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0, bool reverse = false);
         ~iterator_t();
 
         iterator_t(iterator_t&& rhs) noexcept;
@@ -100,8 +100,8 @@ public:
         void reset_cache();
         [[nodiscard]] bool valid() const;
         void next();
-        void previous();
         void skip_to(uint32_t id);
+        void skip_to_rev(uint32_t id);
         void set_index(uint32_t index);
         [[nodiscard]] uint32_t id() const;
         [[nodiscard]] uint32_t last_block_id() const;
