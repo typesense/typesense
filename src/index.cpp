@@ -1259,14 +1259,15 @@ int64_t Index::get_doc_val_from_sort_index(sort_index_iterator sort_index_it, ui
     return INT64_MAX;
 }
 
-std::vector<group_by_field_it_t> Index::get_group_by_field_iterators(const std::vector<std::string>& group_by_fields) const {
+std::vector<group_by_field_it_t> Index::get_group_by_field_iterators(const std::vector<std::string>& group_by_fields,
+                                                                     bool is_reverse) const {
     std::vector<group_by_field_it_t> group_by_field_it_vec;
     for (const auto &field_name: group_by_fields) {
         if (!facet_index_v4->has_hash_index(field_name)) {
             continue;
         }
         auto facet_index = facet_index_v4->get_facet_hash_index(field_name);
-        auto facet_index_it = facet_index->new_iterator();
+        auto facet_index_it = is_reverse ? facet_index->new_rev_iterator() : facet_index->new_iterator();
 
         group_by_field_it_t group_by_field_it_struct {field_name, std::move(facet_index_it)};
         group_by_field_it_vec.emplace_back(std::move(group_by_field_it_struct));
@@ -2393,7 +2394,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             std::vector<group_by_field_it_t> group_by_field_it_vec;
             if (group_limit != 0) {
-                group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
+                group_by_field_it_vec = get_group_by_field_iterators(group_by_fields, true);
             }
 
             while (it.valid()) {
@@ -2402,8 +2403,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 if (group_limit != 0) {
                     distinct_id = 1;
                     for(auto& kv : group_by_field_it_vec) {
-                        auto facet_index_it = kv.it.clone();
-                        get_distinct_id(kv.field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+                        get_distinct_id(kv.field_name, kv.it, seq_id, group_missing_values, distinct_id);
+                        kv.it.previous();
                     }
                     if(excluded_group_ids.count(distinct_id) != 0) {
                        continue;
@@ -2492,6 +2493,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 } else {
                     pairs = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, &filterFunctor);
                 }
+
+                std::sort(pairs.begin(), pairs.end(), [](auto& x, auto& y) {
+                    return x.second < y.second;
+                });
+
                 filter_result_iterator->reset();
 
                 if (filter_result_iterator->is_valid && !filter_result_iterator->reference.empty()) {
@@ -2532,9 +2538,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 if (group_limit != 0) {
                     distinct_id = 1;
                     for(auto &kv : group_by_field_it_vec) {
-                        //auto facet_index_it = kv.it.clone();
-                        auto &facet_index_it = kv.it;
-                        get_distinct_id(kv.field_name, facet_index_it, seq_id, group_missing_values, distinct_id);
+                        get_distinct_id(kv.field_name, kv.it, seq_id, group_missing_values, distinct_id);
                     }
 
                     if(excluded_group_ids.count(distinct_id) != 0) {

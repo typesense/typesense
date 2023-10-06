@@ -993,6 +993,16 @@ posting_list_t::iterator_t posting_list_t::new_iterator(block_t* start_block, bl
     return posting_list_t::iterator_t(&id_block_map, start_block, end_block, true, field_id);
 }
 
+posting_list_t::iterator_t posting_list_t::new_rev_iterator() {
+    block_t* start_block = nullptr;
+    if(!id_block_map.empty()) {
+        start_block = id_block_map.rbegin()->second;
+    }
+
+    auto rev_it = posting_list_t::iterator_t(&id_block_map, start_block, nullptr, true);
+    return rev_it;
+}
+
 void posting_list_t::advance_all(std::vector<posting_list_t::iterator_t>& its) {
     for(auto& it: its) {
         it.next();
@@ -1673,6 +1683,25 @@ void posting_list_t::iterator_t::next() {
             ids = curr_block->ids.uncompress();
             offset_index = curr_block->offset_index.uncompress();
             offsets = curr_block->offsets.uncompress();
+        }
+    }
+}
+
+void posting_list_t::iterator_t::previous() {
+    curr_index--;
+    if(curr_index < 0) {
+        // since block stores only the next pointer, we have to use `id_block_map` for reverse iteration
+        auto last_ele = ids[curr_block->size()-1];
+        auto it = id_block_map->find(last_ele);
+        if(it != id_block_map->end() && it != id_block_map->begin()) {
+            it--;
+            curr_block = it->second;
+            curr_index = curr_block->size()-1;
+
+            delete [] ids;
+            ids = curr_block->ids.uncompress();
+        } else {
+            curr_block = end_block;
         }
     }
 }

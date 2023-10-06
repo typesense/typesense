@@ -544,7 +544,7 @@ private:
                                        const tsl::htrie_map<char, field>& embedding_fields,
                                        const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size = 200);
 
-    std::vector<group_by_field_it_t> get_group_by_field_iterators(const std::vector<std::string>&) const;
+    std::vector<group_by_field_it_t> get_group_by_field_iterators(const std::vector<std::string>&, bool is_reverse=false) const;
 
 public:
     // for limiting number of results on multiple candidates / query rewrites

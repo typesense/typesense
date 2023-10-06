@@ -100,6 +100,7 @@ public:
         void reset_cache();
         [[nodiscard]] bool valid() const;
         void next();
+        void previous();
         void skip_to(uint32_t id);
         void set_index(uint32_t index);
         [[nodiscard]] uint32_t id() const;
@@ -173,6 +174,8 @@ public:
     bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
 
     iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr, uint32_t field_id = 0);
+
+    iterator_t new_rev_iterator();
 
     static void merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
