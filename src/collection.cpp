@@ -5993,12 +5993,48 @@ bool Collection::get_enable_nested_fields() {
     return enable_nested_fields;
 }
 
+Option<bool> Collection::parse_facet_with_lock(const std::string& facet_field, std::vector<facet>& facets) const {
+    std::shared_lock lock(mutex);
+    return parse_facet(facet_field, facets);
+}
+
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
     const std::regex base_pattern(".+\\(.*\\)");
     const std::regex range_pattern("[[0-9]*[a-z A-Z]+[0-9]*:\\[([+-]?([0-9]*[.])?[0-9]*)\\,\\s*([+-]?([0-9]*[.])?[0-9]*)\\]");
     const std::string _alpha = "_alpha";
 
-   if ((facet_field.find(":") != std::string::npos)
+    if (facet_field[0] == '$') { // Reference facet_by
+        std::string error_message = "Error parsing reference facet: ";
+        auto open_paren_pos = facet_field.find('(');
+        if (open_paren_pos == std::string::npos) {
+            return Option<bool>(400, error_message + "`" + facet_field + "`.");
+        }
+
+        std::string ref_collection_name = facet_field.substr(1, open_paren_pos - 1);
+        auto &cm = CollectionManager::get_instance();
+        auto ref_collection = cm.get_collection(ref_collection_name);
+        if (ref_collection == nullptr) {
+            return Option<bool>(400, error_message + "Referenced collection `" + ref_collection_name + "` not found.");
+        }
+
+        std::string ref_facet_expression = facet_field.substr(open_paren_pos + 1, facet_field.size() - open_paren_pos - 2);
+        std::vector<std::string> ref_facet_strings;
+        StringUtils::split_facet(ref_facet_expression, ref_facet_strings);
+
+        std::vector<facet> ref_facets;
+        for (const auto &ref_facet: ref_facet_strings) {
+            auto parse_op = ref_collection->parse_facet_with_lock(ref_facet, ref_facets);
+            if (!parse_op.ok()) {
+                return Option<bool>(parse_op.code(), error_message + parse_op.error());
+            }
+        }
+
+        for (auto &ref_facet: ref_facets) {
+            ref_facet.reference_collection_name = ref_collection_name;
+            facets.emplace_back(std::move(ref_facet));
+        }
+    }
+    else if ((facet_field.find(":") != std::string::npos)
         && (facet_field.find("sort") == std::string::npos)) { //range based facet
 
        if (!std::regex_match(facet_field, base_pattern)) {

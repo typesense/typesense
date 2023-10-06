@@ -606,6 +606,8 @@ public:
 
     std::shared_ptr<VQModel> get_vq_model();
 
+    Option<bool> parse_facet_with_lock(const std::string& facet_field, std::vector<facet>& facets) const;
+
     Option<bool> parse_facet(const std::string& facet_field, std::vector<facet>& facets) const;
 
     // Override operations

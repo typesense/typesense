@@ -711,6 +711,8 @@ struct facet {
 
     uint32_t orig_index;
 
+    std::string reference_collection_name;
+
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
         if(facet_range_map.empty()) {
             LOG (ERROR) << "Facet range is not defined!!!";
