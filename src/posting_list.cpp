@@ -1699,7 +1699,14 @@ void posting_list_t::iterator_t::previous() {
             curr_index = curr_block->size()-1;
 
             delete [] ids;
+            delete [] offset_index;
+            delete [] offsets;
+
+            ids = offset_index = offsets = nullptr;
+
             ids = curr_block->ids.uncompress();
+            offset_index = curr_block->offset_index.uncompress();
+            offsets = curr_block->offsets.uncompress();
         } else {
             curr_block = end_block;
         }
