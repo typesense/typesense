@@ -88,6 +88,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             }
 
             field_obj[fields::num_dim] = num_dim;
+            TextEmbedderManager::get_instance().add_text_embedder_to_collection(this_collection_name, model_config["model_name"].get<std::string>());
             LOG(INFO) << "Model init done.";
         }
 
@@ -531,6 +532,9 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
+
+    TextEmbedderManager::get_instance().remove_collection(actual_coll_name);
+
     u_lock.unlock();
 
     // don't hold any collection manager locks here, since this can take some time
@@ -1260,7 +1264,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     std::string fallback_field_type;
     std::vector<field> fields;
     auto parse_op = field::json_fields_to_fields(req_json[ENABLE_NESTED_FIELDS].get<bool>(),
-                                                 req_json["fields"], fallback_field_type, fields);
+                                                 req_json["fields"], fallback_field_type, fields, req_json["name"]);
 
     if(!parse_op.ok()) {
         return Option<Collection*>(parse_op.code(), parse_op.error());

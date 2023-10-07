@@ -3798,6 +3798,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         if(f.embed.count(fields::from) != 0) {
             found_embedding_field = true;
             embedding_fields.emplace(f.name, f);
+            TextEmbedderManager::get_instance().add_text_embedder_to_collection(name, f.embed[fields::model_config]["model_name"]);
         }
 
         fields.push_back(f);
@@ -3909,6 +3910,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(del_field.embed.count(fields::from) != 0) {
             embedding_fields.erase(del_field.name);
+            TextEmbedderManager::get_instance().remove_text_embedder_from_collection(name, del_field.embed[fields::model_config]["model_name"]);
         }
 
         if(del_field.name == ".*") {
@@ -4224,6 +4226,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
             if(found_field && field_it.value().embed.count(fields::from) != 0) {
                 updated_embedding_fields.erase(field_it.key());
+                TextEmbedderManager::get_instance().remove_text_embedder_from_collection(name, field_it.value().embed[fields::model_config]["model_name"]);
             }
 
             if(found_field) {
@@ -4233,6 +4236,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 
                 if(field_it.value().embed.count(fields::from) != 0) {
                     updated_embedding_fields.erase(field_it.key());
+                    TextEmbedderManager::get_instance().remove_text_embedder_from_collection(name, field_it.value().embed[fields::model_config]["model_name"]);
                 }
 
                 // should also remove children if the field being dropped is an object
@@ -4247,6 +4251,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                             if(prefix_kv.value().embed.count(fields::from) != 0) {
                                 updated_embedding_fields.erase(prefix_kv.key());
+                                TextEmbedderManager::get_instance().remove_text_embedder_from_collection(name, prefix_kv.value().embed[fields::model_config]["model_name"]);
                             }
                         }
                     }
@@ -4293,7 +4298,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(!f.embed.empty()) {
-                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f);
+                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f, name);
 
                     if(!validate_res.ok()) {
                         return validate_res;
@@ -4988,6 +4993,7 @@ void Collection::process_remove_field_for_embedding_fields(const field& del_fiel
         fields.erase(std::remove_if(fields.begin(), fields.end(), [&garbage_field](const auto &f) {
             return f.name == garbage_field.name;
         }), fields.end());
+        TextEmbedderManager::get_instance().remove_text_embedder_from_collection(name, garbage_field.embed[fields::model_config]["model_name"].get<std::string>());
     }
 }
 

@@ -1081,7 +1081,7 @@ void field::compact_nested_fields(tsl::htrie_map<char, field>& nested_fields) {
 }
 
 Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::json &fields_json, string &fallback_field_type,
-                                          std::vector<field>& the_fields) {
+                                          std::vector<field>& the_fields, const std::string& collection_name) {
     size_t num_auto_detect_fields = 0;
     const tsl::htrie_map<char, field> dummy_search_schema;
 
@@ -1094,7 +1094,7 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
         }
 
         if(!the_fields.empty() && !the_fields.back().embed.empty()) {
-            auto validate_res = validate_and_init_embed_field(dummy_search_schema, field_json, fields_json, the_fields.back());
+            auto validate_res = validate_and_init_embed_field(dummy_search_schema, field_json, fields_json, the_fields.back(), collection_name);
             if(!validate_res.ok()) {
                 return validate_res;
             }
@@ -1110,7 +1110,7 @@ Option<bool> field::json_fields_to_fields(bool enable_nested_fields, nlohmann::j
 
 Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema, nlohmann::json& field_json,
                                                   const nlohmann::json& fields_json,
-                                                  field& the_field) {
+                                                  field& the_field, const std::string& collection_name) {
     const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
                                     "` can only refer to string or string array fields.";
 
@@ -1140,6 +1140,7 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
     if(!res.ok()) {
         return Option<bool>(res.code(), res.error());
     }
+    TextEmbedderManager::get_instance().add_text_embedder_to_collection(collection_name, model_config[fields::model_name].get<std::string>());
     
     LOG(INFO) << "Model init done.";
     field_json[fields::num_dim] = num_dim;

@@ -31,6 +31,7 @@ protected:
 
     virtual void TearDown() {
         collectionManager.dispose();
+        TextEmbedderManager::get_instance().delete_all_text_embedders();
         delete store;
     }
 };
@@ -2230,3 +2231,79 @@ TEST_F(CollectionVectorTest, QueryByNotAutoEmbeddingVectorField) {
 
     ASSERT_EQ("Vector field `embedding` is not an auto-embedding field, do not use `query_by` with it, use `vector_query` instead.", search_res.error());
 }
+
+TEST_F(CollectionVectorTest, TestUnloadingModelsOnCollectionDelete) {
+    nlohmann::json actual_schema = R"({
+                        "name": "test",
+                        "fields": [
+                            {
+                                "name": "title",
+                                "type": "string"
+                            },
+                            {
+                            "name": "title_vec",
+                            "type": "float[]",
+                            "embed": {
+                                "from": [
+                                    "title"
+                                ],
+                                "model_config": {
+                                    "model_name": "ts/e5-small"
+                                }
+                            }
+                            }
+                        ]
+                        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto schema = actual_schema;
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+
+    ASSERT_EQ(1, text_embedders.size());
+
+    auto delete_op = collectionManager.drop_collection("test", true);
+
+    ASSERT_TRUE(delete_op.ok());
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(0, text_embedders.size());
+
+    // create another collection
+    schema = actual_schema;
+    collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    coll = collection_create_op.get();
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(1, text_embedders.size());
+
+    // create second collection
+    schema = actual_schema;
+    schema["name"] = "test2";
+    collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll2 = collection_create_op.get();
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+
+    ASSERT_EQ(1, text_embedders.size());
+
+    delete_op = collectionManager.drop_collection("test", true);
+    ASSERT_TRUE(delete_op.ok());
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(1, text_embedders.size());
+
+    delete_op = collectionManager.drop_collection("test2", true);
+    ASSERT_TRUE(delete_op.ok());
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(0, text_embedders.size());
+}  
