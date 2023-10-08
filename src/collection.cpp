@@ -3765,7 +3765,7 @@ Option<bool> Collection::persist_collection_meta() {
     return Option<bool>(true);
 }
 
-Option<bool> Collection::batch_alter_data(std::vector<field>& alter_fields,
+Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields,
                                           const std::vector<field>& del_fields,
                                           const std::string& this_fallback_field_type) {
     // Update schema with additions (deletions can only be made later)
@@ -3800,7 +3800,8 @@ Option<bool> Collection::batch_alter_data(std::vector<field>& alter_fields,
             auto text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
             auto model_name = f.embed[fields::model_config][fields::model_name].get<std::string>();
             if(text_embedders.count(model_name) == 0) {
-                TextEmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], f.num_dim);
+                size_t dummy_num_dim = 0;
+                TextEmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
             }
             embedding_fields.emplace(f.name, f);
         }
@@ -4298,7 +4299,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
 
                 if(!f.embed.empty()) {
-                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f, name);
+                    auto validate_res = field::validate_and_init_embed_field(search_schema, schema_changes["fields"][json_array_index], schema_changes["fields"], f);
 
                     if(!validate_res.ok()) {
                         return validate_res;
@@ -5032,23 +5033,23 @@ Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k
 }
 
 void Collection::remove_embedding_field(const std::string& field_name) {
-    field del_field;
-
-    if(embedding_fields.find(field_name) != embedding_fields.end()) {
-        del_field = embedding_fields[field_name];
-    } else {
+    if(embedding_fields.find(field_name) == embedding_fields.end()) {
         return;
     }
+
+    auto del_field = embedding_fields[field_name];
 
     embedding_fields.erase(field_name);
 
     auto model_name = del_field.embed[fields::model_config]["model_name"].get<std::string>();   
+    process_embedding_field_delete(model_name);
+}
 
+void Collection::process_embedding_field_delete(const std::string& model_name) {
     auto collections = CollectionManager::get_instance().get_collections();
-
     bool found = false;
 
-    for(auto& collection: collections) {
+    for(const auto& collection: collections) {
         auto embedding_fields_other = collection->embedding_fields;
 
         for(auto& embedding_field: embedding_fields_other) {

@@ -422,12 +422,12 @@ struct field {
     static Option<bool> json_fields_to_fields(bool enable_nested_fields,
                                               nlohmann::json& fields_json,
                                               std::string& fallback_field_type,
-                                              std::vector<field>& the_fields, const std::string& collection_name = "");
+                                              std::vector<field>& the_fields);
 
     static Option<bool> validate_and_init_embed_field(const tsl::htrie_map<char, field>& search_schema,
                                                        nlohmann::json& field_json,
                                                        const nlohmann::json& fields_json,
-                                                       field& the_field, const std::string& collection_name);
+                                                       field& the_field);
 
 
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,

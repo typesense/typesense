@@ -213,7 +213,7 @@ private:
     
     Option<bool> persist_collection_meta();
 
-    Option<bool> batch_alter_data(std::vector<field>& alter_fields,
+    Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
                                   const std::vector<field>& del_fields,
                                   const std::string& this_fallback_field_type);
 
@@ -566,6 +566,8 @@ public:
                                  std::vector<std::string>& reordered_search_fields) const;
 
     Option<bool> truncate_after_top_k(const std::string& field_name, size_t k);
+
+    static void process_embedding_field_delete(const std::string& model_name);
 };
 
 template<class T>

@@ -201,4 +201,5 @@ public:
     Option<bool> upsert_preset(const std::string & preset_name, const nlohmann::json& preset_config);
 
     Option<bool> delete_preset(const std::string & preset_name);
+
 };

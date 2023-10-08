@@ -2386,8 +2386,6 @@ TEST_F(CollectionVectorTest, TestUnloadingModelsOnDrop) {
     auto alter_op = coll->alter(alter_schema);
     ASSERT_TRUE(alter_op.ok());
 
-    LOG(INFO) << "created second collection";
-
     text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
     ASSERT_EQ(1, text_embedders.size());
 
