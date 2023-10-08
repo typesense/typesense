@@ -36,7 +36,7 @@ public:
     TextEmbedderManager& operator=(const TextEmbedderManager&) = delete;
 
     Option<TextEmbedder*> get_text_embedder(const nlohmann::json& model_config);
-    
+
     void delete_text_embedder(const std::string& model_path);
     void delete_all_text_embedders();
 
