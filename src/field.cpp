@@ -1140,7 +1140,6 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
     if(!res.ok()) {
         return Option<bool>(res.code(), res.error());
     }
-    TextEmbedderManager::get_instance().add_text_embedder_to_collection(collection_name, model_config[fields::model_name].get<std::string>());
     
     LOG(INFO) << "Model init done.";
     field_json[fields::num_dim] = num_dim;

@@ -88,7 +88,6 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             }
 
             field_obj[fields::num_dim] = num_dim;
-            TextEmbedderManager::get_instance().add_text_embedder_to_collection(this_collection_name, model_config["model_name"].get<std::string>());
             LOG(INFO) << "Model init done.";
         }
 
@@ -529,11 +528,35 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
     s_lock.unlock();
 
+    auto embedding_fields = collection->get_embedding_fields();
+
     std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
 
-    TextEmbedderManager::get_instance().remove_collection(actual_coll_name);
+    for(auto& embedding_field : embedding_fields) {
+        bool found = false;
+        auto model_name = embedding_field.embed[fields::model_config]["model_name"].get<std::string>();
+
+        for(auto& collection: collections) {
+            auto embedding_fields_other = collection.second->get_embedding_fields();
+
+            for(auto& embedding_field: embedding_fields_other) {
+                if(embedding_field.embed.count(fields::model_config) != 0) {
+                    auto model_config = embedding_field.embed[fields::model_config];
+                    if(model_config["model_name"].get<std::string>() == model_name) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if(!found) {
+            LOG(INFO) << "Deleting text embedder: " << model_name;
+            TextEmbedderManager::get_instance().delete_text_embedder(embedding_field.embed[fields::model_config]["model_name"].get<std::string>());
+        }
+    }
 
     u_lock.unlock();
 

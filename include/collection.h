@@ -213,7 +213,7 @@ private:
     
     Option<bool> persist_collection_meta();
 
-    Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
+    Option<bool> batch_alter_data(std::vector<field>& alter_fields,
                                   const std::vector<field>& del_fields,
                                   const std::string& this_fallback_field_type);
 
@@ -277,6 +277,8 @@ private:
     Option<std::string> get_reference_field(const std::string & collection_name) const;
 
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);
+
+    void remove_embedding_field(const std::string& field_name);
 
 public:
 

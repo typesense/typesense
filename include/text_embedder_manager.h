@@ -36,9 +36,6 @@ public:
     TextEmbedderManager& operator=(const TextEmbedderManager&) = delete;
 
     Option<TextEmbedder*> get_text_embedder(const nlohmann::json& model_config);
-    void add_text_embedder_to_collection(const std::string& collection_name, const std::string& model_name);
-    void remove_text_embedder_from_collection(const std::string& collection_name, const std::string& model_name);
-    void remove_collection(const std::string& collection_name);
     
     void delete_text_embedder(const std::string& model_path);
     void delete_all_text_embedders();
@@ -85,8 +82,6 @@ private:
     std::unordered_map<std::string, std::shared_ptr<TextEmbedder>> text_embedders;
     std::unordered_map<std::string, text_embedding_model> public_models;
     std::mutex text_embedders_mutex;
-
-    std::unordered_map<std::string, std::unordered_set<std::string>> text_embedder_to_collections, collection_to_text_embedders;
 
     static Option<std::string> get_namespace(const std::string& model_name);
 };

@@ -2307,3 +2307,99 @@ TEST_F(CollectionVectorTest, TestUnloadingModelsOnCollectionDelete) {
     text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
     ASSERT_EQ(0, text_embedders.size());
 }  
+
+TEST_F(CollectionVectorTest, TestUnloadingModelsOnDrop) {
+    nlohmann::json actual_schema = R"({
+                        "name": "test",
+                        "fields": [
+                            {
+                                "name": "title",
+                                "type": "string"
+                            },
+                            {
+                            "name": "title_vec",
+                            "type": "float[]",
+                            "embed": {
+                                "from": [
+                                    "title"
+                                ],
+                                "model_config": {
+                                    "model_name": "ts/e5-small"
+                                }
+                            }
+                            }
+                        ]
+                        })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto schema = actual_schema;
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+
+    ASSERT_EQ(1, text_embedders.size());
+
+    nlohmann::json drop_schema = R"({
+                        "fields": [
+                            {
+                                "name": "title_vec",
+                                "drop": true
+                            }
+                        ]
+                        })"_json;
+    
+    auto drop_op = coll->alter(drop_schema);
+    ASSERT_TRUE(drop_op.ok());
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(0, text_embedders.size());
+
+    // create another collection
+    schema = actual_schema;
+    schema["name"] = "test2";
+    collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll2 = collection_create_op.get();
+
+    nlohmann::json alter_schema = R"({
+                        "fields": [
+                            {
+                                "name": "title_vec",
+                                "type": "float[]",
+                                "embed": {
+                                    "from": [
+                                        "title"
+                                    ],
+                                    "model_config": {
+                                        "model_name": "ts/e5-small"
+                                    }
+                                }
+                            }
+                        ]
+                        })"_json;
+
+    auto alter_op = coll->alter(alter_schema);
+    ASSERT_TRUE(alter_op.ok());
+
+    LOG(INFO) << "created second collection";
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(1, text_embedders.size());
+
+    drop_op = coll2->alter(drop_schema);
+    ASSERT_TRUE(drop_op.ok());
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(1, text_embedders.size());
+
+    drop_op = coll->alter(drop_schema);
+    ASSERT_TRUE(drop_op.ok());
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(0, text_embedders.size());
+}
