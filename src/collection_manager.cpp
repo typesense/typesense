@@ -534,12 +534,12 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
     const auto& embedding_fields = collection->get_embedding_fields();
 
+    u_lock.unlock();
     for(const auto& embedding_field : embedding_fields) {
         const auto& model_name = embedding_field.embed[fields::model_config]["model_name"].get<std::string>();
         process_embedding_field_delete(model_name);
     }
 
-    u_lock.unlock();
 
     // don't hold any collection manager locks here, since this can take some time
     delete collection;
@@ -1565,8 +1565,7 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
 }
 
 void CollectionManager::process_embedding_field_delete(const std::string& model_name) {
-    // can't have a shared lock here 
-    // because we will be already acquiring a lock on collection manager if we are deleting a collection
+    std::shared_lock lock(mutex);
     bool found = false;
 
     for(const auto& collection: collections) {
