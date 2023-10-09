@@ -123,16 +123,16 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
                     ids_t::destroy_list(ids);
                     std::string dead_fvalue;
                     dead_fvalues.push_back(dead_fvalue);
+
+                    //remove from int64 lookup map first
+                    auto& fhash_int64_map = facet_field_it->second.fhash_to_int64_map;
+                    uint32_t fhash = facet_ids_seq_ids->second.facet_id;
+                    fhash_int64_map.erase(fhash);
+
                     count_list.erase(facet_ids_seq_ids->second.facet_count_it);
                     auto node = facet_index_map.extract(facet_ids_seq_ids->first);
                     node.key() = dead_fvalue;
                     facet_index_map.insert(std::move(node));
-
-                    //remove from int64 lookup map
-                    auto& fhash_int64_map = facet_field_it->second.fhash_to_int64_map;
-                    uint32_t fhash = facet_ids_seq_ids->second.facet_id;
-
-                    fhash_int64_map.erase(fhash);
                 }
             }
         }
