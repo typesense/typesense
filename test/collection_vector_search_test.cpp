@@ -2457,8 +2457,8 @@ TEST_F(CollectionVectorTest, TestUnloadModelsCollectionHaveTwoEmbeddingField) {
                         ]
                         })"_json;
     
-    auto drop_op = coll->alter(drop_schema);
-    ASSERT_TRUE(drop_op.ok());
+    auto alter_op = coll->alter(drop_schema);
+    ASSERT_TRUE(alter_op.ok());
 
     text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
     ASSERT_EQ(1, text_embedders.size());
@@ -2472,8 +2472,8 @@ TEST_F(CollectionVectorTest, TestUnloadModelsCollectionHaveTwoEmbeddingField) {
                         ]
                         })"_json;
     
-    drop_op = coll->alter(drop_schema);
-    ASSERT_TRUE(drop_op.ok());
+    alter_op = coll->alter(drop_schema);
+    ASSERT_TRUE(alter_op.ok());
 
     text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
     ASSERT_EQ(0, text_embedders.size());
@@ -2491,7 +2491,7 @@ TEST_F(CollectionVectorTest, TestUnloadModelsCollectionHaveTwoEmbeddingField) {
     ASSERT_EQ(1, text_embedders.size());
 
     // drop collection
-    drop_op = collectionManager.drop_collection("test2", true);
+    auto drop_op = collectionManager.drop_collection("test2", true);
 
     ASSERT_TRUE(drop_op.ok());
 
