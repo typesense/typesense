@@ -1567,7 +1567,6 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
 void CollectionManager::process_embedding_field_delete(const std::string& model_name) {
     // can't have a shared lock here 
     // because we will be already acquiring a lock on collection manager if we are deleting a collection
-    //std::shared_lock lock(mutex);
     bool found = false;
 
     for(const auto& collection: collections) {

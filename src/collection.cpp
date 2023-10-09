@@ -3797,8 +3797,8 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(f.embed.count(fields::from) != 0) {
             found_embedding_field = true;
-            auto text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
-            auto model_name = f.embed[fields::model_config][fields::model_name].get<std::string>();
+            const auto& text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+            const auto& model_name = f.embed[fields::model_config][fields::model_name].get<std::string>();
             if(text_embedders.count(model_name) == 0) {
                 size_t dummy_num_dim = 0;
                 auto validate_model_res = TextEmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
