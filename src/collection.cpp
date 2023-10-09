@@ -3801,7 +3801,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             auto model_name = f.embed[fields::model_config][fields::model_name].get<std::string>();
             if(text_embedders.count(model_name) == 0) {
                 size_t dummy_num_dim = 0;
-                TextEmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
+                auto validate_model_res = TextEmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
+                if(!validate_model_res.ok()) {
+                    return Option<bool>(validate_model_res.code(), validate_model_res.error());
+                }
             }
             embedding_fields.emplace(f.name, f);
         }
@@ -5037,34 +5040,12 @@ void Collection::remove_embedding_field(const std::string& field_name) {
         return;
     }
 
-    auto del_field = embedding_fields[field_name];
-
+    const auto& del_field = embedding_fields[field_name];
+    const auto& model_name = del_field.embed[fields::model_config]["model_name"].get<std::string>(); 
     embedding_fields.erase(field_name);
-
-    auto model_name = del_field.embed[fields::model_config]["model_name"].get<std::string>();   
-    process_embedding_field_delete(model_name);
+    CollectionManager::get_instance().process_embedding_field_delete(model_name);
 }
 
-void Collection::process_embedding_field_delete(const std::string& model_name) {
-    auto collections = CollectionManager::get_instance().get_collections();
-    bool found = false;
-
-    for(const auto& collection: collections) {
-        auto embedding_fields_other = collection->embedding_fields;
-
-        for(auto& embedding_field: embedding_fields_other) {
-            if(embedding_field.embed.count(fields::model_config) != 0) {
-                auto model_config = embedding_field.embed[fields::model_config];
-                if(model_config["model_name"].get<std::string>() == model_name) {
-                    found = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    if(!found) {
-        LOG(INFO) << "Deleting text embedder: " << model_name;
-        TextEmbedderManager::get_instance().delete_text_embedder(model_name);
-    }
+tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
+    return embedding_fields;
 }
