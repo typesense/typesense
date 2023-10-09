@@ -531,7 +531,15 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     std::unique_lock u_lock(mutex);
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
+
+    const auto& embedding_fields = collection->get_embedding_fields();
+
     u_lock.unlock();
+    for(const auto& embedding_field : embedding_fields) {
+        const auto& model_name = embedding_field.embed[fields::model_config]["model_name"].get<std::string>();
+        process_embedding_field_delete(model_name);
+    }
+
 
     // don't hold any collection manager locks here, since this can take some time
     delete collection;
@@ -1554,4 +1562,30 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     }
 
     return Option<Collection*>(new_coll);
+}
+
+void CollectionManager::process_embedding_field_delete(const std::string& model_name) {
+    std::shared_lock lock(mutex);
+    bool found = false;
+
+    for(const auto& collection: collections) {
+        // will be deadlock if we try to acquire lock on collection here
+        // caller of this function should have already acquired lock on collection
+        const auto& embedding_fields = collection.second->get_embedding_fields_unsafe();
+
+        for(const auto& embedding_field: embedding_fields) {
+            if(embedding_field.embed.count(fields::model_config) != 0) {
+                const auto& model_config = embedding_field.embed[fields::model_config];
+                if(model_config["model_name"].get<std::string>() == model_name) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if(!found) {
+        LOG(INFO) << "Deleting text embedder: " << model_name;
+        TextEmbedderManager::get_instance().delete_text_embedder(model_name);
+    }
 }

@@ -3797,6 +3797,15 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(f.embed.count(fields::from) != 0) {
             found_embedding_field = true;
+            const auto& text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+            const auto& model_name = f.embed[fields::model_config][fields::model_name].get<std::string>();
+            if(text_embedders.count(model_name) == 0) {
+                size_t dummy_num_dim = 0;
+                auto validate_model_res = TextEmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
+                if(!validate_model_res.ok()) {
+                    return Option<bool>(validate_model_res.code(), validate_model_res.error());
+                }
+            }
             embedding_fields.emplace(f.name, f);
         }
 
@@ -3908,7 +3917,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(del_field.embed.count(fields::from) != 0) {
-            embedding_fields.erase(del_field.name);
+            remove_embedding_field(del_field.name);
         }
 
         if(del_field.name == ".*") {
@@ -4983,7 +4992,7 @@ void Collection::process_remove_field_for_embedding_fields(const field& del_fiel
     }
 
     for(auto& garbage_field: garbage_embed_fields) {
-        embedding_fields.erase(garbage_field.name);
+        remove_embedding_field(garbage_field.name);
         search_schema.erase(garbage_field.name);
         fields.erase(std::remove_if(fields.begin(), fields.end(), [&garbage_field](const auto &f) {
             return f.name == garbage_field.name;
@@ -5024,4 +5033,19 @@ Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k
     }
 
     return Option<bool>(true);
+}
+
+void Collection::remove_embedding_field(const std::string& field_name) {
+    if(embedding_fields.find(field_name) == embedding_fields.end()) {
+        return;
+    }
+
+    const auto& del_field = embedding_fields[field_name];
+    const auto& model_name = del_field.embed[fields::model_config]["model_name"].get<std::string>(); 
+    embedding_fields.erase(field_name);
+    CollectionManager::get_instance().process_embedding_field_delete(model_name);
+}
+
+tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
+    return embedding_fields;
 }
