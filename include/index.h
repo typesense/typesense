@@ -304,6 +304,11 @@ struct hnsw_index_t {
     }
 };
 
+struct group_by_field_it_t {
+    std::string field_name;
+    posting_list_t::iterator_t it;
+};
+
 class Index {
 private:
     mutable std::shared_mutex mutex;
@@ -538,7 +543,9 @@ private:
     static void batch_embed_fields(std::vector<index_record*>& documents,
                                        const tsl::htrie_map<char, field>& embedding_fields,
                                        const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size = 200);
-    
+
+    std::vector<group_by_field_it_t> get_group_by_field_iterators(const std::vector<std::string>&, bool is_reverse=false) const;
+
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};
@@ -620,8 +627,9 @@ public:
 
     static float int64_t_to_float(int64_t n);
 
-    uint64_t get_distinct_id(const std::vector<std::string>& group_by_fields,
-                             const uint32_t seq_id, const bool group_missing_values) const;
+    void get_distinct_id(const std::string& field_name, posting_list_t::iterator_t& facet_index_it,
+                                const uint32_t seq_id,  const bool group_missing_values, uint64_t& distinct_id,
+                                bool is_reverse=false) const;
 
     static void compute_token_offsets_facets(index_record& record,
                                              const tsl::htrie_map<char, field>& search_schema,

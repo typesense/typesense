@@ -886,3 +886,104 @@ TEST_F(CollectionGroupingTest, GroupSortingWithoutGroupingFields) {
     ASSERT_EQ(res.ok(), false);
     ASSERT_EQ(res.error(), "group_by parameters should not be empty when using sort_by group_found");
 }
+
+TEST_F(CollectionGroupingTest, SkipToReverseGroupBy) {
+    std::vector<field> fields = {
+            field("brand", field_types::STRING, true, true),
+    };
+
+    Collection* coll2 = collectionManager.get_collection("coll2").get();
+    if(coll2 == nullptr) {
+        coll2 = collectionManager.create_collection("coll2", 1, fields).get();
+    }
+
+    nlohmann::json doc;
+
+    doc["id"] = "0";
+    doc["brand"] = nullptr;
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    auto res = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                             {true}, 10,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 10,
+                             {}, {}, {"brand"}, 2,
+                             "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                             100, 0, 0, HASH, 30000, 2, "", {}, {}, right_to_left, true, false).get();
+
+    ASSERT_EQ(1, res["grouped_hits"].size());
+
+    ASSERT_EQ(0, res["grouped_hits"][0]["group_key"].size());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ("0", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>());
+
+    doc["id"] = "1";
+    doc["brand"] = "adidas";
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["brand"] = "puma";
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["id"] = "3";
+    doc["brand"] = nullptr;
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["id"] = "4";
+    doc["brand"] = "nike";
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+
+    res = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                             {true}, 10,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 10,
+                             {}, {}, {"brand"}, 2,
+                             "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                             100, 0, 0, HASH, 30000, 2, "", {}, {}, right_to_left, true, false).get();
+
+    ASSERT_EQ(5, res["grouped_hits"].size());
+
+    ASSERT_EQ("nike", res["grouped_hits"][0]["group_key"][0].get<std::string>());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+
+    ASSERT_EQ(0, res["grouped_hits"][1]["group_key"].size());
+    ASSERT_EQ(1, res["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ("3", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("puma", res["grouped_hits"][2]["group_key"][0].get<std::string>());
+    ASSERT_EQ(1, res["grouped_hits"][2]["hits"].size());
+
+    ASSERT_EQ("adidas", res["grouped_hits"][3]["group_key"][0].get<std::string>());
+    ASSERT_EQ(1, res["grouped_hits"][3]["hits"].size());
+
+    ASSERT_EQ(0, res["grouped_hits"][4]["group_key"].size());
+    ASSERT_EQ(1, res["grouped_hits"][4]["hits"].size());
+    ASSERT_EQ("0", res["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll2->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                             {true}, 10,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 10,
+                             {}, {}, {"brand"}, 2,
+                             "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                             100, 0, 0, HASH, 30000, 2, "", {}, {}, right_to_left, true, true).get();
+
+    ASSERT_EQ(4, res["grouped_hits"].size());
+
+    ASSERT_EQ("nike", res["grouped_hits"][0]["group_key"][0].get<std::string>());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+
+    ASSERT_EQ(0, res["grouped_hits"][1]["group_key"].size());
+    ASSERT_EQ(2, res["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ("3", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("puma", res["grouped_hits"][2]["group_key"][0].get<std::string>());
+    ASSERT_EQ(1, res["grouped_hits"][2]["hits"].size());
+}
