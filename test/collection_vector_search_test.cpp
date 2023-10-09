@@ -2477,4 +2477,24 @@ TEST_F(CollectionVectorTest, TestUnloadModelsCollectionHaveTwoEmbeddingField) {
 
     text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
     ASSERT_EQ(0, text_embedders.size());
+
+    // create another collection
+    schema = actual_schema;
+    schema["name"] = "test2";
+
+    collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll2 = collection_create_op.get();
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(1, text_embedders.size());
+
+    // drop collection
+    drop_op = collectionManager.drop_collection("test2", true);
+
+    ASSERT_TRUE(drop_op.ok());
+
+    text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+    ASSERT_EQ(0, text_embedders.size());
 }
