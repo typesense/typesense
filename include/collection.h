@@ -289,6 +289,8 @@ private:
 
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
+    void remove_embedding_field(const std::string& field_name);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -362,6 +364,8 @@ public:
     tsl::htrie_map<char, field> get_nested_fields();
 
     tsl::htrie_map<char, field> get_embedding_fields();
+
+    tsl::htrie_map<char, field> get_embedding_fields_unsafe();
 
     std::string get_default_sorting_field();
 

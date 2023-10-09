@@ -1371,7 +1371,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::vector<std::string>& raw_search_fields,
                                   const std::string & filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
-                                  const size_t per_page, const size_t page,
+                                  size_t per_page, const size_t page,
                                   token_ordering token_order, const std::vector<bool>& prefixes,
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
@@ -1476,7 +1476,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         group_limit = 0;
     }
 
-
     vector_query_t vector_query;
     if(!vector_query_str.empty()) {
         bool is_wildcard_query = (raw_query == "*" || raw_query.empty());
@@ -1492,9 +1491,19 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
         }
 
-        if(is_wildcard_query && vector_field_it.value().num_dim != vector_query.values.size()) {
-            return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
-                                               std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+        if(is_wildcard_query) {
+            if(vector_query.values.empty() && !vector_query.query_doc_given) {
+                // for usability we will treat this as non-vector query
+                vector_query.field_name.clear();
+                if(vector_query.k != 0) {
+                    per_page = std::min(per_page, vector_query.k);
+                }
+            }
+
+            else if(vector_field_it.value().num_dim != vector_query.values.size()) {
+                return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
+                                                   std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+            }
         }
     }
 
@@ -4174,6 +4183,15 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(f.embed.count(fields::from) != 0) {
             found_embedding_field = true;
+            const auto& text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+            const auto& model_name = f.embed[fields::model_config][fields::model_name].get<std::string>();
+            if(text_embedders.count(model_name) == 0) {
+                size_t dummy_num_dim = 0;
+                auto validate_model_res = TextEmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
+                if(!validate_model_res.ok()) {
+                    return Option<bool>(validate_model_res.code(), validate_model_res.error());
+                }
+            }
             embedding_fields.emplace(f.name, f);
         }
 
@@ -4292,7 +4310,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(del_field.embed.count(fields::from) != 0) {
-            embedding_fields.erase(del_field.name);
+            remove_embedding_field(del_field.name);
         }
 
         if(del_field.name == ".*") {
@@ -4912,6 +4930,23 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
             for(auto& new_field: new_fields) {
                 if(updated_search_schema.find(new_field.name) == updated_search_schema.end()) {
+                    if(new_field.nested) {
+                        auto del_field_it = std::find_if(del_fields.begin(), del_fields.end(), [&new_field](const field& f) {
+                            return f.name == new_field.name;
+                        });
+
+                        auto re_field_it = std::find_if(reindex_fields.begin(),
+                                                        reindex_fields.end(), [&new_field](const field& f) {
+                            return f.name == new_field.name;
+                        });
+
+                        if(del_field_it != del_fields.end() && re_field_it == reindex_fields.end()) {
+                            // If the discovered field is already being deleted and is not part of reindex fields,
+                            // we should ignore. This can happen when we are trying to drop a nested object's child.
+                            continue;
+                        }
+                    }
+
                     reindex_fields.push_back(new_field);
                     updated_search_schema[new_field.name] = new_field;
                     if(new_field.nested) {
@@ -5574,7 +5609,7 @@ void Collection::process_remove_field_for_embedding_fields(const field& del_fiel
     }
 
     for(auto& garbage_field: garbage_embed_fields) {
-        embedding_fields.erase(garbage_field.name);
+        remove_embedding_field(garbage_field.name);
         search_schema.erase(garbage_field.name);
         fields.erase(std::remove_if(fields.begin(), fields.end(), [&garbage_field](const auto &f) {
             return f.name == garbage_field.name;
@@ -5665,4 +5700,19 @@ Option<std::string> Collection::get_reference_field(const std::string& collectio
 Option<uint32_t> Collection::get_sort_indexed_field_value(const std::string& field_name, const uint32_t& seq_id) const {
     std::shared_lock lock(mutex);
     return index->get_sort_indexed_field_value(field_name, seq_id);
+}
+
+void Collection::remove_embedding_field(const std::string& field_name) {
+    if(embedding_fields.find(field_name) == embedding_fields.end()) {
+        return;
+    }
+
+    const auto& del_field = embedding_fields[field_name];
+    const auto& model_name = del_field.embed[fields::model_config]["model_name"].get<std::string>(); 
+    embedding_fields.erase(field_name);
+    CollectionManager::get_instance().process_embedding_field_delete(model_name);
+}
+
+tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
+    return embedding_fields;
 }

@@ -926,7 +926,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     vec_index->resizeIndex((curr_ele_count + iter_batch.size()) * 1.3);
                 }
 
-                const size_t num_threads = 1; //std::min<size_t>(4, iter_batch.size());
+                const size_t num_threads = std::min<size_t>(4, iter_batch.size());
                 const size_t window_size = (num_threads == 0) ? 0 :
                                            (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
                 size_t num_processed = 0;
