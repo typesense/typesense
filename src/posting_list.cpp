@@ -1660,10 +1660,10 @@ posting_list_t::iterator_t::iterator_t(const std::map<last_id_t, block_t*>* id_b
         ids = curr_block->ids.uncompress();
         offset_index = curr_block->offset_index.uncompress();
         offsets = curr_block->offsets.uncompress();
-    }
 
-    if(reverse) {
-        curr_index = curr_block->ids.getLength()-1;
+        if(reverse) {
+            curr_index = curr_block->ids.getLength()-1;
+        }
     }
 }
 
@@ -1698,6 +1698,15 @@ uint32_t posting_list_t::iterator_t::last_block_id() const {
     }
     
     return ids[size - 1];
+}
+
+uint32_t posting_list_t::iterator_t::first_block_id() const {
+    auto size = curr_block->size();
+    if(size == 0) {
+        return 0;
+    }
+
+    return ids[0];
 }
 
 uint32_t posting_list_t::iterator_t::id() const {
@@ -1747,7 +1756,7 @@ void posting_list_t::iterator_t::skip_to(uint32_t id) {
 
 void posting_list_t::iterator_t::skip_to_rev(uint32_t id) {
     // first look to skip within current block
-    if(id >= this->last_block_id()) {
+    if(id >= this->first_block_id()) {
         while(curr_index > 0 && this->id() > id) {
             curr_index--;
         }
