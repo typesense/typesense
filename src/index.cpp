@@ -3188,8 +3188,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             if(has_text_match) {
                 // For hybrid search, we need to give weight to text match and vector search
-                constexpr float TEXT_MATCH_WEIGHT = 0.7;
-                constexpr float VECTOR_SEARCH_WEIGHT = 1.0 - TEXT_MATCH_WEIGHT;
+                const float VECTOR_SEARCH_WEIGHT = vector_query.alpha;
+                const float TEXT_MATCH_WEIGHT = 1.0 - VECTOR_SEARCH_WEIGHT;
 
                 VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);

@@ -15,6 +15,7 @@ struct vector_query_t {
 
     uint32_t seq_id = 0;
     bool query_doc_given = false;
+    float alpha = 0.3;
 
     void _reset() {
         // used for testing only
