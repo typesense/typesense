@@ -1354,6 +1354,16 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     }
                 } 
             }
+
+            if(should_compute_stats) {
+                auto numerical_index_it = numerical_index.find(a_facet.field_name);
+                if(numerical_index_it != numerical_index.end()) {
+                    auto min_max_pair = numerical_index_it->second->get_min_max(result_ids,
+                                                                                results_size);
+                    a_facet.stats.fvmin = int64_t_to_float(min_max_pair.first);
+                    a_facet.stats.fvmax = int64_t_to_float(min_max_pair.second);
+                }
+            }
         } else {
             //LOG(INFO) << "Using hashing to find facets";
             bool facet_hash_index_exists = facet_index_v4->has_hash_index(facet_field.name);

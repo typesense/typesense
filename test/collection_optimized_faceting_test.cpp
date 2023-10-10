@@ -315,8 +315,8 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCounts) {
 
     ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
     ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["avg"].get<double>());
-    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["min"].get<double>());
-    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(0, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(9.9989996, results["facet_counts"][0]["stats"]["max"].get<double>());
     ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["sum"].get<double>());
     ASSERT_FLOAT_EQ(1, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
 
@@ -2125,4 +2125,73 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortValidation) {
     ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("Oneplus 11R", results["facet_counts"][0]["counts"][1]["value"]);
     ASSERT_EQ("S22 Ultra", results["facet_counts"][0]["counts"][2]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, ValueIndexStatsMinMax) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("rating", field_types::FLOAT, true)};
+
+    std::vector<sort_by> sort_fields = {sort_by("rating", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "rating").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "The Shawshank Redemption";
+    doc["rating"] = 9.3;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "1";
+    doc["title"] = "The Godfather";
+    doc["rating"] = 9.2;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "2";
+    doc["title"] = "The Dark Knight";
+    doc["rating"] = 9;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "3";
+    doc["title"] = "Pulp Fiction";
+    doc["rating"] = 8.9;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "4";
+    doc["title"] = "Fight Club";
+    doc["rating"] = 8.8;
+
+    coll1->add(doc.dump());
+
+    std::vector<std::string> facets = {"rating"};
+
+    //limit max facets to 2
+    nlohmann::json results = coll1->search("*", {"title"}, "", facets, sort_fields, {0}, 10, 1,
+                                           token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 2,"",  30UL, 4UL,
+                                           "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {},
+                                           4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                           7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                           "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("9.3", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("9.2", results["facet_counts"][0]["counts"][1]["value"]);
+
+    //stats
+    ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(9.25, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(8.800000190734863, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(9.300000190734863, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(18.5, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(2, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
 }
