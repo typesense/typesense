@@ -99,6 +99,18 @@ enum text_match_type_t {
 enum drop_tokens_mode_t {
     left_to_right,
     right_to_left,
+    both_sides,
+};
+
+struct drop_tokens_param_t {
+    drop_tokens_mode_t mode = right_to_left;
+    size_t token_limit = 1000;
+
+    drop_tokens_param_t() {
+
+    }
+
+    drop_tokens_param_t(drop_tokens_mode_t mode, size_t token_limit) : mode(mode), token_limit(token_limit) {}
 };
 
 struct search_args {
@@ -151,7 +163,7 @@ struct search_args {
     vector_query_t& vector_query;
     size_t facet_sample_percent;
     size_t facet_sample_threshold;
-    drop_tokens_mode_t drop_tokens_mode;
+    drop_tokens_param_t drop_tokens_mode;
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 const text_match_type_t match_type,
@@ -168,7 +180,7 @@ struct search_args {
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<enable_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
-                size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_mode_t drop_tokens_mode) :
+                size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -687,7 +699,7 @@ public:
                 const bool filter_curated_hits, enable_t split_join_tokens,
                 const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
                 const std::string& collection_name,
-                const drop_tokens_mode_t drop_tokens_mode = right_to_left) const;
+                const drop_tokens_param_t drop_tokens_mode) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
                       const bool is_update);

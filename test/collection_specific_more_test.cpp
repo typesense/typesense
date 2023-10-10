@@ -2403,7 +2403,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                              4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                             0, 30000, 2, true, true, left_to_right).get();
+                             0, 30000, 2, true, true, "left_to_right").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
@@ -2413,10 +2413,48 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                         4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                        0, 30000, 2, true, true, right_to_left).get();
+                        0, 30000, 2, true, true, "right_to_left").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // search on both sides
+    res = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        0, 30000, 2, true, true, "both_sides:3").get();
+    ASSERT_EQ(2, res["hits"].size());
+
+    // but must follow token limit
+    res = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        0, 30000, 2, true, true, "both_sides:1").get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // validation checks
+    auto res_op = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                0, 30000, 2, true, true, "all_sides");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
+
+    res_op = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                           4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                           0, 30000, 2, true, true, "both_sides:x");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
 }
 
 TEST_F(CollectionSpecificMoreTest, DoNotHighlightFieldsForSpecialCharacterQuery) {

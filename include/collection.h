@@ -201,6 +201,8 @@ private:
     static Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
                                    std::map<size_t, std::vector<std::string>>& pinned_hits);
 
+    static Option<drop_tokens_param_t> parse_drop_tokens_mode(const std::string& drop_tokens_mode);
+
     Index* init_index();
 
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
@@ -474,7 +476,7 @@ public:
                                   const size_t remote_embedding_num_tries = 2,
                                   const bool prioritize_num_matching_fields = true,
                                   const bool group_missing_values = true,
-                                  const drop_tokens_mode_t drop_tokens_mode = right_to_left) const;
+                                  const std::string& drop_tokens_mode = "right_to_left") const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

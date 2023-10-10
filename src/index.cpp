@@ -2759,7 +2759,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const vector_query_t& vector_query,
                    size_t facet_sample_percent, size_t facet_sample_threshold,
                    const std::string& collection_name,
-                   const drop_tokens_mode_t drop_tokens_mode) const {
+                   const drop_tokens_param_t drop_tokens_mode) const {
     std::shared_lock lock(mutex);
 
     uint32_t filter_ids_length = 0;
@@ -3102,10 +3102,22 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             for (size_t qi = 0; qi < all_queries.size(); qi++) {
                 auto& orig_tokens = all_queries[qi];
                 size_t num_tokens_dropped = 0;
-                auto curr_direction = drop_tokens_mode;
                 size_t total_dirs_done = 0;
 
-                while(exhaustive_search || all_result_ids_len < drop_tokens_threshold) {
+                // NOTE: when dropping both sides we will ignore exhaustive search
+
+                auto curr_direction = drop_tokens_mode.mode;
+                bool drop_both_sides = false;
+
+                if(drop_tokens_mode.mode == both_sides) {
+                    if(orig_tokens.size() <= drop_tokens_mode.token_limit) {
+                        drop_both_sides = true;
+                    } else {
+                        curr_direction = right_to_left;
+                    }
+                }
+
+                while(exhaustive_search || all_result_ids_len < drop_tokens_threshold || drop_both_sides) {
                     // When atleast two tokens from the query are available we can drop one
                     std::vector<token_t> truncated_tokens;
                     std::vector<token_t> dropped_tokens;
