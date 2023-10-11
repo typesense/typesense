@@ -1043,6 +1043,6 @@ TEST_F(CollectionGroupingTest, GroupByMultipleFacetFields) {
     ASSERT_EQ(3, (int) res["facet_counts"][1]["counts"][1]["count"]);
     ASSERT_STREQ("white", res["facet_counts"][1]["counts"][1]["value"].get<std::string>().c_str());
 
-    ASSERT_EQ(1, (int) res["facet_counts"][1]["counts"][3]["count"]);
-    ASSERT_STREQ("red", res["facet_counts"][1]["counts"][3]["value"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) res["facet_counts"][1]["counts"][2]["count"]);
+    ASSERT_STREQ("red", res["facet_counts"][1]["counts"][2]["value"].get<std::string>().c_str());
 }
