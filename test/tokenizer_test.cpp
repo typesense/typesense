@@ -323,6 +323,11 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
 
     tokens.clear();  // 配管
     Tokenizer("配管", true, false, "ja").tokenize(tokens);
+
+    // persian containing zwnj
+    tokens.clear();
+    Tokenizer("روان\u200Cشناسی", false, false, "fa").tokenize(tokens);
+    ASSERT_EQ(2, tokens.size());
 }
 
 TEST(TokenizerTest, ShouldTokenizeLocaleTextWithEnglishText) {
