@@ -1464,6 +1464,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
             }
         }
+        //reset iterator position
+        for(auto& kv : group_by_field_it_vec) {
+            kv.it.set_index(0);
+        }
     }
 }
 
