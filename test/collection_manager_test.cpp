@@ -1361,6 +1361,29 @@ TEST_F(CollectionManagerTest, GetReferenceCollectionNames) {
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
     ASSERT_TRUE(reference_collection_names.empty());
 
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"filter_by", "title"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op_bool.ok());
+    ASSERT_EQ(search_op_bool.error(), "Could not parse the filter query.");
+
     filter_query = "foo:bar";
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
     ASSERT_TRUE(reference_collection_names.empty());
