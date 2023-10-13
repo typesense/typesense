@@ -209,6 +209,8 @@ private:
     static Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
                                    std::map<size_t, std::vector<std::string>>& pinned_hits);
 
+    static Option<drop_tokens_param_t> parse_drop_tokens_mode(const std::string& drop_tokens_mode);
+
     Index* init_index();
 
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
@@ -502,7 +504,7 @@ public:
                                   const std::string& stopwords_set="",
                                   const std::vector<std::string>& facet_return_parent = {},
                                   const std::vector<ref_include_fields>& ref_include_fields_vec = {},
-                                  const drop_tokens_mode_t drop_tokens_mode = right_to_left,
+                                  const std::string& drop_tokens_mode = "right_to_left",
                                   const bool prioritize_num_matching_fields = true,
                                   const bool group_missing_values = true) const;
 

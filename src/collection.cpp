@@ -1419,7 +1419,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::string& stopwords_set,
                                   const std::vector<std::string>& facet_return_parent,
                                   const std::vector<ref_include_fields>& ref_include_fields_vec,
-                                  const drop_tokens_mode_t drop_tokens_mode,
+                                  const std::string& drop_tokens_mode,
                                   const bool prioritize_num_matching_fields,
                                   const bool group_missing_values) const {
 
@@ -1779,6 +1779,13 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
+    Option<drop_tokens_param_t> drop_tokens_param_op = parse_drop_tokens_mode(drop_tokens_mode);
+    if(!drop_tokens_param_op.ok()) {
+        return Option<nlohmann::json>(drop_tokens_param_op.code(), drop_tokens_param_op.error());
+    }
+
+    auto drop_tokens_param = drop_tokens_param_op.get();
+
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
@@ -1936,7 +1943,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query,
-                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_mode);
+                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_param);
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
@@ -4069,6 +4076,35 @@ Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
     }
 
     return Option<bool>(true);
+}
+
+Option<drop_tokens_param_t> Collection::parse_drop_tokens_mode(const std::string& drop_tokens_mode) {
+    drop_tokens_mode_t drop_tokens_mode_val = left_to_right;
+    size_t drop_tokens_token_limit = 1000;
+    auto drop_tokens_mode_op = magic_enum::enum_cast<drop_tokens_mode_t>(drop_tokens_mode);
+    if(drop_tokens_mode_op.has_value()) {
+        drop_tokens_mode_val = drop_tokens_mode_op.value();
+    } else {
+        std::vector<std::string> drop_token_parts;
+        StringUtils::split(drop_tokens_mode, drop_token_parts, ":");
+        if(drop_token_parts.size() == 2) {
+            if(!StringUtils::is_uint32_t(drop_token_parts[1])) {
+                return Option<drop_tokens_param_t>(400, "Invalid format for drop tokens mode.");
+            }
+
+            drop_tokens_mode_op = magic_enum::enum_cast<drop_tokens_mode_t>(drop_token_parts[0]);
+            if(drop_tokens_mode_op.has_value()) {
+                drop_tokens_mode_val = drop_tokens_mode_op.value();
+            }
+
+            drop_tokens_token_limit = std::stoul(drop_token_parts[1]);
+
+        } else {
+            return Option<drop_tokens_param_t>(400, "Invalid format for drop tokens mode.");
+        }
+    }
+
+    return Option<drop_tokens_param_t>(drop_tokens_param_t(drop_tokens_mode_val, drop_tokens_token_limit));
 }
 
 Option<bool> Collection::add_synonym(const nlohmann::json& syn_json, bool write_to_store) {

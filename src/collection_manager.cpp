@@ -1415,12 +1415,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
-    auto drop_tokens_mode_op = magic_enum::enum_cast<drop_tokens_mode_t>(drop_tokens_mode_str);
-    drop_tokens_mode_t drop_tokens_mode;
-    if(drop_tokens_mode_op.has_value()) {
-        drop_tokens_mode = drop_tokens_mode_op.value();
-    }
-
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, filter_query, facet_fields,
                                                           sort_fields, num_typos,
                                                           per_page,
@@ -1470,7 +1464,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           stopwords_set,
                                                           facet_return_parent,
                                                           ref_include_fields_vec,
-                                                          drop_tokens_mode,
+                                                          drop_tokens_mode_str,
                                                           prioritize_num_matching_fields,
                                                           group_missing_values);
 

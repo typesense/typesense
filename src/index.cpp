@@ -1858,8 +1858,9 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->facet_sample_percent,
            search_params->facet_sample_threshold,
            collection_name,
-           facet_index_type,
-           search_params->drop_tokens_mode);
+           search_params->drop_tokens_mode,
+           facet_index_type
+           );
 }
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
@@ -2310,8 +2311,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const vector_query_t& vector_query,
                    size_t facet_sample_percent, size_t facet_sample_threshold,
                    const std::string& collection_name,
-                   facet_index_type_t facet_index_type,
-                   const drop_tokens_mode_t drop_tokens_mode) const {
+                   const drop_tokens_param_t drop_tokens_mode,
+                   facet_index_type_t facet_index_type
+                   ) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root);
@@ -2743,10 +2745,22 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             for (size_t qi = 0; qi < all_queries.size(); qi++) {
                 auto& orig_tokens = all_queries[qi];
                 size_t num_tokens_dropped = 0;
-                auto curr_direction = drop_tokens_mode;
                 size_t total_dirs_done = 0;
 
-                while(exhaustive_search || all_result_ids_len < drop_tokens_threshold) {
+                // NOTE: when dropping both sides we will ignore exhaustive search
+
+                auto curr_direction = drop_tokens_mode.mode;
+                bool drop_both_sides = false;
+
+                if(drop_tokens_mode.mode == both_sides) {
+                    if(orig_tokens.size() <= drop_tokens_mode.token_limit) {
+                        drop_both_sides = true;
+                    } else {
+                        curr_direction = right_to_left;
+                    }
+                }
+
+                while(exhaustive_search || all_result_ids_len < drop_tokens_threshold || drop_both_sides) {
                     // When atleast two tokens from the query are available we can drop one
                     std::vector<token_t> truncated_tokens;
                     std::vector<token_t> dropped_tokens;
@@ -2843,8 +2857,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             if(has_text_match) {
                 // For hybrid search, we need to give weight to text match and vector search
-                constexpr float TEXT_MATCH_WEIGHT = 0.7;
-                constexpr float VECTOR_SEARCH_WEIGHT = 1.0 - TEXT_MATCH_WEIGHT;
+                const float VECTOR_SEARCH_WEIGHT = vector_query.alpha;
+                const float TEXT_MATCH_WEIGHT = 1.0 - VECTOR_SEARCH_WEIGHT;
 
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
