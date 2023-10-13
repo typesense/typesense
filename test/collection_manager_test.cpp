@@ -1357,7 +1357,15 @@ TEST_F(CollectionManagerTest, GetReferenceCollectionNames) {
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
     ASSERT_TRUE(reference_collection_names.empty());
 
+    filter_query = "foo";
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_TRUE(reference_collection_names.empty());
+
     filter_query = "foo:bar";
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_TRUE(reference_collection_names.empty());
+
+    filter_query = "$foo(bar:baz) & age: <5";
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
     ASSERT_TRUE(reference_collection_names.empty());
 
