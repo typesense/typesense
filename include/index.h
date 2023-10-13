@@ -351,6 +351,7 @@ private:
     static spp::sparse_hash_map<uint32_t, int64_t> geo_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> str_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> vector_distance_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t> vector_query_sentinel_value;
 
     // Internal utility functions
 

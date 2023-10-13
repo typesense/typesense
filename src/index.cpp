@@ -43,6 +43,7 @@ spp::sparse_hash_map<uint32_t, int64_t> Index::eval_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::geo_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::str_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::vector_distance_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t> Index::vector_query_sentinel_value;
 
 struct token_posting_t {
     uint32_t token_id;
@@ -4395,6 +4396,28 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
             scores[0] = int64_t(found);
         } else if(field_values[0] == &vector_distance_sentinel_value) {
             scores[0] = float_to_int64_t(vector_distance);
+        } else if(field_values[0] == &vector_query_sentinel_value) {
+            scores[0] = float_to_int64_t(2.0f);
+            try {
+                auto& field_vector_index = vector_index.at(sort_fields[0].vector_query.field_name);
+                const auto& values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = field_vector_index->space->get_dist_func();
+                float dist = 2.0f;
+                if(field_vector_index->distance_type == cosine) {
+                    std::vector<float> normalized_values(sort_fields[0].vector_query.values.size());
+                    hnsw_index_t::normalize_vector(sort_fields[0].vector_query.values, normalized_values);
+                    dist = dist_func(normalized_values.data(), values.data(), &field_vector_index->num_dim);
+
+                } else {
+                    dist = dist_func(sort_fields[0].vector_query.values.data(), values.data(), &field_vector_index->num_dim);
+                }
+                
+                scores[0] = float_to_int64_t(dist);
+            } catch(...) {
+                // probably not found
+                // do nothing
+            }
+
         } else {
             auto it = field_values[0]->find(seq_id);
             scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
@@ -4453,6 +4476,28 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
             scores[1] = int64_t(found);
         }  else if(field_values[1] == &vector_distance_sentinel_value) {
             scores[1] = float_to_int64_t(vector_distance);
+        } else if(field_values[1] == &vector_query_sentinel_value) {
+            scores[1] = float_to_int64_t(2.0f);
+            try {
+                auto& field_vector_index = vector_index.at(sort_fields[1].vector_query.field_name);
+                const auto& values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = field_vector_index->space->get_dist_func();
+                float dist = 2.0f;
+                if(field_vector_index->distance_type == cosine) {
+                    std::vector<float> normalized_values(sort_fields[1].vector_query.values.size());
+                    hnsw_index_t::normalize_vector(sort_fields[1].vector_query.values, normalized_values);
+                    dist = dist_func(normalized_values.data(), values.data(), &field_vector_index->num_dim);
+
+                } else {
+                    dist = dist_func(sort_fields[1].vector_query.values.data(), values.data(), &field_vector_index->num_dim);
+                }
+                
+                scores[1] = float_to_int64_t(dist);
+            } catch(...) {
+                // probably not found
+                // do nothing
+            }
+
         } else {
             auto it = field_values[1]->find(seq_id);
             scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
@@ -4507,6 +4552,28 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
             scores[2] = int64_t(found);
         } else if(field_values[2] == &vector_distance_sentinel_value) {
             scores[2] = float_to_int64_t(vector_distance);
+        } else if(field_values[2] == &vector_query_sentinel_value) {
+            scores[2] = float_to_int64_t(2.0f);
+            try {
+                auto& field_vector_index = vector_index.at(sort_fields[2].vector_query.field_name);
+                const auto& values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = field_vector_index->space->get_dist_func();
+                float dist = 2.0f;
+                if(field_vector_index->distance_type == cosine) {
+                    std::vector<float> normalized_values(sort_fields[2].vector_query.values.size());
+                    hnsw_index_t::normalize_vector(sort_fields[2].vector_query.values, normalized_values);
+                    dist = dist_func(normalized_values.data(), values.data(), &field_vector_index->num_dim);
+
+                } else {
+                    dist = dist_func(sort_fields[2].vector_query.values.data(), values.data(), &field_vector_index->num_dim);
+                }
+                
+                scores[2] = float_to_int64_t(dist);
+            } catch(...) {
+                // probably not found
+                // do nothing
+            }
+
         } else {
             auto it = field_values[2]->find(seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
@@ -5238,6 +5305,8 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             result.docs = nullptr;
         } else if(sort_fields_std[i].name == sort_field_const::vector_distance) {
             field_values[i] = &vector_distance_sentinel_value;
+        } else if(sort_fields_std[i].name == sort_field_const::vector_query) {
+            field_values[i] = &vector_query_sentinel_value;
         } else if (search_schema.count(sort_fields_std[i].name) != 0 && search_schema.at(sort_fields_std[i].name).sort) {
             if (search_schema.at(sort_fields_std[i].name).type == field_types::GEOPOINT_ARRAY) {
                 geopoint_indices.push_back(i);

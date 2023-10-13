@@ -2388,3 +2388,83 @@ TEST_F(CollectionSortingTest, InvalidVectorDistanceSorting) {
 
     ASSERT_EQ("sort_by vector_distance is only supported for vector queries, semantic search and hybrid search.", results.error());
 }
+
+
+TEST_F(CollectionSortingTest, TestSortByVectorQuery) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "name", "type": "string" },
+              {"name": "points", "type": "float[]", "num_dim": 2}
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    auto create_coll = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_coll.ok());
+
+    auto coll = create_coll.get();
+
+    std::vector<std::vector<float>> points = {
+        {7.0, 8.0},
+        {8.0, 15.0},
+        {5.0, 12.0},
+    };
+
+    for(size_t i = 0; i < points.size(); i++) {
+        nlohmann::json doc;
+        doc["name"] = "Title " + std::to_string(i);
+        doc["points"] = points[i];
+        ASSERT_TRUE(coll->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = {};
+
+    auto results = coll->search("title", {"name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "").get();
+    
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"]);
+
+    sort_fields = {
+        sort_by("_vector_query(points:([5.0, 5.0]))", "asc"),
+    };
+
+    results = coll->search("title", {"name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "").get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"]);
+
+    sort_fields = {
+        sort_by("_vector_query(points:([5.0, 5.0]))", "desc"),
+    };
+
+    results = coll->search("title", {"name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"]);
+}
