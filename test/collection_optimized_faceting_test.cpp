@@ -1400,6 +1400,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetQueryTest) {
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ("amazon green", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("<mark>a</mark>mazon <mark>green</mark>", results["facet_counts"][0]["counts"][0]["highlighted"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
