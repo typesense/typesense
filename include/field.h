@@ -677,7 +677,7 @@ struct facet {
 struct facet_info_t {
     // facet hash => resolved tokens
     std::unordered_map<uint64_t, std::vector<std::string>> hashes;
-    std::vector<std::string> fvalue_searched_tokens;
+    std::vector<std::vector<std::string>> fvalue_searched_tokens;
     bool use_facet_query = false;
     bool should_compute_stats = false;
     bool use_value_index = false;
