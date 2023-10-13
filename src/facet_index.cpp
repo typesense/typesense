@@ -188,14 +188,15 @@ size_t facet_index_t::intersect(facet& a_facet,
             transform(facet_str.begin(), facet_str.end(), facet_str.begin(), ::tolower);
 
             for(const auto& searched_tokens : fvalue_searched_tokens) {
-                uint16_t found_tokens_count = 0;
+                bool found_all_tokens = true;
                 for (const auto &searched_token: searched_tokens) {
-                    if (facet_str.find(searched_token) != std::string::npos) {
-                        found_tokens_count++;
+                    if (facet_str.find(searched_token) == std::string::npos) {
+                        found_all_tokens = false;
+                        break;
                     }
                 }
 
-                if (found_tokens_count == searched_tokens.size()) {
+                if (found_all_tokens) {
                     a_facet.fvalue_tokens[facet_count_it->facet_value] = searched_tokens;
                     found_search_token = true;
                     break;
