@@ -893,12 +893,17 @@ void CollectionManager::_get_reference_collection_names(const std::string& filte
         if (c == ' ' || c == '(' || c == ')') {
             i++;
         } else if (c == '&' || c == '|') {
+            if (i + 1 >= size || (c == '&' && filter_query[i+1] != '&') || (c == '|' && filter_query[i+1] != '|')) {
+                reference_collection_names.clear();
+                return;
+            }
             i += 2;
         } else {
             // Reference filter would start with $ symbol.
             if (c == '$') {
                 auto open_paren_pos = filter_query.find('(', ++i);
                 if (open_paren_pos == std::string::npos) {
+                    reference_collection_names.clear();
                     return;
                 }
 
@@ -917,8 +922,18 @@ void CollectionManager::_get_reference_collection_names(const std::string& filte
                         parenthesis_count--;
                     }
                 }
+
+                if (parenthesis_count != 0) {
+                    reference_collection_names.clear();
+                    return;
+                }
             } else {
-                while (filter_query[++i] != ':');
+                while (i + 1 < size && filter_query[++i] != ':');
+                if (i >= size) {
+                    reference_collection_names.clear();
+                    return;
+                }
+
                 bool in_backtick = false;
                 do {
                     c = filter_query[++i];
