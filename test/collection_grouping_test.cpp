@@ -987,3 +987,62 @@ TEST_F(CollectionGroupingTest, SkipToReverseGroupBy) {
     ASSERT_EQ("puma", res["grouped_hits"][2]["group_key"][0].get<std::string>());
     ASSERT_EQ(1, res["grouped_hits"][2]["hits"].size());
 }
+
+TEST_F(CollectionGroupingTest, GroupByMultipleFacetFields) {
+    auto res = coll_group->search("*", {}, "", {"brand", "colors"}, {}, {0}, 50, 1, FREQUENCY,
+                                  {false}, Index::DROP_TOKENS_THRESHOLD,
+                                  spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                  "", 10,
+                                  {}, {}, {"size"}, 2).get();
+
+    ASSERT_EQ(12, res["found_docs"].get<size_t>());
+    ASSERT_EQ(3, res["found"].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"].size());
+    ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
+
+    ASSERT_EQ(2, res["grouped_hits"][0]["found"].get<int32_t>());
+    ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][0]["hits"][0]["document"]["rating"].get<float>());
+    ASSERT_EQ(11, res["grouped_hits"][0]["hits"][0]["document"]["size"].get<size_t>());
+    ASSERT_STREQ("5", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_FLOAT_EQ(4.3, res["grouped_hits"][0]["hits"][1]["document"]["rating"].get<float>());
+    ASSERT_STREQ("1", res["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(7, res["grouped_hits"][1]["found"].get<int32_t>());
+    ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][1]["hits"][0]["document"]["rating"].get<float>());
+    ASSERT_STREQ("4", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_FLOAT_EQ(4.6, res["grouped_hits"][1]["hits"][1]["document"]["rating"].get<float>());
+    ASSERT_STREQ("3", res["grouped_hits"][1]["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(3, res["grouped_hits"][2]["found"].get<int32_t>());
+    ASSERT_FLOAT_EQ(4.6, res["grouped_hits"][2]["hits"][0]["document"]["rating"].get<float>());
+    ASSERT_STREQ("2", res["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_FLOAT_EQ(4.4, res["grouped_hits"][2]["hits"][1]["document"]["rating"].get<float>());
+    ASSERT_STREQ("8", res["grouped_hits"][2]["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_STREQ("brand", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
+
+    ASSERT_EQ(3, (int) res["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("Beta", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+
+    ASSERT_EQ(3, (int) res["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_STREQ("Omega", res["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+
+    ASSERT_EQ(2, (int) res["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_STREQ("Xorp", res["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][3]["count"]);
+    ASSERT_STREQ("Zeta", res["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
+
+
+    ASSERT_STREQ("colors", res["facet_counts"][1]["field_name"].get<std::string>().c_str());
+
+    ASSERT_EQ(3, (int) res["facet_counts"][1]["counts"][0]["count"]);
+    ASSERT_STREQ("blue", res["facet_counts"][1]["counts"][0]["value"].get<std::string>().c_str());
+
+    ASSERT_EQ(3, (int) res["facet_counts"][1]["counts"][1]["count"]);
+    ASSERT_STREQ("white", res["facet_counts"][1]["counts"][1]["value"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, (int) res["facet_counts"][1]["counts"][2]["count"]);
+    ASSERT_STREQ("red", res["facet_counts"][1]["counts"][2]["value"].get<std::string>().c_str());
+}

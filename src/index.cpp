@@ -1289,9 +1289,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
     }
 
     std::vector<group_by_field_it_t> group_by_field_it_vec;
-    if (group_limit != 0) {
-        group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
-    }
 
     size_t total_docs = seq_ids->num_ids();
     // assumed that facet fields have already been validated upstream
@@ -1378,6 +1375,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             const auto& facet_index = facet_index_v4->get_facet_hash_index(facet_field.name);
             posting_list_t::iterator_t facet_index_it = facet_index->new_iterator();
             std::vector<uint32_t> facet_hashes;
+
+            if (group_limit != 0) {
+                group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
+            }
 
             for(size_t i = 0; i < results_size; i++) {
                 // if sampling is enabled, we will skip a portion of the results to speed up things
