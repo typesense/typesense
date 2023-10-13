@@ -5166,9 +5166,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                         // need to ensure that document ID actually contains searched_query tokens
                         // since `field_result_ids` contains documents matched across all queries
                         // value based index
-                        for(const auto& val : searched_tokens) {
-                            facet_infos[findex].fvalue_searched_tokens.emplace_back(val);
-                        }
+                        facet_infos[findex].fvalue_searched_tokens.emplace_back(searched_tokens);
                     }
                 }
 
