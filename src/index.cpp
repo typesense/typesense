@@ -2685,7 +2685,7 @@ void Index::search_infix(const std::string& query, const std::string& field_name
                                      &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff]() {
 
             search_begin_us = parent_search_begin;
-            search_cutoff = parent_search_cutoff;
+            search_cutoff = false;
             auto op_search_stop_ms = parent_search_stop_ms/2;
 
             std::vector<art_leaf*> this_leaves;
@@ -3403,7 +3403,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          &num_processed, &m_process, &cv_process]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
-                search_cutoff = parent_search_cutoff;
+                search_cutoff = false;
 
                 auto fq = facet_query;
                 do_facets(facet_batches[thread_id], fq, estimate_facets, facet_sample_percent,
@@ -5165,7 +5165,7 @@ void Index::search_wildcard(filter_node_t const* const& filter_tree_root,
 
             search_begin_us = parent_search_begin;
             search_stop_us = parent_search_stop_ms;
-            search_cutoff = parent_search_cutoff;
+            search_cutoff = false;
 
             size_t filter_index = 0;
 
