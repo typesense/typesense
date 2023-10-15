@@ -33,5 +33,5 @@ public:
     static Option<bool> parse_vector_query_str(const std::string& vector_query_str, vector_query_t& vector_query,
                                                const bool is_wildcard_query,
                                                const Collection* coll,
-                                               const bool allow_empty_query = false);
+                                               const bool allow_empty_query);
 };

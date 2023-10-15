@@ -1250,7 +1250,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         bool is_wildcard_query = (raw_query == "*" || raw_query.empty());
 
         auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query,
-                                                                      is_wildcard_query, this);
+                                                                      is_wildcard_query, this, false);
         if(!parse_vector_op.ok()) {
             return Option<nlohmann::json>(400, parse_vector_op.error());
         }
