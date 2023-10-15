@@ -4399,25 +4399,15 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
         } else if(field_values[0] == &vector_query_sentinel_value) {
             scores[0] = float_to_int64_t(2.0f);
             try {
-                auto& field_vector_index = vector_index.at(sort_fields[0].vector_query.field_name);
-                const auto& values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
-                const auto& dist_func = field_vector_index->space->get_dist_func();
-                float dist = 2.0f;
-                if(field_vector_index->distance_type == cosine) {
-                    std::vector<float> normalized_values(sort_fields[0].vector_query.values.size());
-                    hnsw_index_t::normalize_vector(sort_fields[0].vector_query.values, normalized_values);
-                    dist = dist_func(normalized_values.data(), values.data(), &field_vector_index->num_dim);
-
-                } else {
-                    dist = dist_func(sort_fields[0].vector_query.values.data(), values.data(), &field_vector_index->num_dim);
-                }
+                const auto& values = sort_fields[0].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = sort_fields[0].vector_query.vector_index->space->get_dist_func();
+                float dist = dist_func(sort_fields[0].vector_query.query.values.data(), values.data(), &sort_fields[0].vector_query.vector_index->num_dim);
                 
                 scores[0] = float_to_int64_t(dist);
             } catch(...) {
                 // probably not found
                 // do nothing
             }
-
         } else {
             auto it = field_values[0]->find(seq_id);
             scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
@@ -4479,18 +4469,9 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
         } else if(field_values[1] == &vector_query_sentinel_value) {
             scores[1] = float_to_int64_t(2.0f);
             try {
-                auto& field_vector_index = vector_index.at(sort_fields[1].vector_query.field_name);
-                const auto& values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
-                const auto& dist_func = field_vector_index->space->get_dist_func();
-                float dist = 2.0f;
-                if(field_vector_index->distance_type == cosine) {
-                    std::vector<float> normalized_values(sort_fields[1].vector_query.values.size());
-                    hnsw_index_t::normalize_vector(sort_fields[1].vector_query.values, normalized_values);
-                    dist = dist_func(normalized_values.data(), values.data(), &field_vector_index->num_dim);
-
-                } else {
-                    dist = dist_func(sort_fields[1].vector_query.values.data(), values.data(), &field_vector_index->num_dim);
-                }
+                const auto& values = sort_fields[1].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = sort_fields[1].vector_query.vector_index->space->get_dist_func();
+                float dist = dist_func(sort_fields[1].vector_query.query.values.data(), values.data(), &sort_fields[1].vector_query.vector_index->num_dim);
                 
                 scores[1] = float_to_int64_t(dist);
             } catch(...) {
@@ -4555,25 +4536,15 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
         } else if(field_values[2] == &vector_query_sentinel_value) {
             scores[2] = float_to_int64_t(2.0f);
             try {
-                auto& field_vector_index = vector_index.at(sort_fields[2].vector_query.field_name);
-                const auto& values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
-                const auto& dist_func = field_vector_index->space->get_dist_func();
-                float dist = 2.0f;
-                if(field_vector_index->distance_type == cosine) {
-                    std::vector<float> normalized_values(sort_fields[2].vector_query.values.size());
-                    hnsw_index_t::normalize_vector(sort_fields[2].vector_query.values, normalized_values);
-                    dist = dist_func(normalized_values.data(), values.data(), &field_vector_index->num_dim);
-
-                } else {
-                    dist = dist_func(sort_fields[2].vector_query.values.data(), values.data(), &field_vector_index->num_dim);
-                }
+                const auto& values = sort_fields[2].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = sort_fields[2].vector_query.vector_index->space->get_dist_func();
+                float dist = dist_func(sort_fields[2].vector_query.query.values.data(), values.data(), &sort_fields[2].vector_query.vector_index->num_dim);
                 
                 scores[2] = float_to_int64_t(dist);
             } catch(...) {
                 // probably not found
                 // do nothing
             }
-
         } else {
             auto it = field_values[2]->find(seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;

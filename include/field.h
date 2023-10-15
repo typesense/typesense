@@ -665,6 +665,13 @@ namespace sort_field_const {
     static const std::string vector_query = "_vector_query";
 }
 
+struct hnsw_index_t;
+
+struct sort_vector_query_t {
+        vector_query_t query;
+        hnsw_index_t* vector_index;
+}; 
+
 struct sort_by {
     enum missing_values_t {
         first,
@@ -692,7 +699,7 @@ struct sort_by {
     missing_values_t missing_values;
     eval_t eval;
 
-    vector_query_t vector_query;
+    sort_vector_query_t vector_query;
 
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),

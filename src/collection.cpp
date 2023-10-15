@@ -17,6 +17,7 @@
 #include "thread_local_vars.h"
 #include "vector_query_ops.h"
 #include "text_embedder_manager.h"
+#include "field.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -804,20 +805,20 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 }
 
 
-                auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, sort_field_std.vector_query,
+                auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, sort_field_std.vector_query.query,
                                                                             is_wildcard_query, this, true);
                 if(!parse_vector_op.ok()) {
                     return Option<bool>(400, parse_vector_op.error());
                 }
 
-                auto vector_field_it = search_schema.find(sort_field_std.vector_query.field_name);
+                auto vector_field_it = search_schema.find(sort_field_std.vector_query.query.field_name);
                 if(vector_field_it == search_schema.end() || vector_field_it.value().num_dim == 0) {
-                    return Option<bool>(400, "Field `" + sort_field_std.vector_query.field_name + "` does not have a vector query index.");
+                    return Option<bool>(400, "Field `" + sort_field_std.vector_query.query.field_name + "` does not have a vector query index.");
                 }
-
-
-                if(sort_field_std.vector_query.values.empty() && embedding_fields.find(sort_field_std.vector_query.field_name) != embedding_fields.end()) {
+                
+                if(sort_field_std.vector_query.query.values.empty() && embedding_fields.find(sort_field_std.vector_query.query.field_name) != embedding_fields.end()) {
                     // generate embeddings for the query
+
                     TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
                     auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
                     if(!embedder_op.ok()) {
@@ -842,12 +843,26 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                         }
                     }
 
-                    sort_field_std.vector_query.values = embedding_op.embedding;
+                    sort_field_std.vector_query.query.values = embedding_op.embedding;
                 }
 
-                if(vector_field_it.value().num_dim != sort_field_std.vector_query.values.size()) {
-                    return Option<bool>(400, "Query field `" + sort_field_std.vector_query.field_name + "` must have " +
+                const auto& vector_index_map = index->_get_vector_index();
+                if(vector_index_map.find(sort_field_std.vector_query.query.field_name) == vector_index_map.end()) {
+                    return Option<bool>(400, "Field `" + sort_field_std.vector_query.query.field_name + "` does not have a vector index.");
+                }
+
+
+                if(vector_field_it.value().num_dim != sort_field_std.vector_query.query.values.size()) {
+                    return Option<bool>(400, "Query field `" + sort_field_std.vector_query.query.field_name + "` must have " +
                                                     std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+                }
+
+                sort_field_std.vector_query.vector_index = vector_index_map.at(sort_field_std.vector_query.query.field_name);
+
+                if(sort_field_std.vector_query.vector_index->distance_type == cosine) {
+                    std::vector<float> normalized_values(sort_field_std.vector_query.query.values.size());
+                    hnsw_index_t::normalize_vector(sort_field_std.vector_query.query.values, normalized_values);
+                    sort_field_std.vector_query.query.values = normalized_values;
                 }
 
                 sort_field_std.name = actual_field_name;
