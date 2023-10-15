@@ -813,7 +813,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 auto vector_field_it = search_schema.find(sort_field_std.vector_query.query.field_name);
                 if(vector_field_it == search_schema.end() || vector_field_it.value().num_dim == 0) {
-                    return Option<bool>(400, "Field `" + sort_field_std.vector_query.query.field_name + "` does not have a vector query index.");
+                    return Option<bool>(400, "Could not find a field named `" + sort_field_std.vector_query.query.field_name + "` in vector index.");
                 }
                 
                 if(sort_field_std.vector_query.query.values.empty() && embedding_fields.find(sort_field_std.vector_query.query.field_name) != embedding_fields.end()) {
