@@ -1612,7 +1612,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     // initialize synonyms
     std::vector<std::string> collection_synonym_jsons;
     cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""),
-                        std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + "`",
+                        std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "`",
                         collection_synonym_jsons);
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
@@ -1802,6 +1802,13 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     }
 
     Collection* new_coll = coll_create_op.get();
+
+    // copy synonyms
+    auto synonyms = existing_coll->get_synonyms();
+    for(const auto& synonym: synonyms) {
+        SynonymIndex::get_instance().add_synonym(SynonymIndex::get_synonym_key(new_name, synonym.second.id),
+                                                 synonym.second);
+    }
 
     // copy overrides
     auto overrides = existing_coll->get_overrides();
