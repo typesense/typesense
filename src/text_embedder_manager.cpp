@@ -1,4 +1,5 @@
 #include "text_embedder_manager.h"
+#include "system_metrics.h"
 
 
 TextEmbedderManager& TextEmbedderManager::get_instance() {
@@ -107,8 +108,18 @@ Option<bool> TextEmbedderManager::validate_and_init_local_model(const nlohmann::
         return Option<bool>(true);
     }
 
-    const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(
-            get_model_name_without_namespace(model_name));
+    const auto& model_name_without_namespace = get_model_name_without_namespace(model_name);
+    const auto& free_memory = SystemMetrics::get_memory_free_bytes();
+    const auto& model_file_size = std::filesystem::file_size(abs_path);
+    
+    // return error if model file size is greater than free memory
+    if(model_file_size > free_memory) {
+        LOG(ERROR) << "Model file size is greater than free memory: " << model_file_size << " > " << free_memory;
+        return Option<bool>(400, "Model file size is greater than free memory");
+    }
+
+
+    const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(model_name_without_namespace);
 
     auto validate_op = embedder->validate();
     if(!validate_op.ok()) {
