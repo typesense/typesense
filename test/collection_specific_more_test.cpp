@@ -1017,15 +1017,16 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
 
-    std::vector<std::string> raw_search_fields = {"title", "brand", "type"};
+    std::vector<search_field_t> raw_search_fields = {
+        search_field_t("title", 110, 2, true, off),
+        search_field_t("brand", 25, 2, true, off),
+        search_field_t("type", 55, 2, true, off),
+    };
     std::vector<uint32_t> query_by_weights = {110, 25, 55};
     std::vector<search_field_t> weighted_search_fields;
-    std::vector<std::string> reordered_search_fields;
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
-    ASSERT_EQ(3, reordered_search_fields.size());
     ASSERT_EQ(3, weighted_search_fields.size());
 
     ASSERT_EQ("title", weighted_search_fields[0].name);
@@ -1038,11 +1039,14 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
 
     // same weights
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights = {15, 15, 15};
+    raw_search_fields = {
+        search_field_t{"title", 15, 2, true, off},
+        search_field_t{"brand", 15, 2, true, off},
+        search_field_t{"type", 15, 2, true, off},
+    };
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("title", weighted_search_fields[0].name);
     ASSERT_EQ("brand", weighted_search_fields[1].name);
@@ -1054,11 +1058,14 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
 
     // same weights large
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights = {800, 800, 800};
+    raw_search_fields = {
+        search_field_t{"title", 800, 2, true, off},
+        search_field_t{"brand", 800, 2, true, off},
+        search_field_t{"type", 800, 2, true, off},
+    };
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("title", weighted_search_fields[0].name);
     ASSERT_EQ("brand", weighted_search_fields[1].name);
@@ -1070,11 +1077,14 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
 
     // weights desc ordered but exceed max weight
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights = {603, 602, 601};
+    raw_search_fields = {
+        search_field_t{"title", 603, 2, true, off},
+        search_field_t{"brand", 602, 2, true, off},
+        search_field_t{"type", 601, 2, true, off},
+    };
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("title", weighted_search_fields[0].name);
     ASSERT_EQ("brand", weighted_search_fields[1].name);
@@ -1087,16 +1097,14 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
     // number of fields > 15 (must cap least important fields to weight 0)
     raw_search_fields.clear();
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights.clear();
 
     for(size_t i = 0; i < 17; i++) {
-        raw_search_fields.push_back("field" + std::to_string(17 - i));
+        raw_search_fields.push_back(search_field_t{"field" + std::to_string(17 - i), 17 - i, 2, true, off});
         query_by_weights.push_back(17 - i);
     }
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("field3", weighted_search_fields[14].name);
     ASSERT_EQ("field2", weighted_search_fields[15].name);
@@ -1109,15 +1117,13 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
     // when weights are not given
     raw_search_fields.clear();
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights.clear();
 
     for(size_t i = 0; i < 17; i++) {
-        raw_search_fields.push_back("field" + std::to_string(17 - i));
+        raw_search_fields.push_back(search_field_t{"field" + std::to_string(17 - i), 0, 2, true, off});
     }
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("field3", weighted_search_fields[14].name);
     ASSERT_EQ("field2", weighted_search_fields[15].name);

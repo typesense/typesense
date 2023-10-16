@@ -3697,7 +3697,7 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
 
                 std::vector<size_t> query_field_ids(num_search_fields);
                 for(size_t field_id = 0; field_id < num_search_fields; field_id++) {
-                    query_field_ids[field_id] = the_fields[field_id].orig_index;
+                    query_field_ids[field_id] = field_id;
                 }
 
                 std::vector<size_t> popular_field_ids; // fields containing the token most across documents
@@ -3718,14 +3718,14 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                     // NOTE: when accessing other field ordered properties like prefixes or num_typos we have to index
                     // them by `the_field.orig_index` since the original fields could be reordered on their weights.
                     auto& the_field = the_fields[field_id];
-                    const bool field_prefix = (the_field.orig_index < prefixes.size()) ? prefixes[the_field.orig_index] : prefixes[0];;
+                    const bool field_prefix = the_fields[field_id].prefix;
                     const bool prefix_search = field_prefix && query_tokens[token_index].is_prefix_searched;
                     const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
                     /*LOG(INFO) << "Searching for field: " << the_field.name << ", token:"
                               << token << " - cost: " << costs[token_index] << ", prefix_search: " << prefix_search;*/
 
-                    int64_t field_num_typos = (the_field.orig_index < num_typos.size()) ? num_typos[the_field.orig_index] : num_typos[0];
+                    int64_t field_num_typos = the_fields[field_id].num_typos;
 
                     auto& locale = search_schema.at(the_field.name).locale;
                     if(locale != "" && (locale == "zh" || locale == "ko" || locale == "ja")) {
@@ -3777,10 +3777,10 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
 
                     for(size_t field_id: query_field_ids) {
                         auto& the_field = the_fields[field_id];
-                        const bool field_prefix = (the_field.orig_index < prefixes.size()) ? prefixes[the_field.orig_index] : prefixes[0];;
+                        const bool field_prefix = the_fields[field_id].prefix;
                         const bool prefix_search = field_prefix && query_tokens[token_index].is_prefix_searched;
                         const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
-                        int64_t field_num_typos = (the_field.orig_index < num_typos.size()) ? num_typos[the_field.orig_index] : num_typos[0];
+                        int64_t field_num_typos = the_fields[field_id].num_typos;
 
                         auto& locale = search_schema.at(the_field.name).locale;
                         if(locale != "" && locale != "en" && locale != "th" && !Tokenizer::is_cyrillic(locale)) {
@@ -4087,10 +4087,8 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
 
         for(size_t i = 0; i < num_search_fields; i++) {
             const std::string& field_name = the_fields[i].name;
-            const uint32_t field_num_typos = (the_fields[i].orig_index < num_typos.size())
-                                             ? num_typos[the_fields[i].orig_index] : num_typos[0];
-            const bool field_prefix = (the_fields[i].orig_index < prefixes.size()) ? prefixes[the_fields[i].orig_index]
-                                                                                   : prefixes[0];
+            const uint32_t field_num_typos = the_fields[i].num_typos;
+            const bool field_prefix = the_fields[i].prefix;
 
             if(token_num_typos > field_num_typos) {
                 // since the token can come from any field, we still have to respect per-field num_typos
@@ -4827,8 +4825,7 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
 
     for(size_t field_id = 0; field_id < num_search_fields; field_id++) {
         auto& field_name = the_fields[field_id].name;
-        enable_t field_infix = (the_fields[field_id].orig_index < infixes.size())
-                               ? infixes[the_fields[field_id].orig_index] : infixes[0];
+        enable_t field_infix = the_fields[field_id].infix;
 
         if(field_infix == always || (field_infix == fallback && all_result_ids_len == 0)) {
             std::vector<uint32_t> infix_ids;

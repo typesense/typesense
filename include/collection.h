@@ -566,11 +566,9 @@ public:
 
     Option<bool> alter(nlohmann::json& alter_payload);
 
-    void
-    process_search_field_weights(const std::vector<std::string>& raw_search_fields,
-                                 std::vector<uint32_t>& query_by_weights,
-                                 std::vector<search_field_t>& weighted_search_fields,
-                                 std::vector<std::string>& reordered_search_fields) const;
+    void process_search_field_weights(const std::vector<search_field_t>& search_fields,
+                                      std::vector<uint32_t>& query_by_weights,
+                                      std::vector<search_field_t>& weighted_search_fields) const;
 
     Option<bool> truncate_after_top_k(const std::string& field_name, size_t k);
 };

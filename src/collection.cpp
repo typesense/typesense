@@ -1278,8 +1278,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     }
 
     // validate search fields
-    std::vector<std::string> processed_search_fields;
+    std::vector<search_field_t> processed_search_fields;
     std::vector<uint32_t> query_by_weights;
+
     size_t num_embed_fields = 0;
     std::string query = raw_query;
 
@@ -1368,9 +1369,14 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 continue;
             }
 
-            processed_search_fields.push_back(expanded_search_field);
+            auto query_weight = !raw_query_by_weights.empty() ? raw_query_by_weights[i] : 0;
+            auto num_typo = i < num_typos.size() ? num_typos[i] : num_typos[0];
+            auto prefix = i < prefixes.size() ? prefixes[i] : prefixes[0];
+            auto infix = i < infixes.size() ? infixes[i] : infixes[0];
+
+            processed_search_fields.emplace_back(expanded_search_field, query_weight, num_typo, prefix, infix);
             if(!raw_query_by_weights.empty()) {
-                query_by_weights.push_back(raw_query_by_weights[i]);
+                query_by_weights.push_back(query_weight);
             }
         }
     }
@@ -1391,7 +1397,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     }
 
 
-    for(const std::string & field_name: processed_search_fields) {
+    for(const auto& processed_search_field: processed_search_fields) {
+        const auto& field_name = processed_search_field.name;
         field search_field = search_schema.at(field_name);
         if(!search_field.index) {
             std::string error = "Field `" + field_name + "` is marked as a non-indexed field in the schema.";
@@ -1440,12 +1447,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     }
 
     // process weights for search fields
-    std::vector<std::string> reordered_search_fields;
     std::vector<search_field_t> weighted_search_fields;
-    process_search_field_weights(processed_search_fields, query_by_weights, weighted_search_fields, reordered_search_fields);
-
-    const std::vector<std::string>& search_fields = reordered_search_fields.empty() ? processed_search_fields
-                                                                                    : reordered_search_fields;
+    process_search_field_weights(processed_search_fields, query_by_weights, weighted_search_fields);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     filter_node_t* filter_tree_root = nullptr;
@@ -1535,7 +1538,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     size_t max_hits = DEFAULT_TOPSTER_SIZE;
 
     // ensure that `max_hits` never exceeds number of documents in collection
-    if(search_fields.size() <= 1 || query == "*") {
+    if(weighted_search_fields.size() <= 1 || query == "*") {
         max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
     } else {
         max_hits = std::min(std::max(fetch_size, max_hits), get_num_documents());
@@ -1651,7 +1654,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<std::string> q_tokens;  // used for auxillary highlighting
     std::vector<std::string> q_include_tokens;
 
-    if(search_fields.size() == 0) {
+    if(weighted_search_fields.size() == 0) {
         // has to be a wildcard query
         field_query_tokens.emplace_back(query_tokens_t{});
         parse_search_query(query, q_include_tokens,
@@ -1689,7 +1692,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
         }
 
-        for(size_t i = 1; i < search_fields.size(); i++) {
+        for(size_t i = 1; i < weighted_search_fields.size(); i++) {
             field_query_tokens.emplace_back(query_tokens_t{});
             field_query_tokens[i] = field_query_tokens[0];
         }
@@ -2304,35 +2307,36 @@ void Collection::copy_highlight_doc(std::vector<highlight_field_t>& hightlight_i
     }
 }
 
-void Collection::process_search_field_weights(const std::vector<std::string>& raw_search_fields,
+void Collection::process_search_field_weights(const std::vector<search_field_t>& search_fields,
                                               std::vector<uint32_t>& query_by_weights,
-                                              std::vector<search_field_t>& weighted_search_fields,
-                                              std::vector<std::string>& reordered_search_fields) const {
+                                              std::vector<search_field_t>& weighted_search_fields) const {
     const bool weights_given = !query_by_weights.empty();
 
     // weights, if given, must be in desc order
     bool weights_in_desc_order = true;
-    bool weights_undex_max = true;
+    bool weights_under_max = true;
 
-    for(size_t i=0; i < raw_search_fields.size(); i++) {
+    for(size_t i = 0; i < search_fields.size(); i++) {
         if(!weights_given) {
             size_t weight = std::max<int>(0, (int(Index::FIELD_MAX_WEIGHT) - i));
             query_by_weights.push_back(weight);
-            weighted_search_fields.push_back({raw_search_fields[i], weight, i});
+            auto wsearch_field = search_fields[i];
+            wsearch_field.weight = weight;
+            weighted_search_fields.push_back(wsearch_field);
         } else {
             // check if weights are already sorted
             auto prev_weight = (i == 0) ? query_by_weights[0] : query_by_weights[i-1];
             weights_in_desc_order = weights_in_desc_order && (query_by_weights[i] <= prev_weight);
-            weights_undex_max = weights_undex_max && (query_by_weights[i] <= Index::FIELD_MAX_WEIGHT);
+            weights_under_max = weights_under_max && (query_by_weights[i] <= Index::FIELD_MAX_WEIGHT);
         }
     }
 
-    if(weights_given && (!weights_in_desc_order || !weights_undex_max)) {
+    if(weights_given && (!weights_in_desc_order || !weights_under_max)) {
         // ensure that search fields are sorted on their corresponding weight
         std::vector<std::pair<size_t, size_t>> field_index_and_weights;
 
-        for(size_t i=0; i < raw_search_fields.size(); i++) {
-            field_index_and_weights.emplace_back(i, query_by_weights[i]);
+        for(size_t i=0; i < search_fields.size(); i++) {
+            field_index_and_weights.emplace_back(i, search_fields[i].weight);
         }
 
         std::sort(field_index_and_weights.begin(), field_index_and_weights.end(), [](const auto& a, const auto& b) {
@@ -2341,7 +2345,6 @@ void Collection::process_search_field_weights(const std::vector<std::string>& ra
 
         for(size_t i = 0; i < field_index_and_weights.size(); i++) {
             const auto& index_weight = field_index_and_weights[i];
-            reordered_search_fields.push_back(raw_search_fields[index_weight.first]);
 
             // we have to also normalize weights to 0 to Index::FIELD_MAX_WEIGHT range.
             if(i == 0) {
@@ -2359,18 +2362,18 @@ void Collection::process_search_field_weights(const std::vector<std::string>& ra
                 }
             }
 
-            const auto& search_field = raw_search_fields[index_weight.first];
+            const auto& search_field = search_fields[index_weight.first];
             const auto weight = query_by_weights[i];
             const size_t orig_index = index_weight.first;
-            weighted_search_fields.push_back({search_field, weight, orig_index});
+            auto wsearch_field = search_fields[orig_index];
+            wsearch_field.weight = weight;
+            weighted_search_fields.push_back(wsearch_field);
         }
     }
 
     if(weighted_search_fields.empty()) {
-        for(size_t i=0; i < raw_search_fields.size(); i++) {
-            const auto& search_field = raw_search_fields[i];
-            const auto weight = query_by_weights[i];
-            weighted_search_fields.push_back({search_field, weight, i});
+        for(size_t i=0; i < search_fields.size(); i++) {
+            weighted_search_fields.push_back(search_fields[i]);
         }
     }
 }
@@ -2443,8 +2446,7 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
     for(size_t i = 0; i < search_fields.size(); i++) {
         const auto& field_name = search_fields[i].name;
 
-        enable_t field_infix = (search_fields[i].orig_index < infixes.size()) ? infixes[search_fields[i].orig_index]
-                                                                              : infixes[0];
+        enable_t field_infix = search_fields[i].infix;
         if(field_infix != off) {
             fields_infixed_set.insert(field_name);
         }
