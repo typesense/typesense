@@ -17,6 +17,7 @@
 #include "thread_local_vars.h"
 #include "vector_query_ops.h"
 #include "text_embedder_manager.h"
+#include "field.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -744,7 +745,9 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                               std::vector<sort_by>& sort_fields_std,
                                                               const bool is_wildcard_query, 
                                                               const bool is_vector_query,
-                                                              const bool is_group_by_query) const {
+                                                              const std::string& query, const bool is_group_by_query, 
+                                                              const size_t remote_embedding_timeout_ms,
+                                                              const size_t remote_embedding_num_tries) const {
 
     size_t num_sort_expressions = 0;
 
@@ -793,6 +796,76 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 sort_field_std.name = actual_field_name;
                 num_sort_expressions++;
+            } else if(actual_field_name == sort_field_const::vector_query) {
+                const std::string& vector_query_str = sort_field_std.name.substr(paran_start + 1,
+                                                                              sort_field_std.name.size() - paran_start -
+                                                                              2);
+                if(vector_query_str.empty()) {
+                    return Option<bool>(400, "The vector query in sort_by is empty.");
+                }
+
+
+                auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, sort_field_std.vector_query.query,
+                                                                            is_wildcard_query, this, true);
+                if(!parse_vector_op.ok()) {
+                    return Option<bool>(400, parse_vector_op.error());
+                }
+
+                auto vector_field_it = search_schema.find(sort_field_std.vector_query.query.field_name);
+                if(vector_field_it == search_schema.end() || vector_field_it.value().num_dim == 0) {
+                    return Option<bool>(400, "Could not find a field named `" + sort_field_std.vector_query.query.field_name + "` in vector index.");
+                }
+                
+                if(sort_field_std.vector_query.query.values.empty() && embedding_fields.find(sort_field_std.vector_query.query.field_name) != embedding_fields.end()) {
+                    // generate embeddings for the query
+
+                    TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
+                    auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+                    if(!embedder_op.ok()) {
+                        return Option<bool>(embedder_op.code(), embedder_op.error());
+                    }
+
+                    auto embedder = embedder_op.get();
+
+                    if(embedder->is_remote() && remote_embedding_num_tries == 0) {
+                        std::string error = "`remote_embedding_num_tries` must be greater than 0.";
+                        return Option<bool>(400, error);
+                    }
+
+                    std::string embed_query = embedder_manager.get_query_prefix(vector_field_it.value().embed[fields::model_config]) + query;
+                    auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+
+                    if(!embedding_op.success) {
+                        if(!embedding_op.error["error"].get<std::string>().empty()) {
+                            return Option<bool>(400, embedding_op.error["error"].get<std::string>());
+                        } else {
+                            return Option<bool>(400, embedding_op.error.dump());
+                        }
+                    }
+
+                    sort_field_std.vector_query.query.values = embedding_op.embedding;
+                }
+
+                const auto& vector_index_map = index->_get_vector_index();
+                if(vector_index_map.find(sort_field_std.vector_query.query.field_name) == vector_index_map.end()) {
+                    return Option<bool>(400, "Field `" + sort_field_std.vector_query.query.field_name + "` does not have a vector index.");
+                }
+
+
+                if(vector_field_it.value().num_dim != sort_field_std.vector_query.query.values.size()) {
+                    return Option<bool>(400, "Query field `" + sort_field_std.vector_query.query.field_name + "` must have " +
+                                                    std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+                }
+
+                sort_field_std.vector_query.vector_index = vector_index_map.at(sort_field_std.vector_query.query.field_name);
+
+                if(sort_field_std.vector_query.vector_index->distance_type == cosine) {
+                    std::vector<float> normalized_values(sort_field_std.vector_query.query.values.size());
+                    hnsw_index_t::normalize_vector(sort_field_std.vector_query.query.values, normalized_values);
+                    sort_field_std.vector_query.query.values = normalized_values;
+                }
+
+                sort_field_std.name = actual_field_name;
 
             } else {
                 if(field_it == search_schema.end()) {
@@ -918,7 +991,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         }
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
-            sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found && sort_field_std.name != sort_field_const::vector_distance) {
+            sort_field_std.name != sort_field_const::seq_id && sort_field_std.name != sort_field_const::group_found && sort_field_std.name != sort_field_const::vector_distance &&
+            sort_field_std.name != sort_field_const::vector_query) {
                 
             const auto field_it = search_schema.find(sort_field_std.name);
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
@@ -1177,7 +1251,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         bool is_wildcard_query = (raw_query == "*" || raw_query.empty());
 
         auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query,
-                                                                      is_wildcard_query, this);
+                                                                      is_wildcard_query, this, false);
         if(!parse_vector_op.ok()) {
             return Option<nlohmann::json>(400, parse_vector_op.error());
         }
@@ -1545,7 +1619,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(curated_sort_by.empty()) {
         auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, 
-                                    sort_fields_std, is_wildcard_query, is_vector_query, is_group_by_query);
+                                    sort_fields_std, is_wildcard_query, is_vector_query, raw_query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -1557,7 +1631,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
 
         auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, 
-                                    sort_fields_std, is_wildcard_query, is_vector_query, is_group_by_query);
+                                    sort_fields_std, is_wildcard_query, is_vector_query, raw_query, is_group_by_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }

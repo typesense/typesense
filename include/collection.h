@@ -209,8 +209,10 @@ private:
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                       std::vector<sort_by>& sort_fields_std,
-                                                      bool is_wildcard_query,const bool is_vector_query,
-                                                      bool is_group_by_query = false) const;
+                                                      bool is_wildcard_query, const bool is_vector_query,
+                                                      const std::string& query, bool is_group_by_query = false, 
+                                                      const size_t remote_embedding_timeout_ms = 30000,
+                                                      const size_t remote_embedding_num_tries = 2) const;
 
     
     Option<bool> persist_collection_meta();

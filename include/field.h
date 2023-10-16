@@ -11,6 +11,7 @@
 #include <tsl/htrie_map.h>
 #include "json.hpp"
 #include "text_embedder_manager.h"
+#include "vector_query_ops.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -661,7 +662,15 @@ namespace sort_field_const {
     static const std::string missing_values = "missing_values";
 
     static const std::string vector_distance = "_vector_distance";
+    static const std::string vector_query = "_vector_query";
 }
+
+struct hnsw_index_t;
+
+struct sort_vector_query_t {
+        vector_query_t query;
+        hnsw_index_t* vector_index;
+}; 
 
 struct sort_by {
     enum missing_values_t {
@@ -690,10 +699,11 @@ struct sort_by {
     missing_values_t missing_values;
     eval_t eval;
 
+    sort_vector_query_t vector_query;
+
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
             missing_values(normal) {
-
     }
 
     sort_by(const std::string &name, const std::string &order, uint32_t text_match_buckets, int64_t geopoint,
@@ -701,7 +711,6 @@ struct sort_by {
             name(name), order(order), text_match_buckets(text_match_buckets),
             geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision),
             missing_values(normal) {
-
     }
 
     sort_by& operator=(const sort_by& other) {

@@ -5,7 +5,8 @@
 Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_query_str,
                                                     vector_query_t& vector_query,
                                                     const bool is_wildcard_query,
-                                                    const Collection* coll) {
+                                                    const Collection* coll,
+                                                    const bool allow_empty_query) {
     // FORMAT:
     // field_name([0.34, 0.66, 0.12, 0.68], exact: false, k: 10)
     size_t i = 0;
@@ -72,7 +73,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
 
             if(i == vector_query_str.size()-1) {
                 // missing params
-                if(vector_query.values.empty()) {
+                if(vector_query.values.empty() && !allow_empty_query) {
                     // when query values are missing, atleast the `id` parameter must be present
                     return Option<bool>(400, "When a vector query value is empty, an `id` parameter must be present.");
                 }
