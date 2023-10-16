@@ -54,8 +54,9 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
         }
     } else if(a_field.is_array()) {
         if(!doc_ele.is_array()) {
-            if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP ||
-                                    dirty_values == DIRTY_VALUES::COERCE_OR_DROP)) {
+            bool is_auto_embedding = a_field.type == field_types::FLOAT_ARRAY && a_field.embed.count(fields::from) > 0;
+            if((a_field.optional && (dirty_values == DIRTY_VALUES::DROP ||
+                                    dirty_values == DIRTY_VALUES::COERCE_OR_DROP)) || is_auto_embedding) {
                 document.erase(field_name);
                 return Option<uint32_t>(200);
             } else {
@@ -631,7 +632,9 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
             continue;
         }
 
-        if(document.count(field_name) == 0) {
+        bool is_auto_embedding = a_field.type == field_types::FLOAT_ARRAY && a_field.embed.count(fields::from) > 0;
+
+        if(document.count(field_name) == 0 && !is_auto_embedding) {
             return Option<>(400, "Field `" + field_name  + "` has been declared in the schema, "
                                                            "but is not found in the document.");
         }

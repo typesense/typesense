@@ -156,10 +156,15 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
 
                     vector_query.distance_threshold = std::stof(param_kv[1]);
                 }
-            }
 
-            if(is_wildcard_query && !vector_query.query_doc_given && vector_query.values.empty()) {
-                return Option<bool>(400, "When a vector query value is empty, an `id` parameter must be present.");
+                if(param_kv[0] == "alpha") {
+                    if(!StringUtils::is_float(param_kv[1]) || std::stof(param_kv[1]) < 0.0 || std::stof(param_kv[1]) > 1.0) {
+                        return Option<bool>(400, "Malformed vector query string: "
+                                                 "`alpha` parameter must be a float between 0.0-1.0.");
+                    }
+
+                    vector_query.alpha = std::stof(param_kv[1]);
+                }
             }
 
             return Option<bool>(true);

@@ -210,6 +210,8 @@ public:
     /// iterator reaching it's end. (is_valid would be false in both these cases)
     uint32_t approx_filter_ids_length = 0;
 
+    filter_result_iterator_t() = default;
+
     explicit filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count);
 
     explicit filter_result_iterator_t(const std::string collection_name,

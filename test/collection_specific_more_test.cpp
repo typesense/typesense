@@ -1856,6 +1856,62 @@ TEST_F(CollectionSpecificMoreTest, ConsiderDroppedTokensDuringTextMatchScoring2)
     ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "brand", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Alpha beta gamma";
+    doc["brand"] = "Alpha beta gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "Alpha beta gamma";
+    doc["brand"] = "Theta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                                100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true);
+
+
+    auto res = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                             100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", false).get();
+
+    size_t score1 = std::stoul(res["hits"][0]["text_match_info"]["score"].get<std::string>());
+    size_t score2 = std::stoul(res["hits"][1]["text_match_info"]["score"].get<std::string>());
+    ASSERT_TRUE(score1 == score2);
+
+    res = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                        100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true).get();
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    score1 = std::stoul(res["hits"][0]["text_match_info"]["score"].get<std::string>());
+    score2 = std::stoul(res["hits"][1]["text_match_info"]["score"].get<std::string>());
+    ASSERT_TRUE(score1 > score2);
+}
+
 TEST_F(CollectionSpecificMoreTest, NonNestedFieldNameWithDot) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -2357,7 +2413,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                              4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                             0, HASH, 30000, 2, "", {}, {}, left_to_right).get();
+                             0, HASH, 30000, 2, "", {}, {}, "left_to_right").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
@@ -2367,10 +2423,48 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                         4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                        0, HASH, 30000, 2, "", {}, {}, right_to_left).get();
+                        0, HASH, 30000, 2, "", {}, {}, "right_to_left").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // search on both sides
+    res = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        0, HASH, 30000, 2, "", {}, {}, "both_sides:3").get();
+    ASSERT_EQ(2, res["hits"].size());
+
+    // but must follow token limit
+    res = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        0, HASH, 30000, 2, "", {}, {}, "both_sides:1").get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // validation checks
+    auto res_op = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                0, HASH, 30000, 2, "", {}, {}, "all_sides");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
+
+    res_op = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                           4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                           0, HASH, 30000, 2, "", {}, {}, "both_sides:x");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
 }
 
 TEST_F(CollectionSpecificMoreTest, DoNotHighlightFieldsForSpecialCharacterQuery) {

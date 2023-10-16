@@ -993,6 +993,16 @@ posting_list_t::iterator_t posting_list_t::new_iterator(block_t* start_block, bl
     return posting_list_t::iterator_t(&id_block_map, start_block, end_block, true, field_id);
 }
 
+posting_list_t::iterator_t posting_list_t::new_rev_iterator() {
+    block_t* start_block = nullptr;
+    if(!id_block_map.empty()) {
+        start_block = id_block_map.rbegin()->second;
+    }
+
+    auto rev_it = posting_list_t::iterator_t(&id_block_map, start_block, nullptr, true, 0, true);
+    return rev_it;
+}
+
 void posting_list_t::advance_all(std::vector<posting_list_t::iterator_t>& its) {
     for(auto& it: its) {
         it.next();
@@ -1642,7 +1652,7 @@ size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, boo
 
 posting_list_t::iterator_t::iterator_t(const std::map<last_id_t, block_t*>* id_block_map,
                                        posting_list_t::block_t* start, posting_list_t::block_t* end,
-                                       bool auto_destroy, uint32_t field_id):
+                                       bool auto_destroy, uint32_t field_id, bool reverse):
         id_block_map(id_block_map), curr_block(start), curr_index(0), end_block(end),
         auto_destroy(auto_destroy), field_id(field_id) {
 
@@ -1650,6 +1660,10 @@ posting_list_t::iterator_t::iterator_t(const std::map<last_id_t, block_t*>* id_b
         ids = curr_block->ids.uncompress();
         offset_index = curr_block->offset_index.uncompress();
         offsets = curr_block->offsets.uncompress();
+
+        if(reverse) {
+            curr_index = curr_block->ids.getLength()-1;
+        }
     }
 }
 
@@ -1684,6 +1698,15 @@ uint32_t posting_list_t::iterator_t::last_block_id() const {
     }
     
     return ids[size - 1];
+}
+
+uint32_t posting_list_t::iterator_t::first_block_id() const {
+    auto size = curr_block->size();
+    if(size == 0) {
+        return 0;
+    }
+
+    return ids[0];
 }
 
 uint32_t posting_list_t::iterator_t::id() const {
@@ -1727,6 +1750,39 @@ void posting_list_t::iterator_t::skip_to(uint32_t id) {
     }
 
     if(curr_index == curr_block->size()) {
+        reset_cache();
+    }
+}
+
+void posting_list_t::iterator_t::skip_to_rev(uint32_t id) {
+    // first look to skip within current block
+    if(id >= this->first_block_id()) {
+        while(curr_index > 0 && this->id() > id) {
+            curr_index--;
+        }
+
+        return ;
+    }
+
+    // identify the block where the id could exist and skip to that
+    reset_cache();
+
+    const auto it = id_block_map->lower_bound(id);
+    if(it == id_block_map->end()) {
+        return;
+    }
+
+    curr_block = it->second;
+    curr_index = curr_block->size()-1;
+    ids = curr_block->ids.uncompress();
+    offset_index = curr_block->offset_index.uncompress();
+    offsets = curr_block->offsets.uncompress();
+
+    while(curr_index > 0 && this->id() > id) {
+        curr_index--;
+    }
+
+    if(curr_index == UINT32_MAX) {
         reset_cache();
     }
 }

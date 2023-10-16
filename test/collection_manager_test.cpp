@@ -1179,10 +1179,26 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(brand:nike && foo:bar):DESC,points:desc ", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
-    ASSERT_EQ("_eval(brand:nike && foo:bar)", sort_fields[0].name);
+    ASSERT_EQ("_eval", sort_fields[0].name);
+    ASSERT_FALSE(sort_fields[0].eval_expressions.empty());
+    ASSERT_EQ("brand:nike && foo:bar", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(1, sort_fields[0].eval.scores.size());
+    ASSERT_EQ(1, sort_fields[0].eval.scores[0]);
     ASSERT_EQ("DESC", sort_fields[0].order);
     ASSERT_EQ("points", sort_fields[1].name);
     ASSERT_EQ("DESC", sort_fields[1].order);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval([(brand:nike || brand:air):3, (brand:adidas):2]):DESC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("_eval", sort_fields[0].name);
+    ASSERT_EQ(2, sort_fields[0].eval_expressions.size());
+    ASSERT_EQ("brand:nike || brand:air", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ("brand:adidas", sort_fields[0].eval_expressions[1]);
+    ASSERT_EQ(2, sort_fields[0].eval.scores.size());
+    ASSERT_EQ(3, sort_fields[0].eval.scores[0]);
+    ASSERT_EQ(2, sort_fields[0].eval.scores[1]);
+    ASSERT_EQ("DESC", sort_fields[0].order);
 
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("points:desc,loc(24.56,10.45):ASC,"
@@ -1345,7 +1361,38 @@ TEST_F(CollectionManagerTest, GetReferenceCollectionNames) {
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
     ASSERT_TRUE(reference_collection_names.empty());
 
+    filter_query = "foo";
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_TRUE(reference_collection_names.empty());
+
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"filter_by", "title"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op_bool.ok());
+    ASSERT_EQ(search_op_bool.error(), "Could not parse the filter query.");
+
     filter_query = "foo:bar";
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_TRUE(reference_collection_names.empty());
+
+    filter_query = "$foo(bar:baz) & age: <5";
     CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
     ASSERT_TRUE(reference_collection_names.empty());
 

@@ -87,6 +87,13 @@ void Tokenizer::init(const std::string& input) {
         }
 
         unicode_text = icu::UnicodeString::fromUTF8(text);
+
+        if(locale == "fa") {
+            icu::UnicodeString target_str;
+            target_str.setTo(0x200C);  // U+200C (ZERO WIDTH NON-JOINER)
+            unicode_text.findAndReplace(target_str, " ");
+        }
+
         bi->setText(unicode_text);
 
         start_pos = bi->first();

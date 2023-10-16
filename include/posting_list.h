@@ -91,7 +91,7 @@ public:
         uint32_t* offsets = nullptr;
 
         explicit iterator_t(const std::map<last_id_t, block_t*>* id_block_map,
-                            block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0);
+                            block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0, bool reverse = false);
         ~iterator_t();
 
         iterator_t(iterator_t&& rhs) noexcept;
@@ -101,9 +101,11 @@ public:
         [[nodiscard]] bool valid() const;
         void next();
         void skip_to(uint32_t id);
+        void skip_to_rev(uint32_t id);
         void set_index(uint32_t index);
         [[nodiscard]] uint32_t id() const;
         [[nodiscard]] uint32_t last_block_id() const;
+        [[nodiscard]] uint32_t first_block_id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
         [[nodiscard]] uint32_t get_field_id() const;
@@ -173,6 +175,8 @@ public:
     bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
 
     iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr, uint32_t field_id = 0);
+
+    iterator_t new_rev_iterator();
 
     static void merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 

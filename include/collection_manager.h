@@ -212,4 +212,6 @@ public:
     void add_referenced_in_backlog(const std::string& collection_name, reference_pair&& pair);
 
     std::map<std::string, std::set<reference_pair>> _get_referenced_in_backlog() const;
+
+    void process_embedding_field_delete(const std::string& model_name);
 };

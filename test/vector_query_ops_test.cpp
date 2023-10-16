@@ -48,8 +48,7 @@ TEST_F(VectorQueryOpsTest, ParseVectorQueryString) {
 
     vector_query._reset();
     parsed = VectorQueryOps::parse_vector_query_str("vec:([], k: 10)", vector_query, true, nullptr);
-    ASSERT_FALSE(parsed.ok());
-    ASSERT_EQ("When a vector query value is empty, an `id` parameter must be present.", parsed.error());
+    ASSERT_TRUE(parsed.ok());
 
     vector_query._reset();
     parsed = VectorQueryOps::parse_vector_query_str("vec:[0.34, 0.66, 0.12, 0.68], k: 10)", vector_query, false, nullptr);

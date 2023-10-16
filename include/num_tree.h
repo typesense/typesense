@@ -56,4 +56,5 @@ public:
                   size_t& result_ids_len,
                   uint32_t*& result_ids) const;
 
+    std::pair<int64_t, int64_t> get_min_max(const uint32_t* result_ids, size_t result_ids_len);
 };

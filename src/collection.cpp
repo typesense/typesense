@@ -29,12 +29,10 @@ struct sort_fields_guard_t {
 
     ~sort_fields_guard_t() {
         for(auto& sort_by_clause: sort_fields_std) {
-            delete sort_by_clause.eval.filter_tree_root;
-            if(sort_by_clause.eval.ids) {
-                delete [] sort_by_clause.eval.ids;
-                sort_by_clause.eval.ids = nullptr;
-                sort_by_clause.eval.size = 0;
+            for (auto& eval_ids: sort_by_clause.eval.eval_ids_vec) {
+                delete [] eval_ids;
             }
+            delete [] sort_by_clause.eval.filter_trees;
         }
     }
 };
@@ -775,7 +773,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                               const bool is_vector_query,
                                                               const bool is_group_by_query) const {
 
-    size_t num_sort_expressions = 0;
+    uint32_t eval_sort_count = 0;
 
     for(size_t i = 0; i < sort_fields.size(); i++) {
         const sort_by& _sort_field = sort_fields[i];
@@ -815,6 +813,37 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
 
             continue;
+        } else if (_sort_field.name == sort_field_const::eval) {
+            sort_by sort_field_std(sort_field_const::eval, _sort_field.order);
+
+            auto const& count = _sort_field.eval_expressions.size();
+            sort_field_std.eval.filter_trees = new filter_node_t[count];
+            std::unique_ptr<filter_node_t []> filter_trees_guard(sort_field_std.eval.filter_trees);
+
+            for (uint32_t j = 0; j < count; j++) {
+                auto const& filter_exp = _sort_field.eval_expressions[j];
+                if (filter_exp.empty()) {
+                    return Option<bool>(400, "The eval expression in sort_by is empty.");
+                }
+
+                filter_node_t* filter_tree_root = nullptr;
+                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
+                                                                          store, "", filter_tree_root);
+                std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
+                if (!parse_filter_op.ok()) {
+                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
+                }
+
+                sort_field_std.eval.filter_trees[j] = std::move(*filter_tree_root);
+            }
+
+            eval_sort_count++;
+            sort_field_std.eval_expressions = _sort_field.eval_expressions;
+            sort_field_std.eval.scores = _sort_field.eval.scores;
+            sort_fields_std.emplace_back(sort_field_std);
+            filter_trees_guard.release();
+            continue;
         }
 
         sort_by sort_field_std(_sort_field.name, _sort_field.order);
@@ -843,23 +872,6 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 sort_field_std.name = actual_field_name;
                 sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
-
-            } else if(actual_field_name == sort_field_const::eval) {
-                const std::string& filter_exp = sort_field_std.name.substr(paran_start + 1,
-                                                                           sort_field_std.name.size() - paran_start -
-                                                                           2);
-                if(filter_exp.empty()) {
-                    return Option<bool>(400, "The eval expression in sort_by is empty.");
-                }
-
-                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filter_tree_root);
-                if(!parse_filter_op.ok()) {
-                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
-                }
-
-                sort_field_std.name = actual_field_name;
-                num_sort_expressions++;
 
             } else {
                 if(field_it == search_schema.end()) {
@@ -1064,7 +1076,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         return Option<bool>(422, message);
     }
 
-    if(num_sort_expressions > 1) {
+    if(eval_sort_count > 1) {
         std::string message = "Only one sorting eval expression is allowed.";
         return Option<bool>(422, message);
     }
@@ -1106,22 +1118,6 @@ Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const st
 
                 sort_field_std.name = actual_field_name;
                 sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
-
-            } else if(actual_field_name == sort_field_const::eval) {
-                const std::string& filter_exp = sort_field_std.name.substr(paran_start + 1,
-                                                                           sort_field_std.name.size() - paran_start -
-                                                                           2);
-                if(filter_exp.empty()) {
-                    return Option<bool>(400, "The eval expression in sort_by is empty.");
-                }
-
-                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filter_tree_root);
-                if(!parse_filter_op.ok()) {
-                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
-                }
-
-                sort_field_std.name = actual_field_name;
 
             } else {
                 if(field_it == search_schema.end()) {
@@ -1244,6 +1240,35 @@ Option<bool> Collection::validate_and_standardize_sort_fields_with_lock(const st
 
                 sort_field_std.name = actual_field_name;
             }
+        } else if (sort_field.name == sort_field_const::eval) {
+            auto const& count = sort_field.eval_expressions.size();
+            sort_field_std.eval.filter_trees = new filter_node_t[count];
+            std::unique_ptr<filter_node_t []> filter_trees_guard(sort_field_std.eval.filter_trees);
+
+            for (uint32_t j = 0; j < count; j++) {
+                auto const& filter_exp = sort_field.eval_expressions[j];
+                if (filter_exp.empty()) {
+                    return Option<bool>(400, "The eval expression in sort_by is empty.");
+                }
+
+                filter_node_t* filter_tree_root = nullptr;
+                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
+                                                                          store, "", filter_tree_root);
+                std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
+
+                if (!parse_filter_op.ok()) {
+                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
+                }
+
+                sort_field_std.eval.filter_trees[j] = std::move(*filter_tree_root);
+            }
+
+            sort_field_std.name = sort_field.name;
+            sort_field_std.eval_expressions = sort_field.eval_expressions;
+            sort_field_std.eval.scores = sort_field.eval.scores;
+            sort_fields_std.emplace_back(sort_field_std);
+            filter_trees_guard.release();
+            continue;
         }
 
         if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval &&
@@ -1319,6 +1344,10 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
             continue;
         }
 
+        if(!exact_key_match && text_embedding) {
+            continue;
+        }
+
         if (exact_primitive_match || is_wildcard || text_embedding ||
             // field_name prefix must be followed by a "." to indicate an object search
             (enable_nested_fields && kv.key().size() > field_name.size() && kv.key()[field_name.size()] == '.')) {
@@ -1343,7 +1372,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::vector<std::string>& raw_search_fields,
                                   const std::string & filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
-                                  const size_t per_page, const size_t page,
+                                  size_t per_page, const size_t page,
                                   token_ordering token_order, const std::vector<bool>& prefixes,
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
@@ -1391,7 +1420,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::string& stopwords_set,
                                   const std::vector<std::string>& facet_return_parent,
                                   const std::vector<ref_include_fields>& ref_include_fields_vec,
-                                  const drop_tokens_mode_t drop_tokens_mode) const {
+                                  const std::string& drop_tokens_mode,
+                                  const bool prioritize_num_matching_fields,
+                                  const bool group_missing_values) const {
 
     std::shared_lock lock(mutex);
 
@@ -1446,7 +1477,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         group_limit = 0;
     }
 
-
     vector_query_t vector_query;
     if(!vector_query_str.empty()) {
         bool is_wildcard_query = (raw_query == "*" || raw_query.empty());
@@ -1462,9 +1492,19 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
         }
 
-        if(is_wildcard_query && vector_field_it.value().num_dim != vector_query.values.size()) {
-            return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
-                                               std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+        if(is_wildcard_query) {
+            if(vector_query.values.empty() && !vector_query.query_doc_given) {
+                // for usability we will treat this as non-vector query
+                vector_query.field_name.clear();
+                if(vector_query.k != 0) {
+                    per_page = std::min(per_page, vector_query.k);
+                }
+            }
+
+            else if(vector_field_it.value().num_dim != vector_query.values.size()) {
+                return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
+                                                   std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+            }
         }
     }
 
@@ -1508,6 +1548,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 if(raw_query == "*") {
                     // ignore embedding field if query is a wildcard
                     continue;
+                }
+
+                if(embedding_fields.find(search_field.name) == embedding_fields.end()) {
+                    std::string error = "Vector field `" + search_field.name + "` is not an auto-embedding field, do not use `query_by` with it, use `vector_query` instead.";
+                    return Option<nlohmann::json>(400, error);
                 }
 
                 TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
@@ -1735,6 +1780,13 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
+    Option<drop_tokens_param_t> drop_tokens_param_op = parse_drop_tokens_mode(drop_tokens_mode);
+    if(!drop_tokens_param_op.ok()) {
+        return Option<nlohmann::json>(drop_tokens_param_op.code(), drop_tokens_param_op.error());
+    }
+
+    auto drop_tokens_param = drop_tokens_param_op.get();
+
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
@@ -1883,14 +1935,16 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                  per_page, offset, token_order, prefixes,
                                                  drop_tokens_threshold, typo_tokens_threshold,
-                                                 group_by_fields, group_limit, default_sorting_field,
+                                                 group_by_fields, group_limit, group_missing_values,
+                                                 default_sorting_field,
                                                  prioritize_exact_match, prioritize_token_position,
+                                                 prioritize_num_matching_fields,
                                                  exhaustive_search, 4,
                                                  search_stop_millis,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query,
-                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_mode);
+                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_param);
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
@@ -2252,7 +2306,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 wrapper_doc["geo_distance_meters"] = geo_distances;
             }
 
-            if(!vector_query.field_name.empty()) {
+            if(!vector_query.field_name.empty() && field_order_kv->vector_distance > 0) {
                 wrapper_doc["vector_distance"] = field_order_kv->vector_distance;
             }
 
@@ -4025,6 +4079,35 @@ Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
     return Option<bool>(true);
 }
 
+Option<drop_tokens_param_t> Collection::parse_drop_tokens_mode(const std::string& drop_tokens_mode) {
+    drop_tokens_mode_t drop_tokens_mode_val = left_to_right;
+    size_t drop_tokens_token_limit = 1000;
+    auto drop_tokens_mode_op = magic_enum::enum_cast<drop_tokens_mode_t>(drop_tokens_mode);
+    if(drop_tokens_mode_op.has_value()) {
+        drop_tokens_mode_val = drop_tokens_mode_op.value();
+    } else {
+        std::vector<std::string> drop_token_parts;
+        StringUtils::split(drop_tokens_mode, drop_token_parts, ":");
+        if(drop_token_parts.size() == 2) {
+            if(!StringUtils::is_uint32_t(drop_token_parts[1])) {
+                return Option<drop_tokens_param_t>(400, "Invalid format for drop tokens mode.");
+            }
+
+            drop_tokens_mode_op = magic_enum::enum_cast<drop_tokens_mode_t>(drop_token_parts[0]);
+            if(drop_tokens_mode_op.has_value()) {
+                drop_tokens_mode_val = drop_tokens_mode_op.value();
+            }
+
+            drop_tokens_token_limit = std::stoul(drop_token_parts[1]);
+
+        } else {
+            return Option<drop_tokens_param_t>(400, "Invalid format for drop tokens mode.");
+        }
+    }
+
+    return Option<drop_tokens_param_t>(drop_tokens_param_t(drop_tokens_mode_val, drop_tokens_token_limit));
+}
+
 Option<bool> Collection::add_synonym(const nlohmann::json& syn_json, bool write_to_store) {
     std::shared_lock lock(mutex);
     synonym_t synonym;
@@ -4107,6 +4190,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
     std::vector<field> new_fields;
     tsl::htrie_map<char, field> schema_additions;
     std::vector<std::string> nested_field_names;
+    bool found_embedding_field = false;
 
     std::unique_lock ulock(mutex);
 
@@ -4130,6 +4214,16 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(f.embed.count(fields::from) != 0) {
+            found_embedding_field = true;
+            const auto& text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+            const auto& model_name = f.embed[fields::model_config][fields::model_name].get<std::string>();
+            if(text_embedders.count(model_name) == 0) {
+                size_t dummy_num_dim = 0;
+                auto validate_model_res = TextEmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
+                if(!validate_model_res.ok()) {
+                    return Option<bool>(validate_model_res.code(), validate_model_res.error());
+                }
+            }
             embedding_fields.emplace(f.name, f);
         }
 
@@ -4191,8 +4285,25 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
                 }
             }
 
-            Index::batch_memory_index(index, iter_batch, default_sorting_field, schema_additions, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true, 200, false);
+            Index::batch_memory_index(index, iter_batch, default_sorting_field, search_schema, embedding_fields,
+                                      fallback_field_type, token_separators, symbols_to_index, true, 200,
+                                      found_embedding_field, true, schema_additions);
+            if(found_embedding_field) {
+                for(auto& index_record : iter_batch) {
+                    if(index_record.indexed.ok()) {
+                        remove_flat_fields(index_record.doc);
+                        const std::string& serialized_json = index_record.doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+                        bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+
+                        if(!write_ok) {
+                            LOG(ERROR) << "Inserting doc with new embedding field failed for seq id: " << index_record.seq_id;
+                            index_record.index_failure(500, "Could not write to on-disk storage.");
+                        } else {
+                            index_record.index_success();
+                        }
+                    }
+                }
+            }
 
             iter_batch.clear();
         }
@@ -4231,7 +4342,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
         }
 
         if(del_field.embed.count(fields::from) != 0) {
-            embedding_fields.erase(del_field.name);
+            remove_embedding_field(del_field.name);
         }
 
         if(del_field.name == ".*") {
@@ -4851,6 +4962,23 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
             for(auto& new_field: new_fields) {
                 if(updated_search_schema.find(new_field.name) == updated_search_schema.end()) {
+                    if(new_field.nested) {
+                        auto del_field_it = std::find_if(del_fields.begin(), del_fields.end(), [&new_field](const field& f) {
+                            return f.name == new_field.name;
+                        });
+
+                        auto re_field_it = std::find_if(reindex_fields.begin(),
+                                                        reindex_fields.end(), [&new_field](const field& f) {
+                            return f.name == new_field.name;
+                        });
+
+                        if(del_field_it != del_fields.end() && re_field_it == reindex_fields.end()) {
+                            // If the discovered field is already being deleted and is not part of reindex fields,
+                            // we should ignore. This can happen when we are trying to drop a nested object's child.
+                            continue;
+                        }
+                    }
+
                     reindex_fields.push_back(new_field);
                     updated_search_schema[new_field.name] = new_field;
                     if(new_field.nested) {
@@ -5510,7 +5638,7 @@ void Collection::process_remove_field_for_embedding_fields(const field& del_fiel
     }
 
     for(auto& garbage_field: garbage_embed_fields) {
-        embedding_fields.erase(garbage_field.name);
+        remove_embedding_field(garbage_field.name);
         search_schema.erase(garbage_field.name);
         fields.erase(std::remove_if(fields.begin(), fields.end(), [&garbage_field](const auto &f) {
             return f.name == garbage_field.name;
@@ -5601,4 +5729,19 @@ Option<std::string> Collection::get_reference_field(const std::string& collectio
 Option<uint32_t> Collection::get_sort_indexed_field_value(const std::string& field_name, const uint32_t& seq_id) const {
     std::shared_lock lock(mutex);
     return index->get_sort_indexed_field_value(field_name, seq_id);
+}
+
+void Collection::remove_embedding_field(const std::string& field_name) {
+    if(embedding_fields.find(field_name) == embedding_fields.end()) {
+        return;
+    }
+
+    const auto& del_field = embedding_fields[field_name];
+    const auto& model_name = del_field.embed[fields::model_config]["model_name"].get<std::string>(); 
+    embedding_fields.erase(field_name);
+    CollectionManager::get_instance().process_embedding_field_delete(model_name);
+}
+
+tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
+    return embedding_fields;
 }

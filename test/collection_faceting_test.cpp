@@ -288,7 +288,11 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_STREQ("1421890022", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("<mark>142189002</mark>2", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
-    ASSERT_EQ(1, results["facet_counts"][0]["stats"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(1106321222, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(348974822, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(1453426022, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(13275854664, results["facet_counts"][0]["stats"]["sum"].get<double>());
     ASSERT_FLOAT_EQ(1, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
 
     // facet query that does not match any indexed value
@@ -707,6 +711,30 @@ TEST_F(CollectionFacetingTest, FacetStatOnFloatFields) {
     collectionManager.drop_collection("coll_float_fields");
 }
 
+TEST_F(CollectionFacetingTest, FacetStatsFloatLon) {
+    std::vector<field> fields = {
+        field("lon", field_types::FLOAT, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["lon"] = -99.184319;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"lon"}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
+
+    ASSERT_FLOAT_EQ(-99.1843, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(-99.1843, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(-99.1843, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(-99.1843, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(1, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+}
+
 TEST_F(CollectionFacetingTest, FacetCountOnSimilarStrings) {
     Collection *coll1;
 
@@ -746,6 +774,60 @@ TEST_F(CollectionFacetingTest, FacetCountOnSimilarStrings) {
     ASSERT_STREQ("England in India", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFacetingTest, FacetQueryTest) {
+    std::vector<field> fields = {
+            field("color", field_types::STRING, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    std::vector<std::string> colors = {"apple red", "azure", "amazon green", "apricot orange",
+                                       "blue", "barrel blue", "banana yellow", "ball green", "baikal"};
+
+    for(size_t i = 0; i < 100; i++) {
+        nlohmann::json doc;
+        doc["color"] = colors[i % colors.size()];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // add colors that DON'T start with "b" to push these up the count list
+    for(size_t i = 0; i < 4; i++) {
+        nlohmann::json doc;
+        doc["color"] = colors[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {},
+                                 "", {"color"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 5, "color:b", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(4, results["facet_counts"][0]["counts"].size()); // 4 is default candidate size
+
+    // junk string should produce no facets
+
+    results = coll1->search("*", {},
+                            "", {"color"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 5, "color:xsda", 30, 4, "", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+
+    results = coll1->search("*", {},
+                            "", {"color"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 5, "color:green a", 30, 4, "", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("amazon green", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("<mark>a</mark>mazon <mark>green</mark>", results["facet_counts"][0]["counts"][0]["highlighted"]);
 }
 
 TEST_F(CollectionFacetingTest, FacetQueryOnStringWithColon) {
@@ -2399,4 +2481,147 @@ TEST_F(CollectionFacetingTest, FacetSortValidation) {
     ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("Oneplus 11R", results["facet_counts"][0]["counts"][1]["value"]);
     ASSERT_EQ("S22 Ultra", results["facet_counts"][0]["counts"][2]["value"]);
+}
+
+TEST_F(CollectionFacetingTest, FhashInt64MapTest) {
+    std::vector<int64_t> visitors = {227489798, 124098972, 180247624};
+    facet_index_t facet_index_v4;
+    std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash> fvalue_to_seq_ids;
+    std::unordered_map<uint32_t, std::vector<facet_value_id_t>> seq_id_to_fvalues;
+
+    facet_index_v4.initialize("visitors");
+
+    //insert timestamps
+    int seq_id = 0;
+    for (auto it = visitors.begin(); it != visitors.end(); ++it) {
+        auto val = std::to_string(*it);
+        facet_value_id_t facet_value_id(val);
+        fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
+        seq_id_to_fvalues[seq_id].push_back(facet_value_id);
+        ++seq_id;
+    }
+
+    facet_index_v4.insert("visitors", fvalue_to_seq_ids, seq_id_to_fvalues);
+    ASSERT_EQ(3, facet_index_v4.get_fhash_int64_map("visitors").size());
+
+    facet_index_v4.remove("visitors", 0);
+    ASSERT_EQ(2, facet_index_v4.get_fhash_int64_map("visitors").size());
+
+    fvalue_to_seq_ids.clear();
+    seq_id_to_fvalues.clear();
+
+    facet_value_id_t facet_value_id("124798721");
+    fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
+    seq_id_to_fvalues[seq_id].push_back(facet_value_id);
+
+    facet_index_v4.insert("visitors", fvalue_to_seq_ids, seq_id_to_fvalues);
+    ASSERT_EQ(3, facet_index_v4.get_fhash_int64_map("visitors").size());
+}
+
+TEST_F(CollectionFacetingTest, RangeFacetTestWithGroupBy) {
+    std::vector<field> fields = {field("place", field_types::STRING, false),
+                                 field("state", field_types::STRING, true),
+                                 field("visitors", field_types::INT32, true),
+                                 field("rating", field_types::FLOAT, true),
+                                 field("trackingFrom", field_types::INT32, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "", {}, {}
+    ).get();
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["place"] = "Mysore Palace";
+    doc1["state"] = "Karnataka";
+    doc1["visitors"] = 235486;
+    doc1["rating"] = 4.5;
+    doc1["trackingFrom"] = 1900;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["place"] = "Hampi";
+    doc2["state"] = "Karnataka";
+    doc2["visitors"] = 201022;
+    doc2["rating"] = 4.5;
+    doc2["trackingFrom"] = 1900;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["place"] = "Mahabalipuram";
+    doc3["state"] = "TamilNadu";
+    doc3["visitors"] = 174684;
+    doc3["rating"] = 3.8;
+    doc3["trackingFrom"] = 1900;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["place"] = "Meenakshi Amman Temple";
+    doc4["state"] = "TamilNadu";
+    doc4["visitors"] = 246676;
+    doc4["rating"] = 4.5;
+    doc4["trackingFrom"] = 2000;
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["place"] = "Staue of Unity";
+    doc5["state"] = "Gujarat";
+    doc5["visitors"] = 345878;
+    doc5["rating"] = 3.8;
+    doc5["trackingFrom"] = 2000;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    auto result = coll1->search("Karnataka", {"state"},
+                                "", {"visitors(Busy:[0, 200000], VeryBusy:[200000, 500000])"},
+                                {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                10, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000,
+                                true, false, true, "", true);
+    if(!result.ok()) {
+        LOG(INFO) << result.error();
+    }
+
+    auto results = result.get();
+
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("VeryBusy", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    //apply group_by
+    result = coll1->search("*", {"state"},
+                           "", {"visitors(Busy:[0, 200000], VeryBusy:[200000, 500000])"},
+                           {}, {2}, 10,
+                           1, FREQUENCY, {true},
+                           10, spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "",
+                           30, 4, "", 10,
+                           {}, {}, {"rating"}, 10,"<mark>",
+                           "</mark>", {}, 1000,true,
+                           false, true, "", true);
+
+    if(!result.ok()) {
+        LOG(INFO) << result.error();
+    }
+
+    results = result.get();
+
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("VeryBusy", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("Busy", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+
+    ASSERT_EQ(2, results["grouped_hits"].size());
+
+    ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ(3.8, results["grouped_hits"][0]["group_key"][0]);
+
+    ASSERT_EQ(3, results["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ(4.5, results["grouped_hits"][1]["group_key"][0]);
+
+    collectionManager.drop_collection("coll1");
 }
