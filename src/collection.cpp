@@ -1308,6 +1308,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     return Option<nlohmann::json>(400, error);
                 }
 
+                if(!search_field.index) {
+                    std::string error = "Field `" + search_field.name + "` is marked as a non-indexed field in the schema.";
+                    return Option<nlohmann::json>(400, error);
+                }
+
                 // if(TextEmbedderManager::model_dir.empty()) {
                 //     std::string error = "Text embedding is not enabled. Please set `model-dir` at startup.";
                 //     return Option<nlohmann::json>(400, error);

@@ -2649,3 +2649,47 @@ TEST_F(CollectionVectorTest, TestHybridSearchInvalidAlpha) {
               "`alpha` parameter must be a float between 0.0-1.0.", hybrid_results.error());
     
 }
+
+TEST_F(CollectionVectorTest, TestSearchNonIndexedEmbeddingField) {
+    nlohmann::json schema = R"({
+                    "name": "test",
+                    "fields": [
+                        {
+                            "name": "name",
+                            "type": "string"
+                        },
+                        {
+                            "name": "embedding",
+                            "type": "float[]",
+                            "index": false,
+                            "optional": true,
+                            "embed": {
+                                "from": [
+                                    "name"
+                                ],
+                                "model_config": {
+                                    "model_name": "ts/e5-small"
+                                }
+                            }
+                        }
+                    ]
+                    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "soccer"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_res = coll->search("soccer", {"name", "embedding"}, "", {}, {}, {0});
+    ASSERT_FALSE(search_res.ok());
+
+    ASSERT_EQ("Field `embedding` is marked as a non-indexed field in the schema.", search_res.error());
+}
