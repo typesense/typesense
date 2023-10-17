@@ -52,10 +52,10 @@ spp::sparse_hash_map<uint32_t, int64_t> Index::str_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::vector_distance_sentinel_value;
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
-             SynonymIndex* synonym_index, ThreadPool* thread_pool,
+             ThreadPool* thread_pool,
              const tsl::htrie_map<char, field> & search_schema,
              const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
-        name(name), collection_id(collection_id), store(store), synonym_index(synonym_index), thread_pool(thread_pool),
+        name(name), collection_id(collection_id), store(store), thread_pool(thread_pool),
         search_schema(search_schema),
         seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
@@ -522,7 +522,7 @@ size_t Index::batch_memory_index(Index *index,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
-                                 const bool do_validation, const size_t remote_embedding_batch_size, const bool generate_embeddings, 
+                                 const bool do_validation, const size_t remote_embedding_batch_size, const bool generate_embeddings,
                                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields) {
 
     const size_t concurrency = 4;
@@ -530,7 +530,7 @@ size_t Index::batch_memory_index(Index *index,
     const size_t window_size = (num_threads == 0) ? 0 :
                                (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
     const auto& indexable_schema = use_addition_fields ? addition_fields : actual_search_schema;
-    
+
 
     size_t num_indexed = 0;
     size_t num_processed = 0;
@@ -1280,7 +1280,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                       const std::vector<facet_info_t>& facet_infos,
                       const size_t group_limit, const std::vector<std::string>& group_by_fields,
                       const bool group_missing_values,
-                      const uint32_t* result_ids, size_t results_size, 
+                      const uint32_t* result_ids, size_t results_size,
                       int max_facet_count, bool is_wildcard_query, bool no_filters_provided,
                       facet_index_type_t facet_index_type) const {
 
@@ -1819,7 +1819,8 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
-                               facet_index_type_t facet_index_type) {
+                               facet_index_type_t facet_index_type,
+                               const spp::sparse_hash_set<std::string>& synonym_sets) {
     return search(search_params->field_query_tokens,
            search_params->search_fields,
            search_params->match_type,
@@ -1859,8 +1860,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->facet_sample_threshold,
            collection_name,
            search_params->drop_tokens_mode,
-           facet_index_type
-           );
+           facet_index_type,
+           synonym_sets);
 }
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
@@ -2312,8 +2313,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    size_t facet_sample_percent, size_t facet_sample_threshold,
                    const std::string& collection_name,
                    const drop_tokens_param_t drop_tokens_mode,
-                   facet_index_type_t facet_index_type
-                   ) const {
+                   facet_index_type_t facet_index_type,
+                           const spp::sparse_hash_set<std::string>& synonym_sets) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root);
@@ -2335,7 +2336,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     std::vector<uint32_t> included_ids_vec;
     std::unordered_set<uint32_t> excluded_group_ids;
 
-    process_curated_ids(included_ids, excluded_ids, group_by_fields, group_limit, 
+    process_curated_ids(included_ids, excluded_ids, group_by_fields, group_limit,
                         group_missing_values, filter_curated_hits,
                         filter_result_iterator, curated_ids, included_ids_map,
                         included_ids_vec, excluded_group_ids);
@@ -2635,7 +2636,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         for(size_t j = 0; j < field_query_tokens[0].q_include_tokens.size(); j++) {
             q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
         }
-        synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
+        SynonymIndex::get_instance().synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
 
         if(!field_query_tokens[0].q_synonyms.empty()) {
             syn_orig_num_tokens = field_query_tokens[0].q_include_tokens.size();
@@ -2707,9 +2708,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                                   sort_fields_std, num_typos, searched_queries,
                                                                   qtoken_set, topster, groups_processed,
                                                                   all_result_ids, all_result_ids_len,
-                                                                  group_limit, group_by_fields, group_missing_values, 
-                                                                  prioritize_exact_match, prioritize_token_position, 
-                                                                  prioritize_num_matching_fields, 
+                                                                  group_limit, group_by_fields, group_missing_values,
+                                                                  prioritize_exact_match, prioritize_token_position,
+                                                                  prioritize_num_matching_fields,
                                                                   query_hashes, token_order,
                                                                   prefixes, typo_tokens_threshold, exhaustive_search,
                                                                   max_candidates, min_len_1typo, min_len_2typo,
@@ -2809,10 +2810,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                                           filter_result_iterator,
                                                                           curated_ids_sorted, excluded_group_ids,
                                                                           sort_fields_std, num_typos, searched_queries,
-                                                                          qtoken_set, topster, groups_processed, 
+                                                                          qtoken_set, topster, groups_processed,
                                                                           all_result_ids, all_result_ids_len,
                                                                           group_limit, group_by_fields, group_missing_values,
-                                                                          prioritize_exact_match, prioritize_token_position, 
+                                                                          prioritize_exact_match, prioritize_token_position,
                                                                           prioritize_num_matching_fields, query_hashes,
                                                                           token_order, prefixes, typo_tokens_threshold,
                                                                           exhaustive_search, max_candidates, min_len_1typo,
@@ -2900,13 +2901,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             kvs.push_back(kv_map.second->getKV(i));
                         }
                     }
-                    
+
                     std::sort(kvs.begin(), kvs.end(), Topster::is_greater);
                 } else {
                     topster->sort();
                 }
 
-                
+
 
                 // Reciprocal rank fusion
                 // Score is  sum of (1 / rank_of_document) * WEIGHT from each list (text match and vector search)
@@ -2937,7 +2938,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     filter_result_iterator->skip_to(seq_id);
                     auto references = std::move(filter_result_iterator->reference);
                     filter_result_iterator->reset();
-                    
+
                     KV* found_kv = nullptr;
                     if(group_limit != 0) {
                         for(auto& kv : kvs) {
@@ -3106,7 +3107,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             thread_pool->enqueue([this, thread_id, &facet_batches, &facet_query, group_limit, group_by_fields,
                                          batch_result_ids, batch_res_len, &facet_infos, max_facet_values,
-                                         is_wildcard_query, no_filters_provided, estimate_facets, facet_sample_percent, 
+                                         is_wildcard_query, no_filters_provided, estimate_facets, facet_sample_percent,
                                          group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                                          &num_processed, &m_process, &cv_process, facet_index_type]() {
@@ -3231,7 +3232,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         group_limit, is_wildcard_no_filter_query,
                         max_candidates, facet_infos, facet_index_type);
     do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
-              facet_infos, group_limit, group_by_fields, group_missing_values, &included_ids_vec[0], 
+              facet_infos, group_limit, group_by_fields, group_missing_values, &included_ids_vec[0],
               included_ids_vec.size(), max_facet_values, is_wildcard_query, no_filters_provided,
               facet_index_type);
 
@@ -3248,7 +3249,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
 void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                 const std::vector<uint32_t>& excluded_ids,
-                                const std::vector<std::string>& group_by_fields, const size_t group_limit, 
+                                const std::vector<std::string>& group_by_fields, const size_t group_limit,
                                 const bool group_missing_values,
                                 const bool filter_curated_hits, filter_result_iterator_t* const filter_result_iterator,
                                 std::set<uint32_t>& curated_ids,
@@ -3609,7 +3610,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                                                   sort_fields, token_candidates_vec, searched_queries, qtoken_set,
                                                                   dropped_tokens, topster,
                                                                   groups_processed, all_result_ids, all_result_ids_len,
-                                                                  typo_tokens_threshold, group_limit, group_by_fields, 
+                                                                  typo_tokens_threshold, group_limit, group_by_fields,
                                                                   group_missing_values, query_tokens,
                                                                   num_typos, prefixes, prioritize_exact_match, prioritize_token_position,
                                                                   prioritize_num_matching_fields, exhaustive_search, max_candidates,
@@ -4841,7 +4842,7 @@ Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fie
                                       const std::vector<sort_by>& sort_fields_std, Topster* curated_topster,
                                       const token_ordering& token_order,
                                       const size_t typo_tokens_threshold, const size_t group_limit,
-                                      const std::vector<std::string>& group_by_fields, 
+                                      const std::vector<std::string>& group_by_fields,
                                       const bool group_missing_values,
                                       bool prioritize_exact_match,
                                       const bool prioritize_token_position,
@@ -4895,7 +4896,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                                     const std::vector<enable_t>& infixes,
                                     const std::vector<sort_by>& sort_fields,
                                     std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
-                                    const std::vector<std::string>& group_by_fields, 
+                                    const std::vector<std::string>& group_by_fields,
                                     const bool group_missing_values,
                                     const size_t max_extra_prefix,
                                     const size_t max_extra_suffix,
@@ -5272,7 +5273,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                                     const std::vector<sort_by>& sort_fields, Topster* topster, Topster* curated_topster,
                                     spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                                     std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
-                                    const std::vector<std::string>& group_by_fields, 
+                                    const std::vector<std::string>& group_by_fields,
                                     const bool group_missing_values,
                                     const std::set<uint32_t>& curated_ids,
                                     const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
@@ -5327,7 +5328,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
         thread_pool->enqueue([this, &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                               thread_id, &sort_fields, &searched_queries,
-                              &group_limit, &group_by_fields, group_missing_values, 
+                              &group_limit, &group_by_fields, group_missing_values,
                               &topsters, &tgroups_processed, &excluded_group_ids,
                               &sort_order, field_values, &geopoint_indices, &plists,
                               check_for_circuit_break,

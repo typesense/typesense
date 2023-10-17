@@ -23,6 +23,8 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        SynonymIndex::get_instance().init(store);
     }
 
     virtual void SetUp() {
