@@ -89,15 +89,37 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document) {
         }
 
         if (reference_field_name == "id") {
-            auto value = document[field_name].get<std::string>();
-            auto ref_doc_id_op = ref_collection->doc_id_to_seq_id(value);
-            if (!ref_doc_id_op.ok()) {
-                return Option<bool>(400, "Referenced document having `id: " + value +
+            auto id_field_type_error_op =  Option<bool>(400, "Field `" + field_name + "` must have string value.");
+            if (document[field_name].is_array()) {
+                for (const auto &item: document[field_name].items()) {
+                    if (!item.value().is_string()) {
+                        return id_field_type_error_op;
+                    }
+
+                    auto id = item.value().get<std::string>();
+                    auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
+                    if (!ref_doc_id_op.ok()) {
+                        return Option<bool>(400, "Referenced document having `id: " + id +
                                                  "` not found in the collection `" +
                                                  reference_collection_name + "`." );
+                    }
+
+                    document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] += ref_doc_id_op.get();
+                }
+            } else if (document[field_name].is_string()) {
+                auto id = document[field_name].get<std::string>();
+                auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
+                if (!ref_doc_id_op.ok()) {
+                    return Option<bool>(400, "Referenced document having `id: " + id +
+                                             "` not found in the collection `" +
+                                             reference_collection_name + "`." );
+                }
+
+                document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = ref_doc_id_op.get();
+            } else {
+                return id_field_type_error_op;
             }
 
-            document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = ref_doc_id_op.get();
             continue;
         }
 
@@ -106,28 +128,83 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document) {
                                              "` not found in the collection `" + reference_collection_name + "`.");
         }
 
-        if (!ref_collection->get_schema().at(reference_field_name).index) {
+        auto const ref_field = ref_collection->get_schema().at(reference_field_name);
+        if (!ref_field.index) {
             return Option<bool>(400, "Referenced field `" + reference_field_name +
                                              "` in the collection `" + reference_collection_name + "` must be indexed.");
         }
 
-        // Get the doc id of the referenced document.
-        auto value = document[field_name].get<std::string>();
-        filter_result_t filter_result;
-        ref_collection->get_filter_ids(reference_field_name + ":=" + value, filter_result);
+        // Create filter query from the value(s) in the reference field and get the reference doc id(s).
+        std::string filter_query = reference_field_name + ": ";
+        std::string ref_field_type = ref_field.is_string() ? field_types::STRING :
+                                    ref_field.is_int32() ? field_types::INT32 :
+                                    ref_field.is_int64() ? field_types::INT64 : field_types::NIL;
 
-        if (filter_result.count != 1) {
-            auto match = " `" + reference_field_name + ": " + value + "` ";
-
-            // Constraints similar to foreign key apply here. The reference match must be unique and not null.
-            return  Option<bool>(400, filter_result.count < 1 ?
-                                              "Referenced document having" + match + "not found in the collection `"
-                                              + reference_collection_name + "`." :
-                                              "Multiple documents having" + match + "found in the collection `" +
-                                              reference_collection_name + "`.");
+        if (ref_field_type == field_types::NIL) {
+            return Option<bool>(400, "Cannot add a reference to `" + reference_collection_name + "." + reference_field_name +
+                                "` of type `" + ref_field.type + "`.");
         }
 
-        document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = filter_result.docs[0];
+        if (document[field_name].is_array()) {
+            if (ref_field_type == field_types::STRING) {
+                filter_query[filter_query.size() - 1] = '=';
+                filter_query += " [";
+            } else {
+                filter_query += "[";
+            }
+            for (const auto &item: document[field_name].items()) {
+                auto const& item_value = item.value();
+                if (item_value.is_string() && ref_field_type == field_types::STRING) {
+                    filter_query += item_value.get<std::string>();
+                } else if (item_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
+                    (ref_field_type == field_types::INT32 && StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>()))))) {
+                    filter_query += std::to_string(item_value.get<int64_t>());
+                } else {
+                    return Option<bool>(400, "Field `" + field_name + "` must only have `" + ref_field_type + "` values.");
+                }
+                filter_query += ",";
+            }
+            filter_query[filter_query.size() - 1] = ']';
+        } else {
+            auto const& value = document[field_name];
+            if (value.is_string() && ref_field_type == field_types::STRING) {
+                filter_query[filter_query.size() - 1] = '=';
+                filter_query += (" " + value.get<std::string>());
+            } else if (value.is_number_integer() && (ref_field_type == field_types::INT64 ||
+                (ref_field_type == field_types::INT32 && StringUtils::is_int32_t(std::to_string(value.get<int64_t>()))))) {
+                filter_query += std::to_string(value.get<int64_t>());
+            } else {
+                return Option<bool>(400, "Field `" + field_name + "` must have `" + ref_field_type + "` value.");
+            }
+        }
+
+        filter_result_t filter_result;
+        auto filter_ids_op = ref_collection->get_filter_ids(filter_query, filter_result);
+        if (!filter_ids_op.ok()) {
+            return filter_ids_op;
+        }
+
+        if (document[field_name].is_array()) {
+            if (filter_result.count == 0) {
+                return  Option<bool>(400, "No reference document matching `" + filter_query + "` found in the collection `"
+                                          + reference_collection_name + "`.");
+            }
+
+            for (uint32_t i = 0; i < filter_result.count; i++) {
+                document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] += filter_result.docs[i];
+            }
+        } else {
+            if (filter_result.count != 1) {
+                // Constraints similar to foreign key apply here. The reference match must be unique and not null.
+                return  Option<bool>(400, filter_result.count < 1 ?
+                                          "Reference document having `" + filter_query + "` not found in the collection `"
+                                          + reference_collection_name + "`." :
+                                          "Multiple documents having `" + filter_query + "` found in the collection `" +
+                                          reference_collection_name + "`.");
+            }
+
+            document[field_name + REFERENCE_HELPER_FIELD_SUFFIX] = filter_result.docs[0];
+        }
     }
 
     return Option<bool>(true);
@@ -3920,6 +3997,11 @@ size_t Collection::get_num_documents() const {
 
 uint32_t Collection::get_collection_id() const {
     return collection_id.load();
+}
+
+Option<uint32_t> Collection::doc_id_to_seq_id_with_lock(const std::string & doc_id) const {
+    std::shared_lock lock(mutex);
+    return doc_id_to_seq_id(doc_id);
 }
 
 Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const {

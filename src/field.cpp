@@ -329,7 +329,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         // computation while searching.
         the_fields.emplace_back(
                 field(field_json[fields::name].get<std::string>() + Collection::REFERENCE_HELPER_FIELD_SUFFIX,
-                      "int64", false, field_json[fields::optional], true)
+                      field_types::is_array(field_json[fields::type].get<std::string>()) ? field_types::INT64_ARRAY : field_types::INT64,
+                      false, field_json[fields::optional], true)
         );
     }
 

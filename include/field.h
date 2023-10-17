@@ -35,6 +35,10 @@ namespace field_types {
     static bool is_string_or_array(const std::string& type_def) {
         return type_def == "string*";
     }
+
+    static bool is_array(const std::string& type_def) {
+        return type_def.size() > 2 && type_def[type_def.size() - 2] == '[' &&  type_def[type_def.size() - 1] == ']';
+    }
 }
 
 namespace fields {
