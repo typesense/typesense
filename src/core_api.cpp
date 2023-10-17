@@ -1875,7 +1875,7 @@ bool put_synonym_to_set(const std::shared_ptr<http_req>& req, const std::shared_
         res->set_400(syn_op.error());
         return false;
     }
-
+    synonym.set_name = set_name;
     Option<bool> upsert_op = SynonymIndex::get_instance().add_synonym_to_set(set_name, synonym);
 
     if(!upsert_op.ok()) {

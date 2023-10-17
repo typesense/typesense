@@ -1723,7 +1723,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    // initialize synonyms
+    // initialize collection synonyms
     std::vector<std::string> collection_synonym_jsons;
     cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""),
                         std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + this_collection_name + "`",
@@ -1732,6 +1732,29 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
         collection->add_synonym(collection_synonym, false);
+    }
+
+    //initialize set synonyms
+    std::vector<std::string> set_synonym_jsons;
+    cm.store->scan_fill(SynonymIndex::get_synonym_set_key(""),
+                     std::string(SynonymIndex::SET_SYNONYM_PREFIX) + "`",
+                     set_synonym_jsons);
+
+    for(const auto & set_synonym_json: set_synonym_jsons) {
+        nlohmann::json set_synonym = nlohmann::json::parse(set_synonym_json);
+        synonym_t synonym;
+        Option<bool> syn_op = synonym_t::parse(set_synonym, synonym);
+        if(!syn_op.ok()) {
+            LOG(ERROR) << "Failed to parse set synonyms from disk.";
+            return syn_op;
+        }
+
+        auto set_name = synonym.set_name;
+        Option<bool> upsert_op = SynonymIndex::get_instance().add_synonym_to_set(set_name, synonym);
+        if(!upsert_op.ok()) {
+            LOG(ERROR) << "Failed to add set synonyms from disk.";
+            return upsert_op;
+        }
     }
 
     // Fetch records from the store and re-create memory index

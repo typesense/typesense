@@ -216,7 +216,7 @@ std::string SynonymIndex::get_synonym_key(const std::string & collection_name, c
 }
 
 std::string SynonymIndex::get_synonym_set_key(const std::string & synonym_id) {
-    return std::string(SYNONYM_PREFIX) + "_" + synonym_id;
+    return std::string(SET_SYNONYM_PREFIX) + "_" + synonym_id;
 }
 
 Option<bool> SynonymIndex::add_synonym_to_set(const std::string& set_name, const synonym_t& synonym, bool write_to_store) {
@@ -294,6 +294,10 @@ Option<bool> SynonymIndex::get_synonym_set(const std::string& set_name, std::vec
                 set.push_back(synonym_it->second);
             }
         }
+    }
+
+    if(!set.empty()) {
+        return Option<bool>(true);
     }
 
     return Option<bool>(404, "Could not find set in synonym sets.");
@@ -394,6 +398,7 @@ nlohmann::json synonym_t::to_view_json() const {
     nlohmann::json obj;
     obj["id"] = id;
     obj["root"] = raw_root;
+    obj["set_name"] = set_name;
 
     obj["synonyms"] = nlohmann::json::array();
 

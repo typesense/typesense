@@ -21,9 +21,9 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
-        collectionManager.load(8, 1000);
-
         SynonymIndex::get_instance().init(store);
+
+        collectionManager.load(8, 1000);
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
         std::vector<field> fields = {
@@ -1172,4 +1172,198 @@ TEST_F(CollectionSynonymsTest, SynonymSetsTest) {
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ("Smartphone battery lasts typically 6 hours.", res["hits"][0]["document"]["title"].get<std::string>());
     ASSERT_EQ("Phone sales hit record high in last quarter.", res["hits"][1]["document"]["title"].get<std::string>());
+}
+
+TEST_F(CollectionSynonymsTest, ReloadCollectionSynonymsOnRestart) {
+    SynonymIndex::get_instance().reset();
+
+    nlohmann::json syn_json = {
+            {"id", "syn4"},
+            {"root", "Computer"},
+            {"synonyms", {"PC"} }
+    };
+
+    synonym_t synonym;
+    auto syn_op = synonym_t::parse(syn_json, synonym);
+    ASSERT_TRUE(syn_op.ok());
+
+    // add synonym
+    ASSERT_TRUE(coll_mul_fields->add_synonym(synonym.to_view_json()).ok());
+
+    //fetch synonym
+    auto synonyms_map = coll_mul_fields->get_synonyms();
+    ASSERT_EQ(1, synonyms_map.size());
+    auto fetched_synonym = synonyms_map.begin()->second;
+    ASSERT_EQ("syn4", fetched_synonym.id);
+    ASSERT_EQ("Computer", fetched_synonym.raw_root);
+    ASSERT_EQ(1, fetched_synonym.synonyms.size());
+    ASSERT_EQ("pc", fetched_synonym.synonyms[0][0]);
+
+    //dispose collection manager and reload all synonyms
+    collectionManager.dispose();
+    SynonymIndex::get_instance().reset();
+    delete store;
+
+    std::string state_dir_path = "/tmp/typesense_test/collection_override";
+
+    store = new Store(state_dir_path);
+
+    SynonymIndex::get_instance().init(store);
+
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
+
+    //validate collection synonyms
+    synonyms_map = SynonymIndex::get_instance().get_synonyms();
+    ASSERT_EQ(1, synonyms_map.size());
+    fetched_synonym = synonyms_map.begin()->second;
+    ASSERT_EQ("syn4", fetched_synonym.id);
+    ASSERT_EQ("Computer", fetched_synonym.raw_root);
+    ASSERT_EQ(1, fetched_synonym.synonyms.size());
+    ASSERT_EQ("pc", fetched_synonym.synonyms[0][0]);
+
+    coll_mul_fields->remove_synonym(fetched_synonym.id);
+}
+
+TEST_F(CollectionSynonymsTest, ReloadSynonymsSetsOnRestart) {
+    SynonymIndex::get_instance().reset();
+
+    synonym_t synonym1;
+    std::string set_name = "set1";
+    nlohmann::json syn1 = {
+            {"id", "syn1"},
+            {"root", "Ocean"},
+            {"synonyms", {"Sea"} }
+    };
+
+    auto syn_op = synonym_t::parse(syn1, synonym1);
+    if(!syn_op.ok()) {
+        LOG(ERROR) << "Failed to parse synonym set.";
+        FAIL();
+    }
+    synonym1.set_name = set_name;
+    Option<bool> upsert_op = SynonymIndex::get_instance().add_synonym_to_set(set_name, synonym1);
+
+    if(!upsert_op.ok()) {
+        LOG(ERROR) << "Failed to add synonym set.";
+        FAIL();
+    }
+
+    nlohmann::json syn2 = {
+            {"id", "syn2"},
+            {"root", "Phone"},
+            {"synonyms", {"Smartphone", "Mobile"} }
+    };
+
+    synonym_t synonym2;
+    syn_op = synonym_t::parse(syn2, synonym2);
+    if(!syn_op.ok()) {
+        LOG(ERROR) << "Failed to parse synonym set.";
+        FAIL();
+    }
+    synonym2.set_name = set_name;
+    upsert_op = SynonymIndex::get_instance().add_synonym_to_set(set_name, synonym2);
+
+    if(!upsert_op.ok()) {
+        LOG(ERROR) << "Failed to add synonym set.";
+        FAIL();
+    }
+
+    nlohmann::json syn3 = {
+            {"id", "syn3"},
+            {"root", "Vehichle"},
+            {"synonyms", {"Automobile"} }
+    };
+
+    synonym_t synonym3;
+    syn_op = synonym_t::parse(syn3, synonym3);
+    if(!syn_op.ok()) {
+        LOG(ERROR) << "Failed to parse synonym set.";
+        FAIL();
+    }
+    synonym3.set_name = set_name;
+    upsert_op = SynonymIndex::get_instance().add_synonym_to_set(set_name, synonym3);
+
+    if(!upsert_op.ok()) {
+        LOG(ERROR) << "Failed to add synonym set.";
+        FAIL();
+    }
+
+    //fetch synonym sets
+    std::vector<std::string> synonym_sets;
+    std::vector<synonym_t> synonyms;
+
+    SynonymIndex::get_instance().get_synonyms_sets(synonym_sets);
+    ASSERT_EQ(1, synonym_sets.size());
+
+    auto result = SynonymIndex::get_instance().get_synonym_set(synonym_sets[0], synonyms);
+    if(!result.ok()) {
+        LOG(ERROR) << result.error();
+        FAIL();
+    }
+
+    ASSERT_EQ(3, synonyms.size());
+
+    ASSERT_EQ("syn1", synonyms[0].id);
+    ASSERT_EQ("Ocean", synonyms[0].raw_root);
+    ASSERT_EQ(1, synonyms[0].raw_synonyms.size());
+    ASSERT_EQ("Sea", synonyms[0].raw_synonyms[0]);
+
+    ASSERT_EQ("syn2", synonyms[1].id);
+    ASSERT_EQ("Phone", synonyms[1].raw_root);
+    ASSERT_EQ(2, synonyms[1].raw_synonyms.size());
+    ASSERT_EQ("Smartphone", synonyms[1].raw_synonyms[0]);
+    ASSERT_EQ("Mobile", synonyms[1].raw_synonyms[1]);
+
+    ASSERT_EQ("syn3", synonyms[2].id);
+    ASSERT_EQ("Vehichle", synonyms[2].raw_root);
+    ASSERT_EQ(1, synonyms[2].raw_synonyms.size());
+    ASSERT_EQ("Automobile", synonyms[2].raw_synonyms[0]);
+
+    //dispose collection manager and reload all synonyms
+    collectionManager.dispose();
+    SynonymIndex::get_instance().reset();
+    delete store;
+
+    std::string state_dir_path = "/tmp/typesense_test/collection_override";
+
+    store = new Store(state_dir_path);
+
+    SynonymIndex::get_instance().init(store);
+
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    //validate synonym sets
+    synonym_sets.clear();
+    synonyms.clear();
+
+    SynonymIndex::get_instance().get_synonyms_sets(synonym_sets);
+    ASSERT_EQ(1, synonym_sets.size());
+
+    result = SynonymIndex::get_instance().get_synonym_set(synonym_sets[0], synonyms);
+    if(!result.ok()) {
+        LOG(ERROR) << result.error();
+        FAIL();
+    }
+
+    ASSERT_EQ(3, synonyms.size());
+
+    ASSERT_EQ("syn1", synonyms[0].id);
+    ASSERT_EQ("Ocean", synonyms[0].raw_root);
+    ASSERT_EQ(1, synonyms[0].raw_synonyms.size());
+    ASSERT_EQ("Sea", synonyms[0].raw_synonyms[0]);
+
+    ASSERT_EQ("syn2", synonyms[1].id);
+    ASSERT_EQ("Phone", synonyms[1].raw_root);
+    ASSERT_EQ(2, synonyms[1].raw_synonyms.size());
+    ASSERT_EQ("Smartphone", synonyms[1].raw_synonyms[0]);
+    ASSERT_EQ("Mobile", synonyms[1].raw_synonyms[1]);
+
+    ASSERT_EQ("syn3", synonyms[2].id);
+    ASSERT_EQ("Vehichle", synonyms[2].raw_root);
+    ASSERT_EQ(1, synonyms[2].raw_synonyms.size());
+    ASSERT_EQ("Automobile", synonyms[2].raw_synonyms[0]);
 }

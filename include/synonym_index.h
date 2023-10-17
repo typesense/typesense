@@ -10,7 +10,7 @@
 
 struct synonym_t {
     std::string id;
-
+    std::string set_name;
     std::string raw_root;
     // used in code and differs from API + storage format
     std::vector<std::string> root;
@@ -69,7 +69,7 @@ public:
     }
 
     static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
-    static constexpr const char* SYNONYM_PREFIX = "$SY";
+    static constexpr const char* SET_SYNONYM_PREFIX = "$SY";
 
     void init(Store* store);
 
