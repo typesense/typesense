@@ -173,4 +173,8 @@ public:
         // compute
         return compute_cpu_stats(cpu_data_prev, cpu_data_now);
     }
+
+    static uint64_t get_memory_free_bytes() {
+        return get_memory_total_bytes() - get_memory_used_bytes();
+    }
 };
