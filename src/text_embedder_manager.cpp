@@ -112,12 +112,11 @@ Option<bool> TextEmbedderManager::validate_and_init_local_model(const nlohmann::
     const auto& free_memory = SystemMetrics::get_memory_free_bytes();
     const auto& model_file_size = std::filesystem::file_size(abs_path);
     
-    // return error if model file size is greater than free memory
-    if(model_file_size > free_memory) {
-        LOG(ERROR) << "Model file size is greater than free memory: " << model_file_size << " > " << free_memory;
-        return Option<bool>(400, "Model file size is greater than free memory");
+    // return error if (model file size * 1.15) is greater than free memory
+    if(model_file_size * 1.15 > free_memory) {
+        LOG(ERROR) << "Memory required to load the model exceeds free memory available.";
+        return Option<bool>(400, "Memory required to load the model exceeds free memory available.");
     }
-
 
     const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(model_name_without_namespace);
 
