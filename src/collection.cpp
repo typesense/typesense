@@ -1260,6 +1260,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
         }
 
+        if(!vector_field_it.value().index) {
+            return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` is marked as a non-indexed field in the schema.");
+        }
+
         if(is_wildcard_query) {
             if(vector_query.values.empty() && !vector_query.query_doc_given) {
                 // for usability we will treat this as non-vector query
