@@ -1261,6 +1261,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
         }
 
+        if(!vector_field_it.value().index) {
+            return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` is marked as a non-indexed field in the schema.");
+        }
+
         if(is_wildcard_query) {
             if(vector_query.values.empty() && !vector_query.query_doc_given) {
                 // for usability we will treat this as non-vector query
@@ -1307,6 +1311,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 if(num_embed_fields > 1 ||
                     (!vector_query.field_name.empty() && search_field.name != vector_query.field_name)) {
                     std::string error = "Only one embedding field is allowed in the query.";
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                if(!search_field.index) {
+                    std::string error = "Field `" + search_field.name + "` is marked as a non-indexed field in the schema.";
                     return Option<nlohmann::json>(400, error);
                 }
 
