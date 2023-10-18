@@ -2254,6 +2254,6 @@ TEST_F(CollectionOptimizedFacetingTest, StringFacetsCountListOrderTest) {
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ("The Dark Knight", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ(6, results["facet_counts"][0]["counts"][0]["count"]);
-    ASSERT_EQ("The Godfather", results["facet_counts"][0]["counts"][1]["value"]);
-    ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("The Shawshank Redemption", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][1]["count"]);
 }
