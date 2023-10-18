@@ -64,10 +64,12 @@ private:
         uint32_t facet_id;
     };
 
+    typedef std::list<facet_count_t>::iterator count_list_iterator;
+
     struct facet_id_seq_ids_t {
         void* seq_ids;
         uint32_t facet_id;
-        std::list<facet_count_t>::iterator facet_count_it;
+        count_list_iterator facet_count_it;
 
         facet_id_seq_ids_t() {
             seq_ids = nullptr;
@@ -107,6 +109,8 @@ private:
             delete seq_id_hashes;
         }
     };
+
+    count_list_iterator insert_node_to_list(std::list<facet_count_t>& counts, const facet_count_t& node);
 
     // field -> facet_index
     std::unordered_map<std::string, facet_doc_ids_list_t> facet_field_map;

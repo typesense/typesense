@@ -11,6 +11,16 @@ void facet_index_t::initialize(const std::string& field) {
     }
 }
 
+facet_index_t::count_list_iterator facet_index_t::insert_node_to_list(std::list<facet_count_t>& count_list,
+                                                                      const facet_count_t& node) {
+    auto pos = count_list.begin();
+    while((pos->count >= node.count) && (pos != count_list.end())) {
+        ++pos;
+    }
+    pos = count_list.insert(pos, node);
+    return pos;
+}
+
 void facet_index_t::insert(const std::string& field_name,std::unordered_map<facet_value_id_t,
                            std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,
                            std::unordered_map<uint32_t, std::vector<facet_value_id_t>>& seq_id_to_fvalues,
@@ -59,8 +69,9 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
                 fis.facet_id = facet_id;
 
                 if(facet_index.has_value_index) {
-                    count_list.emplace_back(fvalue.facet_value, seq_ids.size(), facet_id);
-                    fis.facet_count_it = std::prev(count_list.end());
+                    facet_count_t fc {fvalue.facet_value, (uint32_t)seq_ids.size(), facet_id};
+                    auto pos = insert_node_to_list(count_list, fc);
+                    fis.facet_count_it = pos;
                     fis.seq_ids = ids_t::create(seq_ids);
                 }
 
@@ -74,16 +85,18 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
 
                 if(facet_count_it->facet_id == facet_id) {
                     facet_count_it->count = ids_t::num_ids(fvalue_index_it->second.seq_ids);
-                    auto curr = facet_count_it;
-                    while (curr != count_list.begin() && std::prev(curr)->count < curr->count) {
-                        count_list.splice(curr, count_list, std::prev(curr));  // swaps list nodes
-                        curr--;
-                    }
+                    facet_count_t updated_node = *facet_count_it;
+
+                    //erase old data
+                    count_list.erase(facet_count_it);
+
+                    //insert updated data
+                    auto pos = insert_node_to_list(count_list, updated_node);
+                    fvalue_index_it->second.facet_count_it = pos;
                 } else {
                     LOG(ERROR) << "Wrong reference stored for facet " << fvalue.facet_value << " with facet_id " << facet_id;
                 }
             }
-
             fvalue_to_seq_ids.erase(fvalue);
         }
 
