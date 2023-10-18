@@ -127,10 +127,18 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
 
         for(auto facet_ids_seq_ids = facet_index_map.begin(); facet_ids_seq_ids != facet_index_map.end(); facet_ids_seq_ids++) {
             void*& ids = facet_ids_seq_ids->second.seq_ids;
+            auto curr_node = facet_ids_seq_ids->second.facet_count_it;
             if(ids && ids_t::contains(ids, seq_id)) {
                 ids_t::erase(ids, seq_id);
                 auto& count_list = facet_field_it->second.counts;
-                facet_ids_seq_ids->second.facet_count_it->count--;
+                curr_node->count--;
+
+                //erase old data
+                count_list.erase(facet_ids_seq_ids->second.facet_count_it);
+
+                //insert updated data
+                auto pos = insert_node_to_list(count_list, *curr_node);
+                facet_ids_seq_ids->second.facet_count_it = pos;
 
                 if(ids_t::num_ids(ids) == 0) {
                     ids_t::destroy_list(ids);
