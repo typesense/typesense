@@ -263,7 +263,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                     if (referenced_ins.count(ref_coll_name) == 0) {
                         referenced_ins[ref_coll_name] = {};
                     }
-                    auto const field_name = item.first + Collection::REFERENCE_HELPER_FIELD_SUFFIX;
+                    auto const field_name = item.first + fields::REFERENCE_HELPER_FIELD_SUFFIX;
                     referenced_ins.at(ref_coll_name).insert(reference_pair{collection_name, field_name});
                 }
             }

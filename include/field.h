@@ -66,6 +66,8 @@ namespace fields {
     static const std::string query_prefix = "query_prefix";
     static const std::string api_key = "api_key";
     static const std::string model_config = "model_config";
+
+    static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
 }
 
 enum vector_distance_type_t {
@@ -100,6 +102,8 @@ struct field {
 
     bool range_index;
 
+    bool is_reference_helper = false;
+
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
@@ -111,6 +115,9 @@ struct field {
             embed(embed), range_index(range_index) {
 
         set_computed_defaults(sort, infix);
+
+        auto const suffix = std::string(fields::REFERENCE_HELPER_FIELD_SUFFIX);
+        is_reference_helper = name.size() > suffix.size() && name.substr(name.size() - suffix.size()) == suffix;
     }
 
     void set_computed_defaults(int sort, int infix) {

@@ -1436,11 +1436,11 @@ TEST_F(CollectionManagerTest, ReferencedInBacklog) {
     referenced_ins_backlog = collectionManager._get_referenced_in_backlog();
     ASSERT_EQ(0, referenced_ins_backlog.count("Products"));
 
-    auto get_reference_field_op = create_op.get()->get_reference_field("collection1");
+    auto get_reference_field_op = create_op.get()->get_referenced_in_field_with_lock("collection1");
     ASSERT_TRUE(get_reference_field_op.ok());
     ASSERT_EQ("product_id_sequence_id", get_reference_field_op.get());
 
-    get_reference_field_op = create_op.get()->get_reference_field("foo");
+    get_reference_field_op = create_op.get()->get_referenced_in_field_with_lock("foo");
     ASSERT_FALSE(get_reference_field_op.ok());
     ASSERT_EQ("Could not find any field in `Products` referencing the collection `foo`.", get_reference_field_op.error());
 }

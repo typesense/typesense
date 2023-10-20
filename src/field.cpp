@@ -328,7 +328,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         // Add a reference helper field in the schema. It stores the doc id of the document it references to reduce the
         // computation while searching.
         the_fields.emplace_back(
-                field(field_json[fields::name].get<std::string>() + Collection::REFERENCE_HELPER_FIELD_SUFFIX,
+                field(field_json[fields::name].get<std::string>() + fields::REFERENCE_HELPER_FIELD_SUFFIX,
                       field_types::is_array(field_json[fields::type].get<std::string>()) ? field_types::INT64_ARRAY : field_types::INT64,
                       false, field_json[fields::optional], true)
         );

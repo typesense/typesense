@@ -445,8 +445,10 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                     "ref_string_array_field": ["a", "d"]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
-    ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("No reference document matching `string_array_field:= [a,d]` found in the collection `coll1`.", add_doc_op.error());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["hits"][0]["document"]["ref_string_array_field_sequence_id"].size());
 
     doc_json = R"({
                     "ref_string_array_field": ["b", "foo"]
@@ -535,13 +537,6 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
 
     doc_json = R"({
-                    "ref_int32_array_field": [1]
-                })"_json;
-    add_doc_op = coll2->add(doc_json.dump());
-    ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("No reference document matching `int32_array_field: [1]` found in the collection `coll1`.", add_doc_op.error());
-
-    doc_json = R"({
                     "ref_int32_array_field": [1, -2147483649]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
@@ -554,6 +549,15 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
     ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int32_array_field": [1]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"].size());
 
     doc_json = R"({
                     "ref_int32_array_field": [1, 2]
@@ -645,13 +649,6 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
 
     doc_json = R"({
-                    "ref_int64_array_field": [1]
-                })"_json;
-    add_doc_op = coll2->add(doc_json.dump());
-    ASSERT_FALSE(add_doc_op.ok());
-    ASSERT_EQ("No reference document matching `int64_array_field: [1]` found in the collection `coll1`.", add_doc_op.error());
-
-    doc_json = R"({
                     "ref_int64_array_field": [1, -9223372036854775809]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
@@ -664,6 +661,15 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
     ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int64_array_field": [1]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"].size());
 
     doc_json = R"({
                     "ref_int64_array_field": [1, 2]
@@ -917,13 +923,13 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ("soap", result["hits"][0]["document"]["product_name"].get<std::string>());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"].get<std::string>());
 
     req_params = {
             {"collection", "Customers"},
             {"q", "Dan"},
             {"query_by", "customer_name"},
-            {"filter_by", "$Products(id:*) && product_price:<100"},
+            {"filter_by", "$Products(id:*) && product_price:>100"},
     };
 
     search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -932,7 +938,7 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ("soap", result["hits"][0]["document"]["product_name"].get<std::string>());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"].get<std::string>());
 
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
@@ -2283,6 +2289,109 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ("body2", res_obj["hits"][1]["document"].at("repo_content"));
     ASSERT_EQ("type", res_obj["hits"][0]["document"]["org.name"].at("first"));
     ASSERT_EQ("sense", res_obj["hits"][0]["document"]["org.name"].at("last"));
+}
+
+TEST_F(CollectionJoinTest, FilterByReferenceArrayField) {
+    auto schema_json =
+            R"({
+                "name": "genres",
+                "fields": [
+                    { "name": "id", "type": "string" },
+                    { "name": "name", "type": "string" }
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({"id":"0","name":"Grunge"})"_json,
+            R"({"id":"1","name":"Arena rock"})"_json,
+            R"({"id":"2","name":"Blues"})"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "songs",
+                "fields": [
+                    { "name": "title", "type": "string" },
+                    { "name": "genres", "type": "string[]", "reference": "genres.id"}
+                ]
+           })"_json;
+    documents = {
+            R"({"title":"Dil De Rani", "genres":[]})"_json,
+            R"({"title":"Corduroy", "genres":["0"]})"_json,
+            R"({"title":"Achilles Last Stand", "genres":["1","2"]})"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "songs"},
+            {"q", "*"},
+            {"include_fields", "$genres(name) as genre"},
+            {"exclude_fields", "genres_sequence_id"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+
+    ASSERT_EQ("Achilles Last Stand", res_obj["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["genre.name"].size());
+    ASSERT_EQ("Arena rock", res_obj["hits"][0]["document"]["genre.name"][0]);
+    ASSERT_EQ("Blues", res_obj["hits"][0]["document"]["genre.name"][1]);
+
+    ASSERT_EQ("Corduroy", res_obj["hits"][1]["document"]["title"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["genre.name"].size());
+    ASSERT_EQ("Grunge", res_obj["hits"][1]["document"]["genre.name"][0]);
+
+    ASSERT_EQ("Dil De Rani", res_obj["hits"][2]["document"]["title"].get<std::string>());
+    ASSERT_EQ(0, res_obj["hits"][2]["document"]["genre.name"].size());
+
+    req_params = {
+            {"collection", "genres"},
+            {"q", "*"},
+            {"filter_by", "$songs(id: *)"},
+            {"include_fields", "$songs(title) as song"},
+    };
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+
+    ASSERT_EQ("Blues", res_obj["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["song.title"].size());
+    ASSERT_EQ("Achilles Last Stand", res_obj["hits"][0]["document"]["song.title"][0]);
+
+    ASSERT_EQ("Arena rock", res_obj["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["song.title"].size());
+    ASSERT_EQ("Achilles Last Stand", res_obj["hits"][1]["document"]["song.title"][0]);
+
+    ASSERT_EQ("Grunge", res_obj["hits"][2]["document"]["name"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["song.title"].size());
+    ASSERT_EQ("Corduroy", res_obj["hits"][2]["document"]["song.title"][0]);
 }
 
 TEST_F(CollectionJoinTest, CascadeDeletion) {

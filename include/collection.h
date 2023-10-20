@@ -287,7 +287,10 @@ private:
                                                  tsl::htrie_set<char>& include_fields_full,
                                                  tsl::htrie_set<char>& exclude_fields_full) const;
 
-    Option<uint32_t> get_reference_doc_id(const std::string& ref_collection_name, const uint32_t& seq_id) const;
+    Option<std::string> get_referenced_in_field(const std::string& collection_name) const;
+
+    Option<bool> get_related_ids(const std::string& ref_collection_name, const uint32_t& seq_id,
+                                 std::vector<uint32_t>& result) const;
 
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
@@ -319,8 +322,6 @@ public:
 
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
-
-    static constexpr const char* REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
 
     // methods
 
@@ -398,7 +399,7 @@ public:
                                              const reference_filter_result_t& references,
                                              const tsl::htrie_set<char>& ref_include_fields_full,
                                              const tsl::htrie_set<char>& ref_exclude_fields_full,
-                                             const std::string& error_prefix);
+                                             const std::string& error_prefix, const bool& is_reference_array);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
@@ -614,9 +615,12 @@ public:
 
     void add_referenced_in(const std::string& collection_name, const std::string& field_name);
 
-    Option<std::string> get_reference_field(const std::string& collection_name) const;
+    Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
-    Option<uint32_t> get_sort_indexed_field_value(const std::string& field_name, const uint32_t& seq_id) const;
+    Option<bool> get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
+                                           std::vector<uint32_t>& result) const;
+
+    Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 
     friend class filter_result_iterator_t;
 };

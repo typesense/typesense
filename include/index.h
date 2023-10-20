@@ -343,6 +343,10 @@ private:
 
     spp::sparse_hash_map<std::string, num_tree_t*> numerical_index;
 
+    // reference_helper_field => (seq_id => ref_seq_ids)
+    // Only used when the reference field is an array type otherwise sort_index is used.
+    spp::sparse_hash_map<std::string, num_tree_t*> reference_index;
+
     spp::sparse_hash_map<std::string, NumericTrie*> range_index;
 
     spp::sparse_hash_map<std::string, NumericTrie*> geo_range_index;
@@ -779,8 +783,6 @@ public:
 
     int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
 
-    Option<uint32_t> get_sort_indexed_field_value(const std::string& field_name, const uint32_t& seq_id) const;
-
     static void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) ;
 
     void compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
@@ -1000,7 +1002,12 @@ public:
     Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                        std::vector<uint32_t>& outside_seq_ids);
 
-    Option<uint32_t> get_reference_doc_id_with_lock(const std::string& reference_helper_field_name,
+    Option<bool> get_related_ids(const std::string& collection_name,
+                                 const std::string& reference_helper_field_name,
+                                 const uint32_t& seq_id, std::vector<uint32_t>& result) const;
+
+    Option<uint32_t> get_sort_index_value_with_lock(const std::string& collection_name,
+                                                    const std::string& field_name,
                                                     const uint32_t& seq_id) const;
 
     friend class filter_result_iterator_t;
