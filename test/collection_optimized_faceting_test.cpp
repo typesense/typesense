@@ -2212,7 +2212,7 @@ TEST_F(CollectionOptimizedFacetingTest, StringFacetsCountListOrderTest) {
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, true),
-                                 field("rating", field_types::FLOAT, true)};
+                                 field("rating", field_types::FLOAT, false)};
 
     std::vector<sort_by> sort_fields = {sort_by("rating", "DESC")};
 

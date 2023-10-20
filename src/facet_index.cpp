@@ -85,14 +85,12 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
 
                 if(facet_count_it->facet_id == facet_id) {
                     facet_count_it->count = ids_t::num_ids(fvalue_index_it->second.seq_ids);
-                    facet_count_t updated_node = *facet_count_it;
-
-                    //erase old data
-                    count_list.erase(facet_count_it);
-
-                    //insert updated data
-                    auto pos = insert_node_to_list(count_list, updated_node);
-                    fvalue_index_it->second.facet_count_it = pos;
+                    auto curr = facet_count_it;
+                    while (curr != count_list.begin() && (std::prev(curr)->count < curr->count)) {
+                        LOG(INFO) << "swapping " << curr->facet_value << " " << std::prev(curr)->facet_value;
+                        count_list.splice(std::prev(curr), count_list, curr);  // swaps list nodes
+                        curr--;
+                    }
                 } else {
                     LOG(ERROR) << "Wrong reference stored for facet " << fvalue.facet_value << " with facet_id " << facet_id;
                 }
@@ -104,6 +102,10 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
             fhash_index->upsert(seq_id, real_facet_ids);
         }
     }
+    for(const auto it : facet_index.counts) {
+        LOG(INFO) << it.facet_value << " " << it.count;
+    }
+    LOG(INFO) << " ";
 }
 
 bool facet_index_t::contains(const std::string& field_name) {
@@ -249,8 +251,8 @@ size_t facet_index_t::intersect(facet& a_facet,
     if(sort_order.empty()) {
         for (auto facet_count_it = counter_list.begin(); facet_count_it != counter_list.end();
              ++facet_count_it) {
-            //LOG(INFO) << "checking ids in facet_value " << facet_count.facet_value << " having total count "
-            //           << facet_count.count << ", is_wildcard_no_filter_query: " << is_wildcard_no_filter_query;
+            LOG(INFO) << "checking ids in facet_value " << facet_count_it->facet_value << " having total count "
+                       << facet_count_it->count << ", is_wildcard_no_filter_query: " << is_wildcard_no_filter_query;
 
             intersect_fn(facet_count_it);
             if (found.size() == max_facets) {
