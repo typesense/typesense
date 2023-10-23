@@ -2,6 +2,7 @@
 #include <tokenizer.h>
 #include "string_utils.h"
 #include "array_utils.h"
+#include "bazel-src/external/onnx_runtime/cmake/external/protobuf/src/google/protobuf/map.h"
 
 void facet_index_t::initialize(const std::string& field) {
     const auto facet_field_map_it = facet_field_map.find(field);
@@ -59,9 +60,31 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
                 fis.facet_id = facet_id;
 
                 if(facet_index.has_value_index) {
-                    count_list.emplace_back(fvalue.facet_value, seq_ids.size(), facet_id);
-                    fis.facet_count_it = std::prev(count_list.end());
+                    auto new_count = seq_ids.size();
                     fis.seq_ids = ids_t::create(seq_ids);
+
+                    auto& count_map = facet_index.count_map;
+                    auto count_map_it = count_map.lower_bound(new_count);
+
+                    count_list.emplace_front(fvalue.facet_value, new_count, facet_id);
+                    fis.facet_count_it = count_list.begin();
+                    auto curr = fis.facet_count_it;
+
+                    if(count_map_it == facet_index.count_map.end()) {
+                        // no element >= new_count, so it remains at head of list
+                        facet_index.count_map.emplace(curr->count, curr);
+                    } else if(count_map_it->second->count == new_count) {
+                        // `curr` must be placed _before_ anchor node
+                        // a) [7], 10, <7>, 3
+                        auto& existing_node = count_map_it->second;
+                        count_list.splice(existing_node, count_list, curr);
+                    } else {
+                        // b) [9], 12, 10, <10>, 7, 3
+                        // `curr` placed _after_ anchor node
+                        auto& gt_node = count_map_it->second;
+                        count_list.splice(std::next(gt_node), count_list, curr);
+                        count_map.emplace(curr->count, curr);
+                    }
                 }
 
                 fvalue_index.emplace(fvalue.facet_value, fis);
@@ -73,12 +96,14 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
                 auto facet_count_it = fvalue_index_it->second.facet_count_it;
 
                 if(facet_count_it->facet_id == facet_id) {
+                    auto& count_map = facet_index.count_map;
+                    auto old_count = facet_count_it->count;
                     facet_count_it->count = ids_t::num_ids(fvalue_index_it->second.seq_ids);
+                    auto new_count = facet_count_it->count;
+
+                    // Relocate `curr` to a new sorted location within count list:
                     auto curr = facet_count_it;
-                    while (curr != count_list.begin() && std::prev(curr)->count < curr->count) {
-                        count_list.splice(curr, count_list, std::prev(curr));  // swaps list nodes
-                        curr--;
-                    }
+                    update_count_nodes(count_list, count_map, old_count, new_count, curr);
                 } else {
                     LOG(ERROR) << "Wrong reference stored for facet " << fvalue.facet_value << " with facet_id " << facet_id;
                 }
@@ -90,6 +115,79 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
         if(facet_index.has_hash_index && fhash_index != nullptr) {
             fhash_index->upsert(seq_id, real_facet_ids);
         }
+    }
+}
+
+void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
+                                       std::map<uint32_t, std::list<facet_count_t>::iterator>& count_map,
+                                       uint32_t old_count, uint32_t new_count,
+                                       std::list<facet_count_t>::iterator& curr) const {
+
+    auto count_map_it = count_map.lower_bound(new_count);
+
+    if(count_map_it == count_map.end()) {
+        // all elements are < new_count
+
+        // 5, 4, [4 -> 7]
+        // 5, 4, [4 -> 7], 3
+        // 5, [4 -> 7]
+
+        // delete count map entry if `curr` is the anchor for `old_count`
+        if(std::next(curr) == count_list.end() || std::next(curr)->count < old_count) {
+            count_map.erase(old_count);
+
+            // find a replacement for orig_count
+            if(std::prev(curr)->count == old_count) {
+                count_map.emplace(old_count, std::prev(curr));
+            }
+        }
+
+        // `curr` placed at head of the count list
+        count_list.splice(count_list.begin(), count_list, curr);
+        count_map.emplace(new_count, curr);
+    } else if(count_map_it->first == new_count) {
+        // entry for new_count already exists in count map
+        // a) 10, 7, [5 -> 7], 3
+        //    10, 7, 5, [5 -> 7]
+        //    10, 7, [5 -> 7]
+        //    10, 7, [5 -> 7], 5
+
+        auto existing_node = count_map_it->second;
+
+        // delete count map entry if `curr` is the anchor for `old_count`
+        if(std::next(curr) == count_list.end() || std::next(curr)->count < old_count) {
+            count_map.erase(old_count);
+
+            // find a replacement for orig_count
+            if(std::prev(curr)->count == old_count) {
+                count_map.emplace(old_count, std::prev(curr));
+            }
+        }
+
+        // `curr` placed before anchor node
+        count_list.splice(existing_node, count_list, curr);
+    } else {
+        // b) 10, 7, [7 -> 9], 3
+        //    10, 7, [7 -> 9]
+        //    10, [7 -> 9]
+        //    10, [7 -> 9], 7
+        //    10, 7, [5 -> 9], 3
+
+        auto gt_node = count_map_it->second;
+
+        // delete old entry if `orig_count` iterator is same as `curr`
+        if(std::next(curr) == count_list.end() || std::next(curr)->count < old_count) {
+            count_map.erase(old_count);
+
+            // find a replacement for orig_count
+            if(std::prev(curr)->count == old_count) {
+                count_map.emplace(old_count, std::prev(curr));
+            }
+        }
+
+        // `curr` placed after anchor node
+        count_list.splice(std::next(gt_node), count_list, curr);
+        count_map.emplace(new_count, curr);
     }
 }
 
@@ -117,7 +215,14 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
             if(ids && ids_t::contains(ids, seq_id)) {
                 ids_t::erase(ids, seq_id);
                 auto& count_list = facet_field_it->second.counts;
-                facet_ids_seq_ids->second.facet_count_it->count--;
+                auto curr = facet_ids_seq_ids->second.facet_count_it;
+                auto old_count = curr->count;
+                curr->count--;
+                auto new_count = curr->count;
+
+                // move the node lower in the count list
+                auto& count_map = facet_field_it->second.count_map;
+                update_count_nodes(count_list, count_map, old_count, new_count, curr);
 
                 if(ids_t::num_ids(ids) == 0) {
                     ids_t::destroy_list(ids);
@@ -129,7 +234,9 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
                     uint32_t fhash = facet_ids_seq_ids->second.facet_id;
                     fhash_int64_map.erase(fhash);
 
-                    count_list.erase(facet_ids_seq_ids->second.facet_count_it);
+                    count_map.erase(new_count);
+                    count_list.erase(curr);
+
                     auto node = facet_index_map.extract(facet_ids_seq_ids->first);
                     node.key() = dead_fvalue;
                     facet_index_map.insert(std::move(node));

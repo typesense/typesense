@@ -80,6 +80,7 @@ private:
     struct facet_doc_ids_list_t {
         std::map<std::string, facet_id_seq_ids_t> fvalue_seq_ids;
         std::list<facet_count_t> counts;
+        std::map<uint32_t, std::list<facet_count_t>::iterator> count_map;
         posting_list_t* seq_id_hashes = nullptr;
         spp::sparse_hash_map<uint32_t, int64_t> fhash_to_int64_map;
 
@@ -154,4 +155,9 @@ public:
 
     //get fhash=>int64 map for stats
     const spp::sparse_hash_map<uint32_t, int64_t>& get_fhash_int64_map(const std::string& field_name);
+
+    void update_count_nodes(std::list<facet_count_t>& count_list,
+                            std::map<uint32_t, std::list<facet_count_t>::iterator>& count_map,
+                            uint32_t old_count, uint32_t new_count,
+                            std::list<facet_count_t>::iterator& curr) const;
 };
