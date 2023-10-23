@@ -647,7 +647,7 @@ void filter_result_iterator_t::init() {
                 return;
             }
 
-            auto get_reference_field_op = ref_collection->get_reference_field(collection_name);
+            auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection_name);
             if (!get_reference_field_op.ok()) {
                 status = Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
                 is_valid = false;

@@ -218,7 +218,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_TRUE(collection_create_op.ok());
 
     add_doc_op = customer_collection->add(customer_json.dump());
-    ASSERT_EQ("Referenced document having `product_id: a` not found in the collection `Products`.", add_doc_op.error());
+    ASSERT_EQ("Reference document having `product_id:= a` not found in the collection `Products`.", add_doc_op.error());
 
     std::vector<nlohmann::json> products = {
             R"({
@@ -242,7 +242,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
 
     customer_json["reference_id"] = "product_a";
     add_doc_op = customer_collection->add(customer_json.dump());
-    ASSERT_EQ("Multiple documents having `product_id: product_a` found in the collection `Products`.", add_doc_op.error());
+    ASSERT_EQ("Multiple documents having `product_id:= product_a` found in the collection `Products`.", add_doc_op.error());
 
     collectionManager.drop_collection("Products");
     products[1]["product_id"] = "product_b";
@@ -282,7 +282,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     customer_collection = collection_create_op.get();
     add_doc_op = customer_collection->add(customer_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
-    ASSERT_EQ(customer_collection->get("0").get().count("reference_id_sequence_id"), 1);
+    ASSERT_EQ(0, customer_collection->get("0").get().at("reference_id_sequence_id"));
 
     nlohmann::json document;
     // Referenced document's sequence_id must be valid.
@@ -298,8 +298,8 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
             R"({
                 "name": "id_ref",
                 "fields": [
-                    {"name": "id", "type": "string"},
-                    {"name": "reference", "type": "string", "reference": "Products.id"}
+                    {"name": "id_reference", "type": "string", "reference": "Products.id", "optional": true},
+                    {"name": "multi_id_reference", "type": "string[]", "reference": "Products.id", "optional": true}
                 ]
             })"_json;
     collection_create_op = collectionManager.create_collection(id_ref_schema_json);
@@ -307,23 +307,466 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
 
     auto id_ref_collection = collection_create_op.get();
     auto id_ref_json = R"({
-                            "id": "0",
-                            "reference": "foo"
+                            "id_reference": 123
                         })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `id_reference` must have string value.", add_doc_op.error());
+
+    id_ref_json = R"({
+                        "id_reference": "foo"
+                    })"_json;
     add_doc_op = id_ref_collection->add(id_ref_json.dump());
     ASSERT_FALSE(add_doc_op.ok());
     ASSERT_EQ("Referenced document having `id: foo` not found in the collection `Products`.", add_doc_op.error());
 
     id_ref_json = R"({
-                        "id": "0",
-                        "reference": "1"
+                        "id_reference": "0"
                     })"_json;
     add_doc_op = id_ref_collection->add(id_ref_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
+    id_ref_json = R"({
+                        "multi_id_reference": ["0", 1]
+                    })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `multi_id_reference` must have string value.", add_doc_op.error());
+
+    id_ref_json = R"({
+                        "multi_id_reference": ["0", "foo"]
+                    })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Referenced document having `id: foo` not found in the collection `Products`.", add_doc_op.error());
+
+    id_ref_json = R"({
+                        "multi_id_reference": ["1"]
+                    })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    id_ref_json = R"({
+                        "multi_id_reference": ["0", "1"]
+                    })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    auto result = id_ref_collection->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(3, result["found"].get<size_t>());
+    ASSERT_EQ(3, result["hits"].size());
+    ASSERT_EQ(2, result["hits"][0]["document"]["multi_id_reference_sequence_id"].size());
+    ASSERT_EQ(1, result["hits"][1]["document"]["multi_id_reference_sequence_id"].size());
+    ASSERT_EQ(0, result["hits"][2]["document"]["id_reference_sequence_id"]);
+
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
     collectionManager.drop_collection("id_ref");
+
+    auto schema_json =
+            R"({
+                "name": "coll1",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "string_field", "type": "string", "optional": true},
+                    {"name": "string_array_field", "type": "string[]", "optional": true},
+                    {"name": "int32_field", "type": "int32", "optional": true},
+                    {"name": "int32_array_field", "type": "int32[]", "optional": true},
+                    {"name": "int64_field", "type": "int64", "optional": true},
+                    {"name": "int64_array_field", "type": "int64[]", "optional": true},
+                    {"name": "float_field", "type": "float", "optional": true},
+                    {"name": "float_array_field", "type": "float[]", "optional": true},
+                    {"name": "bool_field", "type": "bool", "optional": true},
+                    {"name": "bool_array_field", "type": "bool[]", "optional": true},
+                    {"name": "geopoint_field", "type": "geopoint", "optional": true},
+                    {"name": "geopoint_array_field", "type": "geopoint[]", "optional": true},
+                    {"name": "object_field", "type": "object", "optional": true},
+                    {"name": "object_array_field", "type": "object[]", "optional": true}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll1 = collection_create_op.get();
+
+    schema_json =
+            R"({
+                "name": "coll2",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "ref_string_field", "type": "string", "optional": true, "reference": "coll1.string_field"},
+                    {"name": "ref_string_array_field", "type": "string[]", "optional": true, "reference": "coll1.string_array_field"},
+                    {"name": "ref_int32_field", "type": "int32", "optional": true, "reference": "coll1.int32_field"},
+                    {"name": "ref_int32_array_field", "type": "int32[]", "optional": true, "reference": "coll1.int32_array_field"},
+                    {"name": "ref_int64_field", "type": "int64", "optional": true, "reference": "coll1.int64_field"},
+                    {"name": "ref_int64_array_field", "type": "int64[]", "optional": true, "reference": "coll1.int64_array_field"},
+                    {"name": "ref_float_field", "type": "float", "optional": true, "reference": "coll1.float_field"},
+                    {"name": "ref_float_array_field", "type": "float[]", "optional": true, "reference": "coll1.float_array_field"},
+                    {"name": "ref_bool_field", "type": "bool", "optional": true, "reference": "coll1.bool_field"},
+                    {"name": "ref_bool_array_field", "type": "bool[]", "optional": true, "reference": "coll1.bool_array_field"},
+                    {"name": "ref_geopoint_field", "type": "geopoint", "optional": true, "reference": "coll1.geopoint_field"},
+                    {"name": "ref_geopoint_array_field", "type": "geopoint[]", "optional": true, "reference": "coll1.geopoint_array_field"},
+                    {"name": "ref_object_field", "type": "object", "optional": true, "reference": "coll1.object_field"},
+                    {"name": "ref_object_array_field", "type": "object[]", "optional": true, "reference": "coll1.object_array_field"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto coll2 = collection_create_op.get();
+
+    // string/string[] reference fields
+    auto doc_json = R"({
+                        "string_field": "a",
+                        "string_array_field": ["b", "c"]
+                    })"_json;
+    add_doc_op = coll1->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+    doc_json = R"({
+                    "string_field": "d",
+                    "string_array_field": ["e", "f"]
+                })"_json;
+    add_doc_op = coll1->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc_json = R"({
+                    "ref_string_field": 1
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_string_field` must have `string` value.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_array_field": ["a", 1]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_string_array_field` must only have `string` values.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_string_array_field": ["a", "d"]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["hits"][0]["document"]["ref_string_array_field_sequence_id"].size());
+
+    doc_json = R"({
+                    "ref_string_array_field": ["b", "foo"]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["hits"][0]["document"]["ref_string_array_field_sequence_id"].size());
+    ASSERT_EQ(0, result["hits"][0]["document"]["ref_string_array_field_sequence_id"][0]);
+
+    doc_json = R"({
+                    "ref_string_array_field": ["c", "e"]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(2, result["hits"][0]["document"]["ref_string_array_field_sequence_id"].size());
+    ASSERT_EQ(0, result["hits"][0]["document"]["ref_string_array_field_sequence_id"][0]);
+    ASSERT_EQ(1, result["hits"][0]["document"]["ref_string_array_field_sequence_id"][1]);
+
+    // int32/int32[] reference fields
+    doc_json = R"({
+                    "int32_field": 1
+                })"_json;
+    add_doc_op = coll1->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc_json = R"({
+                    "int32_field": 1,
+                    "int32_array_field": [2, -2147483648]
+                })"_json;
+    add_doc_op = coll1->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc_json = R"({
+                    "int32_field": 4,
+                    "int32_array_field": [5, 2147483647]
+                })"_json;
+    add_doc_op = coll1->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc_json = R"({
+                    "ref_int32_field": "1"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_int32_field` must have `int32` value.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int32_field": 2147483648
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_int32_field` must have `int32` value.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int32_field": 0
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `int32_field: 0` not found in the collection `coll1`.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int32_field": 1
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Multiple documents having `int32_field: 1` found in the collection `coll1`.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int32_field": 4
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(4, result["hits"][0]["document"]["ref_int32_field_sequence_id"]);
+
+    doc_json = R"({
+                    "ref_int32_array_field": [1, "2"]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int32_array_field": [1, -2147483649]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int32_array_field": [1, 2147483648]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int32_array_field": [1]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"].size());
+
+    doc_json = R"({
+                    "ref_int32_array_field": [1, 2]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"].size());
+    ASSERT_EQ(3, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"][0]);
+
+    doc_json = R"({
+                    "ref_int32_array_field": [2, 5]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(2, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"].size());
+    ASSERT_EQ(3, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"][0]);
+    ASSERT_EQ(4, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"][1]);
+
+    doc_json = R"({
+                    "ref_int32_array_field": [-2147483648]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"].size());
+    ASSERT_EQ(3, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"][0]);
+
+    // int64/int64[] reference fields
+    doc_json = R"({
+                    "int64_field": 1
+                })"_json;
+    add_doc_op = coll1->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc_json = R"({
+                    "int64_field": 1,
+                    "int64_array_field": [2, -9223372036854775808]
+                })"_json;
+    add_doc_op = coll1->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc_json = R"({
+                    "int64_field": 4,
+                    "int64_array_field": [5,  9223372036854775807]
+                })"_json;
+    add_doc_op = coll1->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc_json = R"({
+                    "ref_int64_field": "1"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_int64_field` must have `int64` value.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int64_field": 0
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Reference document having `int64_field: 0` not found in the collection `coll1`.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int64_field": 1
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Multiple documents having `int64_field: 1` found in the collection `coll1`.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int64_field": 4
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(7, result["hits"][0]["document"]["ref_int64_field_sequence_id"]);
+
+    doc_json = R"({
+                    "ref_int64_array_field": [1, "2"]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int64_array_field": [1, -9223372036854775809]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int64_array_field": [1, 1.5]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_int64_array_field": [1]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(0, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"].size());
+
+    doc_json = R"({
+                    "ref_int64_array_field": [1, 2]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"].size());
+    ASSERT_EQ(6, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"][0]);
+
+    doc_json = R"({
+                    "ref_int64_array_field": [2, 5]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(2, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"].size());
+    ASSERT_EQ(6, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"][0]);
+    ASSERT_EQ(7, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"][1]);
+
+    doc_json = R"({
+                    "ref_int64_array_field": [-9223372036854775808]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    result = coll2->search("*", {}, "", {}, {}, {0}).get();
+    ASSERT_EQ(1, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"].size());
+    ASSERT_EQ(6, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"][0]);
+
+    // float/float[] reference fields
+    doc_json = R"({
+                    "ref_float_field": 1.5
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Cannot add a reference to `coll1.float_field` of type `float`.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_float_array_field": [1.5]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Cannot add a reference to `coll1.float_array_field` of type `float[]`.", add_doc_op.error());
+
+    // bool/bool[] reference fields
+    doc_json = R"({
+                    "ref_bool_field": "true"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Cannot add a reference to `coll1.bool_field` of type `bool`.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_bool_array_field": ["true"]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Cannot add a reference to `coll1.bool_array_field` of type `bool[]`.", add_doc_op.error());
+
+    // geopoint/geopoint[] reference fields
+    doc_json = R"({
+                    "ref_geopoint_field": [13.12631, 80.20252]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Cannot add a reference to `coll1.geopoint_field` of type `geopoint`.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_geopoint_array_field": [[13.12631, 80.20252]]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Cannot add a reference to `coll1.geopoint_array_field` of type `geopoint[]`.", add_doc_op.error());
+
+    // object/object[] reference fields
+    doc_json = R"({
+                    "ref_object_field": {
+                        "foo": "bar"
+                    }
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Cannot add a reference to `coll1.object_field` of type `object`.", add_doc_op.error());
+
+    doc_json = R"({
+                    "ref_object_array_field": [
+                        {
+                            "foo": "bar"
+                        }
+                    ]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Cannot add a reference to `coll1.object_array_field` of type `object[]`.", add_doc_op.error());
 }
 
 TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
@@ -480,13 +923,13 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ("soap", result["hits"][0]["document"]["product_name"].get<std::string>());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"].get<std::string>());
 
     req_params = {
             {"collection", "Customers"},
             {"q", "Dan"},
             {"query_by", "customer_name"},
-            {"filter_by", "$Products(id:*) && product_price:<100"},
+            {"filter_by", "$Products(id:*) && product_price:>100"},
     };
 
     search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -495,7 +938,7 @@ TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ("soap", result["hits"][0]["document"]["product_name"].get<std::string>());
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["product_name"].get<std::string>());
 
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
@@ -1846,6 +2289,109 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ("body2", res_obj["hits"][1]["document"].at("repo_content"));
     ASSERT_EQ("type", res_obj["hits"][0]["document"]["org.name"].at("first"));
     ASSERT_EQ("sense", res_obj["hits"][0]["document"]["org.name"].at("last"));
+}
+
+TEST_F(CollectionJoinTest, FilterByReferenceArrayField) {
+    auto schema_json =
+            R"({
+                "name": "genres",
+                "fields": [
+                    { "name": "id", "type": "string" },
+                    { "name": "name", "type": "string" }
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({"id":"0","name":"Grunge"})"_json,
+            R"({"id":"1","name":"Arena rock"})"_json,
+            R"({"id":"2","name":"Blues"})"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "songs",
+                "fields": [
+                    { "name": "title", "type": "string" },
+                    { "name": "genres", "type": "string[]", "reference": "genres.id"}
+                ]
+           })"_json;
+    documents = {
+            R"({"title":"Dil De Rani", "genres":[]})"_json,
+            R"({"title":"Corduroy", "genres":["0"]})"_json,
+            R"({"title":"Achilles Last Stand", "genres":["1","2"]})"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "songs"},
+            {"q", "*"},
+            {"include_fields", "$genres(name) as genre"},
+            {"exclude_fields", "genres_sequence_id"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+
+    ASSERT_EQ("Achilles Last Stand", res_obj["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["genre.name"].size());
+    ASSERT_EQ("Arena rock", res_obj["hits"][0]["document"]["genre.name"][0]);
+    ASSERT_EQ("Blues", res_obj["hits"][0]["document"]["genre.name"][1]);
+
+    ASSERT_EQ("Corduroy", res_obj["hits"][1]["document"]["title"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["genre.name"].size());
+    ASSERT_EQ("Grunge", res_obj["hits"][1]["document"]["genre.name"][0]);
+
+    ASSERT_EQ("Dil De Rani", res_obj["hits"][2]["document"]["title"].get<std::string>());
+    ASSERT_EQ(0, res_obj["hits"][2]["document"]["genre.name"].size());
+
+    req_params = {
+            {"collection", "genres"},
+            {"q", "*"},
+            {"filter_by", "$songs(id: *)"},
+            {"include_fields", "$songs(title) as song"},
+    };
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+
+    ASSERT_EQ("Blues", res_obj["hits"][0]["document"]["name"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["song.title"].size());
+    ASSERT_EQ("Achilles Last Stand", res_obj["hits"][0]["document"]["song.title"][0]);
+
+    ASSERT_EQ("Arena rock", res_obj["hits"][1]["document"]["name"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["song.title"].size());
+    ASSERT_EQ("Achilles Last Stand", res_obj["hits"][1]["document"]["song.title"][0]);
+
+    ASSERT_EQ("Grunge", res_obj["hits"][2]["document"]["name"].get<std::string>());
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["song.title"].size());
+    ASSERT_EQ("Corduroy", res_obj["hits"][2]["document"]["song.title"][0]);
 }
 
 TEST_F(CollectionJoinTest, CascadeDeletion) {
