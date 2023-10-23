@@ -2,7 +2,6 @@
 #include <tokenizer.h>
 #include "string_utils.h"
 #include "array_utils.h"
-#include "bazel-src/external/onnx_runtime/cmake/external/protobuf/src/google/protobuf/map.h"
 
 void facet_index_t::initialize(const std::string& field) {
     const auto facet_field_map_it = facet_field_map.find(field);
@@ -121,7 +120,7 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
 void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
                                        std::map<uint32_t, std::list<facet_count_t>::iterator>& count_map,
                                        uint32_t old_count, uint32_t new_count,
-                                       std::list<facet_count_t>::iterator& curr) const {
+                                       std::list<facet_count_t>::iterator& curr) {
 
     auto count_map_it = count_map.lower_bound(new_count);
 
@@ -226,8 +225,7 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
 
                 if(ids_t::num_ids(ids) == 0) {
                     ids_t::destroy_list(ids);
-                    std::string dead_fvalue;
-                    dead_fvalues.push_back(dead_fvalue);
+                    dead_fvalues.push_back(facet_ids_seq_ids->first);
 
                     //remove from int64 lookup map first
                     auto& fhash_int64_map = facet_field_it->second.fhash_to_int64_map;
@@ -236,10 +234,6 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
 
                     count_map.erase(new_count);
                     count_list.erase(curr);
-
-                    auto node = facet_index_map.extract(facet_ids_seq_ids->first);
-                    node.key() = dead_fvalue;
-                    facet_index_map.insert(std::move(node));
                 }
             }
         }
@@ -467,4 +461,14 @@ const spp::sparse_hash_map<uint32_t , int64_t >& facet_index_t::get_fhash_int64_
 
     const auto& facet_index = facet_field_map_it->second;
     return facet_index.fhash_to_int64_map;
+}
+
+bool facet_index_t::facet_value_exists(const std::string& field_name, const std::string& fvalue) {
+    const auto facet_field_map_it = facet_field_map.find(field_name);
+    if(facet_field_map_it == facet_field_map.end()) {
+        return false;
+    }
+
+    const auto& facet_index = facet_field_map_it->second;
+    return facet_index.fvalue_seq_ids.find(fvalue) != facet_index.fvalue_seq_ids.end();
 }

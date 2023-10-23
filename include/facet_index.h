@@ -40,7 +40,7 @@ struct docid_count_t {
 };
 
 class facet_index_t {
-private:
+public:
     struct facet_count_t {
         facet_count_t() = delete;
 
@@ -63,7 +63,7 @@ private:
         uint32_t count;
         uint32_t facet_id;
     };
-
+private:
     struct facet_id_seq_ids_t {
         void* seq_ids;
         uint32_t facet_id;
@@ -156,8 +156,10 @@ public:
     //get fhash=>int64 map for stats
     const spp::sparse_hash_map<uint32_t, int64_t>& get_fhash_int64_map(const std::string& field_name);
 
-    void update_count_nodes(std::list<facet_count_t>& count_list,
+    static void update_count_nodes(std::list<facet_count_t>& count_list,
                             std::map<uint32_t, std::list<facet_count_t>::iterator>& count_map,
                             uint32_t old_count, uint32_t new_count,
-                            std::list<facet_count_t>::iterator& curr) const;
+                            std::list<facet_count_t>::iterator& curr) ;
+
+    bool facet_value_exists(const std::string& field_name, const std::string& fvalue);
 };
