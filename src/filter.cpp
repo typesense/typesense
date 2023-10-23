@@ -607,13 +607,18 @@ Option<bool> toFilter(const std::string expression,
     } else if (_field.is_string()) {
         size_t filter_value_index = 0;
         NUM_COMPARATOR str_comparator = CONTAINS;
+        auto apply_not_equals = false;
         if (raw_value[0] == '=') {
             // string filter should be evaluated in strict "equals" mode
             str_comparator = EQUALS;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
-        } else if (raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
-            str_comparator = NOT_EQUALS;
-            filter_value_index++;
+        } else if (raw_value.size() >= 2 && raw_value[0] == '!') {
+            if (raw_value[1] == '=') {
+                str_comparator = NOT_EQUALS;
+                filter_value_index++;
+            }
+
+            apply_not_equals = true;
             while (++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
         }
         if (filter_value_index == raw_value.size()) {
@@ -629,7 +634,7 @@ Option<bool> toFilter(const std::string expression,
             filter_exp = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
         }
 
-        filter_exp.apply_not_equals = (str_comparator == NOT_EQUALS);
+        filter_exp.apply_not_equals = apply_not_equals;
     } else {
         return Option<bool>(400, "Error with filter field `" + _field.name +
                                  "`: Unidentified field data type, see docs for supported data types.");
