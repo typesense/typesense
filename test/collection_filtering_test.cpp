@@ -1471,6 +1471,11 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
     ASSERT_EQ("0", results["hits"][1]["document"]["id"]);
 
+    results = coll1->search("*", {"artist"}, "artist:![Swift, Jack]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(2, results["found"]);
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+
     results = coll1->search("*", {"artist"}, "artist:![Swift, Jackson]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(0, results["found"]);
 
