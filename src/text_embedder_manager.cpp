@@ -1,4 +1,5 @@
 #include "text_embedder_manager.h"
+#include "system_metrics.h"
 
 
 TextEmbedderManager& TextEmbedderManager::get_instance() {
@@ -107,8 +108,17 @@ Option<bool> TextEmbedderManager::validate_and_init_local_model(const nlohmann::
         return Option<bool>(true);
     }
 
-    const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(
-            get_model_name_without_namespace(model_name));
+    const auto& model_name_without_namespace = get_model_name_without_namespace(model_name);
+    const auto& free_memory = SystemMetrics::get_memory_free_bytes();
+    const auto& model_file_size = std::filesystem::file_size(abs_path);
+    
+    // return error if (model file size * 1.15) is greater than free memory
+    if(model_file_size * 1.15 > free_memory) {
+        LOG(ERROR) << "Memory required to load the model exceeds free memory available.";
+        return Option<bool>(400, "Memory required to load the model exceeds free memory available.");
+    }
+
+    const std::shared_ptr<TextEmbedder>& embedder = std::make_shared<TextEmbedder>(model_name_without_namespace);
 
     auto validate_op = embedder->validate();
     if(!validate_op.ok()) {
@@ -137,6 +147,10 @@ void TextEmbedderManager::delete_text_embedder(const std::string& model_path) {
     std::unique_lock<std::mutex> lock(text_embedders_mutex);
     if (text_embedders.find(model_path) != text_embedders.end()) {
         text_embedders.erase(model_path);
+    }
+
+    if (public_models.find(model_path) != public_models.end()) {
+        public_models.erase(model_path);
     }
 }
 
@@ -242,6 +256,16 @@ Option<bool> TextEmbedderManager::download_public_model(const text_embedding_mod
             return Option<bool>(400, "Failed to download model file");
         }
     }
+
+    if(!model.data_file_md5.empty()) {
+        if(!check_md5(get_absolute_model_path(actual_model_name) + "_data", model.data_file_md5)) {
+            long res = httpClient.download_file(get_model_data_url(model), get_absolute_model_path(actual_model_name) + "_data");
+            if(res != 200) {
+                LOG(INFO) << "Failed to download public model data file: " << model.model_name;
+                return Option<bool>(400, "Failed to download model data file");
+            }
+        }
+    }
     
     if(!check_md5(get_absolute_vocab_path(actual_model_name, model.vocab_file_name), model.vocab_md5)) {
         long res = httpClient.download_file(get_vocab_url(model), get_absolute_vocab_path(actual_model_name, model.vocab_file_name));
@@ -340,6 +364,10 @@ text_embedding_model::text_embedding_model(const nlohmann::json& json) {
     if(json.count("query_prefix") != 0) {
         query_prefix = json.at("query_prefix").get<std::string>();
     }
+
+    if(json.count("data_md5") != 0) {
+        data_file_md5 = json.at("data_md5").get<std::string>();
+    }
 }
 
 
@@ -376,6 +404,10 @@ Option<nlohmann::json> TextEmbedderManager::get_public_model_config(const std::s
 
 const std::string TextEmbedderManager::get_model_url(const text_embedding_model& model) {
     return MODELS_REPO_URL + model.model_name + "/model.onnx";
+}
+
+const std::string TextEmbedderManager::get_model_data_url(const text_embedding_model& model) {
+    return MODELS_REPO_URL + model.model_name + "/model.onnx_data";
 }
 
 const std::string TextEmbedderManager::get_vocab_url(const text_embedding_model& model) {

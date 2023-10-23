@@ -16,6 +16,7 @@ struct text_embedding_model {
     std::string model_md5;
     std::string vocab_file_name;
     std::string vocab_md5;
+    std::string data_file_md5;
     TokenizerType tokenizer_type;
     std::string indexing_prefix = "";
     std::string query_prefix = "";
@@ -56,6 +57,7 @@ public:
     static const std::string get_absolute_vocab_path(const std::string& model_name, const std::string& vocab_file_name);
     static const std::string get_absolute_config_path(const std::string& model_name);
     static const std::string get_model_url(const text_embedding_model& model);
+    static const std::string get_model_data_url(const text_embedding_model& model);
     static const std::string get_vocab_url(const text_embedding_model& model);
     static Option<nlohmann::json> get_public_model_config(const std::string& model_name);
     static const std::string get_model_name_without_namespace(const std::string& model_name);

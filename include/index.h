@@ -74,12 +74,6 @@ struct tok_candidates {
     std::vector<std::string> candidates;
 };
 
-struct search_field_t {
-    std::string name;
-    size_t weight;
-    size_t orig_index;
-};
-
 struct query_tokens_t {
     std::vector<token_t> q_include_tokens;
     std::vector<std::vector<std::string>> q_exclude_tokens;
@@ -91,6 +85,17 @@ enum enable_t {
     always,
     fallback,
     off
+};
+
+struct search_field_t {
+    std::string name;
+    size_t weight;
+    size_t num_typos;
+    bool prefix;
+    enable_t infix;
+
+    search_field_t(const std::string& name, size_t weight, size_t num_typos, bool prefix, enable_t infix):
+            name(name), weight(weight), num_typos(num_typos), prefix(prefix), infix(infix) { }
 };
 
 enum text_match_type_t {
@@ -387,6 +392,7 @@ private:
     static spp::sparse_hash_map<uint32_t, int64_t> geo_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> str_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> vector_distance_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t> vector_query_sentinel_value;
 
     // Internal utility functions
 

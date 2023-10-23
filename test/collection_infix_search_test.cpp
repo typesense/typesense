@@ -330,6 +330,48 @@ TEST_F(CollectionInfixSearchTest, InfixSpecificField) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionInfixSearchTest, InfixOneOfManyFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "content", "type": "object"},
+            {"name": "data.title", "type": "string"},
+            {"name": "data.idClient", "type": "string"},
+            {"name": "data.jobNumber", "type": "string", "infix": true}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc = R"(
+        {
+            "data": {
+                "idFS": "xx",
+                "jobNumber": "XX_XX-EG00907",
+                "idClient": "862323",
+                "title": "my title"
+            },
+            "content": {
+                "task": "my task",
+                "description": "my description",
+                "status": "my status"
+            }
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("EG00907",
+                                 {"data.title", "content", "data.idClient", "data.jobNumber"}, "", {}, {}, {0},
+                                 3, 1, FREQUENCY, {true}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off, off, off, always}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+}
+
 TEST_F(CollectionInfixSearchTest, InfixDeleteAndUpdate) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
                                  field("points", field_types::INT32, false),};

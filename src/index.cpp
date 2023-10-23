@@ -50,6 +50,7 @@ spp::sparse_hash_map<uint32_t, int64_t> Index::eval_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::geo_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::str_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::vector_distance_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t> Index::vector_query_sentinel_value;
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
              SynonymIndex* synonym_index, ThreadPool* thread_pool,
@@ -2280,7 +2281,7 @@ void Index::search_infix(const std::string& query, const std::string& field_name
                                      &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff]() {
 
             search_begin_us = parent_search_begin;
-            search_cutoff = parent_search_cutoff;
+            search_cutoff = false;
             auto op_search_stop_ms = parent_search_stop_ms/2;
 
             std::vector<art_leaf*> this_leaves;
@@ -3156,7 +3157,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          &num_processed, &m_process, &cv_process, facet_index_type]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
-                search_cutoff = parent_search_cutoff;
+                search_cutoff = false;
 
                 auto fq = facet_query;
                 std::vector<std::pair<std::string, uint32_t>> found_docs;
@@ -3493,7 +3494,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
 
                 std::vector<size_t> query_field_ids(num_search_fields);
                 for(size_t field_id = 0; field_id < num_search_fields; field_id++) {
-                    query_field_ids[field_id] = the_fields[field_id].orig_index;
+                    query_field_ids[field_id] = field_id;
                 }
 
                 std::vector<size_t> popular_field_ids; // fields containing the token most across documents
@@ -3514,14 +3515,14 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                     // NOTE: when accessing other field ordered properties like prefixes or num_typos we have to index
                     // them by `the_field.orig_index` since the original fields could be reordered on their weights.
                     auto& the_field = the_fields[field_id];
-                    const bool field_prefix = (the_field.orig_index < prefixes.size()) ? prefixes[the_field.orig_index] : prefixes[0];
+                    const bool field_prefix = the_fields[field_id].prefix;
                     const bool prefix_search = field_prefix && query_tokens[token_index].is_prefix_searched;
                     const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
                     /*LOG(INFO) << "Searching for field: " << the_field.name << ", token:"
                               << token << " - cost: " << costs[token_index] << ", prefix_search: " << prefix_search;*/
 
-                    int64_t field_num_typos = (the_field.orig_index < num_typos.size()) ? num_typos[the_field.orig_index] : num_typos[0];
+                    int64_t field_num_typos = the_fields[field_id].num_typos;
 
                     auto& locale = search_schema.at(the_field.name).locale;
                     if(locale != "" && (locale == "zh" || locale == "ko" || locale == "ja")) {
@@ -3575,10 +3576,10 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
 
                     for(size_t field_id: query_field_ids) {
                         auto& the_field = the_fields[field_id];
-                        const bool field_prefix = (the_field.orig_index < prefixes.size()) ? prefixes[the_field.orig_index] : prefixes[0];;
+                        const bool field_prefix = the_fields[field_id].prefix;
                         const bool prefix_search = field_prefix && query_tokens[token_index].is_prefix_searched;
                         const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
-                        int64_t field_num_typos = (the_field.orig_index < num_typos.size()) ? num_typos[the_field.orig_index] : num_typos[0];
+                        int64_t field_num_typos = the_fields[field_id].num_typos;
 
                         auto& locale = search_schema.at(the_field.name).locale;
                         if(locale != "" && locale != "en" && locale != "th" && !Tokenizer::is_cyrillic(locale)) {
@@ -3894,10 +3895,8 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
 
         for(size_t i = 0; i < num_search_fields; i++) {
             const std::string& field_name = the_fields[i].name;
-            const uint32_t field_num_typos = (the_fields[i].orig_index < num_typos.size())
-                                             ? num_typos[the_fields[i].orig_index] : num_typos[0];
-            const bool field_prefix = (the_fields[i].orig_index < prefixes.size()) ? prefixes[the_fields[i].orig_index]
-                                                                                   : prefixes[0];
+            const uint32_t field_num_typos = the_fields[i].num_typos;
+            const bool field_prefix = the_fields[i].prefix;
 
             if(token_num_typos > field_num_typos) {
                 // since the token can come from any field, we still have to respect per-field num_typos
@@ -4359,6 +4358,18 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             scores[0] = found ? eval.scores[index] : 0;
         } else if(field_values[0] == &vector_distance_sentinel_value) {
             scores[0] = float_to_int64_t(vector_distance);
+        } else if(field_values[0] == &vector_query_sentinel_value) {
+            scores[0] = float_to_int64_t(2.0f);
+            try {
+                const auto& values = sort_fields[0].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = sort_fields[0].vector_query.vector_index->space->get_dist_func();
+                float dist = dist_func(sort_fields[0].vector_query.query.values.data(), values.data(), &sort_fields[0].vector_query.vector_index->num_dim);
+                
+                scores[0] = float_to_int64_t(dist);
+            } catch(...) {
+                // probably not found
+                // do nothing
+            }
         } else {
             auto it = field_values[0]->find(seq_id);
             scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
@@ -4522,6 +4533,19 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             scores[1] = found ? eval.scores[index] : 0;
         }  else if(field_values[1] == &vector_distance_sentinel_value) {
             scores[1] = float_to_int64_t(vector_distance);
+        } else if(field_values[1] == &vector_query_sentinel_value) {
+            scores[1] = float_to_int64_t(2.0f);
+            try {
+                const auto& values = sort_fields[1].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = sort_fields[1].vector_query.vector_index->space->get_dist_func();
+                float dist = dist_func(sort_fields[1].vector_query.query.values.data(), values.data(), &sort_fields[1].vector_query.vector_index->num_dim);
+                
+                scores[1] = float_to_int64_t(dist);
+            } catch(...) {
+                // probably not found
+                // do nothing
+            }
+
         } else {
             auto it = field_values[1]->find(seq_id);
             scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
@@ -4681,6 +4705,18 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             scores[2] = found ? eval.scores[index] : 0;
         } else if(field_values[2] == &vector_distance_sentinel_value) {
             scores[2] = float_to_int64_t(vector_distance);
+        } else if(field_values[2] == &vector_query_sentinel_value) {
+            scores[2] = float_to_int64_t(2.0f);
+            try {
+                const auto& values = sort_fields[2].vector_query.vector_index->vecdex->getDataByLabel<float>(seq_id);
+                const auto& dist_func = sort_fields[2].vector_query.vector_index->space->get_dist_func();
+                float dist = dist_func(sort_fields[2].vector_query.query.values.data(), values.data(), &sort_fields[2].vector_query.vector_index->num_dim);
+                
+                scores[2] = float_to_int64_t(dist);
+            } catch(...) {
+                // probably not found
+                // do nothing
+            }
         } else {
             auto it = field_values[2]->find(seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
@@ -4961,8 +4997,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
 
     for(size_t field_id = 0; field_id < num_search_fields; field_id++) {
         auto& field_name = the_fields[field_id].name;
-        enable_t field_infix = (the_fields[field_id].orig_index < infixes.size())
-                               ? infixes[the_fields[field_id].orig_index] : infixes[0];
+        enable_t field_infix = the_fields[field_id].infix;
 
         if(field_infix == always || (field_infix == fallback && all_result_ids_len == 0)) {
             std::vector<uint32_t> infix_ids;
@@ -5381,7 +5416,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
             search_begin_us = parent_search_begin;
             search_stop_us = parent_search_stop_ms;
-            search_cutoff = parent_search_cutoff;
+            search_cutoff = false;
 
             std::vector<uint32_t> filter_indexes;
 
@@ -5537,6 +5572,8 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             }
         } else if(sort_fields_std[i].name == sort_field_const::vector_distance) {
             field_values[i] = &vector_distance_sentinel_value;
+        } else if(sort_fields_std[i].name == sort_field_const::vector_query) {
+            field_values[i] = &vector_query_sentinel_value;
         } else if (search_schema.count(sort_fields_std[i].name) != 0 && search_schema.at(sort_fields_std[i].name).sort) {
             if (search_schema.at(sort_fields_std[i].name).type == field_types::GEOPOINT_ARRAY) {
                 geopoint_indices.push_back(i);

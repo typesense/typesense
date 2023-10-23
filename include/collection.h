@@ -217,8 +217,10 @@ private:
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                       std::vector<sort_by>& sort_fields_std,
-                                                      bool is_wildcard_query,const bool is_vector_query,
-                                                      bool is_group_by_query = false) const;
+                                                      bool is_wildcard_query, const bool is_vector_query,
+                                                      const std::string& query, bool is_group_by_query = false, 
+                                                      const size_t remote_embedding_timeout_ms = 30000,
+                                                      const size_t remote_embedding_num_tries = 2) const;
 
     Option<bool> validate_and_standardize_sort_fields_with_lock(const std::vector<sort_by> & sort_fields,
                                                                 std::vector<sort_by>& sort_fields_std,
@@ -593,11 +595,9 @@ public:
 
     Option<bool> alter(nlohmann::json& alter_payload);
 
-    void
-    process_search_field_weights(const std::vector<std::string>& raw_search_fields,
-                                 std::vector<uint32_t>& query_by_weights,
-                                 std::vector<search_field_t>& weighted_search_fields,
-                                 std::vector<std::string>& reordered_search_fields) const;
+    void process_search_field_weights(const std::vector<search_field_t>& search_fields,
+                                      std::vector<uint32_t>& query_by_weights,
+                                      std::vector<search_field_t>& weighted_search_fields) const;
 
     Option<bool> truncate_after_top_k(const std::string& field_name, size_t k);
 
