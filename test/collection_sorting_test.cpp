@@ -2471,7 +2471,7 @@ TEST_F(CollectionSortingTest, InvalidVectorDistanceSorting) {
     ASSERT_EQ("sort_by vector_distance is only supported for vector queries, semantic search and hybrid search.", results.error());
 }
 
-TEST_F(CollectionSortingTest, DISABLED_TestSortByVectorQuery) {
+TEST_F(CollectionSortingTest, TestSortByVectorQuery) {
     std::string coll_schema = R"(
         {
             "name": "coll1",
