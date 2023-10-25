@@ -372,8 +372,19 @@ embedding_res_t GoogleEmbedder::Embed(const std::string& text, const size_t remo
 
 std::vector<embedding_res_t> GoogleEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
     std::vector<embedding_res_t> outputs;
+    bool timeout_prev = false;
     for(auto& input : inputs) {
         auto res = Embed(input);
+        if(res.status_code == 408) {
+            if(timeout_prev) {
+                // fail whole batch if two consecutive timeouts,
+                nlohmann::json req_body;
+                req_body["text"] = input;
+               return std::vector<embedding_res_t>(inputs.size(), embedding_res_t(408, get_error_json(req_body, 408, "")));
+            }
+            timeout_prev = true;
+        }
+        timeout_prev = false;
         outputs.push_back(res);
     }
 
