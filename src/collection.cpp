@@ -4870,7 +4870,7 @@ bool Collection::get_enable_nested_fields() {
 
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const{
    const std::regex base_pattern(".+\\(.*\\)");
-   const std::regex range_pattern("[[a-zA-Z]+:\\[([+-]?([0-9]*[.])?[0-9]+)\\,\\s*([+-]?([0-9]*[.])?[0-9]+)\\]");
+   const std::regex range_pattern("[[a-zA-Z]+:\\[([+-]?([0-9]*[.])?[0-9]*)\\,\\s*([+-]?([0-9]*[.])?[0-9]*)\\]");
    
    if(facet_field.find(":") != std::string::npos) { //range based facet
         if(!std::regex_match(facet_field, base_pattern)){
@@ -4959,14 +4959,47 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             int64_t lower_range, upper_range;
 
             if(a_field.is_integer()) {
-                lower_range = std::stoll(range.substr(pos1 + 2, pos2));
-                upper_range = std::stoll(range.substr(pos2 + 1, pos3));
-            } else {
-                float val = std::stof(range.substr(pos1 + 2, pos2));
-                lower_range = Index::float_to_int64_t(val);
+                auto start = pos1 + 2;
+                auto end = pos2 - start;
+                auto lower_range_str = range.substr(start, end);
+                StringUtils::trim(lower_range_str);
+                if(lower_range_str.empty()) {
+                    lower_range = INT64_MIN;
+                } else {
+                    lower_range = std::stoll(lower_range_str);
+                }
 
-                val = std::stof(range.substr(pos2 + 1, pos3));
-                upper_range = Index::float_to_int64_t(val);
+                start = pos2 + 1;
+                end = pos3 - start;
+                auto upper_range_str = range.substr(start, end);
+                StringUtils::trim(upper_range_str);
+                if(upper_range_str.empty()) {
+                    upper_range = INT64_MAX;
+                } else {
+                    upper_range = std::stoll(upper_range_str);
+                }
+            } else {
+                auto start = pos1 + 2;
+                auto end = pos2 - start;
+                auto lower_range_str = range.substr(start, end);
+                StringUtils::trim(lower_range_str);
+                if(lower_range_str.empty()) {
+                    lower_range = INT64_MIN;
+                } else {
+                    float val = std::stof(lower_range_str);
+                    lower_range = Index::float_to_int64_t(val);
+                }
+
+                start = pos2 + 1;
+                end = pos3 - start;
+                auto upper_range_str = range.substr(start, end);
+                StringUtils::trim(upper_range_str);
+                if(upper_range_str.empty()) {
+                    upper_range = INT64_MAX;
+                } else {
+                    float val = std::stof(upper_range_str);
+                    upper_range = Index::float_to_int64_t(val);
+                }
             }
 
             tupVec.emplace_back(std::make_tuple(lower_range, upper_range, range_val));
