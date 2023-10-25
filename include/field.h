@@ -572,6 +572,7 @@ struct sort_by {
         missing_values = other.missing_values;
         eval = other.eval;
         reference_collection_name = other.reference_collection_name;
+        vector_query = other.vector_query;
     }
 
     sort_by& operator=(const sort_by& other) {
