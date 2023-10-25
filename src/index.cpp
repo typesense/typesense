@@ -417,7 +417,8 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                     const std::string& fallback_field_type,
                                     const std::vector<char>& token_separators,
                                     const std::vector<char>& symbols_to_index,
-                                    const bool do_validation, const size_t remote_embedding_batch_size, const bool generate_embeddings) {
+                                    const bool do_validation, const size_t remote_embedding_batch_size,
+                                    const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
 
     // runs in a partitioned thread
     std::vector<index_record*> records_to_embed;
@@ -508,7 +509,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
     }
 
     if(generate_embeddings) {
-        batch_embed_fields(records_to_embed, embedding_fields, search_schema, remote_embedding_batch_size);
+        batch_embed_fields(records_to_embed, embedding_fields, search_schema, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries);
     }
 }
 
@@ -519,7 +520,8 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
-                                 const bool do_validation, const size_t remote_embedding_batch_size, const bool generate_embeddings, 
+                                 const bool do_validation, const size_t remote_embedding_batch_size,
+                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings, 
                                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields) {
 
     const size_t concurrency = 4;
@@ -552,7 +554,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
         index->thread_pool->enqueue([&, batch_index, batch_len]() {
             write_log_index = local_write_log_index;
             validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, actual_search_schema,
-                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation, remote_embedding_batch_size, generate_embeddings);
+                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
@@ -6637,8 +6639,9 @@ bool Index::common_results_exist(std::vector<art_leaf*>& leaves, bool must_match
 
 
 void Index::batch_embed_fields(std::vector<index_record*>& records, 
-                                       const tsl::htrie_map<char, field>& embedding_fields,
-                                       const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size) {
+                               const tsl::htrie_map<char, field>& embedding_fields,
+                               const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size,
+                               const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     for(const auto& field : embedding_fields) {
         std::vector<std::pair<index_record*, std::string>> texts_to_embed;
         auto indexing_prefix = TextEmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
@@ -6709,7 +6712,8 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
             texts.push_back(text_to_embed.second);
         }
 
-        auto embeddings = embedder_op.get()->batch_embed(texts, remote_embedding_batch_size);
+        auto embeddings = embedder_op.get()->batch_embed(texts, remote_embedding_batch_size, remote_embedding_timeout_ms,
+                                                         remote_embedding_num_tries);
 
         for(size_t i = 0; i < embeddings.size(); i++) {
             auto& embedding_res = embeddings[i];

@@ -742,6 +742,8 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     const char *RETURN_DOC = "return_doc";
     const char *RETURN_ID = "return_id";
     const char *REMOTE_EMBEDDING_BATCH_SIZE = "remote_embedding_batch_size";
+    const char *REMOTE_EMBEDDING_TIMEOUT_MS = "remote_embedding_timeout_ms";
+    const char *REMOTE_EMBEDDING_NUM_TRIES = "remote_embedding_num_tries";
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "40";
@@ -796,8 +798,18 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         return false;
     }
 
+    if(req->params.count(REMOTE_EMBEDDING_TIMEOUT_MS) == 0) {
+        req->params[REMOTE_EMBEDDING_TIMEOUT_MS] = "60000";
+    }
+
+    if(req->params.count(REMOTE_EMBEDDING_NUM_TRIES) == 0) {
+        req->params[REMOTE_EMBEDDING_NUM_TRIES] = "2";
+    }
+
     const size_t IMPORT_BATCH_SIZE = std::stoi(req->params[BATCH_SIZE]);
     const size_t REMOTE_EMBEDDING_BATCH_SIZE_VAL = std::stoi(req->params[REMOTE_EMBEDDING_BATCH_SIZE]);
+    const size_t REMOTE_EMBEDDING_TIMEOUT_MS_VAL = std::stoi(req->params[REMOTE_EMBEDDING_TIMEOUT_MS]);
+    const size_t REMOTE_EMBEDDING_NUM_TRIES_VAL = std::stoi(req->params[REMOTE_EMBEDDING_NUM_TRIES]);
 
     if(IMPORT_BATCH_SIZE == 0) {
         res->final = true;
@@ -809,6 +821,20 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     if(REMOTE_EMBEDDING_BATCH_SIZE_VAL == 0) {
         res->final = true;
         res->set_400("Parameter `" + std::string(REMOTE_EMBEDDING_BATCH_SIZE) + "` must be a positive integer.");
+        stream_response(req, res);
+        return false;
+    }
+
+    if(REMOTE_EMBEDDING_TIMEOUT_MS_VAL == 0) {
+        res->final = true;
+        res->set_400("Parameter `" + std::string(REMOTE_EMBEDDING_TIMEOUT_MS) + "` must be a positive integer.");
+        stream_response(req, res);
+        return false;
+    }
+
+    if(REMOTE_EMBEDDING_NUM_TRIES_VAL == 0) {
+        res->final = true;
+        res->set_400("Parameter `" + std::string(REMOTE_EMBEDDING_NUM_TRIES) + "` must be a positive integer.");
         stream_response(req, res);
         return false;
     }
@@ -882,7 +908,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         const bool& return_doc = req->params[RETURN_DOC] == "true";
         const bool& return_id = req->params[RETURN_ID] == "true";
         nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
-                                                       dirty_values, return_doc, return_id, REMOTE_EMBEDDING_BATCH_SIZE_VAL);
+                                                       dirty_values, return_doc, return_id, REMOTE_EMBEDDING_BATCH_SIZE_VAL, REMOTE_EMBEDDING_TIMEOUT_MS_VAL, REMOTE_EMBEDDING_NUM_TRIES_VAL);
         //const std::string& import_summary_json = json_res->dump();
         //response_stream << import_summary_json << "\n";
 
@@ -926,6 +952,7 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
         req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
     }
 
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
@@ -937,10 +964,22 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
     const index_operation_t operation = get_index_operation(req->params[ACTION]);
     const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES_PARAM]);
 
+    size_t remote_embedding_timeout_ms = 60000;
+    size_t remote_embedding_num_tries = 2;
+
+    if(req->params.count("remote_embedding_timeout_ms") != 0) {
+        remote_embedding_timeout_ms = std::stoul(req->params["remote_embedding_timeout_ms"]);
+    }
+
+    if(req->params.count("remote_embedding_num_tries") != 0) {
+        remote_embedding_num_tries = std::stoul(req->params["remote_embedding_num_tries"]);
+    }
+
     nlohmann::json document;
     std::vector<std::string> json_lines = {req->body};
     const nlohmann::json& inserted_doc_op = collection->add_many(json_lines, document, operation, "", dirty_values,
-                                                                 false, false);
+                                                                 false, false, 200, remote_embedding_timeout_ms,
+                                                                 remote_embedding_num_tries);
 
     if(!inserted_doc_op["success"].get<bool>()) {
         nlohmann::json res_doc;
