@@ -1173,6 +1173,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
             field("grade", field_types::INT32, true),
             field("rank", field_types::INT32, true),
             field("range", field_types::INT32, true),
+            field("review", field_types::FLOAT, true),
             field("scale", field_types::INT32, false),
     };
 
@@ -1270,6 +1271,34 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
 
     ASSERT_EQ("rank", mixed_facets_ptr[2]->field_name);
     ASSERT_EQ("range", mixed_facets_ptr[1]->field_name);
+
+    std::vector<std::string> range_facet_float_fields {
+            "review(bad:[0, 2.5], good:[2.5, 5])"
+    };
+
+    std::vector<facet> float_facets;
+    for(const std::string & facet_field: range_facet_float_fields) {
+        auto res = coll1->parse_facet(facet_field, float_facets);
+
+        if(!res.error().empty()) {
+            LOG(ERROR) << res.error();
+            FAIL();
+        }
+    }
+
+    std::vector<std::string> range_facet_negative_range {
+            "review(bad:[-2.5, 2.5], good:[2.5, 5])"
+    };
+
+    std::vector<facet> negative_range;
+    for(const std::string & facet_field: range_facet_negative_range) {
+        auto res = coll1->parse_facet(facet_field, negative_range);
+
+        if(!res.error().empty()) {
+            LOG(ERROR) << res.error();
+            FAIL();
+        }
+    }
 }
 
 TEST_F(CollectionFacetingTest, RangeFacetTest) {
