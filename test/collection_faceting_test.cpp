@@ -1727,6 +1727,45 @@ TEST_F(CollectionFacetingTest, RangeFacetsMinMaxRange) {
     ASSERT_EQ("small", results["facet_counts"][0]["counts"][0]["value"]);
 }
 
+TEST_F(CollectionFacetingTest, RangeFacetRangeLabelWithSpace) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("inches", field_types::FLOAT, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "", {}, {}).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "TV 1";
+    doc["inches"] = 32.4;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "TV 2";
+    doc["inches"] = 55;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["name"] = "TV 3";
+    doc["inches"] = 55.6;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                            "", {"inches(small tvs with display size:[0,55])"},
+                            {}, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000,
+                            true, false, true, "", true).get();
+
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("small tvs with display size", results["facet_counts"][0]["counts"][0]["value"]);
+}
+
 TEST_F(CollectionFacetingTest, SampleFacetCounts) {
     nlohmann::json schema = R"({
             "name": "coll1",
