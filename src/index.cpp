@@ -1374,8 +1374,13 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 if(numerical_index_it != numerical_index.end()) {
                     auto min_max_pair = numerical_index_it->second->get_min_max(result_ids,
                                                                                 results_size);
-                    a_facet.stats.fvmin = int64_t_to_float(min_max_pair.first);
-                    a_facet.stats.fvmax = int64_t_to_float(min_max_pair.second);
+                    if(facet_field.is_float()) {
+                        a_facet.stats.fvmin = int64_t_to_float(min_max_pair.first);
+                        a_facet.stats.fvmax = int64_t_to_float(min_max_pair.second);
+                    } else {
+                        a_facet.stats.fvmin = min_max_pair.first;
+                        a_facet.stats.fvmax = min_max_pair.second;
+                    }
                 }
             }
         } else {
