@@ -1706,7 +1706,14 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         } else {
             // facet query field must be part of facet fields requested
             facet_query = { StringUtils::trim(facet_query_fname), facet_query_value };
-            if(std::find(facet_fields.begin(), facet_fields.end(), facet_query.field_name) == facet_fields.end()) {
+            bool found = false;
+            for(const auto& facet : facets) {
+                if(facet.field_name == facet_query.field_name) {
+                    found=true;
+                    break;
+                }
+            }
+            if(!found) {
                 std::string error = "Facet query refers to a facet field `" + facet_query.field_name + "` " +
                                     "that is not part of `facet_by` parameter.";
                 return Option<nlohmann::json>(400, error);

@@ -2156,6 +2156,25 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortValidation) {
     ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("Oneplus 11R", results["facet_counts"][0]["counts"][1]["value"]);
     ASSERT_EQ("S22 Ultra", results["facet_counts"][0]["counts"][2]["value"]);
+
+    //facet sort with facet query should work
+    search_op = coll1->search("*", query_fields, "", {"phone(sort_by:_alpha:desc)"},
+                              sort_fields, {0}, 10, 1, FREQUENCY,{false},
+                              Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(),10, "phone: plus",
+                              30UL, 4UL,"", 1UL,
+                              "", "", {}, 3UL, "<mark>",
+                              "</mark>", {},4294967295UL, true,
+                              false, true, "", false, 6000000UL,
+                              4UL,7UL, fallback, 4UL, {off}, 32767UL,
+                              32767UL, 2UL, 2UL, false,
+                              "", true, 0UL, max_score, 100UL,
+                              0UL, 4294967295UL, VALUE);
+
+    results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, ValueIndexStatsMinMax) {
