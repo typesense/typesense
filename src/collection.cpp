@@ -4465,9 +4465,13 @@ Option<bool> Collection::add_reference_fields(nlohmann::json& doc,
             return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
         }
 
-        if (nest_ref_doc && !ref_doc.empty()) {
-            auto field_name = alias.empty() ? ref_collection_name : alias;
-            doc[field_name] = ref_doc;
+        if (ref_doc.empty()) {
+            return Option<bool>(true);
+        }
+
+        if (nest_ref_doc) {
+            auto key = alias.empty() ? ref_collection_name : alias;
+            doc[key] = ref_doc;
         } else {
             if (!alias.empty()) {
                 auto temp_doc = ref_doc;
@@ -4498,7 +4502,11 @@ Option<bool> Collection::add_reference_fields(nlohmann::json& doc,
             return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
         }
 
-        if (nest_ref_doc && !ref_doc.empty()) {
+        if (ref_doc.empty()) {
+            continue;
+        }
+
+        if (nest_ref_doc) {
             auto key = alias.empty() ? ref_collection_name : alias;
             if (doc.contains(key) && !doc[key].is_array()) {
                 return Option<bool>(400, "Could not include the reference document of `" + ref_collection_name +
