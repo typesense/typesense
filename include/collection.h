@@ -267,7 +267,8 @@ private:
                                            std::vector<std::string>& processed_search_fields,
                                            bool extract_only_string_fields,
                                            bool enable_nested_fields,
-                                           const bool handle_wildcard = true);
+                                           const bool handle_wildcard = true,
+                                           const bool& include_id = false);
 
     bool is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const;
 

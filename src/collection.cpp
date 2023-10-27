@@ -1278,7 +1278,8 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
                                             std::vector<std::string>& processed_search_fields,
                                             const bool extract_only_string_fields,
                                             const bool enable_nested_fields,
-                                            const bool handle_wildcard) {
+                                            const bool handle_wildcard,
+                                            const bool& include_id) {
     // Reference to other collection
     if (field_name[0] == '$') {
         processed_search_fields.push_back(field_name);
@@ -1294,6 +1295,12 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
     if (is_wildcard && !handle_wildcard) {
         return Option<bool>(400, "Pattern `" + field_name + "` is not allowed.");
     }
+
+    if (is_wildcard && include_id && field_name.size() < 4 &&
+        (field_name == "*" || field_name == "i*" || field_name == "id*")) {
+        processed_search_fields.emplace_back("id");
+    }
+
     // If wildcard, remove *
     auto prefix_it = search_schema.equal_prefix_range(field_name.substr(0, field_name.size() - is_wildcard));
     bool field_found = false;
@@ -5573,7 +5580,7 @@ Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_
     std::vector<std::string> exclude_fields_vec;
 
     for(auto& f_name: include_fields) {
-        auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false, enable_nested_fields);
+        auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false, enable_nested_fields, true, true);
         if(!field_op.ok()) {
             if(field_op.code() == 404) {
                 // field need not be part of schema to be included (could be a stored value in the doc)
@@ -5590,7 +5597,7 @@ Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_
             continue;
         }
 
-        auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields);
+        auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields, true, true);
         if(!field_op.ok()) {
             if(field_op.code() == 404) {
                 // field need not be part of schema to be excluded (could be a stored value in the doc)
