@@ -967,14 +967,30 @@ void initialize_ref_include_fields_vec(const std::string& filter_query, std::vec
             continue;
         }
 
+        // Format: $ref_collection_name(field_1, field_2: include_strategy) as ref_alias
         auto as_pos = include_field_exp.find(" as ");
-        auto ref_include = include_field_exp.substr(0, as_pos),
-                alias = (as_pos == std::string::npos) ? "" :
+        auto ref_include = include_field_exp.substr(0, as_pos);
+        auto alias = (as_pos == std::string::npos) ? "" :
                         include_field_exp.substr(as_pos + 4, include_field_exp.size() - (as_pos + 4));
 
-        // For an alias `foo`, we need append `foo.` to all the top level keys of reference doc.
-        ref_include_fields_vec.emplace_back(ref_include_fields{ref_include, alias.empty() ? alias :
-                                                                                StringUtils::trim(alias) + "."});
+        auto parenthesis_index = ref_include.find('(');
+        auto ref_collection_name = ref_include.substr(1, parenthesis_index - 1);
+        auto ref_fields = ref_include.substr(parenthesis_index + 1, ref_include.size() - parenthesis_index - 2);
+
+        auto nest_ref_doc = true;
+        auto colon_pos = ref_fields.find(':');
+        if (colon_pos != std::string::npos) {
+            auto include_strategy = ref_fields.substr(colon_pos + 1, ref_fields.size() - colon_pos - 1);
+            StringUtils::trim(include_strategy);
+            nest_ref_doc = include_strategy == ref_include::nest;
+            ref_fields = ref_fields.substr(0, colon_pos);
+        }
+
+        // For an alias `foo`,
+        // In case of "merge" reference doc, we need append `foo.` to all the top level keys of reference doc.
+        // In case of "nest" reference doc, `foo` becomes the key with reference doc as value.
+        auto ref_alias = !alias.empty() ? (StringUtils::trim(alias) + (nest_ref_doc ? "" : ".")) : "";
+        ref_include_fields_vec.emplace_back(ref_include_fields{ref_collection_name, ref_fields, ref_alias, nest_ref_doc});
 
         auto open_paren_pos = include_field_exp.find('(');
         if (open_paren_pos == std::string::npos) {
@@ -993,7 +1009,7 @@ void initialize_ref_include_fields_vec(const std::string& filter_query, std::vec
 
     // Get all the fields of the referenced collection in the filter but not mentioned in include_fields.
     for (const auto &reference_collection_name: reference_collection_names) {
-        ref_include_fields_vec.emplace_back(ref_include_fields{"$" + reference_collection_name + "(*)", ""});
+        ref_include_fields_vec.emplace_back(ref_include_fields{reference_collection_name, "", "", true});
     }
 
     // Since no field of the collection is mentioned in include_fields, get all the fields.

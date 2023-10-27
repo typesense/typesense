@@ -496,9 +496,16 @@ namespace sort_field_const {
     static const std::string vector_query = "_vector_query";
 }
 
+namespace ref_include {
+    static const std::string merge = "merge";
+    static const std::string nest = "nest";
+}
+
 struct ref_include_fields {
-    std::string expression;
+    std::string collection_name;
+    std::string fields;
     std::string alias;
+    bool nest_ref_doc = false;
 };
 
 struct hnsw_index_t;
