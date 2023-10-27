@@ -267,7 +267,8 @@ private:
                                            std::vector<std::string>& processed_search_fields,
                                            bool extract_only_string_fields,
                                            bool enable_nested_fields,
-                                           const bool handle_wildcard = true);
+                                           const bool handle_wildcard = true,
+                                           const bool& include_id = false);
 
     bool is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const;
 
@@ -399,12 +400,14 @@ public:
     static void remove_flat_fields(nlohmann::json& document);
 
     static Option<bool> add_reference_fields(nlohmann::json& doc,
+                                             const std::string& ref_collection_name,
                                              Collection *const ref_collection,
                                              const std::string& alias,
                                              const reference_filter_result_t& references,
                                              const tsl::htrie_set<char>& ref_include_fields_full,
                                              const tsl::htrie_set<char>& ref_exclude_fields_full,
-                                             const std::string& error_prefix, const bool& is_reference_array);
+                                             const std::string& error_prefix, const bool& is_reference_array,
+                                             const bool& nest_ref_doc);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
