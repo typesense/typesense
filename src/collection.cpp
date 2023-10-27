@@ -4499,19 +4499,27 @@ Option<bool> Collection::add_reference_fields(nlohmann::json& doc,
         }
 
         if (nest_ref_doc && !ref_doc.empty()) {
-            auto field_name = alias.empty() ? ref_collection_name : alias;
-            doc[field_name] += ref_doc;
-        } else {
-            if (!alias.empty()) {
-                auto temp_doc = ref_doc;
-                ref_doc.clear();
-                for (const auto &item: temp_doc.items()) {
-                    ref_doc[alias + item.key()] = item.value();
-                }
+            auto key = alias.empty() ? ref_collection_name : alias;
+            if (doc.contains(key) && !doc[key].is_array()) {
+                return Option<bool>(400, "Could not include the reference document of `" + ref_collection_name +
+                                            "` collection. Expected `" + key + "` to be an array. Try " +
+                                            (alias.empty() ? "adding an" : "renaming the") + " alias.");
             }
+
+            doc[key] += ref_doc;
+        } else {
             for (auto ref_doc_it = ref_doc.begin(); ref_doc_it != ref_doc.end(); ref_doc_it++) {
+                auto const& ref_doc_key = ref_doc_it.key();
+                auto const& doc_key = alias + ref_doc_key;
+                if (doc.contains(doc_key) && !doc[doc_key].is_array()) {
+                    return Option<bool>(400, "Could not include the value of `" + ref_doc_key +
+                                             "` key of the reference document of `" + ref_collection_name +
+                                             "` collection. Expected `" + doc_key + "` to be an array. Try " +
+                                             (alias.empty() ? "adding an" : "renaming the") + " alias.");
+                }
+
                 // Add the values of ref_doc as JSON array into doc.
-                doc[ref_doc_it.key()] += ref_doc_it.value();
+                doc[doc_key] += ref_doc_it.value();
             }
         }
     }

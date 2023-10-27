@@ -2079,6 +2079,30 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
 
     // Add alias using `as`
     req_params = {
+            {"collection", "Products"},
+            {"q", "soap"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(id:*)"},
+            {"include_fields", "id, $Customers(id :merge)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not include the value of `id` key of the reference document of `Customers` collection."
+              " Expected `id` to be an array. Try adding an alias.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "soap"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(id:*)"},
+            {"include_fields", "id, $Customers(id :nest) as id"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not include the reference document of `Customers` collection."
+              " Expected `id` to be an array. Try renaming the alias.", search_op.error());
+
+    req_params = {
             {"collection", "Customers"},
             {"q", "Joe"},
             {"query_by", "customer_name"},
