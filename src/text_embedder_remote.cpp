@@ -188,13 +188,14 @@ embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remo
     }
 }
 
-std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
+std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
+                                                         const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     // call recursively if inputs larger than remote_embedding_batch_size
     if(inputs.size() > remote_embedding_batch_size) {
         std::vector<embedding_res_t> outputs;
         for(size_t i = 0; i < inputs.size(); i += remote_embedding_batch_size) {
             auto batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + remote_embedding_batch_size, inputs.size()));
-            auto batch_outputs = batch_embed(batch, remote_embedding_batch_size);
+            auto batch_outputs = batch_embed(batch, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries);
             outputs.insert(outputs.end(), batch_outputs.begin(), batch_outputs.end());
         }
         return outputs;
@@ -206,6 +207,8 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
     std::unordered_map<std::string, std::string> headers;
     headers["Authorization"] = "Bearer " + api_key;
     headers["Content-Type"] = "application/json";
+    headers["timeout_ms"] = std::to_string(remote_embedding_timeout_ms);
+    headers["num_try"] = std::to_string(remote_embedding_num_tries);
     std::map<std::string, std::string> res_headers;
     std::string res;
     auto res_code = call_remote_api("POST", OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
@@ -370,11 +373,12 @@ embedding_res_t GoogleEmbedder::Embed(const std::string& text, const size_t remo
 }
 
 
-std::vector<embedding_res_t> GoogleEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
+std::vector<embedding_res_t> GoogleEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
+                                                         const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::vector<embedding_res_t> outputs;
     bool timeout_prev = false;
     for(auto& input : inputs) {
-        auto res = Embed(input);
+        auto res = Embed(input, remote_embedding_timeout_ms, remote_embedding_num_tries);
         if(res.status_code == 408) {
             if(timeout_prev) {
                 // fail whole batch if two consecutive timeouts,
@@ -540,7 +544,8 @@ embedding_res_t GCPEmbedder::Embed(const std::string& text, const size_t remote_
 }
 
 
-std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
+std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
+                                                      const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     // GCP API has a limit of 5 instances per request
     if(inputs.size() > 5) {
         std::vector<embedding_res_t> res;
@@ -560,6 +565,8 @@ std::vector<embedding_res_t> GCPEmbedder::batch_embed(const std::vector<std::str
     std::unordered_map<std::string, std::string> headers;
     headers["Authorization"] = "Bearer " + access_token;
     headers["Content-Type"] = "application/json";
+    headers["timeout_ms"] = std::to_string(remote_embedding_timeout_ms);
+    headers["num_try"] = std::to_string(remote_embedding_num_tries);
     std::map<std::string, std::string> res_headers;
     std::string res;
     auto res_code = call_remote_api("POST", get_gcp_embedding_url(project_id, model_name), req_body.dump(), res, res_headers, headers);
