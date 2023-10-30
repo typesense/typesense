@@ -286,10 +286,9 @@ size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
         if(has_facet_query) {
             bool found_search_token = false;
             auto facet_str = facet_count_it->facet_value;
-            transform(facet_str.begin(), facet_str.end(), facet_str.begin(), ::tolower);
             std::vector<std::string> facet_tokens;
             if(facet_field.is_string()) {
-                Tokenizer(facet_str).tokenize(facet_tokens);
+                Tokenizer(facet_str, true, false, facet_field.locale).tokenize(facet_tokens);
             } else {
                 facet_tokens.push_back(facet_str);
             }
