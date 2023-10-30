@@ -51,6 +51,8 @@ private:
 
     mutable std::shared_mutex mutex;
 
+    mutable std::shared_mutex index_repair_lock;
+
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
     const size_t DEFAULT_TOPSTER_SIZE = 250;
@@ -431,6 +433,8 @@ public:
                                                      const spp::sparse_hash_set<std::string>& exclude_fields,
                                                      tsl::htrie_set<char>& include_fields_full,
                                                      tsl::htrie_set<char>& exclude_fields_full) const;
+
+    void do_housekeeping();
 
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> & search_fields,
                                   const std::string & filter_query, const std::vector<std::string> & facet_fields,

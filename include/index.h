@@ -288,6 +288,9 @@ struct hnsw_index_t {
     size_t num_dim;
     vector_distance_type_t distance_type;
 
+    // ensures that this index is not dropped when it's being repaired
+    std::mutex repair_m;
+
     hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type):
         space(new hnswlib::InnerProductSpace(num_dim)),
         vecdex(new hnswlib::HierarchicalNSW<float>(space, init_size, 16, 200, 100, true)),
@@ -1017,6 +1020,8 @@ public:
 
     Option<bool> seq_ids_outside_top_k(const std::string& field_name, size_t k,
                                        std::vector<uint32_t>& outside_seq_ids);
+
+    void repair_hnsw_index();
 };
 
 template<class T>

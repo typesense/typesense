@@ -58,6 +58,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 
 Collection::~Collection() {
     std::unique_lock lock(mutex);
+    std::unique_lock repair_lock(index_repair_lock);
     delete index;
     delete synonym_index;
 }
@@ -5207,4 +5208,9 @@ void Collection::remove_embedding_field(const std::string& field_name) {
 
 tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
     return embedding_fields;
+}
+
+void Collection::do_housekeeping() {
+    std::unique_lock lock(index_repair_lock);
+    index->repair_hnsw_index();
 }

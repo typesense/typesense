@@ -13,7 +13,8 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <ifaddrs.h>
-#include <analytics_manager.h>
+#include "analytics_manager.h"
+#include "housekeeper.h"
 
 #include "core_api.h"
 #include "ratelimit_manager.h"
@@ -103,6 +104,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<int>("log-slow-searches-time-ms", '\0', "When >= 0, searches that take longer than this duration are logged.", false, 30*1000);
     options.add<int>("cache-num-entries", '\0', "Number of entries to cache.", false, 1000);
     options.add<uint32_t>("analytics-flush-interval", '\0', "Frequency of persisting analytics data to disk (in seconds).", false, 3600);
+    options.add<uint32_t>("housekeeping-interval", '\0', "Frequency of housekeeping background job (in seconds).", false, 1800);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -453,6 +455,11 @@ int run_server(const Config & config, const std::string & version, void (*master
             AnalyticsManager::get_instance().run(&replication_state);
         });
 
+        HouseKeeper::get_instance().init(config.get_housekeeping_interval());
+        std::thread housekeeping_thread([]() {
+            HouseKeeper::get_instance().run();
+        });
+
         RemoteEmbedder::init(&replication_state);
 
         std::string path_to_nodes = config.get_nodes();
@@ -476,6 +483,10 @@ int run_server(const Config & config, const std::string & version, void (*master
 
         LOG(INFO) << "Waiting for event sink thread to be done...";
         event_sink_thread.join();
+
+        LOG(INFO) << "Waiting for housekeeping thread to be done...";
+        HouseKeeper::get_instance().stop();
+        housekeeping_thread.join();
 
         LOG(INFO) << "Shutting down server_thread_pool";
 

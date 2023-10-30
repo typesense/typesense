@@ -206,6 +206,7 @@ Index::~Index() {
     delete seq_ids;
 
     for(auto& vec_index_kv: vector_index) {
+        std::unique_lock lock(vec_index_kv.second->repair_m);
         delete vec_index_kv.second;
     }
 }
@@ -6372,6 +6373,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
         if(del_field.num_dim) {
             auto hnsw_index = vector_index[del_field.name];
+            std::unique_lock lock(hnsw_index->repair_m);
             delete hnsw_index;
             vector_index.erase(del_field.name);
         }
@@ -6745,6 +6747,31 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 texts_to_embed[i].first->new_doc[field.name] = embedding_res.embedding;
             } 
             texts_to_embed[i].first->doc[field.name] = embedding_res.embedding;
+        }
+    }
+}
+
+void Index::repair_hnsw_index() {
+    std::vector<std::string> vector_fields;
+
+    // this lock ensures that the `vector_index` map is not mutated during read
+    std::shared_lock read_lock(mutex);
+
+    for(auto& vec_kv: vector_index) {
+        vector_fields.push_back(vec_kv.first);
+    }
+
+    read_lock.unlock();
+
+    for(const auto& vector_field: vector_fields) {
+        read_lock.lock();
+        if(vector_index.count(vector_field) != 0) {
+            // this lock ensures that the vector index is not dropped during repair
+            std::unique_lock lock(vector_index[vector_field]->repair_m);
+            read_lock.unlock();  // release this lock since repair is a long running operation
+            vector_index[vector_field]->vecdex->repair_zero_indegree();
+        } else {
+            read_lock.unlock();
         }
     }
 }
