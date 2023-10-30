@@ -1340,7 +1340,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             std::map<std::string, docid_count_t> facet_results;
             std::string sort_order = a_facet.is_sort_by_alpha ? a_facet.sort_order : "";
 
-            facet_index_v4->intersect(a_facet, use_facet_query,
+            facet_index_v4->intersect(a_facet, facet_field,use_facet_query,
                                       facet_infos[findex].fvalue_searched_tokens, result_ids,
                                       results_size, max_facet_count, facet_results,
                                       is_wildcard_no_filter_query, sort_order);

@@ -2502,6 +2502,70 @@ TEST_F(CollectionFacetingTest, FacetSortValidation) {
     ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
 }
 
+TEST_F(CollectionFacetingTest, FacetQueryWithDifferentLocale) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "phone", "type": "string", "optional": false, "facet": true },
+          {"name": "brand", "type": "string", "optional": false, "facet": true },
+          {"name": "rating", "type": "float", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    nlohmann::json doc;
+    doc["phone"] = "çapeta";
+    doc["brand"] = "Samsung";
+    doc["rating"] = 4.1;
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "teléfono justo";
+    doc["brand"] = "Oneplus";
+    doc["rating"] = 4.6;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", query_fields, "", {"phone(sort_by:_alpha:desc)"},
+                              sort_fields, {0}, 10, 1, FREQUENCY,{false},
+                              Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(),10, "phone: ç",
+                              30UL, 4UL,"", 1UL,
+                              "", "", {}, 3UL, "<mark>",
+                              "</mark>", {},4294967295UL, true,
+                              false, true, "", false, 6000000UL,
+                              4UL,7UL, fallback, 4UL, {off}, 32767UL,
+                              32767UL, 2UL, 2UL, false,
+                              "", true, 0UL, max_score, 100UL,
+                              0UL, 4294967295UL, VALUE);
+
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("çapeta", results["facet_counts"][0]["counts"][0]["value"]);
+
+    search_op = coll1->search("*", query_fields, "", {"phone(sort_by:_alpha:desc)"},
+                                   sort_fields, {0}, 10, 1, FREQUENCY,{false},
+                                   Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "phone: telé",
+                                   30UL, 4UL,"", 1UL,
+                                   "", "", {}, 3UL, "<mark>",
+                                   "</mark>", {},4294967295UL, true,
+                                   false, true, "", false, 6000000UL,
+                                   4UL,7UL, fallback, 4UL, {off}, 32767UL,
+                                   32767UL, 2UL, 2UL, false,
+                                   "", true, 0UL, max_score, 100UL,
+                                   0UL, 4294967295UL, VALUE);
+
+    results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("teléfono justo", results["facet_counts"][0]["counts"][0]["value"]);
+}
+
 TEST_F(CollectionFacetingTest, FhashInt64MapTest) {
     std::vector<int64_t> visitors = {227489798, 124098972, 180247624};
     facet_index_t facet_index_v4;
