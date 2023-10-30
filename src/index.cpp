@@ -6741,13 +6741,10 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 texts_to_embed[i].first->index_failure(embedding_res.status_code, "");
                 continue;
             }
-            nlohmann::json* document;
             if(texts_to_embed[i].first->is_update) {
-                document = &texts_to_embed[i].first->new_doc;
-            } else {
-                document = &texts_to_embed[i].first->doc;
-            }
-            (*document)[field.name] = embedding_res.embedding;
+                texts_to_embed[i].first->new_doc[field.name] = embedding_res.embedding;
+            } 
+            texts_to_embed[i].first->doc[field.name] = embedding_res.embedding;
         }
     }
 }
