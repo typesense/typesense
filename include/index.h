@@ -296,6 +296,9 @@ struct hnsw_index_t {
     size_t num_dim;
     vector_distance_type_t distance_type;
 
+    // ensures that this index is not dropped when it's being repaired
+    std::mutex repair_m;
+
     hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type):
         space(new hnswlib::InnerProductSpace(num_dim)),
         vecdex(new hnswlib::HierarchicalNSW<float>(space, init_size, 16, 200, 100, true)),
@@ -561,13 +564,14 @@ private:
                                    const std::string& token, uint32_t seq_id);
 
     void initialize_facet_indexes(const field& facet_field);
-     
-    static void batch_embed_fields(std::vector<index_record*>& documents,
-                                       const tsl::htrie_map<char, field>& embedding_fields,
-                                       const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size = 200);
 
     std::vector<group_by_field_it_t> get_group_by_field_iterators(const std::vector<std::string>&, bool is_reverse=false) const;
 
+    static void batch_embed_fields(std::vector<index_record*>& documents,
+                                   const tsl::htrie_map<char, field>& embedding_fields,
+                                   const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size = 200,
+                                   const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
+    
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};
@@ -713,7 +717,8 @@ public:
                                           const std::string& fallback_field_type,
                                           const std::vector<char>& token_separators,
                                           const std::vector<char>& symbols_to_index,
-                                          const bool do_validation, const size_t remote_embedding_batch_size = 200, const bool generate_embeddings = true);
+                                          const bool do_validation, const size_t remote_embedding_batch_size = 200,
+                                          const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true);
 
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record>& iter_batch,
@@ -724,9 +729,10 @@ public:
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,
                                      const bool do_validation, const size_t remote_embedding_batch_size = 200,
-                                     const bool generate_embeddings = true,
+                                     const size_t remote_embedding_timeout_ms = 60000,
+                                     const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true,
                                      const bool use_addition_fields = false,
-                                     const tsl::htrie_map<char, field>& addition_fields = {});
+                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>());
 
     void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
 
@@ -1017,6 +1023,8 @@ public:
                                                     const uint32_t& seq_id) const;
 
     friend class filter_result_iterator_t;
+
+    void repair_hnsw_index();
 };
 
 template<class T>

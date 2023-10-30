@@ -129,6 +129,8 @@ public:
 
     std::vector<Collection*> get_collections() const;
 
+    std::vector<std::string> get_collection_names() const;
+
     Collection* get_collection_unsafe(const std::string & collection_name) const;
 
     // PUBLICLY EXPOSED API

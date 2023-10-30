@@ -2747,3 +2747,95 @@ TEST_F(CollectionVectorTest, TestSearchNonIndexedVectorField) {
     ASSERT_FALSE(search_result.ok());
     ASSERT_EQ("Field `vec` is marked as a non-indexed field in the schema.", search_result.error());
 }
+
+TEST_F(CollectionVectorTest, TestSemanticSearchAfterUpdate) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "fields": [
+                    {
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                            "from": [
+                                "name"
+                            ],
+                            "model_config": {
+                                "model_name": "ts/e5-small"
+                            }
+                        }
+                    }
+                ]
+                })"_json;
+    
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "soccer",
+        "id": "0"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "basketball",
+        "id": "1"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "typesense",
+        "id": "2"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "potato",
+        "id": "3"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    auto result = coll->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "embedding:([], id:0, k:1)");
+    
+    ASSERT_TRUE(result.ok());
+    ASSERT_EQ(1, result.get()["hits"].size());
+    ASSERT_EQ("basketball", result.get()["hits"][0]["document"]["name"]);
+
+    auto update_op = coll->add(R"({
+        "name": "onion",
+        "id": "0"
+    })"_json.dump(), index_operation_t::UPDATE, "0");
+
+    ASSERT_TRUE(update_op.ok());
+
+    result = coll->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "embedding:([], id:0, k:1)");
+
+    ASSERT_TRUE(result.ok());
+    ASSERT_EQ(1, result.get()["hits"].size());
+    ASSERT_EQ("potato", result.get()["hits"][0]["document"]["name"]);   
+}

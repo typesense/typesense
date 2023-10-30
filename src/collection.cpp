@@ -58,6 +58,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 
 Collection::~Collection() {
     std::unique_lock lock(mutex);
+    std::unique_lock repair_lock(index_repair_lock);
     delete index;
     delete synonym_index;
 }
@@ -391,7 +392,9 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                                     const index_operation_t& operation, const std::string& id,
                                     const DIRTY_VALUES& dirty_values, const bool& return_doc, const bool& return_id,
-                                    const size_t remote_embedding_batch_size) {
+                                    const size_t remote_embedding_batch_size,
+                                    const size_t remote_embedding_timeout_ms,
+                                    const size_t remote_embedding_num_tries) {
     //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
     std::vector<index_record> index_records;
 
@@ -481,7 +484,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
 
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1 || repeated_doc) {
-            batch_index(index_records, json_lines, num_indexed, return_doc, return_id, remote_embedding_batch_size);
+            batch_index(index_records, json_lines, num_indexed, return_doc, return_id, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries);
 
             // to return the document for the single doc add cases
             if(index_records.size() == 1) {
@@ -598,9 +601,10 @@ bool Collection::is_exceeding_memory_threshold() const {
 }
 
 void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
-                             size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size) {
+                             size_t &num_indexed, const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size,
+                             const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
 
-    batch_index_in_memory(index_records, remote_embedding_batch_size, true);
+    batch_index_in_memory(index_records, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, true);
 
     // store only documents that were indexed in-memory successfully
     for(auto& index_record: index_records) {
@@ -704,11 +708,12 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     return Option<>(200);
 }
 
-size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size, const bool generate_embeddings) {
+size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
+                                         const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
     std::unique_lock lock(mutex);
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, embedding_fields, fallback_field_type,
-                                                   token_separators, symbols_to_index, true, remote_embedding_batch_size, generate_embeddings);
+                                                   token_separators, symbols_to_index, true, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
     num_documents += num_indexed;
     return num_indexed;
 }
@@ -4291,8 +4296,9 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             }
 
             Index::batch_memory_index(index, iter_batch, default_sorting_field, search_schema, embedding_fields,
-                                      fallback_field_type, token_separators, symbols_to_index, true, 200,
+                                      fallback_field_type, token_separators, symbols_to_index, true, 200, 60000, 2,
                                       found_embedding_field, true, schema_additions);
+
             if(found_embedding_field) {
                 for(auto& index_record : iter_batch) {
                     if(index_record.indexed.ok()) {
@@ -5380,7 +5386,7 @@ bool Collection::get_enable_nested_fields() {
 
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
     const std::regex base_pattern(".+\\(.*\\)");
-    const std::regex range_pattern("[[a-zA-Z]+:\\[([0-9]+)\\,\\s*([0-9]+)\\]");
+    const std::regex range_pattern("[[a-z A-Z]+:\\[([+-]?([0-9]*[.])?[0-9]*)\\,\\s*([+-]?([0-9]*[.])?[0-9]*)\\]");
     const std::string _alpha = "_alpha";
 
    if ((facet_field.find(":") != std::string::npos)
@@ -5469,24 +5475,49 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             auto pos3 = range.find("]");
 
             int64_t lower_range, upper_range;
-            auto lower_range_start = pos1 + 2;
-            auto lower_range_len = pos2 - lower_range_start;
-            auto upper_range_start = pos2 + 1;
-            auto upper_range_len = pos3 - upper_range_start;
 
             if(a_field.is_integer()) {
-                std::string lower_range_str = range.substr(lower_range_start, lower_range_len);
+                auto start = pos1 + 2;
+                auto end = pos2 - start;
+                auto lower_range_str = range.substr(start, end);
                 StringUtils::trim(lower_range_str);
-                lower_range = std::stoll(lower_range_str);
-                std::string upper_range_str = range.substr(upper_range_start, upper_range_len);
-                StringUtils::trim(upper_range_str);
-                upper_range = std::stoll(upper_range_str);
-            } else {
-                float val = std::stof(range.substr(pos1 + 2, pos2));
-                lower_range = Index::float_to_int64_t(val);
+                if(lower_range_str.empty()) {
+                    lower_range = INT64_MIN;
+                } else {
+                    lower_range = std::stoll(lower_range_str);
+                }
 
-                val = std::stof(range.substr(pos2 + 1, pos3));
-                upper_range = Index::float_to_int64_t(val);
+                start = pos2 + 1;
+                end = pos3 - start;
+                auto upper_range_str = range.substr(start, end);
+                StringUtils::trim(upper_range_str);
+                if(upper_range_str.empty()) {
+                    upper_range = INT64_MAX;
+                } else {
+                    upper_range = std::stoll(upper_range_str);
+                }
+            } else {
+                auto start = pos1 + 2;
+                auto end = pos2 - start;
+                auto lower_range_str = range.substr(start, end);
+                StringUtils::trim(lower_range_str);
+                if(lower_range_str.empty()) {
+                    lower_range = INT64_MIN;
+                } else {
+                    float val = std::stof(lower_range_str);
+                    lower_range = Index::float_to_int64_t(val);
+                }
+
+                start = pos2 + 1;
+                end = pos3 - start;
+                auto upper_range_str = range.substr(start, end);
+                StringUtils::trim(upper_range_str);
+                if(upper_range_str.empty()) {
+                    upper_range = INT64_MAX;
+                } else {
+                    float val = std::stof(upper_range_str);
+                    upper_range = Index::float_to_int64_t(val);
+                }
             }
 
             tupVec.emplace_back(lower_range, upper_range, range_val);
@@ -5810,4 +5841,9 @@ void Collection::remove_embedding_field(const std::string& field_name) {
 
 tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
     return embedding_fields;
+}
+
+void Collection::do_housekeeping() {
+    std::unique_lock lock(index_repair_lock);
+    index->repair_hnsw_index();
 }

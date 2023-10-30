@@ -527,6 +527,17 @@ std::vector<Collection*> CollectionManager::get_collections() const {
     return collection_vec;
 }
 
+std::vector<std::string> CollectionManager::get_collection_names() const {
+    std::shared_lock lock(mutex);
+
+    std::vector<std::string> collection_vec;
+    for(const auto& kv: collections) {
+        collection_vec.push_back(kv.first);
+    }
+
+    return collection_vec;
+}
+
 Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
     std::shared_lock s_lock(mutex);
     auto collection = get_collection_unsafe(collection_name);
@@ -1787,7 +1798,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         // batch must match atleast the number of shards
          if(exceeds_batch_mem_threshold || (num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
-            size_t num_indexed = collection->batch_index_in_memory(index_records, 200, false);
+            size_t num_indexed = collection->batch_index_in_memory(index_records, 200, 60000, 2, false);
             batch_doc_str_size = 0;
 
             if(num_indexed != num_records) {
