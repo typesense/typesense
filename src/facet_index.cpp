@@ -258,7 +258,7 @@ size_t facet_index_t::get_facet_count(const std::string& field_name) {
 }
 
 //returns the count of matching seq_ids from result array
-size_t facet_index_t::intersect(facet& a_facet,
+size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
                                 bool has_facet_query, const std::vector<std::vector<std::string>>& fvalue_searched_tokens,
                                 const uint32_t* result_ids, size_t result_ids_len,
                                 size_t max_facet_count, std::map<std::string, docid_count_t>& found,
@@ -286,9 +286,12 @@ size_t facet_index_t::intersect(facet& a_facet,
         if(has_facet_query) {
             bool found_search_token = false;
             auto facet_str = facet_count_it->facet_value;
-            transform(facet_str.begin(), facet_str.end(), facet_str.begin(), ::tolower);
             std::vector<std::string> facet_tokens;
-            StringUtils::split(facet_str, facet_tokens, " ");
+            if(facet_field.is_string()) {
+                Tokenizer(facet_str, true, false, facet_field.locale).tokenize(facet_tokens);
+            } else {
+                facet_tokens.push_back(facet_str);
+            }
 
             for(const auto& searched_tokens : fvalue_searched_tokens) {
                 bool found_all_search_tokens = true;

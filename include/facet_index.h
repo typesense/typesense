@@ -133,7 +133,7 @@ public:
 
     size_t get_facet_count(const std::string& field_name);
 
-    size_t intersect(facet& a_facet,
+    size_t intersect(facet& a_facet, const field& facet_field,
                      bool has_facet_query, const std::vector<std::vector<std::string>>& fvalue_searched_tokens,
                      const uint32_t* result_ids, size_t result_id_len,
                      size_t max_facet_count, std::map<std::string, docid_count_t>& found,
