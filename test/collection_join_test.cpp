@@ -285,9 +285,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
 
     auto customer_doc = customer_collection->get("0").get();
     ASSERT_EQ(0, customer_doc.at("reference_id_sequence_id"));
-    ASSERT_EQ(1, customer_doc.count(".reference_helper_fields"));
-    ASSERT_EQ(1, customer_doc[".reference_helper_fields"].size());
-    ASSERT_EQ("reference_id_sequence_id", customer_doc[".reference_helper_fields"].at(0));
+    ASSERT_EQ(1, customer_doc.count(".ref"));
+    ASSERT_EQ(1, customer_doc[".ref"].size());
+    ASSERT_EQ("reference_id_sequence_id", customer_doc[".ref"].at(0));
 
     nlohmann::json product_doc;
     // Referenced document's sequence_id must be valid.
@@ -360,9 +360,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
 
     auto doc = id_ref_collection->get("0").get();
     ASSERT_EQ(0, doc["id_reference_sequence_id"]);
-    ASSERT_EQ(1, doc.count(".reference_helper_fields"));
-    ASSERT_EQ(1, doc[".reference_helper_fields"].size());
-    ASSERT_EQ("id_reference_sequence_id", doc[".reference_helper_fields"].at(0));
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("id_reference_sequence_id", doc[".ref"].at(0));
 
     id_ref_json = R"({
                         "multi_id_reference": ["1"]
@@ -373,9 +373,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     doc = id_ref_collection->get("1").get();
     ASSERT_EQ(1, doc["multi_id_reference_sequence_id"].size());
     ASSERT_EQ(1, doc["multi_id_reference_sequence_id"][0]);
-    ASSERT_EQ(1, doc.count(".reference_helper_fields"));
-    ASSERT_EQ(1, doc[".reference_helper_fields"].size());
-    ASSERT_EQ("multi_id_reference_sequence_id", doc[".reference_helper_fields"][0]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("multi_id_reference_sequence_id", doc[".ref"][0]);
 
     id_ref_json = R"({
                         "multi_id_reference": ["0", "1"]
@@ -493,9 +493,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     doc = coll2->get("0").get();
     ASSERT_EQ(1, doc.count("ref_string_field_sequence_id"));
     ASSERT_EQ(1, doc["ref_string_field_sequence_id"]);
-    ASSERT_EQ(1, doc.count(".reference_helper_fields"));
-    ASSERT_EQ(1, doc[".reference_helper_fields"].size());
-    ASSERT_EQ("ref_string_field_sequence_id", doc[".reference_helper_fields"][0]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_string_field_sequence_id", doc[".ref"][0]);
 
     doc_json = R"({
                     "ref_string_array_field": ["a", "d"]
@@ -509,9 +509,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     doc = coll2->get("1").get();
     ASSERT_EQ(1, doc.count("ref_string_array_field_sequence_id"));
     ASSERT_EQ(0, doc["ref_string_array_field_sequence_id"].size());
-    ASSERT_EQ(1, doc.count(".reference_helper_fields"));
-    ASSERT_EQ(1, doc[".reference_helper_fields"].size());
-    ASSERT_EQ("ref_string_array_field_sequence_id", doc[".reference_helper_fields"][0]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_string_array_field_sequence_id", doc[".ref"][0]);
 
     doc_json = R"({
                     "ref_string_array_field": ["b", "foo"]
@@ -621,9 +621,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     doc = coll2->get("0").get();
     ASSERT_EQ(1, doc.count("ref_int32_field_sequence_id"));
     ASSERT_EQ(4, doc["ref_int32_field_sequence_id"]);
-    ASSERT_EQ(1, doc.count(".reference_helper_fields"));
-    ASSERT_EQ(1, doc[".reference_helper_fields"].size());
-    ASSERT_EQ("ref_int32_field_sequence_id", doc[".reference_helper_fields"][0]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_int32_field_sequence_id", doc[".ref"][0]);
 
     doc_json = R"({
                     "ref_int32_array_field": [1]
@@ -634,9 +634,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     doc = coll2->get("1").get();
     ASSERT_EQ(1, doc.count("ref_int32_array_field_sequence_id"));
     ASSERT_EQ(0, doc["ref_int32_array_field_sequence_id"].size());
-    ASSERT_EQ(1, doc.count(".reference_helper_fields"));
-    ASSERT_EQ(1, doc[".reference_helper_fields"].size());
-    ASSERT_EQ("ref_int32_array_field_sequence_id", doc[".reference_helper_fields"][0]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_int32_array_field_sequence_id", doc[".ref"][0]);
 
     doc_json = R"({
                     "ref_int32_array_field": [1, 2]
@@ -750,9 +750,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     doc = coll2->get("0").get();
     ASSERT_EQ(1, doc.count("ref_int64_field_sequence_id"));
     ASSERT_EQ(7, doc["ref_int64_field_sequence_id"]);
-    ASSERT_EQ(1, doc.count(".reference_helper_fields"));
-    ASSERT_EQ(1, doc[".reference_helper_fields"].size());
-    ASSERT_EQ("ref_int64_field_sequence_id", doc[".reference_helper_fields"][0]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_int64_field_sequence_id", doc[".ref"][0]);
 
     doc_json = R"({
                     "ref_int64_array_field": [1]
@@ -763,9 +763,9 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     doc = coll2->get("1").get();
     ASSERT_EQ(1, doc.count("ref_int64_array_field_sequence_id"));
     ASSERT_EQ(0, doc["ref_int64_array_field_sequence_id"].size());
-    ASSERT_EQ(1, doc.count(".reference_helper_fields"));
-    ASSERT_EQ(1, doc[".reference_helper_fields"].size());
-    ASSERT_EQ("ref_int64_array_field_sequence_id", doc[".reference_helper_fields"][0]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_int64_array_field_sequence_id", doc[".ref"][0]);
 
     doc_json = R"({
                     "ref_int64_array_field": [1, 2]
