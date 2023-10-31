@@ -401,6 +401,8 @@ public:
 
     static void remove_flat_fields(nlohmann::json& document);
 
+    static void remove_reference_helper_fields(nlohmann::json& document);
+
     static Option<bool> add_reference_fields(nlohmann::json& doc,
                                              const std::string& ref_collection_name,
                                              Collection *const ref_collection,

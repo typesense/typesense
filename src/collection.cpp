@@ -81,6 +81,10 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document) {
             continue;
         }
 
+        if (document.count(fields::reference_helper_fields) == 0) {
+            document[fields::reference_helper_fields] = nlohmann::json::array();
+        }
+
         auto reference_pair = pair.second;
         auto reference_collection_name = reference_pair.collection;
         auto reference_field_name = reference_pair.field;
@@ -91,10 +95,13 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document) {
                                              + "` not found.");
         }
 
+        auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+        document[fields::reference_helper_fields] += reference_helper_field;
+
         if (reference_field_name == "id") {
             auto id_field_type_error_op =  Option<bool>(400, "Field `" + field_name + "` must have string value.");
             if (document[field_name].is_array()) {
-                document[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] = nlohmann::json::array();
+                document[reference_helper_field] = nlohmann::json::array();
                 for (const auto &item: document[field_name].items()) {
                     if (!item.value().is_string()) {
                         return id_field_type_error_op;
@@ -108,7 +115,7 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document) {
                                                  reference_collection_name + "`." );
                     }
 
-                    document[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] += ref_doc_id_op.get();
+                    document[reference_helper_field] += ref_doc_id_op.get();
                 }
             } else if (document[field_name].is_string()) {
                 auto id = document[field_name].get<std::string>();
@@ -119,7 +126,7 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document) {
                                              reference_collection_name + "`." );
                 }
 
-                document[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] = ref_doc_id_op.get();
+                document[reference_helper_field] = ref_doc_id_op.get();
             } else {
                 return id_field_type_error_op;
             }
@@ -191,7 +198,7 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document) {
         if (document[field_name].is_array()) {
             document[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] = nlohmann::json::array();
             for (uint32_t i = 0; i < filter_result.count; i++) {
-                document[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] += filter_result.docs[i];
+                document[reference_helper_field] += filter_result.docs[i];
             }
         } else {
             if (filter_result.count != 1) {
@@ -203,7 +210,7 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document) {
                                           reference_collection_name + "`.");
             }
 
-            document[field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX] = filter_result.docs[0];
+            document[reference_helper_field] = filter_result.docs[0];
         }
     }
 
@@ -491,6 +498,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 const auto& rec = index_records[0];
                 document = rec.is_update ? rec.new_doc : rec.doc;
                 remove_flat_fields(document);
+                remove_reference_helper_fields(document);
             }
             index_records.clear();
             batch_doc_ids.clear();
@@ -2136,6 +2144,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             if(!highlight_items.empty()) {
                 copy_highlight_doc(highlight_items, enable_nested_fields, document, highlight_res);
                 remove_flat_fields(highlight_res);
+                remove_reference_helper_fields(highlight_res);
                 highlight_res.erase("id");
             }
 
@@ -2260,6 +2269,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
 
             remove_flat_fields(document);
+            remove_reference_helper_fields(document);
             auto doc_id_op = doc_id_to_seq_id(document["id"].get<std::string>());
             if (!doc_id_op.ok()) {
                 return Option<nlohmann::json>(doc_id_op.code(), doc_id_op.error());
@@ -4452,6 +4462,15 @@ void Collection::remove_flat_fields(nlohmann::json& document) {
     }
 }
 
+void Collection::remove_reference_helper_fields(nlohmann::json& document) {
+    if(document.count(fields::reference_helper_fields) != 0) {
+        for(const auto& key: document[fields::reference_helper_fields].get<std::vector<std::string>>()) {
+            document.erase(key);
+        }
+        document.erase(fields::reference_helper_fields);
+    }
+}
+
 Option<bool> Collection::add_reference_fields(nlohmann::json& doc,
                                               const std::string& ref_collection_name,
                                               Collection *const ref_collection,
@@ -4472,6 +4491,7 @@ Option<bool> Collection::add_reference_fields(nlohmann::json& doc,
         }
 
         remove_flat_fields(ref_doc);
+        remove_reference_helper_fields(ref_doc);
 
         auto prune_op = prune_doc(ref_doc, ref_include_fields_full, ref_exclude_fields_full);
         if (!prune_op.ok()) {
@@ -4509,6 +4529,7 @@ Option<bool> Collection::add_reference_fields(nlohmann::json& doc,
         }
 
         remove_flat_fields(ref_doc);
+        remove_reference_helper_fields(ref_doc);
 
         auto prune_op = prune_doc(ref_doc, ref_include_fields_full, ref_exclude_fields_full);
         if (!prune_op.ok()) {
