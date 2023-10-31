@@ -68,6 +68,7 @@ namespace fields {
     static const std::string api_key = "api_key";
     static const std::string model_config = "model_config";
 
+    static const std::string reference_helper_fields = ".ref";
     static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
 }
 

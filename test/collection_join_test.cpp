@@ -282,17 +282,22 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     customer_collection = collection_create_op.get();
     add_doc_op = customer_collection->add(customer_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
-    ASSERT_EQ(0, customer_collection->get("0").get().at("reference_id_sequence_id"));
 
-    nlohmann::json document;
+    auto customer_doc = customer_collection->get("0").get();
+    ASSERT_EQ(0, customer_doc.at("reference_id_sequence_id"));
+    ASSERT_EQ(1, customer_doc.count(".ref"));
+    ASSERT_EQ(1, customer_doc[".ref"].size());
+    ASSERT_EQ("reference_id_sequence_id", customer_doc[".ref"].at(0));
+
+    nlohmann::json product_doc;
     // Referenced document's sequence_id must be valid.
     auto get_op = collectionManager.get_collection("Products")->get_document_from_store(
-            customer_collection->get("0").get()["reference_id_sequence_id"].get<uint32_t>(),
-                    document);
+                                                                customer_doc["reference_id_sequence_id"].get<uint32_t>(),
+                                                                product_doc);
     ASSERT_TRUE(get_op.ok());
-    ASSERT_EQ(document.count("product_id"), 1);
-    ASSERT_EQ(document["product_id"], "product_a");
-    ASSERT_EQ(document["product_name"], "shampoo");
+    ASSERT_EQ(product_doc.count("product_id"), 1);
+    ASSERT_EQ(product_doc["product_id"], "product_a");
+    ASSERT_EQ(product_doc["product_name"], "shampoo");
 
     auto id_ref_schema_json =
             R"({
@@ -321,12 +326,6 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Referenced document having `id: foo` not found in the collection `Products`.", add_doc_op.error());
 
     id_ref_json = R"({
-                        "id_reference": "0"
-                    })"_json;
-    add_doc_op = id_ref_collection->add(id_ref_json.dump());
-    ASSERT_TRUE(add_doc_op.ok());
-
-    id_ref_json = R"({
                         "multi_id_reference": ["0", 1]
                     })"_json;
     add_doc_op = id_ref_collection->add(id_ref_json.dump());
@@ -340,11 +339,43 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_FALSE(add_doc_op.ok());
     ASSERT_EQ("Referenced document having `id: foo` not found in the collection `Products`.", add_doc_op.error());
 
+    collectionManager.drop_collection("id_ref");
+    id_ref_schema_json =
+            R"({
+                "name": "id_ref",
+                "fields": [
+                    {"name": "id_reference", "type": "string", "reference": "Products.id", "optional": true},
+                    {"name": "multi_id_reference", "type": "string[]", "reference": "Products.id", "optional": true}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(id_ref_schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    id_ref_collection = collection_create_op.get();
+
+    id_ref_json = R"({
+                        "id_reference": "0"
+                    })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    auto doc = id_ref_collection->get("0").get();
+    ASSERT_EQ(0, doc["id_reference_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("id_reference_sequence_id", doc[".ref"].at(0));
+
     id_ref_json = R"({
                         "multi_id_reference": ["1"]
                     })"_json;
     add_doc_op = id_ref_collection->add(id_ref_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
+
+    doc = id_ref_collection->get("1").get();
+    ASSERT_EQ(1, doc["multi_id_reference_sequence_id"].size());
+    ASSERT_EQ(1, doc["multi_id_reference_sequence_id"][0]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("multi_id_reference_sequence_id", doc[".ref"][0]);
 
     id_ref_json = R"({
                         "multi_id_reference": ["0", "1"]
@@ -352,12 +383,17 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = id_ref_collection->add(id_ref_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
+    doc = id_ref_collection->get("2").get();
+    ASSERT_EQ(2, doc["multi_id_reference_sequence_id"].size());
+    ASSERT_EQ(0, doc["multi_id_reference_sequence_id"][0]);
+    ASSERT_EQ(1, doc["multi_id_reference_sequence_id"][1]);
+
     auto result = id_ref_collection->search("*", {}, "", {}, {}, {0}).get();
     ASSERT_EQ(3, result["found"].get<size_t>());
     ASSERT_EQ(3, result["hits"].size());
-    ASSERT_EQ(2, result["hits"][0]["document"]["multi_id_reference_sequence_id"].size());
-    ASSERT_EQ(1, result["hits"][1]["document"]["multi_id_reference_sequence_id"].size());
-    ASSERT_EQ(0, result["hits"][2]["document"]["id_reference_sequence_id"]);
+    ASSERT_EQ(0, result["hits"][0]["document"].count("multi_id_reference_sequence_id"));
+    ASSERT_EQ(0, result["hits"][1]["document"].count("multi_id_reference_sequence_id"));
+    ASSERT_EQ(0, result["hits"][2]["document"].count("id_reference_sequence_id"));
 
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
@@ -409,7 +445,8 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
                     {"name": "ref_object_array_field", "type": "object[]", "optional": true, "reference": "coll1.object_array_field"}
                 ]
             })"_json;
-    collection_create_op = collectionManager.create_collection(schema_json);
+    auto temp_json = schema_json;
+    collection_create_op = collectionManager.create_collection(temp_json);
     ASSERT_TRUE(collection_create_op.ok());
     auto coll2 = collection_create_op.get();
 
@@ -441,6 +478,25 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_FALSE(add_doc_op.ok());
     ASSERT_EQ("Field `ref_string_array_field` must only have `string` values.", add_doc_op.error());
 
+    collectionManager.drop_collection("coll2");
+    temp_json = schema_json;
+    collection_create_op = collectionManager.create_collection(temp_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    coll2 = collection_create_op.get();
+
+    doc_json = R"({
+                    "ref_string_field": "d"
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc = coll2->get("0").get();
+    ASSERT_EQ(1, doc.count("ref_string_field_sequence_id"));
+    ASSERT_EQ(1, doc["ref_string_field_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_string_field_sequence_id", doc[".ref"][0]);
+
     doc_json = R"({
                     "ref_string_array_field": ["a", "d"]
                 })"_json;
@@ -450,15 +506,23 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     result = coll2->search("*", {}, "", {}, {}, {0}).get();
     ASSERT_EQ(0, result["hits"][0]["document"]["ref_string_array_field_sequence_id"].size());
 
+    doc = coll2->get("1").get();
+    ASSERT_EQ(1, doc.count("ref_string_array_field_sequence_id"));
+    ASSERT_EQ(0, doc["ref_string_array_field_sequence_id"].size());
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_string_array_field_sequence_id", doc[".ref"][0]);
+
     doc_json = R"({
                     "ref_string_array_field": ["b", "foo"]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(1, result["hits"][0]["document"]["ref_string_array_field_sequence_id"].size());
-    ASSERT_EQ(0, result["hits"][0]["document"]["ref_string_array_field_sequence_id"][0]);
+    doc = coll2->get("2").get();
+    ASSERT_EQ(1, doc.count("ref_string_array_field_sequence_id"));
+    ASSERT_EQ(1, doc["ref_string_array_field_sequence_id"].size());
+    ASSERT_EQ(0, doc["ref_string_array_field_sequence_id"][0]);
 
     doc_json = R"({
                     "ref_string_array_field": ["c", "e"]
@@ -466,10 +530,11 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(2, result["hits"][0]["document"]["ref_string_array_field_sequence_id"].size());
-    ASSERT_EQ(0, result["hits"][0]["document"]["ref_string_array_field_sequence_id"][0]);
-    ASSERT_EQ(1, result["hits"][0]["document"]["ref_string_array_field_sequence_id"][1]);
+    doc = coll2->get("3").get();
+    ASSERT_EQ(1, doc.count("ref_string_array_field_sequence_id"));
+    ASSERT_EQ(2, doc["ref_string_array_field_sequence_id"].size());
+    ASSERT_EQ(0, doc["ref_string_array_field_sequence_id"][0]);
+    ASSERT_EQ(1, doc["ref_string_array_field_sequence_id"][1]);
 
     // int32/int32[] reference fields
     doc_json = R"({
@@ -521,15 +586,6 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Multiple documents having `int32_field: 1` found in the collection `coll1`.", add_doc_op.error());
 
     doc_json = R"({
-                    "ref_int32_field": 4
-                })"_json;
-    add_doc_op = coll2->add(doc_json.dump());
-    ASSERT_TRUE(add_doc_op.ok());
-
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(4, result["hits"][0]["document"]["ref_int32_field_sequence_id"]);
-
-    doc_json = R"({
                     "ref_int32_array_field": [1, "2"]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
@@ -550,14 +606,37 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_FALSE(add_doc_op.ok());
     ASSERT_EQ("Field `ref_int32_array_field` must only have `int32` values.", add_doc_op.error());
 
+    collectionManager.drop_collection("coll2");
+    temp_json = schema_json;
+    collection_create_op = collectionManager.create_collection(temp_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    coll2 = collection_create_op.get();
+
+    doc_json = R"({
+                    "ref_int32_field": 4
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc = coll2->get("0").get();
+    ASSERT_EQ(1, doc.count("ref_int32_field_sequence_id"));
+    ASSERT_EQ(4, doc["ref_int32_field_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_int32_field_sequence_id", doc[".ref"][0]);
+
     doc_json = R"({
                     "ref_int32_array_field": [1]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(0, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"].size());
+    doc = coll2->get("1").get();
+    ASSERT_EQ(1, doc.count("ref_int32_array_field_sequence_id"));
+    ASSERT_EQ(0, doc["ref_int32_array_field_sequence_id"].size());
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_int32_array_field_sequence_id", doc[".ref"][0]);
 
     doc_json = R"({
                     "ref_int32_array_field": [1, 2]
@@ -565,9 +644,10 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(1, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"].size());
-    ASSERT_EQ(3, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"][0]);
+    doc = coll2->get("2").get();
+    ASSERT_EQ(1, doc.count("ref_int32_array_field_sequence_id"));
+    ASSERT_EQ(1, doc["ref_int32_array_field_sequence_id"].size());
+    ASSERT_EQ(3, doc["ref_int32_array_field_sequence_id"][0]);
 
     doc_json = R"({
                     "ref_int32_array_field": [2, 5]
@@ -575,10 +655,11 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(2, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"].size());
-    ASSERT_EQ(3, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"][0]);
-    ASSERT_EQ(4, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"][1]);
+    doc = coll2->get("3").get();
+    ASSERT_EQ(1, doc.count("ref_int32_array_field_sequence_id"));
+    ASSERT_EQ(2, doc["ref_int32_array_field_sequence_id"].size());
+    ASSERT_EQ(3, doc["ref_int32_array_field_sequence_id"][0]);
+    ASSERT_EQ(4, doc["ref_int32_array_field_sequence_id"][1]);
 
     doc_json = R"({
                     "ref_int32_array_field": [-2147483648]
@@ -586,9 +667,10 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(1, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"].size());
-    ASSERT_EQ(3, result["hits"][0]["document"]["ref_int32_array_field_sequence_id"][0]);
+    doc = coll2->get("4").get();
+    ASSERT_EQ(1, doc.count("ref_int32_array_field_sequence_id"));
+    ASSERT_EQ(1, doc["ref_int32_array_field_sequence_id"].size());
+    ASSERT_EQ(3, doc["ref_int32_array_field_sequence_id"][0]);
 
     // int64/int64[] reference fields
     doc_json = R"({
@@ -633,15 +715,6 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("Multiple documents having `int64_field: 1` found in the collection `coll1`.", add_doc_op.error());
 
     doc_json = R"({
-                    "ref_int64_field": 4
-                })"_json;
-    add_doc_op = coll2->add(doc_json.dump());
-    ASSERT_TRUE(add_doc_op.ok());
-
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(7, result["hits"][0]["document"]["ref_int64_field_sequence_id"]);
-
-    doc_json = R"({
                     "ref_int64_array_field": [1, "2"]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
@@ -662,14 +735,37 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_FALSE(add_doc_op.ok());
     ASSERT_EQ("Field `ref_int64_array_field` must only have `int64` values.", add_doc_op.error());
 
+    collectionManager.drop_collection("coll2");
+    temp_json = schema_json;
+    collection_create_op = collectionManager.create_collection(temp_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    coll2 = collection_create_op.get();
+
+    doc_json = R"({
+                    "ref_int64_field": 4
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc = coll2->get("0").get();
+    ASSERT_EQ(1, doc.count("ref_int64_field_sequence_id"));
+    ASSERT_EQ(7, doc["ref_int64_field_sequence_id"]);
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_int64_field_sequence_id", doc[".ref"][0]);
+
     doc_json = R"({
                     "ref_int64_array_field": [1]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(0, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"].size());
+    doc = coll2->get("1").get();
+    ASSERT_EQ(1, doc.count("ref_int64_array_field_sequence_id"));
+    ASSERT_EQ(0, doc["ref_int64_array_field_sequence_id"].size());
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(1, doc[".ref"].size());
+    ASSERT_EQ("ref_int64_array_field_sequence_id", doc[".ref"][0]);
 
     doc_json = R"({
                     "ref_int64_array_field": [1, 2]
@@ -677,9 +773,10 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(1, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"].size());
-    ASSERT_EQ(6, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"][0]);
+    doc = coll2->get("2").get();
+    ASSERT_EQ(1, doc.count("ref_int64_array_field_sequence_id"));
+    ASSERT_EQ(1, doc["ref_int64_array_field_sequence_id"].size());
+    ASSERT_EQ(6, doc["ref_int64_array_field_sequence_id"][0]);
 
     doc_json = R"({
                     "ref_int64_array_field": [2, 5]
@@ -687,10 +784,11 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(2, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"].size());
-    ASSERT_EQ(6, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"][0]);
-    ASSERT_EQ(7, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"][1]);
+    doc = coll2->get("3").get();
+    ASSERT_EQ(1, doc.count("ref_int64_array_field_sequence_id"));
+    ASSERT_EQ(2, doc["ref_int64_array_field_sequence_id"].size());
+    ASSERT_EQ(6, doc["ref_int64_array_field_sequence_id"][0]);
+    ASSERT_EQ(7, doc["ref_int64_array_field_sequence_id"][1]);
 
     doc_json = R"({
                     "ref_int64_array_field": [-9223372036854775808]
@@ -698,9 +796,10 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    result = coll2->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(1, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"].size());
-    ASSERT_EQ(6, result["hits"][0]["document"]["ref_int64_array_field_sequence_id"][0]);
+    doc = coll2->get("4").get();
+    ASSERT_EQ(1, doc.count("ref_int64_array_field_sequence_id"));
+    ASSERT_EQ(1, doc["ref_int64_array_field_sequence_id"].size());
+    ASSERT_EQ(6, doc["ref_int64_array_field_sequence_id"][0]);
 
     // float/float[] reference fields
     doc_json = R"({
@@ -1688,12 +1787,11 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("embedding"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("rating"));
     // Default strategy of reference includes is nest. No alias was provided, collection name becomes the field name.
-    ASSERT_EQ(6, res_obj["hits"][0]["document"]["Customers"].size());
+    ASSERT_EQ(5, res_obj["hits"][0]["document"]["Customers"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("customer_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("customer_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_id"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_id_sequence_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_price"));
 
     req_params = {
@@ -1709,7 +1807,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    ASSERT_EQ(12, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(11, res_obj["hits"][0]["document"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
@@ -1719,8 +1817,6 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Customers.customer_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Customers.customer_name"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Customers.id"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Customers.product_id"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Customers.product_id_sequence_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Customers.product_price"));
 
     req_params = {
@@ -1810,10 +1906,9 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ(1, res_obj["hits"].size());
-    // 6 fields in Products document and 2 fields from Customers document
-    ASSERT_EQ(8, res_obj["hits"][0]["document"].size());
+    // 6 fields in Products document and 1 field from Customers document
+    ASSERT_EQ(7, res_obj["hits"][0]["document"].size());
     ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_price"));
-    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id_sequence_id"));
 
     req_params = {
             {"collection", "Products"},
