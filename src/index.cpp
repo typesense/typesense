@@ -206,6 +206,7 @@ Index::~Index() {
     delete seq_ids;
 
     for(auto& vec_index_kv: vector_index) {
+        std::unique_lock lock(vec_index_kv.second->repair_m);
         delete vec_index_kv.second;
     }
 
@@ -432,7 +433,8 @@ void Index::validate_and_preprocess(Index *index,
                                     const std::string& fallback_field_type,
                                     const std::vector<char>& token_separators,
                                     const std::vector<char>& symbols_to_index,
-                                    const bool do_validation, const size_t remote_embedding_batch_size, const bool generate_embeddings) {
+                                    const bool do_validation, const size_t remote_embedding_batch_size,
+                                    const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings) {
 
     // runs in a partitioned thread
     std::vector<index_record*> records_to_embed;
@@ -523,7 +525,7 @@ void Index::validate_and_preprocess(Index *index,
     }
 
     if(generate_embeddings) {
-        batch_embed_fields(records_to_embed, embedding_fields, search_schema, remote_embedding_batch_size);
+        batch_embed_fields(records_to_embed, embedding_fields, search_schema, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries);
     }
 }
 
@@ -535,7 +537,8 @@ size_t Index::batch_memory_index(Index *index,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
-                                 const bool do_validation, const size_t remote_embedding_batch_size, const bool generate_embeddings, 
+                                 const bool do_validation, const size_t remote_embedding_batch_size,
+                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings, 
                                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields) {
 
     const size_t concurrency = 4;
@@ -568,7 +571,7 @@ size_t Index::batch_memory_index(Index *index,
         index->thread_pool->enqueue([&, batch_index, batch_len]() {
             write_log_index = local_write_log_index;
             validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, actual_search_schema,
-                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation, remote_embedding_batch_size, generate_embeddings);
+                                    embedding_fields, fallback_field_type, token_separators, symbols_to_index, do_validation, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries, generate_embeddings);
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
@@ -6660,6 +6663,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
         if(del_field.num_dim) {
             auto hnsw_index = vector_index[del_field.name];
+            std::unique_lock lock(hnsw_index->repair_m);
             delete hnsw_index;
             vector_index.erase(del_field.name);
         }
@@ -6951,8 +6955,9 @@ bool Index::common_results_exist(std::vector<art_leaf*>& leaves, bool must_match
 
 
 void Index::batch_embed_fields(std::vector<index_record*>& records, 
-                                       const tsl::htrie_map<char, field>& embedding_fields,
-                                       const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size) {
+                               const tsl::htrie_map<char, field>& embedding_fields,
+                               const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size,
+                               const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     for(const auto& field : embedding_fields) {
         std::vector<std::pair<index_record*, std::string>> texts_to_embed;
         auto indexing_prefix = TextEmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
@@ -7023,7 +7028,8 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
             texts.push_back(text_to_embed.second);
         }
 
-        auto embeddings = embedder_op.get()->batch_embed(texts, remote_embedding_batch_size);
+        auto embeddings = embedder_op.get()->batch_embed(texts, remote_embedding_batch_size, remote_embedding_timeout_ms,
+                                                         remote_embedding_num_tries);
 
         for(size_t i = 0; i < embeddings.size(); i++) {
             auto& embedding_res = embeddings[i];
@@ -7032,13 +7038,35 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 texts_to_embed[i].first->index_failure(embedding_res.status_code, "");
                 continue;
             }
-            nlohmann::json* document;
             if(texts_to_embed[i].first->is_update) {
-                document = &texts_to_embed[i].first->new_doc;
-            } else {
-                document = &texts_to_embed[i].first->doc;
-            }
-            (*document)[field.name] = embedding_res.embedding;
+                texts_to_embed[i].first->new_doc[field.name] = embedding_res.embedding;
+            } 
+            texts_to_embed[i].first->doc[field.name] = embedding_res.embedding;
+        }
+    }
+}
+
+void Index::repair_hnsw_index() {
+    std::vector<std::string> vector_fields;
+
+    // this lock ensures that the `vector_index` map is not mutated during read
+    std::shared_lock read_lock(mutex);
+
+    for(auto& vec_kv: vector_index) {
+        vector_fields.push_back(vec_kv.first);
+    }
+
+    read_lock.unlock();
+
+    for(const auto& vector_field: vector_fields) {
+        read_lock.lock();
+        if(vector_index.count(vector_field) != 0) {
+            // this lock ensures that the vector index is not dropped during repair
+            std::unique_lock lock(vector_index[vector_field]->repair_m);
+            read_lock.unlock();  // release this lock since repair is a long running operation
+            vector_index[vector_field]->vecdex->repair_zero_indegree();
+        } else {
+            read_lock.unlock();
         }
     }
 }
