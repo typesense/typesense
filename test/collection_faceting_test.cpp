@@ -2540,7 +2540,7 @@ TEST_F(CollectionFacetingTest, FacetQueryWithDifferentLocale) {
                               4UL,7UL, fallback, 4UL, {off}, 32767UL,
                               32767UL, 2UL, 2UL, false,
                               "", true, 0UL, max_score, 100UL,
-                              0UL, 4294967295UL, VALUE);
+                              0UL, 4294967295UL, HASH);
 
     auto results = search_op.get();
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -2558,7 +2558,7 @@ TEST_F(CollectionFacetingTest, FacetQueryWithDifferentLocale) {
                                    4UL,7UL, fallback, 4UL, {off}, 32767UL,
                                    32767UL, 2UL, 2UL, false,
                                    "", true, 0UL, max_score, 100UL,
-                                   0UL, 4294967295UL, VALUE);
+                                   0UL, 4294967295UL, HASH);
 
     results = search_op.get();
     ASSERT_EQ(1, results["facet_counts"].size());
