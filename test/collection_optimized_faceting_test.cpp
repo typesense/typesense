@@ -2221,6 +2221,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetQueryWithDifferentLocale) {
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ("çapeta", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("<mark>ç</mark>apeta", results["facet_counts"][0]["counts"][0]["highlighted"]);
 
     search_op = coll1->search("*", query_fields, "", {"phone(sort_by:_alpha:desc)"},
                               sort_fields, {0}, 10, 1, FREQUENCY,{false},
@@ -2239,6 +2240,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetQueryWithDifferentLocale) {
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ("teléfono justo", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("<mark>telé</mark>fono justo", results["facet_counts"][0]["counts"][0]["highlighted"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, ValueIndexStatsMinMax) {
