@@ -152,7 +152,8 @@ embedding_res_t TextEmbedder::Embed(const std::string& text, const size_t remote
     }
 }
 
-std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size) {
+std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
+                                                       const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     std::vector<embedding_res_t> outputs;
     if(!is_remote()) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -235,7 +236,7 @@ std::vector<embedding_res_t> TextEmbedder::batch_embed(const std::vector<std::st
             }
         }
     } else {
-        outputs = std::move(remote_embedder_->batch_embed(inputs, remote_embedding_batch_size));
+        outputs = std::move(remote_embedder_->batch_embed(inputs, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries));
     }
     
     return outputs;

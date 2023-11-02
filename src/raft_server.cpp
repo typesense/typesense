@@ -258,6 +258,20 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
     }
 
+    route_path* rpath = nullptr;
+    bool route_found = server->get_route(request->route_hash, &rpath);
+
+    if(route_found && rpath->handler == patch_update_collection) {
+        if(get_alter_in_progress()) {
+            response->set_422("Another collection update operation is in progress.");
+            response->final = true;
+            auto req_res = new async_req_res_t(request, response, true);
+            return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        }
+
+        set_alter_in_progress(true);
+    }
+
     std::shared_lock lock(node_mutex);
 
     if(!node) {

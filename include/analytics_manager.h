@@ -14,7 +14,7 @@ private:
 
     std::atomic<bool> quit = false;
 
-    const size_t QUERY_COMPACTION_INTERVAL_S = 60;
+    const size_t QUERY_COMPACTION_INTERVAL_S = 30;
 
     struct suggestion_config_t {
         std::string name;

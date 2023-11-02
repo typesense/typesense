@@ -697,6 +697,41 @@ TEST_F(CollectionSchemaChangeTest, AddAndDropFieldImmediately) {
     ASSERT_EQ(0, coll1->get_dynamic_fields().size());
 }
 
+TEST_F(CollectionSchemaChangeTest, DropSpecificDynamicField) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": ".*_int", "type": "int32", "facet": true}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["quantity_int"] = 1000;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+
+    // drop specific field via alter which we will try dropping later
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "quantity_int", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+    ASSERT_EQ(1, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_schema().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+}
+
 TEST_F(CollectionSchemaChangeTest, AddDynamicFieldMatchingMultipleFields) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", 1, 1),
                                  field("points", field_types::INT32, true),};
@@ -1540,6 +1575,90 @@ TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {
     ASSERT_EQ(2, res_op.get()["found"].get<size_t>());
 }
 
+TEST_F(CollectionSchemaChangeTest, NestedFieldDrop) {
+    nlohmann::json schema = R"({
+                "name": "docs",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "shops", "type": "object[]", "index": true, "optional": true},
+                    {"name": "shops.is_available", "type": "bool[]", "index": true, "optional": true}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["shops"][0]["is_available"] = false;
+    coll->add(doc.dump());
+
+    nlohmann::json schema_change = R"({
+        "fields": [
+            {"name": "shops.is_available", "drop": true}
+        ]
+    })"_json;
+
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
+
+    auto actual_schema = coll->get_schema();
+    ASSERT_EQ(1, actual_schema.size());
+    ASSERT_EQ(1, actual_schema.count("shops"));
+
+    // add the field back
+
+    schema_change = R"({
+        "fields": [
+            {"name": "shops.is_available", "type": "bool[]", "index": true, "optional": true}
+        ]
+    })"_json;
+
+    schema_change_op = coll->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
+    actual_schema = coll->get_schema();
+    ASSERT_EQ(2, actual_schema.size());
+    ASSERT_EQ(1, actual_schema.count("shops"));
+    ASSERT_EQ(1, actual_schema.count("shops.is_available"));
+}
+
+TEST_F(CollectionSchemaChangeTest, NestedFieldReIndex) {
+    nlohmann::json schema = R"({
+                "name": "docs",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name": "shops", "type": "object[]"},
+                    {"name": "shops.is_available", "type": "bool[]"}
+                ]
+            })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["shops"][0]["is_available"] = false;
+    coll->add(doc.dump());
+
+    nlohmann::json schema_change = R"({
+        "fields": [
+            {"name": "shops.is_available", "drop": true},
+            {"name": "shops.is_available", "type": "bool[]", "facet": true}
+        ]
+    })"_json;
+
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
+
+    auto actual_schema = coll->get_schema();
+    ASSERT_EQ(2, actual_schema.size());
+    ASSERT_TRUE(actual_schema["shops.is_available"].facet);
+}
+
 TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
     nlohmann::json schema = R"({
                 "name": "objects",
@@ -1792,4 +1911,46 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterDropTest) {
     ASSERT_TRUE(schema_change_op.ok());
     ASSERT_EQ(0, vec_index.size());
     ASSERT_EQ(0, vec_index.count("embedding"));
+}
+
+TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
+    nlohmann::json schema = R"({
+            "name": "objects",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "nested", "type": "object"}
+            ],
+            "enable_nested_fields": true
+        })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll = op.get();
+
+    nlohmann::json doc;
+    doc["title"] = "hello";
+    doc["nested"] = nlohmann::json::object();
+    doc["nested"]["hello"] = "world";
+
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json schema_change = R"({
+            "fields": [
+                {"name": "embedding", "type":"float[]", "embed":{"from": ["title"], "model_config": {"model_name": "ts/e5-small"}}}
+            ]
+        })"_json;
+    
+    auto schema_change_op = coll->alter(schema_change);
+    ASSERT_TRUE(schema_change_op.ok());
+
+    auto search_res = coll->search("*", {}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+
+    ASSERT_EQ(1, search_res.get()["found"].get<size_t>());
+    ASSERT_EQ(384, search_res.get()["hits"][0]["document"]["embedding"].get<std::vector<float>>().size());
+    ASSERT_EQ(1, search_res.get()["hits"][0]["document"]["nested"].size());
+    ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count(".flat"));
+    ASSERT_EQ(0, search_res.get()["hits"][0]["document"].count("nested.hello"));
 }

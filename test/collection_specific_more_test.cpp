@@ -1027,15 +1027,16 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
 
-    std::vector<std::string> raw_search_fields = {"title", "brand", "type"};
+    std::vector<search_field_t> raw_search_fields = {
+        search_field_t("title", 110, 2, true, off),
+        search_field_t("brand", 25, 2, true, off),
+        search_field_t("type", 55, 2, true, off),
+    };
     std::vector<uint32_t> query_by_weights = {110, 25, 55};
     std::vector<search_field_t> weighted_search_fields;
-    std::vector<std::string> reordered_search_fields;
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
-    ASSERT_EQ(3, reordered_search_fields.size());
     ASSERT_EQ(3, weighted_search_fields.size());
 
     ASSERT_EQ("title", weighted_search_fields[0].name);
@@ -1048,11 +1049,14 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
 
     // same weights
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights = {15, 15, 15};
+    raw_search_fields = {
+        search_field_t{"title", 15, 2, true, off},
+        search_field_t{"brand", 15, 2, true, off},
+        search_field_t{"type", 15, 2, true, off},
+    };
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("title", weighted_search_fields[0].name);
     ASSERT_EQ("brand", weighted_search_fields[1].name);
@@ -1064,11 +1068,14 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
 
     // same weights large
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights = {800, 800, 800};
+    raw_search_fields = {
+        search_field_t{"title", 800, 2, true, off},
+        search_field_t{"brand", 800, 2, true, off},
+        search_field_t{"type", 800, 2, true, off},
+    };
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("title", weighted_search_fields[0].name);
     ASSERT_EQ("brand", weighted_search_fields[1].name);
@@ -1080,11 +1087,14 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
 
     // weights desc ordered but exceed max weight
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights = {603, 602, 601};
+    raw_search_fields = {
+        search_field_t{"title", 603, 2, true, off},
+        search_field_t{"brand", 602, 2, true, off},
+        search_field_t{"type", 601, 2, true, off},
+    };
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("title", weighted_search_fields[0].name);
     ASSERT_EQ("brand", weighted_search_fields[1].name);
@@ -1097,16 +1107,14 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
     // number of fields > 15 (must cap least important fields to weight 0)
     raw_search_fields.clear();
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights.clear();
 
     for(size_t i = 0; i < 17; i++) {
-        raw_search_fields.push_back("field" + std::to_string(17 - i));
+        raw_search_fields.push_back(search_field_t{"field" + std::to_string(17 - i), 17 - i, 2, true, off});
         query_by_weights.push_back(17 - i);
     }
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("field3", weighted_search_fields[14].name);
     ASSERT_EQ("field2", weighted_search_fields[15].name);
@@ -1119,15 +1127,13 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
     // when weights are not given
     raw_search_fields.clear();
     weighted_search_fields.clear();
-    reordered_search_fields.clear();
     query_by_weights.clear();
 
     for(size_t i = 0; i < 17; i++) {
-        raw_search_fields.push_back("field" + std::to_string(17 - i));
+        raw_search_fields.push_back(search_field_t{"field" + std::to_string(17 - i), 0, 2, true, off});
     }
 
-    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
-                                        reordered_search_fields);
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields);
 
     ASSERT_EQ("field3", weighted_search_fields[14].name);
     ASSERT_EQ("field2", weighted_search_fields[15].name);
@@ -1826,6 +1832,92 @@ TEST_F(CollectionSpecificMoreTest, ConsiderDroppedTokensDuringTextMatchScoring) 
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, ConsiderDroppedTokensDuringTextMatchScoring2) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "name", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Elizabeth Arden 5th Avenue Eau de Parfum 125ml";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "Avène Sun Very High Protection Mineral Cream SPF50+ 50ml";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("avène eau mineral", {"name"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_weight).get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "brand", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Alpha beta gamma";
+    doc["brand"] = "Alpha beta gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "Alpha beta gamma";
+    doc["brand"] = "Theta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                                100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true);
+
+
+    auto res = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                             4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                             100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", false).get();
+
+    size_t score1 = std::stoul(res["hits"][0]["text_match_info"]["score"].get<std::string>());
+    size_t score2 = std::stoul(res["hits"][1]["text_match_info"]["score"].get<std::string>());
+    ASSERT_TRUE(score1 == score2);
+
+    res = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                        4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
+                        100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true).get();
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    score1 = std::stoul(res["hits"][0]["text_match_info"]["score"].get<std::string>());
+    score2 = std::stoul(res["hits"][1]["text_match_info"]["score"].get<std::string>());
+    ASSERT_TRUE(score1 > score2);
+}
+
 TEST_F(CollectionSpecificMoreTest, NonNestedFieldNameWithDot) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -2300,6 +2392,85 @@ TEST_F(CollectionSpecificMoreTest, ExhaustiveSearchWithoutExplicitDropTokens) {
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", exhaustive_search).get();
 
     ASSERT_EQ(2, res["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "alpha beta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "beta gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    bool exhaustive_search = false;
+    size_t drop_tokens_threshold = 1;
+
+    auto res = coll1->search("alpha beta gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                             0, HASH, 30000, 2, "", {}, {}, "left_to_right").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+
+    res = coll1->search("alpha beta gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        0, HASH, 30000, 2, "", {}, {}, "right_to_left").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // search on both sides
+    res = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        0, HASH, 30000, 2, "", {}, {}, "both_sides:3").get();
+    ASSERT_EQ(2, res["hits"].size());
+
+    // but must follow token limit
+    res = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                        4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                        0, HASH, 30000, 2, "", {}, {}, "both_sides:1").get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // validation checks
+    auto res_op = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                0, HASH, 30000, 2, "", {}, {}, "all_sides");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
+
+    res_op = coll1->search("alpha gamma", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, drop_tokens_threshold,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                           4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                           0, HASH, 30000, 2, "", {}, {}, "both_sides:x");
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
 }
 
 TEST_F(CollectionSpecificMoreTest, DoNotHighlightFieldsForSpecialCharacterQuery) {

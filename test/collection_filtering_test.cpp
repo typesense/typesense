@@ -1327,6 +1327,13 @@ TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
 
     ASSERT_EQ(0, results["found"].get<size_t>());
 
+    // match all IDs
+    results = coll1->search("*",
+                            {}, "id: *",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+
     collectionManager.drop_collection("coll1");
 }
 
@@ -1458,6 +1465,19 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     // when no such value exists: should return all results
     results = coll1->search("*", {"artist"}, "artist:!=Foobar", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(4, results["found"].get<size_t>());
+
+    results = coll1->search("*", {"artist"}, "artist:! Jackson", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(2, results["found"]);
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"]);
+
+    results = coll1->search("*", {"artist"}, "artist:![Swift, Jack]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(2, results["found"]);
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+
+    results = coll1->search("*", {"artist"}, "artist:![Swift, Jackson]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(0, results["found"]);
 
     // empty value (bad filtering)
     auto res_op = coll1->search("*", {"artist"}, "artist:!=", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);

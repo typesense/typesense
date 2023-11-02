@@ -1279,7 +1279,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
 
     auto op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("Field `post` must be optional since it is marked as non-indexable.", op.error());
+    ASSERT_EQ("Field `.*_txt` cannot be a facet since it's marked as non-indexable.", op.error());
 
     fields = {field("company_name", field_types::STRING, false),
               field("num_employees", field_types::INT32, false),

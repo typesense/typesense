@@ -87,6 +87,13 @@ void Tokenizer::init(const std::string& input) {
         }
 
         unicode_text = icu::UnicodeString::fromUTF8(text);
+
+        if(locale == "fa") {
+            icu::UnicodeString target_str;
+            target_str.setTo(0x200C);  // U+200C (ZERO WIDTH NON-JOINER)
+            unicode_text.findAndReplace(target_str, " ");
+        }
+
         bi->setText(unicode_text);
 
         start_pos = bi->first();
@@ -128,6 +135,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
                 transliterator->transliterate(raw_text);
                 raw_text.toUTF8String(word);
+                StringUtils::replace_all(word, "\"", "");
             } else if(normalize && locale == "th") {
                 UErrorCode errcode = U_ZERO_ERROR;
                 icu::UnicodeString src = unicode_text.tempSubStringBetween(start_pos, end_pos);

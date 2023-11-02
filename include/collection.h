@@ -55,6 +55,8 @@ private:
 
     mutable std::shared_mutex mutex;
 
+    mutable std::shared_mutex index_repair_lock;
+
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
     const size_t DEFAULT_TOPSTER_SIZE = 250;
@@ -209,20 +211,27 @@ private:
     static Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
                                    std::map<size_t, std::vector<std::string>>& pinned_hits);
 
+    static Option<drop_tokens_param_t> parse_drop_tokens_mode(const std::string& drop_tokens_mode);
+
     Index* init_index();
 
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
 
-    Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
-                                                      std::vector<sort_by>& sort_fields_std,
-                                                      bool is_wildcard_query,const bool is_vector_query,
-                                                      bool is_group_by_query = false) const;
-
     Option<bool> validate_and_standardize_sort_fields_with_lock(const std::vector<sort_by> & sort_fields,
                                                                 std::vector<sort_by>& sort_fields_std,
                                                                 bool is_wildcard_query,const bool is_vector_query,
-                                                                bool is_group_by_query = false) const;
+                                                                const std::string& query, bool is_group_by_query = false,
+                                                                const size_t remote_embedding_timeout_ms = 30000,
+                                                                const size_t remote_embedding_num_tries = 2) const;
 
+    Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
+                                                      std::vector<sort_by>& sort_fields_std,
+                                                      const bool is_wildcard_query,
+                                                      const bool is_vector_query,
+                                                      const std::string& query, bool is_group_by_query = false,
+                                                      const size_t remote_embedding_timeout_ms = 30000,
+                                                      const size_t remote_embedding_num_tries = 2,
+                                                      const bool is_reference_sort = false) const;
     
     Option<bool> persist_collection_meta();
 
@@ -260,7 +269,8 @@ private:
                                            std::vector<std::string>& processed_search_fields,
                                            bool extract_only_string_fields,
                                            bool enable_nested_fields,
-                                           const bool handle_wildcard = true);
+                                           const bool handle_wildcard = true,
+                                           const bool& include_id = false);
 
     bool is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const;
 
@@ -285,8 +295,13 @@ private:
                                                  tsl::htrie_set<char>& include_fields_full,
                                                  tsl::htrie_set<char>& exclude_fields_full) const;
 
-    Option<uint32_t> get_reference_doc_id(const std::string& ref_collection_name, const uint32_t& seq_id) const;
+    Option<std::string> get_referenced_in_field(const std::string& collection_name) const;
 
+    Option<bool> get_related_ids(const std::string& ref_collection_name, const uint32_t& seq_id,
+                                 std::vector<uint32_t>& result) const;
+
+
+    void remove_embedding_field(const std::string& field_name);
 
 public:
 
@@ -345,6 +360,8 @@ public:
 
     uint32_t get_next_seq_id();
 
+    Option<uint32_t> doc_id_to_seq_id_with_lock(const std::string & doc_id) const;
+
     Option<uint32_t> doc_id_to_seq_id(const std::string & doc_id) const;
 
     std::vector<std::string> get_facet_fields();
@@ -360,6 +377,8 @@ public:
     tsl::htrie_map<char, field> get_nested_fields();
 
     tsl::htrie_map<char, field> get_embedding_fields();
+
+    tsl::htrie_map<char, field> get_embedding_fields_unsafe();
 
     std::string get_default_sorting_field();
 
@@ -382,13 +401,17 @@ public:
 
     static void remove_flat_fields(nlohmann::json& document);
 
+    static void remove_reference_helper_fields(nlohmann::json& document);
+
     static Option<bool> add_reference_fields(nlohmann::json& doc,
+                                             const std::string& ref_collection_name,
                                              Collection *const ref_collection,
                                              const std::string& alias,
                                              const reference_filter_result_t& references,
                                              const tsl::htrie_set<char>& ref_include_fields_full,
                                              const tsl::htrie_set<char>& ref_exclude_fields_full,
-                                             const std::string& error_prefix);
+                                             const std::string& error_prefix, const bool& is_reference_array,
+                                             const bool& nest_ref_doc);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
@@ -402,14 +425,15 @@ public:
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value) const;
 
-    std::string get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const;
+    nlohmann::json get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const;
 
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs, 
                     const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
                     const std::vector<sort_by>& sort_by_fields);
 
     void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed,
-                     const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size = 200);
+                     const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size = 200,
+                     const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2);
 
     bool is_exceeding_memory_threshold() const;
 
@@ -423,7 +447,7 @@ public:
     nlohmann::json get_summary_json() const;
 
     size_t batch_index_in_memory(std::vector<index_record>& index_records, const size_t remote_embedding_batch_size,
-                                 const bool generate_embeddings);
+                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
@@ -433,7 +457,9 @@ public:
                             const index_operation_t& operation=CREATE, const std::string& id="",
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
                             const bool& return_doc=false, const bool& return_id=false,
-                            const size_t remote_embedding_batch_size=200);
+                            const size_t remote_embedding_batch_size=200,
+                            const size_t remote_embedding_timeout_ms=60000,
+                            const size_t remote_embedding_num_tries=2);
 
     Option<nlohmann::json> update_matching_filter(const std::string& filter_query,
                                                   const std::string & json_str,
@@ -444,6 +470,8 @@ public:
                                                      const spp::sparse_hash_set<std::string>& exclude_fields,
                                                      tsl::htrie_set<char>& include_fields_full,
                                                      tsl::htrie_set<char>& exclude_fields_full) const;
+
+    void do_housekeeping();
 
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> & search_fields,
                                   const std::string & filter_query, const std::vector<std::string> & facet_fields,
@@ -499,7 +527,10 @@ public:
                                   const int conversation_model_id = -1,
                                   const std::string& system_prompt = "",
                                   int conversation_id = -1,
-                                  const std::vector<ref_include_fields>& ref_include_fields_vec = {}) const;
+                                  const std::vector<ref_include_fields>& ref_include_fields_vec = {},
+                                  const std::string& drop_tokens_mode = "right_to_left",
+                                  const bool prioritize_num_matching_fields = true,
+                                  const bool group_missing_values = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
@@ -583,11 +614,9 @@ public:
 
     Option<bool> alter(nlohmann::json& alter_payload);
 
-    void
-    process_search_field_weights(const std::vector<std::string>& raw_search_fields,
-                                 std::vector<uint32_t>& query_by_weights,
-                                 std::vector<search_field_t>& weighted_search_fields,
-                                 std::vector<std::string>& reordered_search_fields) const;
+    void process_search_field_weights(const std::vector<search_field_t>& search_fields,
+                                      std::vector<uint32_t>& query_by_weights,
+                                      std::vector<search_field_t>& weighted_search_fields) const;
 
     Option<bool> truncate_after_top_k(const std::string& field_name, size_t k);
 
@@ -605,9 +634,12 @@ public:
 
     void add_referenced_in(const std::string& collection_name, const std::string& field_name);
 
-    Option<std::string> get_reference_field(const std::string& collection_name) const;
+    Option<std::string> get_referenced_in_field_with_lock(const std::string& collection_name) const;
 
-    Option<uint32_t> get_sort_indexed_field_value(const std::string& field_name, const uint32_t& seq_id) const;
+    Option<bool> get_related_ids_with_lock(const std::string& field_name, const uint32_t& seq_id,
+                                           std::vector<uint32_t>& result) const;
+
+    Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 

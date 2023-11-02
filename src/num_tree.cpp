@@ -341,6 +341,26 @@ void num_tree_t::seq_ids_outside_top_k(size_t k, std::vector<uint32_t> &seq_ids)
     }
 }
 
+std::pair<int64_t, int64_t> num_tree_t::get_min_max(const uint32_t* result_ids, size_t result_ids_len) {
+    int64_t min, max;
+    //first traverse from top to find min
+    for(auto int64map_it = int64map.begin(); int64map_it != int64map.end(); ++int64map_it) {
+        if(ids_t::intersect_count(int64map_it->second, result_ids, result_ids_len)) {
+            min = int64map_it->first;
+            break;
+        }
+    }
+
+    //traverse from end to find max
+    for(auto int64map_it = int64map.rbegin(); int64map_it != int64map.rend(); ++int64map_it) {
+        if(ids_t::intersect_count(int64map_it->second, result_ids, result_ids_len)) {
+            max = int64map_it->first;
+            break;
+        }
+    }
+
+    return std::make_pair(min, max);
+}
 
 size_t num_tree_t::size() {
     return int64map.size();

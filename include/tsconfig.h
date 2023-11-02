@@ -69,6 +69,8 @@ private:
 
     uint32_t analytics_flush_interval;
 
+    uint32_t housekeeping_interval;
+
 protected:
 
     Config() {
@@ -96,6 +98,7 @@ protected:
 
         this->enable_search_analytics = false;
         this->analytics_flush_interval = 3600;  // in seconds
+        this->housekeeping_interval = 1800;     // in seconds
     }
 
     Config(Config const&) {
@@ -294,6 +297,10 @@ public:
         return this->analytics_flush_interval;
     }
 
+    size_t get_housekeeping_interval() const {
+        return this->housekeeping_interval;
+    }
+
     size_t get_thread_pool_size() const {
         return this->thread_pool_size;
     }
@@ -427,6 +434,10 @@ public:
 
         if(!get_env("TYPESENSE_ANALYTICS_FLUSH_INTERVAL").empty()) {
             this->analytics_flush_interval = std::stoi(get_env("TYPESENSE_ANALYTICS_FLUSH_INTERVAL"));
+        }
+
+        if(!get_env("TYPESENSE_HOUSEKEEPING_INTERVAL").empty()) {
+            this->housekeeping_interval = std::stoi(get_env("TYPESENSE_HOUSEKEEPING_INTERVAL"));
         }
 
         if(!get_env("TYPESENSE_THREAD_POOL_SIZE").empty()) {
@@ -592,6 +603,10 @@ public:
             this->analytics_flush_interval = (int) reader.GetInteger("server", "analytics-flush-interval", 3600);
         }
 
+        if(reader.Exists("server", "housekeeping-interval")) {
+            this->housekeeping_interval = (int) reader.GetInteger("server", "housekeeping-interval", 1800);
+        }
+
         if(reader.Exists("server", "thread-pool-size")) {
             this->thread_pool_size = (int) reader.GetInteger("server", "thread-pool-size", 0);
         }
@@ -744,6 +759,10 @@ public:
 
         if(options.exist("analytics-flush-interval")) {
             this->analytics_flush_interval = options.get<uint32_t>("analytics-flush-interval");
+        }
+
+        if(options.exist("housekeeping-interval")) {
+            this->housekeeping_interval = options.get<uint32_t>("housekeeping-interval");
         }
 
         if(options.exist("thread-pool-size")) {

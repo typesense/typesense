@@ -11,6 +11,7 @@
 #include <filter.h>
 #include "json.hpp"
 #include "text_embedder_manager.h"
+#include "vector_query_ops.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -34,6 +35,10 @@ namespace field_types {
 
     static bool is_string_or_array(const std::string& type_def) {
         return type_def == "string*";
+    }
+
+    static bool is_array(const std::string& type_def) {
+        return type_def.size() > 2 && type_def[type_def.size() - 2] == '[' &&  type_def[type_def.size() - 1] == ']';
     }
 }
 
@@ -62,6 +67,9 @@ namespace fields {
     static const std::string query_prefix = "query_prefix";
     static const std::string api_key = "api_key";
     static const std::string model_config = "model_config";
+
+    static const std::string reference_helper_fields = ".ref";
+    static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
 }
 
 enum vector_distance_type_t {
@@ -96,6 +104,8 @@ struct field {
 
     bool range_index;
 
+    bool is_reference_helper = false;
+
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
@@ -107,6 +117,9 @@ struct field {
             embed(embed), range_index(range_index) {
 
         set_computed_defaults(sort, infix);
+
+        auto const suffix = std::string(fields::REFERENCE_HELPER_FIELD_SUFFIX);
+        is_reference_helper = name.size() > suffix.size() && name.substr(name.size() - suffix.size()) == suffix;
     }
 
     void set_computed_defaults(int sort, int infix) {
@@ -367,10 +380,6 @@ struct field {
                 return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
             }
 
-            if(!field.index && !field.optional) {
-                return Option<bool>(400, "Field `" + field.name + "` must be optional since it is marked as non-indexable.");
-            }
-
             if(field.name == ".*" && !field.index) {
                 return Option<bool>(400, "Field `" + field.name + "` cannot be marked as non-indexable.");
             }
@@ -485,12 +494,27 @@ namespace sort_field_const {
     static const std::string missing_values = "missing_values";
 
     static const std::string vector_distance = "_vector_distance";
+    static const std::string vector_query = "_vector_query";
+}
+
+namespace ref_include {
+    static const std::string merge = "merge";
+    static const std::string nest = "nest";
 }
 
 struct ref_include_fields {
-    std::string expression;
+    std::string collection_name;
+    std::string fields;
     std::string alias;
+    bool nest_ref_doc = false;
 };
+
+struct hnsw_index_t;
+
+struct sort_vector_query_t {
+        vector_query_t query;
+        hnsw_index_t* vector_index;
+}; 
 
 struct sort_by {
     enum missing_values_t {
@@ -500,12 +524,14 @@ struct sort_by {
     };
 
     struct eval_t {
-        filter_node_t* filter_tree_root = nullptr;
-        uint32_t* ids = nullptr;
-        uint32_t  size = 0;
+        filter_node_t* filter_trees = nullptr;
+        std::vector<uint32_t*> eval_ids_vec;
+        std::vector<uint32_t> eval_ids_count_vec;
+        std::vector<int64_t> scores;
     };
 
     std::string name;
+    std::vector<std::string> eval_expressions;
     std::string order;
 
     // for text_match score bucketing
@@ -520,11 +546,18 @@ struct sort_by {
     eval_t eval;
 
     std::string reference_collection_name;
+    sort_vector_query_t vector_query;
 
     sort_by(const std::string & name, const std::string & order):
             name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
             missing_values(normal) {
+    }
 
+    sort_by(std::vector<std::string> eval_expressions, std::vector<int64_t> scores, std::string  order):
+            eval_expressions(std::move(eval_expressions)), order(std::move(order)), text_match_buckets(0), geopoint(0), exclude_radius(0),
+            geo_precision(0), missing_values(normal) {
+        name = sort_field_const::eval;
+        eval.scores = std::move(scores);
     }
 
     sort_by(const std::string &name, const std::string &order, uint32_t text_match_buckets, int64_t geopoint,
@@ -532,13 +565,13 @@ struct sort_by {
             name(name), order(order), text_match_buckets(text_match_buckets),
             geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision),
             missing_values(normal) {
-
     }
 
     sort_by(const sort_by& other) {
         if (&other == this)
             return;
         name = other.name;
+        eval_expressions = other.eval_expressions;
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         geopoint = other.geopoint;
@@ -547,10 +580,12 @@ struct sort_by {
         missing_values = other.missing_values;
         eval = other.eval;
         reference_collection_name = other.reference_collection_name;
+        vector_query = other.vector_query;
     }
 
     sort_by& operator=(const sort_by& other) {
         name = other.name;
+        eval_expressions = other.eval_expressions;
         order = other.order;
         text_match_buckets = other.text_match_buckets;
         geopoint = other.geopoint;
@@ -606,7 +641,7 @@ struct facet_count_t {
 
 struct facet_stats_t {
     double fvmin = std::numeric_limits<double>::max(),
-            fvmax = -std::numeric_limits<double>::min(),
+            fvmax = -std::numeric_limits<double>::max(),
             fvcount = 0,
             fvsum = 0;
 };
@@ -670,7 +705,7 @@ struct facet {
 struct facet_info_t {
     // facet hash => resolved tokens
     std::unordered_map<uint64_t, std::vector<std::string>> hashes;
-    std::vector<std::string> fvalue_searched_tokens;
+    std::vector<std::vector<std::string>> fvalue_searched_tokens;
     bool use_facet_query = false;
     bool should_compute_stats = false;
     bool use_value_index = false;
@@ -687,6 +722,7 @@ struct facet_value_t {
     std::string highlighted;
     uint32_t count;
     int64_t sort_field_val;
+    nlohmann::json parent;
 };
 
 struct facet_hash_values_t {

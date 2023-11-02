@@ -328,8 +328,9 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         // Add a reference helper field in the schema. It stores the doc id of the document it references to reduce the
         // computation while searching.
         the_fields.emplace_back(
-                field(field_json[fields::name].get<std::string>() + Collection::REFERENCE_HELPER_FIELD_SUFFIX,
-                      "int64", false, field_json[fields::optional], true)
+                field(field_json[fields::name].get<std::string>() + fields::REFERENCE_HELPER_FIELD_SUFFIX,
+                      field_types::is_array(field_json[fields::type].get<std::string>()) ? field_types::INT64_ARRAY : field_types::INT64,
+                      false, field_json[fields::optional], true)
         );
     }
 
@@ -549,6 +550,10 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
     std::unordered_map<std::string, field> flattened_fields_map;
 
     for(auto& nested_field: nested_fields) {
+        if(!nested_field.index) {
+            continue;
+        }
+
         std::vector<std::string> field_parts;
         StringUtils::split(nested_field.name, field_parts, ".");
 

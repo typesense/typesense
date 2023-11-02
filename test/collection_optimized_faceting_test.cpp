@@ -315,8 +315,8 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCounts) {
 
     ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
     ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["avg"].get<double>());
-    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["min"].get<double>());
-    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(0, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(9.9989996, results["facet_counts"][0]["stats"]["max"].get<double>());
     ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["sum"].get<double>());
     ASSERT_FLOAT_EQ(1, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
 
@@ -485,6 +485,26 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCounts) {
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Facet query refers to a facet field `name_facet` that is not part of `facet_by` parameter.", res_op.error().c_str());
+
+    //facet query on int64 field with stats
+    results = coll_array_fields->search("*", query_fields, "", {"timestamps"}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                        {false}, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, "timestamps: 142189002").get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_STREQ("timestamps", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("1421890022", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>142189002</mark>2", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(1106321222, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(348974822, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(1453426022, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(13275854664, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(1, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
 
     collectionManager.drop_collection("coll_array_fields");
 }
@@ -1390,6 +1410,17 @@ TEST_F(CollectionOptimizedFacetingTest, FacetQueryTest) {
                             4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+
+    results = coll1->search("*", {},
+                                 "", {"color"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 5, "color:green a", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("amazon green", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("<mark>a</mark>mazon <mark>green</mark>", results["facet_counts"][0]["counts"][0]["highlighted"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
@@ -1440,6 +1471,261 @@ TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
 
     //string facet length is restricted to 100
     ASSERT_TRUE(100 == longStr.size());
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParent) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "value.color", "type": "string", "optional": false, "facet": true },
+          {"name": "value.r", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.g", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.b", "type": "int32", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "value": {
+            "color": "red",
+            "r": 255,
+            "g": 0,
+            "b": 0
+        }
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "value": {
+            "color": "blue",
+            "r": 0,
+            "g": 0,
+            "b": 255
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", {},"", {"value.color"},
+                                   {}, {2}, 10, 1,FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000*1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, VALUE, 30000,
+                                   2, "", {"value.color"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["parent"].dump());
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
+
+    //not passing facet_fields in facet_return_parent list will only return facet value, not immediate parent for those field
+    search_op = coll1->search("*", {},"", {"value.color"},
+                              {}, {2}, 10, 1,FREQUENCY, {true},
+                              1, spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(),10, "",
+                              30, 4, "",
+                              Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                              3, "<mark>", "</mark>", {},
+                              UINT32_MAX, true, false, true,
+                              "", false, 6000*1000, 4, 7,
+                              fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                              2, 2, false, "",
+                              true, 0, max_score, 100,
+                              0, 0, VALUE, 30000,
+                              2, "", {});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
+
+    search_op = coll1->search("*", {},"", {"value.color", "value.r"},
+                              {}, {2}, 10, 1,FREQUENCY, {true},
+                              1, spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(),10, "",
+                              30, 4, "",
+                              Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                              3, "<mark>", "</mark>", {},
+                              UINT32_MAX, true, false, true,
+                              "", false, 6000*1000, 4, 7,
+                              fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                              2, 2, false, "",
+                              true, 0, max_score, 100,
+                              0, 0, VALUE, 30000,
+                              2, "", {"value.r"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    results = search_op.get();
+    ASSERT_EQ(2, results["facet_counts"].size());
+
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
+
+    ASSERT_EQ(2, results["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][1]["counts"][0]["parent"].dump());
+    ASSERT_EQ("0", results["facet_counts"][1]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][1]["counts"][1]["parent"].dump());
+    ASSERT_EQ("255", results["facet_counts"][1]["counts"][1]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentDeepNested) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "product.specification.detail.width", "type": "int32", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+       "product" : {
+            "specification": {
+                "detail" : {
+                    "width": 25
+                }
+            }
+        }
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "product" : {
+            "specification": {
+                "detail" : {
+                    "width": 30
+                }
+            }
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", {},"", {"product.specification.detail.width"},
+                                   {}, {2}, 10, 1,FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000*1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, VALUE, 30000,
+                                   2, "", {"product.specification.detail.width"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":30}}}", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("30", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("{\"specification\":{\"detail\":{\"width\":25}}}", results["facet_counts"][0]["counts"][1]["parent"].dump());
+    ASSERT_EQ("25", results["facet_counts"][0]["counts"][1]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentObject) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "value", "type": "object", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "value": {
+            "color": "red",
+            "r": 255,
+            "g": 0,
+            "b": 0
+        }
+    })"_json;
+
+    nlohmann::json doc2 = R"({
+        "value": {
+            "color": "blue",
+            "r": 0,
+            "g": 0,
+            "b": 255
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", {},"", {"value.color"},
+                                   {}, {2}, 10, 1,FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "",{},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000*1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, VALUE, 30000,
+                                   2, "", {"value.color"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["parent"].dump());
+    ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, FacetSortByAlpha) {
@@ -1870,4 +2156,288 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortValidation) {
     ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("Oneplus 11R", results["facet_counts"][0]["counts"][1]["value"]);
     ASSERT_EQ("S22 Ultra", results["facet_counts"][0]["counts"][2]["value"]);
+
+    //facet sort with facet query should work
+    search_op = coll1->search("*", query_fields, "", {"phone(sort_by:_alpha:desc)"},
+                              sort_fields, {0}, 10, 1, FREQUENCY,{false},
+                              Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(),10, "phone: plus",
+                              30UL, 4UL,"", 1UL,
+                              "", "", {}, 3UL, "<mark>",
+                              "</mark>", {},4294967295UL, true,
+                              false, true, "", false, 6000000UL,
+                              4UL,7UL, fallback, 4UL, {off}, 32767UL,
+                              32767UL, 2UL, 2UL, false,
+                              "", true, 0UL, max_score, 100UL,
+                              0UL, 4294967295UL, VALUE);
+
+    results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Fusion Plus", results["facet_counts"][0]["counts"][0]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetQueryWithDifferentLocale) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "phone", "type": "string", "optional": false, "facet": true },
+          {"name": "brand", "type": "string", "optional": false, "facet": true },
+          {"name": "rating", "type": "float", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll1 = op.get();
+
+    nlohmann::json doc;
+    doc["phone"] = "çapeta";
+    doc["brand"] = "Samsung";
+    doc["rating"] = 4.1;
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["phone"] = "teléfono justo";
+    doc["brand"] = "Oneplus";
+    doc["rating"] = 4.6;
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", query_fields, "", {"phone(sort_by:_alpha:desc)"},
+                                   sort_fields, {0}, 10, 1, FREQUENCY,{false},
+                                   Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(),10, "phone: ç",
+                                   30UL, 4UL,"", 1UL,
+                                   "", "", {}, 3UL, "<mark>",
+                                   "</mark>", {},4294967295UL, true,
+                                   false, true, "", false, 6000000UL,
+                                   4UL,7UL, fallback, 4UL, {off}, 32767UL,
+                                   32767UL, 2UL, 2UL, false,
+                                   "", true, 0UL, max_score, 100UL,
+                                   0UL, 4294967295UL, VALUE);
+
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("çapeta", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("<mark>ç</mark>apeta", results["facet_counts"][0]["counts"][0]["highlighted"]);
+
+    search_op = coll1->search("*", query_fields, "", {"phone(sort_by:_alpha:desc)"},
+                              sort_fields, {0}, 10, 1, FREQUENCY,{false},
+                              Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>(),10, "phone: telé",
+                              30UL, 4UL,"", 1UL,
+                              "", "", {}, 3UL, "<mark>",
+                              "</mark>", {},4294967295UL, true,
+                              false, true, "", false, 6000000UL,
+                              4UL,7UL, fallback, 4UL, {off}, 32767UL,
+                              32767UL, 2UL, 2UL, false,
+                              "", true, 0UL, max_score, 100UL,
+                              0UL, 4294967295UL, VALUE);
+
+    results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("teléfono justo", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("<mark>telé</mark>fono justo", results["facet_counts"][0]["counts"][0]["highlighted"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, ValueIndexStatsMinMax) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("rating", field_types::FLOAT, true)};
+
+    std::vector<sort_by> sort_fields = {sort_by("rating", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "rating").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "The Shawshank Redemption";
+    doc["rating"] = 9.3;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "1";
+    doc["title"] = "The Godfather";
+    doc["rating"] = 9.2;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "2";
+    doc["title"] = "The Dark Knight";
+    doc["rating"] = 9;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "3";
+    doc["title"] = "Pulp Fiction";
+    doc["rating"] = 8.9;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "4";
+    doc["title"] = "Fight Club";
+    doc["rating"] = 8.8;
+
+    coll1->add(doc.dump());
+
+    std::vector<std::string> facets = {"rating"};
+
+    //limit max facets to 2
+    nlohmann::json results = coll1->search("*", {"title"}, "", facets, sort_fields, {0}, 10, 1,
+                                           token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 2,"",  30UL, 4UL,
+                                           "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {},
+                                           4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                           7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                           "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("9", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("9.2", results["facet_counts"][0]["counts"][1]["value"]);
+
+    //stats
+    ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(9.1, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(8.800000190734863, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(9.300000190734863, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(18.2, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(2, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+}
+
+TEST_F(CollectionOptimizedFacetingTest, StringFacetsCountListOrderTest) {
+    //check if count list is ordering facets
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("rating", field_types::FLOAT, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("rating", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "rating").get();
+    }
+
+    std::vector<std::string> titles {"The Shawshank Redemption", "The Godfather", "The Dark Knight"};
+    nlohmann::json doc;
+    int i = 0;
+    for(; i < 6; ++i) {
+        doc["id"] = std::to_string(i);
+        doc["title"] = titles[i%3];
+        doc["rating"] = 8.5;
+        coll1->add(doc.dump());
+    }
+
+    //add last title more
+    for(; i < 10; ++i) {
+        doc["id"] = std::to_string(i);
+        doc["title"] = titles[2];
+        doc["rating"] = 8.5;
+        coll1->add(doc.dump());
+    }
+
+    std::vector<std::string> facets = {"title"};
+
+    //limit max facets to 2
+    nlohmann::json results = coll1->search("*", {"title"}, "", facets, sort_fields, {0}, 10, 1,
+                                           token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 2,"",  30UL, 4UL,
+                                           "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {},
+                                           4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                           7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                           "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("The Dark Knight", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(6, results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("The Godfather", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][1]["count"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, StringFacetsCountListRemoveTest) {
+    //delete records and check if counts are updated
+
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("rating", field_types::FLOAT, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("rating", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "rating").get();
+    }
+
+    std::vector<std::string> titles {"The Shawshank Redemption", "The Godfather", "The Dark Knight"};
+    nlohmann::json doc;
+    int i = 0;
+    for(; i < 6; ++i) {
+        doc["id"] = std::to_string(i);
+        doc["title"] = titles[i%3];
+        doc["rating"] = 8.5;
+        coll1->add(doc.dump());
+    }
+
+    //add last title more
+    for(; i < 10; ++i) {
+        doc["id"] = std::to_string(i);
+        doc["title"] = titles[2];
+        doc["rating"] = 8.5;
+        coll1->add(doc.dump());
+    }
+
+    // remove first doc
+    coll1->remove("0");
+
+    std::vector<std::string> facets = {"title"};
+
+    // limit max facets to 2
+    nlohmann::json results = coll1->search("*", {"title"}, "", facets, sort_fields, {0}, 10, 1,
+                                           token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 2,"",  30UL, 4UL,
+                                           "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {},
+                                           4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                           7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                           "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("The Dark Knight", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(6, results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("The Godfather", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][1]["count"]);
+
+    // another collection with a single facet value
+    auto coll2 = collectionManager.create_collection("coll2", 4, fields, "rating").get();
+    doc["id"] = "0";
+    doc["title"] = titles[0];
+    doc["rating"] = 8.5;
+    coll2->add(doc.dump());
+
+    doc["id"] = "1";
+    coll2->add(doc.dump());
+
+    coll2->remove("0");
+    results = coll2->search("*", {"title"}, "", facets, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 2,"",  30UL, 4UL,
+                            "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {},
+                            4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                            7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                            "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("The Shawshank Redemption", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"]);
 }

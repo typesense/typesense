@@ -67,7 +67,9 @@ struct filter_node_t {
     filter_node_t* left = nullptr;
     filter_node_t* right = nullptr;
 
-    filter_node_t(filter filter_exp)
+    filter_node_t() = default;
+
+    explicit filter_node_t(filter filter_exp)
             : filter_exp(std::move(filter_exp)),
               isOperator(false),
               left(nullptr),
@@ -84,5 +86,26 @@ struct filter_node_t {
     ~filter_node_t() {
         delete left;
         delete right;
+    }
+
+    filter_node_t& operator=(filter_node_t&& obj) noexcept {
+        if (&obj == this) {
+            return *this;
+        }
+
+        if (obj.isOperator) {
+            isOperator = true;
+            filter_operator = obj.filter_operator;
+            left = obj.left;
+            right = obj.right;
+
+            obj.left = nullptr;
+            obj.right = nullptr;
+        } else {
+            isOperator = false;
+            filter_exp = obj.filter_exp;
+        }
+
+        return *this;
     }
 };
