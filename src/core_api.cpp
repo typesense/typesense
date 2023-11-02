@@ -2379,3 +2379,23 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     res->set_200(response.body);
     return true;
 }
+
+bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto click_events = AnalyticsManager::get_instance().get_click_events(req->params["collection"]);
+
+    if(click_events.empty()) {
+        return false;
+    }
+
+
+    nlohmann::json res_json, doc;
+    res_json["name"] = req->params["collection"];
+    res_json["click_events"] = nlohmann::json::array();
+    for(const auto& click_event : click_events) {
+        click_event.to_json(doc);
+        res_json["click_events"].push_back(doc);
+    }
+
+    res->set_200(res_json.dump());
+    return true;
+}

@@ -218,6 +218,28 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection, const
     }
 }
 
+void AnalyticsManager::add_click_event(const std::string &query_collection, const std::string &query,
+                                       uint64_t product_id, uint64_t position) {
+    std::unique_lock lock(mutex);
+    auto &click_events_set = query_collection_click_events[query_collection];
+
+    auto now_ts_seconds = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    ClickEvent click_event(query, now_ts_seconds, product_id, position);
+    click_events_set.insert(click_event);
+
+    if(store) {
+        const std::string key = std::string(CLICK_EVENT) + "_" + query_collection + "_" + std::to_string(now_ts_seconds);
+        nlohmann::json click_event_json;
+        click_event.to_json(click_event_json);
+        bool inserted = store->insert(key, click_event_json.dump());
+        if (!inserted) {
+            LOG(ERROR) << "Unable to insert clickevent into store.";
+        }
+    }
+}
+
 void AnalyticsManager::run(ReplicationState* raft_server) {
     uint64_t prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                                     std::chrono::system_clock::now().time_since_epoch()).count();
@@ -243,6 +265,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         }
 
         persist_suggestions(raft_server, prev_persistence_s);
+        persist_click_event(raft_server, prev_persistence_s);
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -317,6 +340,38 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
     }
 }
 
+void AnalyticsManager::persist_click_event(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+    // lock is held by caller
+    for (const auto &click_events_collection_it: query_collection_click_events) {
+        for (const auto &click_event: click_events_collection_it.second) {
+            // send http request
+            nlohmann::json click_event_json;
+            click_event.to_json(click_event_json);
+
+            const std::string import_payload = click_event_json.dump();
+            if(import_payload.empty()) {
+                continue;
+            }
+
+            std::string leader_url = raft_server->get_leader_url();
+            if (!leader_url.empty()) {
+                const std::string &base_url = leader_url + "collections/" + click_events_collection_it.first;
+                std::string res;
+
+                const std::string &update_url = base_url + "/clickevents";
+                std::map<std::string, std::string> res_headers;
+                long status_code = HttpClient::post_response(update_url, import_payload,
+                                                             res, res_headers, {}, 10 * 1000, true);
+
+                if (status_code != 200) {
+                    LOG(ERROR) << "Error while sending query suggestions events to leader. "
+                               << "Status code: " << status_code << ", response: " << res;
+                }
+            }
+        }
+    }
+}
+
 void AnalyticsManager::stop() {
     quit = true;
     cv.notify_all();
@@ -339,4 +394,13 @@ void AnalyticsManager::init(Store* store) {
 std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_queries() {
     std::unique_lock lk(mutex);
     return popular_queries;
+}
+
+std::set<ClickEvent> AnalyticsManager::get_click_events(const std::string& coll) {
+    std::unique_lock lk(mutex);
+    const auto it = query_collection_click_events.find(coll);
+    if(it == query_collection_click_events.end()) {
+        return {};
+    }
+    return it->second;
 }

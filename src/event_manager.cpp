@@ -47,6 +47,33 @@ bool EventManager::add_event(const nlohmann::json& event) {
                 std::string query = event_data_query_it.get<std::string>();
                 AnalyticsManager::get_instance().add_suggestion(coll.get<std::string>(), query, false, "");
             }
+        } else if(event_type == "query_click") {
+            if (!event.contains("data")) {
+                return false;
+            }
+
+            const auto &event_data_val = event[EVENT_DATA];
+
+            if (!event_data_val.is_object()) {
+                return false;
+            }
+
+            if (!event_data_val.contains("q") || !event_data_val.contains("product_id")
+                || !event_data_val.contains("position") || !event_data_val.contains("collection")) {
+                return false;
+            }
+
+            if (!event_data_val["q"].is_string() || !event_data_val["product_id"].is_number_unsigned()
+                || !event_data_val["position"].is_number_unsigned() || !event_data_val["collection"].is_string()) {
+                return false;
+            }
+
+            const std::string query = event_data_val["q"].get<std::string>();
+            uint64_t product_id = event_data_val["product_id"].get<uint64_t>();
+            uint64_t position = event_data_val["position"].get<uint64_t>();
+            const std::string& collection = event_data_val["collection"].get<std::string>();
+
+            AnalyticsManager::get_instance().add_click_event(collection, query, product_id, position);
         }
     }
 

@@ -7,6 +7,45 @@
 #include <unordered_map>
 #include <shared_mutex>
 
+struct ClickEvent {
+    std::string query;
+    uint64_t timestamp;
+    uint64_t product_id;
+    uint64_t position;
+
+    ClickEvent() = delete;
+
+    ~ClickEvent() = default;
+
+    ClickEvent(std::string q, uint64_t ts, uint64_t pid, uint64_t pos) {
+        query = q;
+        timestamp = ts;
+        product_id = pid;
+        position = pos;
+    }
+
+    ClickEvent& operator=(ClickEvent& other) {
+        if (this != &other) {
+            query = other.query;
+            timestamp = other.timestamp;
+            product_id = other.product_id;
+            position = other.position;
+            return *this;
+        }
+    }
+
+    void to_json(nlohmann::json& obj) const {
+        obj["query"] = query;
+        obj["timestamp"] = timestamp;
+        obj["product_id"] = product_id;
+        obj["position"] = position;
+    }
+
+    bool operator < (const ClickEvent& rhs) const {
+        return this->timestamp < rhs.timestamp;
+    }
+};
+
 class AnalyticsManager {
 private:
     mutable std::mutex mutex;
@@ -41,6 +80,9 @@ private:
     // suggestion collection => popular queries
     std::unordered_map<std::string, PopularQueries*> popular_queries;
 
+    //query collection => click events
+    std::unordered_map<std::string, std::set<ClickEvent>> query_collection_click_events;
+
     Store* store = nullptr;
 
     AnalyticsManager() {}
@@ -57,6 +99,7 @@ public:
 
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
+    static constexpr const char* CLICK_EVENT = "$CE";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -88,4 +131,11 @@ public:
     void persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     std::unordered_map<std::string, PopularQueries*> get_popular_queries();
+
+    void add_click_event(const std::string& query_collection, const std::string& query,
+                            uint64_t product_id, uint64_t position);
+
+    void persist_click_event(ReplicationState *raft_server, uint64_t prev_persistence_s);
+
+    std::set<ClickEvent> get_click_events(const std::string& name);
 };
