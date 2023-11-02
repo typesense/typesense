@@ -1487,6 +1487,108 @@ TEST_F(CollectionNestedFieldsTest, ExplicitSchemaForNestedArrayTypeValidation) {
               "Hint: field inside an array of objects must be an array type as well.", add_op.error());
 }
 
+TEST_F(CollectionNestedFieldsTest, OptionalNestedOptionalOjectArrStringField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"facet":true,"name":"data","optional":false,"type":"object"},
+          {"facet":false,"name":"data.locations.stateShort","optional":true,"type":"string[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+      "data": {
+        "locations": [
+          {
+            "stateShort": null
+          }
+        ]
+      }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc1 = R"({
+      "data": {
+        "locations": [
+          {
+            "stateShort": null
+          },
+          {
+            "stateShort": "NY"
+          }
+        ]
+      }
+    })"_json;
+
+    coll1->add(doc1.dump(), CREATE);
+
+    auto results = coll1->search("ny", {"data.locations.stateShort"},
+                                 "", {}, {}, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionNestedFieldsTest, OptionalNestedNonOptionalOjectArrStringField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"facet":true,"name":"data","type":"object"},
+          {"facet":false,"name":"data.locations.stateShort","type":"string[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+      "data": {
+        "locations": [
+          {
+            "stateShort": null
+          }
+        ]
+      }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `data.locations.stateShort` has been declared in the schema, but is not found in the document.",
+              add_op.error());
+
+    doc1 = R"({
+      "data": {
+        "locations": [
+          {
+            "stateShort": null
+          },
+          {
+            "stateShort": "NY"
+          }
+        ]
+      }
+    })"_json;
+
+    coll1->add(doc1.dump(), CREATE);
+
+    auto results = coll1->search("ny", {"data.locations.stateShort"},
+                                 "", {}, {}, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionNestedFieldsTest, SortByNestedField) {
     nlohmann::json schema = R"({
         "name": "coll1",
