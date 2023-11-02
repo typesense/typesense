@@ -2923,11 +2923,11 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
     ASSERT_TRUE(results.contains("conversation"));
     ASSERT_TRUE(results["conversation"].is_object());
     ASSERT_EQ("how many products are there for clothing category?", results["conversation"]["query"]);
-    ASSERT_EQ(0, results["conversation"]["conversation_id"]);
+    std::string conversation_id =  results["conversation"]["conversation_id"];
 
     
     // test getting conversation history
-    auto history_op = ConversationManager::get_conversation(0);
+    auto history_op = ConversationManager::get_conversation(conversation_id);
 
     ASSERT_TRUE(history_op.ok());
 

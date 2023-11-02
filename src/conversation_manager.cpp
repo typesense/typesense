@@ -2,13 +2,13 @@
 #include "logger.h"
 #include <chrono>
 
-
-Option<int> ConversationManager::create_conversation(const nlohmann::json& conversation) {
+Option<std::string> ConversationManager::create_conversation(const nlohmann::json& conversation) {
     std::unique_lock lock(conversations_mutex);
     if(!conversation.is_array()) {
-        return Option<int>(400, "Conversation is not an array");
+        return Option<std::string>(400, "Conversation is not an array");
     }
 
+    std::string conversation_id = sole::uuid4().str();
     auto conversation_key = get_conversation_key(conversation_id);
     nlohmann::json conversation_store_json;
     conversation_store_json["id"] = conversation_id;
@@ -17,16 +17,15 @@ Option<int> ConversationManager::create_conversation(const nlohmann::json& conve
     conversation_store_json["ttl"] = CONVERSATION_TTL;
     bool insert_op = store->insert(conversation_key, conversation_store_json.dump(0));
     if(!insert_op) {
-        return Option<int>(500, "Error while inserting conversation into the store");
+        return Option<std::string>(500, "Error while inserting conversation into the store");
     }
-    store->increment(std::string(CONVERSATION_NEXT_ID), 1);
 
     conversations[conversation_id] = conversation_store_json;
 
-    return Option<int>(conversation_id++);
+    return Option<std::string>(conversation_id);
 }
 
-Option<nlohmann::json> ConversationManager::get_conversation(int conversation_id) {
+Option<nlohmann::json> ConversationManager::get_conversation(const std::string& conversation_id) {
     std::shared_lock lock(conversations_mutex);
     auto conversation = conversations.find(conversation_id);
     if (conversation == conversations.end()) {
@@ -36,7 +35,7 @@ Option<nlohmann::json> ConversationManager::get_conversation(int conversation_id
     return Option<nlohmann::json>(conversation->second);
 }
 
-Option<bool> ConversationManager::append_conversation(int conversation_id, const nlohmann::json& message) {
+Option<bool> ConversationManager::append_conversation(const std::string& conversation_id, const nlohmann::json& message) {
     std::unique_lock lock(conversations_mutex);
     auto conversation_it = conversations.find(conversation_id);
     if (conversation_it == conversations.end()) {
@@ -96,7 +95,7 @@ Option<nlohmann::json> ConversationManager::truncate_conversation(nlohmann::json
     return Option<nlohmann::json>(conversation);
 }
 
-Option<nlohmann::json> ConversationManager::delete_conversation(int conversation_id) {
+Option<nlohmann::json> ConversationManager::delete_conversation(const std::string& conversation_id) {
     std::unique_lock lock(conversations_mutex);
     auto conversation = conversations.find(conversation_id);
     if (conversation == conversations.end()) {
@@ -135,17 +134,7 @@ Option<int> ConversationManager::init(Store* store) {
 
     std::unique_lock lock(conversations_mutex);
     ConversationManager::store = store;
-
-    std::string last_id_str;
-    StoreStatus last_id_str_status = store->get(std::string(CONVERSATION_NEXT_ID), last_id_str);
-
-    if(last_id_str_status == StoreStatus::ERROR) {
-        return Option<int>(500, "Error while loading conversations next id from the store");
-    } else if(last_id_str_status == StoreStatus::FOUND) {
-        conversation_id = StringUtils::deserialize_uint32_t(last_id_str);
-    } else {
-        conversation_id = 0;
-    }
+    
 
     std::vector<std::string> conversation_strs;
     store->scan_fill(std::string(CONVERSATION_RPEFIX) + "_", std::string(CONVERSATION_RPEFIX) + "`", conversation_strs);
@@ -165,8 +154,8 @@ Option<int> ConversationManager::init(Store* store) {
     return Option<int>(loaded_conversations);
 }   
 
-const std::string ConversationManager::get_conversation_key(int conversation_id) {
-    return std::string(CONVERSATION_RPEFIX) + "_" + std::to_string(conversation_id);
+const std::string ConversationManager::get_conversation_key(const std::string& conversation_id) {
+    return std::string(CONVERSATION_RPEFIX) + "_" + conversation_id;
 }
 
 void ConversationManager::clear_expired_conversations() {
@@ -175,7 +164,7 @@ void ConversationManager::clear_expired_conversations() {
     int cleared_conversations = 0;
 
     for(auto& conversation : conversations) {
-        int conversation_id = conversation.first;
+        const std::string& conversation_id = conversation.first;
         nlohmann::json conversation_json = conversation.second;
         if(conversation_json.count("last_updated") == 0 || conversation_json.count("ttl") == 0) {
             bool delete_op = store->remove(get_conversation_key(conversation_id));
@@ -211,7 +200,7 @@ Option<nlohmann::json> ConversationManager::update_conversation(nlohmann::json c
         return Option<nlohmann::json>(400, "Conversation is missing id");
     }
 
-    int conversation_id = conversation["id"];
+    const std::string& conversation_id = conversation["id"];
 
     auto conversation_it = conversations.find(conversation_id);
     if (conversation_it == conversations.end()) {

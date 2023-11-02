@@ -1246,7 +1246,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t facet_sample_threshold = 0;
 
     bool conversation = false;
-    size_t conversation_id = std::numeric_limits<size_t>::max();
+    std::string conversation_id;
     std::string system_prompt;
     size_t conversation_model_id = std::numeric_limits<size_t>::max();
 
@@ -1278,7 +1278,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
-        {CONVERSATION_ID, &conversation_id},
         {CONVERSATION_MODEL_ID, &conversation_model_id},
     };
 
@@ -1293,6 +1292,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {PINNED_HITS, &pinned_hits_str},
         {HIDDEN_HITS, &hidden_hits_str},
         {SYSTEM_PROMPT, &system_prompt},
+        {CONVERSATION_ID, &conversation_id},
         {DROP_TOKENS_MODE, &drop_tokens_mode_str},
     };
 
@@ -1514,7 +1514,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           conversation,
                                                           (conversation_model_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_model_id),
                                                           system_prompt,
-                                                          (conversation_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_id));
+                                                          conversation_id);
   
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

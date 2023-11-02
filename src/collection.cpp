@@ -1417,7 +1417,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const bool conversation,
                                   const int conversation_model_id,
                                   const std::string& system_prompt,
-                                  int conversation_id) const {
+                                  std::string conversation_id) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -1525,7 +1525,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
-    if(conversation_id >= 0) {
+    if(!conversation_id.empty()) {
         if(!conversation) {
             return Option<nlohmann::json>(400, "Conversation ID provided but conversation is not enabled for this collection.");
         }
@@ -2413,7 +2413,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
 
-        bool has_conversation_history = conversation_id >= 0;
+        bool has_conversation_history = !conversation_id.empty();
         auto qa_op = ConversationModel::get_answer(docs_array.dump(0), raw_query, system_prompt, conversation_model);
         if(!qa_op.ok()) {
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());

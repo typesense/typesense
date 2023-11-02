@@ -545,7 +545,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     
     if(conversation) {
         if(orig_req_params.find("q") == orig_req_params.end()) {
-            res->set_400("`q` parameter has to be common for all searches if conversation is enabled.");
+            res->set_400("`q` parameter has to be common for all searches if conversation is enabled. Please set `q` as a query parameter in the request, instead of inside the POST body");
             return false;
         }
 
@@ -568,12 +568,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         if(conversation_history) {
-            if(!StringUtils::is_uint32_t(orig_req_params["conversation_id"])) {
-                res->set_400("`conversation_id` is invalid.");
-                return false;
-            }
-
-            uint32_t conversation_id = std::stoul(orig_req_params["conversation_id"]);
+            std::string conversation_id = orig_req_params["conversation_id"];
 
             auto conversation_history = ConversationManager::get_conversation(conversation_id);
 
@@ -587,7 +582,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         if(conversation_history) {
             auto conversation_model_id = std::stoul(orig_req_params["conversation_model_id"]);
-            auto conversation_id = std::stoul(orig_req_params["conversation_id"]);
+            auto conversation_id = orig_req_params["conversation_id"];
             auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
             auto conversation_history = ConversationManager::get_conversation(conversation_id).get();
             auto generate_standalone_q = ConversationModel::get_standalone_question(conversation_history, common_query, conversation_model);
@@ -763,7 +758,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         if(conversation_history) {
             LOG(INFO) << "Appending to conversation history.";
-            uint32_t conversation_id = std::stoul(orig_req_params["conversation_id"]);
+            std::string conversation_id = orig_req_params["conversation_id"];
             ConversationManager::append_conversation(conversation_id, formatted_question_op.get());
             ConversationManager::append_conversation(conversation_id, formatted_answer_op.get());
             auto get_conversation_op = ConversationManager::get_conversation(conversation_id);
@@ -2607,11 +2602,7 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
 
 bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    if(!StringUtils::is_uint32_t(req->params["id"])) {
-        res->set_400("Invalid ID.");
-        return false;
-    }
-    const int conversation_id = std::stoi(req->params["id"]);
+    std::string conversation_id = req->params["id"];
 
     auto conversation_op = ConversationManager::get_conversation(conversation_id);
 
@@ -2626,11 +2617,7 @@ bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
 
 
 bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    if(!StringUtils::is_uint32_t(req->params["id"])) {
-        res->set_400("Invalid ID.");
-        return false;
-    }
-    const int conversation_id = std::stoi(req->params["id"]);
+    std::string conversation_id = req->params["id"];
 
     auto conversation_op = ConversationManager::delete_conversation(conversation_id);
 
@@ -2656,11 +2643,7 @@ bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_p
 }
 
 bool put_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    if(!StringUtils::is_uint32_t(req->params["id"])) {
-        res->set_400("Invalid ID.");
-        return false;
-    }
-    const int conversation_id = std::stoi(req->params["id"]);
+    std::string conversation_id = req->params["id"];
 
     nlohmann::json req_json;
 

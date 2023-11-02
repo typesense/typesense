@@ -27,7 +27,6 @@ TEST_F(ConversationTest, CreateConversation) {
     nlohmann::json conversation = nlohmann::json::array();
     auto create_res = ConversationManager::create_conversation(conversation);
     ASSERT_TRUE(create_res.ok());
-    ASSERT_EQ(create_res.get(), 0);
 }
 
 TEST_F(ConversationTest, CreateConversationInvalidType) {
@@ -39,7 +38,7 @@ TEST_F(ConversationTest, CreateConversationInvalidType) {
 }
 
 TEST_F(ConversationTest, GetInvalidConversation) {
-    auto get_res = ConversationManager::get_conversation(0);
+    auto get_res = ConversationManager::get_conversation("qwerty");
     ASSERT_FALSE(get_res.ok());
     ASSERT_EQ(get_res.code(), 404);
     ASSERT_EQ(get_res.error(), "Conversation not found");
@@ -53,17 +52,17 @@ TEST_F(ConversationTest, AppendConversation) {
     auto create_res = ConversationManager::create_conversation(conversation);
 
     ASSERT_TRUE(create_res.ok());
-    ASSERT_EQ(create_res.get(), 0);
+    std::string conversation_id = create_res.get();
 
-    auto append_res = ConversationManager::append_conversation(0, message);
+    auto append_res = ConversationManager::append_conversation(conversation_id, message);
     ASSERT_TRUE(append_res.ok());
     ASSERT_EQ(append_res.get(), true);
     
-    auto get_res = ConversationManager::get_conversation(0);
+    auto get_res = ConversationManager::get_conversation(conversation_id);
 
     ASSERT_TRUE(get_res.ok());
     ASSERT_TRUE(get_res.get()["conversation"].is_array());
-    ASSERT_EQ(get_res.get()["id"], 0);
+    ASSERT_EQ(get_res.get()["id"], conversation_id);
     ASSERT_EQ(get_res.get()["conversation"].size(), 2);
     ASSERT_EQ(get_res.get()["conversation"][0]["user"], "Hello");
     ASSERT_EQ(get_res.get()["conversation"][1]["user"], "Hello");
@@ -77,11 +76,11 @@ TEST_F(ConversationTest, AppendInvalidConversation) {
     auto create_res = ConversationManager::create_conversation(conversation);
 
     ASSERT_TRUE(create_res.ok());
-    ASSERT_EQ(create_res.get(), 0);
+    std::string conversation_id = create_res.get();
 
     message = "invalid";
 
-    auto append_res = ConversationManager::append_conversation(0, message);
+    auto append_res = ConversationManager::append_conversation(conversation_id, message);
     ASSERT_FALSE(append_res.ok());
     ASSERT_EQ(append_res.code(), 400);
     ASSERT_EQ(append_res.error(), "Message is not an object or array");
@@ -91,24 +90,24 @@ TEST_F(ConversationTest, DeleteConversation) {
     nlohmann::json conversation = nlohmann::json::array();
     auto create_res = ConversationManager::create_conversation(conversation);
     ASSERT_TRUE(create_res.ok());
-    ASSERT_EQ(create_res.get(), 0);
+    std::string conversation_id = create_res.get();
 
-    auto delete_res = ConversationManager::delete_conversation(0);
+    auto delete_res = ConversationManager::delete_conversation(conversation_id);
     ASSERT_TRUE(delete_res.ok());
 
     auto delete_res_json = delete_res.get();
 
-    ASSERT_EQ(delete_res_json["id"], 0);
+    ASSERT_EQ(delete_res_json["id"], conversation_id);
     ASSERT_TRUE(delete_res_json["conversation"].is_array());
 
-    auto get_res = ConversationManager::get_conversation(0);
+    auto get_res = ConversationManager::get_conversation(conversation_id);
     ASSERT_FALSE(get_res.ok());
     ASSERT_EQ(get_res.code(), 404);
     ASSERT_EQ(get_res.error(), "Conversation not found");
 }
 
 TEST_F(ConversationTest, DeleteInvalidConversation) {
-    auto delete_res = ConversationManager::delete_conversation(0);
+    auto delete_res = ConversationManager::delete_conversation("qwerty");
     ASSERT_FALSE(delete_res.ok());
     ASSERT_EQ(delete_res.code(), 404);
     ASSERT_EQ(delete_res.error(), "Conversation not found");
@@ -151,20 +150,20 @@ TEST_F(ConversationTest, TestConversationExpire) {
     auto create_res = ConversationManager::create_conversation(conversation);
 
     ASSERT_TRUE(create_res.ok());
-    ASSERT_EQ(create_res.get(), 0);
+    std::string conversation_id = create_res.get();
     
     ConversationManager::clear_expired_conversations();
 
-    auto get_res = ConversationManager::get_conversation(0);
+    auto get_res = ConversationManager::get_conversation(conversation_id);
     ASSERT_TRUE(get_res.ok());
     ASSERT_TRUE(get_res.get()["conversation"].is_array());
-    ASSERT_EQ(get_res.get()["id"], 0);
+    ASSERT_EQ(get_res.get()["id"], conversation_id);
     ASSERT_EQ(get_res.get()["conversation"].size(), 1);
 
     ConversationManager::_set_ttl_offset(24 * 60 * 60 * 2);
     ConversationManager::clear_expired_conversations();
 
-    get_res = ConversationManager::get_conversation(0);
+    get_res = ConversationManager::get_conversation(conversation_id);
     ASSERT_FALSE(get_res.ok());
     ASSERT_EQ(get_res.code(), 404);
     ASSERT_EQ(get_res.error(), "Conversation not found");
