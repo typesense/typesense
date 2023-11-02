@@ -523,14 +523,14 @@ public:
                                   const size_t remote_embedding_num_tries = 2,
                                   const std::string& stopwords_set="",
                                   const std::vector<std::string>& facet_return_parent = {},
-                                  const bool converstaion = false,
-                                  const int conversation_model_id = -1,
-                                  const std::string& system_prompt = "",
-                                  int conversation_id = -1,
                                   const std::vector<ref_include_fields>& ref_include_fields_vec = {},
                                   const std::string& drop_tokens_mode = "right_to_left",
                                   const bool prioritize_num_matching_fields = true,
-                                  const bool group_missing_values = true) const;
+                                  const bool group_missing_values = true,
+                                  const bool converstaion = false,
+                                  const int conversation_model_id = -1,
+                                  const std::string& system_prompt = "",
+                                  int conversation_id = -1) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

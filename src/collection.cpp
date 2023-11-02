@@ -1409,15 +1409,15 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_tries,
                                   const std::string& stopwords_set,
-                                  const std::vector<std::string>& facet_return_parent,=
-                                  const bool conversation,
-                                  const int conversation_model_id,
-                                  const std::string& system_prompt,
-                                  int conversation_id,
+                                  const std::vector<std::string>& facet_return_parent,
                                   const std::vector<ref_include_fields>& ref_include_fields_vec,
                                   const std::string& drop_tokens_mode,
                                   const bool prioritize_num_matching_fields,
-                                  const bool group_missing_values) const {
+                                  const bool group_missing_values,
+                                  const bool conversation,
+                                  const int conversation_model_id,
+                                  const std::string& system_prompt,
+                                  int conversation_id) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars

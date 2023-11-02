@@ -1507,14 +1507,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           remote_embedding_num_tries,
                                                           stopwords_set,
                                                           facet_return_parent,
-                                                          conversation,
-                                                          (conversation_model_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_model_id),
-                                                          system_prompt,
-                                                          (conversation_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_id),
                                                           ref_include_fields_vec,
                                                           drop_tokens_mode_str,
                                                           prioritize_num_matching_fields,
-                                                          group_missing_values);
+                                                          group_missing_values,
+                                                          conversation,
+                                                          (conversation_model_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_model_id),
+                                                          system_prompt,
+                                                          (conversation_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_id));
   
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
