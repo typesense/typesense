@@ -10,6 +10,7 @@
 struct ClickEvent {
     std::string query;
     uint64_t timestamp;
+    std::string user_id;
     std::string doc_id;
     uint64_t position;
 
@@ -17,9 +18,10 @@ struct ClickEvent {
 
     ~ClickEvent() = default;
 
-    ClickEvent(std::string q, uint64_t ts, std::string id, uint64_t pos) {
+    ClickEvent(std::string q, uint64_t ts, std::string uid, std::string id, uint64_t pos) {
         query = q;
         timestamp = ts;
+        user_id = uid;
         doc_id = id;
         position = pos;
     }
@@ -28,6 +30,7 @@ struct ClickEvent {
         if (this != &other) {
             query = other.query;
             timestamp = other.timestamp;
+            user_id = other.user_id;
             doc_id = other.doc_id;
             position = other.position;
             return *this;
@@ -37,6 +40,7 @@ struct ClickEvent {
     void to_json(nlohmann::json& obj) const {
         obj["query"] = query;
         obj["timestamp"] = timestamp;
+        obj["user_id"] = user_id;
         obj["doc_id"] = doc_id;
         obj["position"] = position;
     }
@@ -80,6 +84,7 @@ private:
     std::unordered_map<std::string, std::vector<ClickEvent>> query_collection_click_events;
 
     Store* store = nullptr;
+    Store* analytics_store = nullptr;
 
     AnalyticsManager() {}
 
@@ -105,7 +110,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store);
+    void init(Store* store, Store* analytics_store);
 
     void run(ReplicationState* raft_server);
 
@@ -128,7 +133,7 @@ public:
 
     std::unordered_map<std::string, PopularQueries*> get_popular_queries();
 
-    void add_click_event(const std::string& query_collection, const std::string& query,
+    void add_click_event(const std::string& query_collection, const std::string& query, const std::string& user_id,
                             std::string doc_id, uint64_t position);
 
     void persist_click_event(ReplicationState *raft_server, uint64_t prev_persistence_s);

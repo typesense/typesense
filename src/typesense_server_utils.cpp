@@ -374,6 +374,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     std::string db_dir = config.get_data_dir() + "/db";
     std::string state_dir = config.get_data_dir() + "/state";
     std::string meta_dir = config.get_data_dir() + "/meta";
+    std::string analytics_dir = config.get_data_dir() + "/analytics";
 
     size_t thread_pool_size = config.get_thread_pool_size();
 
@@ -395,11 +396,14 @@ int run_server(const Config & config, const std::string & version, void (*master
     // meta DB for storing house keeping things
     Store meta_store(meta_dir, 24*60*60, 1024, false);
 
+    //analytics DB for storing query click events
+    Store analytics_store(analytics_dir, 24*60*60, 1024, false);
+
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
 
-    AnalyticsManager::get_instance().init(&store);
+    AnalyticsManager::get_instance().init(&store, &analytics_store);
 
     server = new HttpServer(
         version,

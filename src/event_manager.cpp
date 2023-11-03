@@ -58,22 +58,23 @@ bool EventManager::add_event(const nlohmann::json& event) {
                 return false;
             }
 
-            if (!event_data_val.contains("q") || !event_data_val.contains("doc_id")
+            if (!event_data_val.contains("q") || !event_data_val.contains("doc_id") || !event_data_val.contains("user_id")
                 || !event_data_val.contains("position") || !event_data_val.contains("collection")) {
                 return false;
             }
 
-            if (!event_data_val["q"].is_string() || !event_data_val["doc_id"].is_string()
+            if (!event_data_val["q"].is_string() || !event_data_val["doc_id"].is_string() || !event_data_val["user_id"].is_string()
                 || !event_data_val["position"].is_number_unsigned() || !event_data_val["collection"].is_string()) {
                 return false;
             }
 
             const std::string query = event_data_val["q"].get<std::string>();
+            const std::string user_id = event_data_val["user_id"].get<std::string>();
             const std::string doc_id = event_data_val["doc_id"].get<std::string>();
             uint64_t position = event_data_val["position"].get<uint64_t>();
             const std::string& collection = event_data_val["collection"].get<std::string>();
 
-            AnalyticsManager::get_instance().add_click_event(collection, query, doc_id, position);
+            AnalyticsManager::get_instance().add_click_event(collection, query, user_id, doc_id, position);
         }
     }
 

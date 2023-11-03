@@ -218,7 +218,7 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection, const
     }
 }
 
-void AnalyticsManager::add_click_event(const std::string &query_collection, const std::string &query,
+void AnalyticsManager::add_click_event(const std::string &query_collection, const std::string &query, const std::string &user_id,
                                        std::string doc_id, uint64_t position) {
     std::unique_lock lock(mutex);
     auto &click_events_vec = query_collection_click_events[query_collection];
@@ -226,7 +226,7 @@ void AnalyticsManager::add_click_event(const std::string &query_collection, cons
     auto now_ts_seconds = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
 
-    ClickEvent click_event(query, now_ts_seconds, doc_id, position);
+    ClickEvent click_event(query, now_ts_seconds, user_id, doc_id, position);
     click_events_vec.emplace_back(click_event);
 }
 
@@ -332,35 +332,40 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
 
 void AnalyticsManager::persist_click_event(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // lock is held by caller
+    nlohmann::json payload_json = nlohmann::json::array();
+
     for (const auto &click_events_collection_it: query_collection_click_events) {
+        auto collection_id = CollectionManager::get_instance().get_collection(
+                click_events_collection_it.first)->get_collection_id();
         for (const auto &click_event: click_events_collection_it.second) {
             // send http request
-            auto collection_id = CollectionManager::get_instance().get_collection(click_events_collection_it.first)->get_collection_id();
             nlohmann::json click_event_json;
             click_event.to_json(click_event_json);
             click_event_json["collection_id"] = std::to_string(collection_id);
+            payload_json.push_back(click_event_json);
+        }
+    }
 
-            const std::string import_payload = click_event_json.dump();
-            if(import_payload.empty()) {
-                continue;
-            }
+    if(payload_json.empty()) {
+        return;
+    }
 
-            std::string leader_url = raft_server->get_leader_url();
-            if (!leader_url.empty()) {
-                const std::string &base_url = leader_url + "analytics";
-                std::string res;
+    const std::string import_payload = payload_json.dump();
 
-                const std::string &update_url = base_url + "/click_events/replicate";
-                std::map<std::string, std::string> res_headers;
-                long status_code = HttpClient::post_response(update_url, import_payload,
-                                                             res, res_headers, {}, 10 * 1000, true);
+    std::string leader_url = raft_server->get_leader_url();
+    if (!leader_url.empty()) {
+        const std::string &base_url = leader_url + "analytics";
+        std::string res;
 
-                if (status_code != 200) {
-                    LOG(ERROR) << "Error while sending click events to leader. "
-                               << "Status code: " << status_code << ", response: " << res;
-                }
-            }
+        const std::string &update_url = base_url + "/click_events/replicate";
+        std::map<std::string, std::string> res_headers;
+        long status_code = HttpClient::post_response(update_url, import_payload,
+                                                     res, res_headers, {}, 10 * 1000, true);
 
+        if (status_code != 200) {
+            LOG(ERROR) << "Error while sending click events to leader. "
+                       << "Status code: " << status_code << ", response: " << res;
+        } else {
             query_collection_click_events.clear();
         }
     }
@@ -381,8 +386,9 @@ void AnalyticsManager::dispose() {
     popular_queries.clear();
 }
 
-void AnalyticsManager::init(Store* store) {
+void AnalyticsManager::init(Store* store, Store* analytics_store) {
     this->store = store;
+    this->analytics_store = analytics_store;
 }
 
 std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_queries() {
@@ -393,7 +399,7 @@ std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_q
 nlohmann::json AnalyticsManager::get_click_events() {
     std::unique_lock lk(mutex);
     std::vector<std::string> click_event_jsons;
-    store->scan_fill(std::string(CLICK_EVENT) + "_", std::string(CLICK_EVENT) + "`",
+    analytics_store->scan_fill(std::string(CLICK_EVENT) + "_", std::string(CLICK_EVENT) + "`",
                         click_event_jsons);
 
     nlohmann::json result_json = nlohmann::json::array();
@@ -405,15 +411,16 @@ nlohmann::json AnalyticsManager::get_click_events() {
     return result_json;
 }
 
-Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_event_json) {
-    auto collection_id = click_event_json["collection_id"].get<std::string>();
-    auto timestamp = click_event_json["timestamp"].get<uint64_t>();
-    const std::string key = std::string(CLICK_EVENT) + "_" + collection_id + "_" +
-                            std::to_string(timestamp);
-    bool inserted = store->insert(key, click_event_json.dump());
-    if (!inserted) {
-        return Option<bool>(500, "Unable to insert clickevent into store.");
+Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_event_jsons) {
+    for(const auto& click_event_json : click_event_jsons) {
+        auto collection_id = click_event_json["collection_id"].get<std::string>();
+        auto timestamp = click_event_json["timestamp"].get<uint64_t>();
+        const std::string key = std::string(CLICK_EVENT) + "_" + collection_id + "_" +
+                                std::to_string(timestamp);
+        bool inserted = analytics_store->insert(key, click_event_json.dump());
+        if (!inserted) {
+            return Option<bool>(500, "Unable to insert clickevent into store.");
+        }
     }
-
     return Option<bool>(true);
 }
