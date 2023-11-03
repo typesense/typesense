@@ -82,8 +82,9 @@ void master_server_routes() {
     server->post("/analytics/events", post_create_event);
 
     //collection based query click events
-    server->get("/collections/:collection/click_events", get_click_events);
-    server->post("/collections/:collection/click_events", post_create_event);
+    server->get("/analytics/click_events", get_click_events);
+    server->post("/analytics/click_events", post_create_event);
+    server->post("/analytics/click_events/replicate", post_replicate_click_event);
 
     // meta
     server->get("/metrics.json", get_metrics_json);

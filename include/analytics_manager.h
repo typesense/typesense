@@ -10,17 +10,17 @@
 struct ClickEvent {
     std::string query;
     uint64_t timestamp;
-    uint64_t product_id;
+    std::string doc_id;
     uint64_t position;
 
     ClickEvent() = delete;
 
     ~ClickEvent() = default;
 
-    ClickEvent(std::string q, uint64_t ts, uint64_t pid, uint64_t pos) {
+    ClickEvent(std::string q, uint64_t ts, std::string id, uint64_t pos) {
         query = q;
         timestamp = ts;
-        product_id = pid;
+        doc_id = id;
         position = pos;
     }
 
@@ -28,7 +28,7 @@ struct ClickEvent {
         if (this != &other) {
             query = other.query;
             timestamp = other.timestamp;
-            product_id = other.product_id;
+            doc_id = other.doc_id;
             position = other.position;
             return *this;
         }
@@ -37,12 +37,8 @@ struct ClickEvent {
     void to_json(nlohmann::json& obj) const {
         obj["query"] = query;
         obj["timestamp"] = timestamp;
-        obj["product_id"] = product_id;
+        obj["doc_id"] = doc_id;
         obj["position"] = position;
-    }
-
-    bool operator < (const ClickEvent& rhs) const {
-        return this->timestamp < rhs.timestamp;
     }
 };
 
@@ -81,7 +77,7 @@ private:
     std::unordered_map<std::string, PopularQueries*> popular_queries;
 
     //query collection => click events
-    std::unordered_map<std::string, std::set<ClickEvent>> query_collection_click_events;
+    std::unordered_map<std::string, std::vector<ClickEvent>> query_collection_click_events;
 
     Store* store = nullptr;
 
@@ -133,9 +129,11 @@ public:
     std::unordered_map<std::string, PopularQueries*> get_popular_queries();
 
     void add_click_event(const std::string& query_collection, const std::string& query,
-                            uint64_t product_id, uint64_t position);
+                            std::string doc_id, uint64_t position);
 
     void persist_click_event(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
-    std::set<ClickEvent> get_click_events(const std::string& name);
+    nlohmann::json get_click_events();
+
+    Option<bool> write_click_event_to_store(nlohmann::json& click_event_json);
 };

@@ -2381,21 +2381,29 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto click_events = AnalyticsManager::get_instance().get_click_events(req->params["collection"]);
+    auto click_events = AnalyticsManager::get_instance().get_click_events();
 
-    if(click_events.empty()) {
+    res->set_200(click_events.dump());
+    return true;
+}
+
+bool post_replicate_click_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
         return false;
     }
 
-
-    nlohmann::json res_json, doc;
-    res_json["name"] = req->params["collection"];
-    res_json["click_events"] = nlohmann::json::array();
-    for(const auto& click_event : click_events) {
-        click_event.to_json(doc);
-        res_json["click_events"].push_back(doc);
+    auto op = AnalyticsManager::get_instance().write_click_event_to_store(req_json);
+    if(!op.ok()) {
+        res->set_body(op.code(), op.error());
+        return false;
     }
 
-    res->set_200(res_json.dump());
+    res->set_200("ClickEvent wrote to DB.");
     return true;
 }
