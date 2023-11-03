@@ -147,6 +147,10 @@ private:
     /// collection_name -> field_name
     spp::sparse_hash_map<std::string, std::string> referenced_in;
 
+    /// Reference helper fields that are part of an object. The reference doc of these fields will be included in the
+    /// object rather than in the document.
+    tsl::htrie_set<char> object_reference_helper_fields;
+
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
@@ -208,7 +212,9 @@ private:
                                           const std::string& fallback_field_type,
                                           bool is_update,
                                           std::vector<field>& new_fields,
-                                          bool enable_nested_fields);
+                                          bool enable_nested_fields,
+                                          const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                          tsl::htrie_set<char>& object_reference_helper_fields);
 
     static bool facet_count_compare(const facet_count_t& a, const facet_count_t& b) {
         return std::tie(a.count, a.fhash) > std::tie(b.count, b.fhash);
@@ -397,9 +403,13 @@ public:
 
     tsl::htrie_map<char, field> get_embedding_fields_unsafe();
 
+    tsl::htrie_set<char> get_object_reference_helper_fields();
+
     std::string get_default_sorting_field();
 
-    Option<bool> add_reference_helper_fields(nlohmann::json& document);
+    static Option<bool> add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
+                                                    const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                                    tsl::htrie_set<char>& object_reference_helper_fields);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,

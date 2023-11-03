@@ -314,6 +314,14 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         if (tokens.size() < 2) {
             return Option<bool>(400, "Invalid reference `" + field_json[fields::reference].get<std::string>()  + "`.");
         }
+
+        tokens.clear();
+        StringUtils::split(field_json[fields::name].get<std::string>(), tokens, ".");
+
+        if (tokens.size() > 2) {
+            return Option<bool>(400, "`" + field_json[fields::name].get<std::string>() + "` field cannot have a reference."
+                                        " Only the top-level field of an object is allowed.");
+        }
     }
 
     the_fields.emplace_back(
