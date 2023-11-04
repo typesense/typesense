@@ -34,7 +34,10 @@ Option<std::string> ConversationModel::get_answer(const std::string& context, co
     
 
     const std::string& model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
-    const std::string& system_prompt = model_config["system_prompt"].get<std::string>(); 
+    std::string system_prompt = "";
+    if(model_config.count("system_prompt") != 0 && model_config["system_prompt"].is_string()) {
+        system_prompt = model_config["system_prompt"].get<std::string>();
+    }
 
     if(model_namespace == "openai") {
         return OpenAIConversationModel::get_answer(context, prompt, system_prompt, model_config);

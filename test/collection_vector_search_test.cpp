@@ -2906,7 +2906,7 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
     })"_json.dump());
 
     ASSERT_TRUE(add_op.ok());
-
+    
     auto results_op = coll->search("how many products are there for clothing category?", {"embedding"},
                                  "", {}, {}, {2}, 10,
                                  1, FREQUENCY, {true},
@@ -2935,7 +2935,7 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
 
     ASSERT_TRUE(history.is_object());
     ASSERT_TRUE(history.contains("conversation"));
-    ASSERT_TRUE(history["conversation"].is_array ());
+    ASSERT_TRUE(history["conversation"].is_array());
 
     ASSERT_EQ("how many products are there for clothing category?", history["conversation"][0]["user"]);
 }
