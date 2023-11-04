@@ -1416,7 +1416,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const bool group_missing_values,
                                   const bool conversation,
                                   const int conversation_model_id,
-                                  const std::string& system_prompt,
                                   std::string conversation_id) const {
     std::shared_lock lock(mutex);
 
@@ -2414,7 +2413,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
 
         bool has_conversation_history = !conversation_id.empty();
-        auto qa_op = ConversationModel::get_answer(docs_array.dump(0), raw_query, system_prompt, conversation_model);
+        auto qa_op = ConversationModel::get_answer(docs_array.dump(0), raw_query, conversation_model);
         if(!qa_op.ok()) {
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());
         }
@@ -2440,8 +2439,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
 
             auto conversation_history = get_conversation_op.get();
-
-            result["conversation"]["conversation_history"] = conversation_history;
+            if(exclude_fields.count("conversation_history") == 0) {
+                result["conversation"]["conversation_history"] = conversation_history;
+            }
             result["conversation"]["conversation_id"] = conversation_id;
         } else {
             nlohmann::json conversation_history = nlohmann::json::array();
@@ -2458,7 +2458,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
             }
 
-            result["conversation"]["conversation_history"] = get_conversation_op.get();
+            if(exclude_fields.count("conversation_history") == 0) {
+                result["conversation"]["conversation_history"] = get_conversation_op.get();
+            }
             result["conversation"]["conversation_id"] = create_conversation_op.get();
         }
     }
@@ -5813,6 +5815,10 @@ Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_
     for(auto& f_name: exclude_fields) {
         if(f_name == "out_of") {
             // `out_of` is strictly a meta-field, but we handle it since it's useful
+            continue;
+        }
+
+        if(f_name == "conversation_history") {
             continue;
         }
 

@@ -9,7 +9,7 @@
 class ConversationModel {
     public:
         virtual ~ConversationModel() {};
-        static Option<std::string> get_answer(const std::string& context, const std::string& prompt, const std::string& system_prompt, const nlohmann::json& model_config);
+        static Option<std::string> get_answer(const std::string& context, const std::string& prompt, const nlohmann::json& model_config);
         static Option<nlohmann::json> parse_conversation_history(const nlohmann::json& conversation, const nlohmann::json& model_config);
         static Option<bool> validate_model(const nlohmann::json& model_config);
         static Option<std::string> get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config);

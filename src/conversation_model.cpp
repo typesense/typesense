@@ -18,6 +18,10 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
         return Option<bool>(400, "Property `model_name` is not provided or not a string.");
     }
 
+    if(model_config.count("system_prompt") != 0 && !model_config["system_prompt"].is_string()) {
+        return Option<bool>(400, "Property `system_prompt` is not a string.");
+    }
+
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
     if(model_namespace == "openai") {
         return OpenAIConversationModel::validate_model(model_config);
@@ -26,11 +30,11 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
     return Option<bool>(400, "Model namespace `" + model_namespace + "` is not supported.");
 }
 
-Option<std::string> ConversationModel::get_answer(const std::string& context, const std::string& prompt, 
-                                        const std::string& system_prompt, const nlohmann::json& model_config) {
+Option<std::string> ConversationModel::get_answer(const std::string& context, const std::string& prompt, const nlohmann::json& model_config) {
     
 
-    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+    const std::string& model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+    const std::string& system_prompt = model_config["system_prompt"].get<std::string>(); 
 
     if(model_namespace == "openai") {
         return OpenAIConversationModel::get_answer(context, prompt, system_prompt, model_config);

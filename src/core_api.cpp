@@ -730,9 +730,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
 
         auto prompt = req->params["q"];
-        auto system_prompt = req->params["system_prompt"];
 
-        auto answer_op = ConversationModel::get_answer(result_docs.dump(0), prompt, system_prompt, conversation_model);
+        auto answer_op = ConversationModel::get_answer(result_docs.dump(0), prompt, conversation_model);
 
         if(!answer_op.ok()) {
             res->set_400(answer_op.error());
@@ -756,8 +755,11 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             return false;
         }
 
+        std::vector<std::string> exclude_fields;
+        StringUtils::split(req->params["exclude_fields"], exclude_fields, ","); 
+        bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
+
         if(conversation_history) {
-            LOG(INFO) << "Appending to conversation history.";
             std::string conversation_id = orig_req_params["conversation_id"];
             ConversationManager::append_conversation(conversation_id, formatted_question_op.get());
             ConversationManager::append_conversation(conversation_id, formatted_answer_op.get());
@@ -768,8 +770,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
 
             auto conversation_history = get_conversation_op.get();
-
-            response["conversation"]["conversation_history"] = conversation_history;
+            if(!exclude_conversation_history) {
+                response["conversation"]["conversation_history"] = conversation_history;
+            }
             response["conversation"]["conversation_id"] = conversation_id;
         } else {
             nlohmann::json conversation_history = nlohmann::json::array();
@@ -787,8 +790,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 res->set_400(get_conversation_op.error());
                 return false;
             }
-
-            response["conversation"]["conversation_history"] = get_conversation_op.get();
+            if(!exclude_conversation_history) {
+                response["conversation"]["conversation_history"] = get_conversation_op.get();
+            }
             response["conversation"]["conversation_id"] = create_conversation_op.get();
         }
 

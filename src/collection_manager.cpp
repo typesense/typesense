@@ -1247,7 +1247,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     bool conversation = false;
     std::string conversation_id;
-    std::string system_prompt;
     size_t conversation_model_id = std::numeric_limits<size_t>::max();
 
     std::string drop_tokens_mode_str = "right_to_left";
@@ -1291,7 +1290,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {HIGHLIGHT_END_TAG, &highlight_end_tag},
         {PINNED_HITS, &pinned_hits_str},
         {HIDDEN_HITS, &hidden_hits_str},
-        {SYSTEM_PROMPT, &system_prompt},
         {CONVERSATION_ID, &conversation_id},
         {DROP_TOKENS_MODE, &drop_tokens_mode_str},
     };
@@ -1513,7 +1511,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           group_missing_values,
                                                           conversation,
                                                           (conversation_model_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_model_id),
-                                                          system_prompt,
                                                           conversation_id);
   
 
