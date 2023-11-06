@@ -116,6 +116,9 @@ private:
 
     std::map<std::string, override_t> overrides;
 
+    // maps tag name => override_ids
+    std::map<std::string, std::set<std::string>> override_tags;
+
     std::string default_sorting_field;
 
     const float max_memory_ratio;
@@ -175,7 +178,21 @@ private:
 
     void process_remove_field_for_embedding_fields(const field& del_field, std::vector<field>& garbage_embed_fields);
 
+    bool does_override_match(const override_t& override, std::string& query,
+                             std::set<uint32_t>& excluded_set,
+                             string& actual_query, const string& filter_query,
+                             bool already_segmented,
+                             const std::set<std::string>& tags,
+                             const std::map<size_t, std::vector<std::string>>& pinned_hits,
+                             const std::vector<std::string>& hidden_hits,
+                             std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                             std::vector<uint32_t>& excluded_ids,
+                             std::vector<const override_t*>& filter_overrides,
+                             bool& filter_curated_hits,
+                             std::string& curated_sort_by) const;
+
     void curate_results(string& actual_query, const string& filter_query, bool enable_overrides, bool already_segmented,
+                        const std::set<std::string>& tags,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
@@ -529,7 +546,8 @@ public:
                                   const bool group_missing_values = true,
                                   const bool converstaion = false,
                                   const int conversation_model_id = -1,
-                                  std::string conversation_id = "") const;
+                                  std::string conversation_id = "",
+                                  const std::string& override_tags_str = "") const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

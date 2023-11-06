@@ -729,8 +729,90 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     return num_indexed;
 }
 
+bool Collection::does_override_match(const override_t& override, std::string& query,
+                                     std::set<uint32_t>& excluded_set,
+                                     string& actual_query, const string& filter_query,
+                                     bool already_segmented,
+                                     const std::set<std::string>& tags,
+                                     const std::map<size_t, std::vector<std::string>>& pinned_hits,
+                                     const std::vector<std::string>& hidden_hits,
+                                     std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                                     std::vector<uint32_t>& excluded_ids,
+                                     std::vector<const override_t*>& filter_overrides,
+                                     bool& filter_curated_hits,
+                                     std::string& curated_sort_by) const {
+
+    auto now_epoch = int64_t(std::time(0));
+    if(override.effective_from_ts != -1 && now_epoch < override.effective_from_ts) {
+        return false;
+    }
+
+    if(override.effective_to_ts != -1 && now_epoch > override.effective_to_ts) {
+        return false;
+    }
+
+    // ID-based overrides are applied first as they take precedence over filter-based overrides
+    if(!override.filter_by.empty()) {
+        filter_overrides.push_back(&override);
+    }
+
+    bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
+                            !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
+
+    bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.normalized_query == query) ||
+                       (override.rule.match == override_t::MATCH_CONTAINS &&
+                        StringUtils::contains_word(query, override.rule.normalized_query));
+
+    if(!filter_by_match && !query_match) {
+        return false;
+    }
+
+    if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
+        return false;
+    }
+
+    // have to ensure that dropped hits take precedence over added hits
+    for(const auto & hit: override.drop_hits) {
+        Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
+        if(seq_id_op.ok()) {
+            excluded_ids.push_back(seq_id_op.get());
+            excluded_set.insert(seq_id_op.get());
+        }
+    }
+
+    for(const auto & hit: override.add_hits) {
+        Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
+        if(!seq_id_op.ok()) {
+            continue;
+        }
+        uint32_t seq_id = seq_id_op.get();
+        bool excluded = (excluded_set.count(seq_id) != 0);
+        if(!excluded) {
+            included_ids.emplace_back(seq_id, hit.position);
+        }
+    }
+
+    if(!override.replace_query.empty()) {
+        actual_query = override.replace_query;
+    } else if(override.remove_matched_tokens && override.filter_by.empty()) {
+        // don't prematurely remove tokens from query because dynamic filtering will require them
+        StringUtils::replace_all(query, override.rule.normalized_query, "");
+        StringUtils::trim(query);
+        if(query.empty()) {
+            query = "*";
+        }
+
+        actual_query = query;
+    }
+
+    filter_curated_hits = override.filter_curated_hits;
+    curated_sort_by = override.sort_by;
+    return true;
+}
+
 void Collection::curate_results(string& actual_query, const string& filter_query,
                                 bool enable_overrides, bool already_segmented,
+                                const std::set<std::string>& tags,
                                 const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                 const std::vector<std::string>& hidden_hits,
                                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
@@ -754,7 +836,6 @@ void Collection::curate_results(string& actual_query, const string& filter_query
         }
     }
 
-
     if(enable_overrides && !overrides.empty()) {
         std::string query;
 
@@ -767,73 +848,93 @@ void Collection::curate_results(string& actual_query, const string& filter_query
             query = StringUtils::join(tokens, " ");
         }
 
-        for(const auto& override_kv: overrides) {
-            const auto& override = override_kv.second;
+        if(!tags.empty()) {
+            bool all_tags_found = false;
+            std::set<std::string> found_overrides;
+            if(tags.size() > 1) {
+                // check for AND match only when multiple tags are sent
+                const auto& tag = *tags.begin();
+                auto override_ids_it = override_tags.find(tag);
+                if (override_ids_it != override_tags.end()) {
+                    const auto &override_ids = override_ids_it->second;
+                    for(const auto& id: override_ids) {
+                        auto override_it = overrides.find(id);
+                        if(override_it == overrides.end()) {
+                            continue;
+                        }
 
-            auto now_epoch = int64_t(std::time(0));
-            if(override.effective_from_ts != -1 && now_epoch < override.effective_from_ts) {
-                continue;
-            }
+                        const auto& override = override_it->second;
 
-            if(override.effective_to_ts != -1 && now_epoch > override.effective_to_ts) {
-                continue;
-            }
+                        if(override.tags == tags) {
+                            bool match_found = does_override_match(override, query, excluded_set, actual_query,
+                                                                   filter_query, already_segmented, tags,
+                                                                   pinned_hits, hidden_hits, included_ids,
+                                                                   excluded_ids, filter_overrides, filter_curated_hits,
+                                                                   curated_sort_by);
 
-            // ID-based overrides are applied first as they take precedence over filter-based overrides
-            if(!override.filter_by.empty()) {
-                filter_overrides.push_back(&override);
-            }
-
-            bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
-                                   !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
-
-            bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.normalized_query == query) ||
-                   (override.rule.match == override_t::MATCH_CONTAINS &&
-                    StringUtils::contains_word(query, override.rule.normalized_query));
-
-            if (filter_by_match || query_match) {
-                if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
-                    continue;
-                }
-
-                // have to ensure that dropped hits take precedence over added hits
-                for(const auto & hit: override.drop_hits) {
-                    Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
-                    if(seq_id_op.ok()) {
-                        excluded_ids.push_back(seq_id_op.get());
-                        excluded_set.insert(seq_id_op.get());
+                            if(match_found) {
+                                all_tags_found = true;
+                                found_overrides.insert(id);
+                                if(override.stop_processing) {
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
+            }
 
-                for(const auto & hit: override.add_hits) {
-                    Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
-                    if(!seq_id_op.ok()) {
+            if(!all_tags_found) {
+                // check for partial tag matches
+                for(const auto& tag: tags) {
+                    auto override_ids_it = override_tags.find(tag);
+                    if (override_ids_it == override_tags.end()) {
                         continue;
                     }
-                    uint32_t seq_id = seq_id_op.get();
-                    bool excluded = (excluded_set.count(seq_id) != 0);
-                    if(!excluded) {
-                        included_ids.emplace_back(seq_id, hit.position);
+
+                    const auto &override_ids = override_ids_it->second;
+
+                    for(const auto& id: override_ids) {
+                        if(found_overrides.count(id) != 0) {
+                            continue;
+                        }
+                        auto override_it = overrides.find(id);
+                        if (override_it == overrides.end()) {
+                            continue;
+                        }
+
+                        const auto& override = override_it->second;
+                        std::set<std::string> matching_tags;
+                        std::set_intersection(override.tags.begin(), override.tags.end(),
+                                              tags.begin(), tags.end(),
+                                              std::inserter(matching_tags, matching_tags.begin()));
+
+                        if(matching_tags.empty()) {
+                            continue;
+                        }
+
+                        bool match_found = does_override_match(override, query, excluded_set, actual_query,
+                                                               filter_query, already_segmented, tags,
+                                                               pinned_hits, hidden_hits, included_ids,
+                                                               excluded_ids, filter_overrides, filter_curated_hits,
+                                                               curated_sort_by);
+
+                        if(match_found) {
+                            found_overrides.insert(id);
+                            if(override.stop_processing) {
+                                break;
+                            }
+                        }
                     }
                 }
-
-                if(!override.replace_query.empty()) {
-                    actual_query = override.replace_query;
-                } else if(override.remove_matched_tokens && override.filter_by.empty()) {
-                    // don't prematurely remove tokens from query because dynamic filtering will require them
-                    StringUtils::replace_all(query, override.rule.normalized_query, "");
-                    StringUtils::trim(query);
-                    if(query.empty()) {
-                        query = "*";
-                    }
-
-                    actual_query = query;
-                }
-
-                filter_curated_hits = override.filter_curated_hits;
-                curated_sort_by = override.sort_by;
-
-                if(override.stop_processing) {
+            }
+        } else {
+            for(const auto& override_kv: overrides) {
+                const auto& override = override_kv.second;
+                bool match_found = does_override_match(override, query, excluded_set, actual_query, filter_query,
+                                                       already_segmented, tags, pinned_hits, hidden_hits, included_ids,
+                                                       excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
+                if(match_found && override.stop_processing) {
                     break;
                 }
             }
@@ -1416,7 +1517,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const bool group_missing_values,
                                   const bool conversation,
                                   const int conversation_model_id,
-                                  std::string conversation_id) const {
+                                  std::string conversation_id,
+                                  const std::string& override_tags_str) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -1862,8 +1964,17 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<const override_t*> filter_overrides;
     bool filter_curated_hits = false;
     std::string curated_sort_by;
-    curate_results(query, filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
-                   included_ids, excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
+    std::set<std::string> override_tag_set;
+
+    std::vector<std::string> override_tags_vec;
+    StringUtils::split(override_tags_str, override_tags_vec, ",");
+    for(const auto& tag: override_tags_vec) {
+        override_tag_set.insert(tag);
+    }
+
+    curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
+                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_overrides, filter_curated_hits,
+                   curated_sort_by);
 
     if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
         // When query param has explicit value set, override level configuration takes lower precedence.
@@ -4009,7 +4120,21 @@ Option<uint32_t> Collection::add_override(const override_t & override, bool writ
     }
 
     std::unique_lock lock(mutex);
+
+    if(overrides.count(override.id) != 0 && !overrides[override.id].tags.empty()) {
+        // remove existing tags
+        for(auto& tag: overrides[override.id].tags) {
+            if(override_tags.count(tag) != 0) {
+                override_tags[tag].erase(override.id);
+            }
+        }
+    }
+
     overrides[override.id] = override;
+    for(const auto& tag: override.tags) {
+        override_tags[tag].insert(override.id);
+    }
+
     return Option<uint32_t>(200);
 }
 
@@ -4021,7 +4146,14 @@ Option<uint32_t> Collection::remove_override(const std::string & id) {
         }
 
         std::unique_lock lock(mutex);
+        for(const auto& tag: overrides[id].tags) {
+            if(override_tags.count(tag) != 0) {
+                override_tags[tag].erase(id);
+            }
+        }
+
         overrides.erase(id);
+
         return Option<uint32_t>(200);
     }
 

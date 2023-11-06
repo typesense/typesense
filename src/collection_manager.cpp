@@ -1123,6 +1123,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *DROP_TOKENS_MODE = "drop_tokens_mode";
     const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
+    const char *OVERRIDE_TAGS = "override_tags";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -1251,6 +1252,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     std::string drop_tokens_mode_str = "right_to_left";
     bool prioritize_num_matching_fields = true;
+    std::string override_tags;
 
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
@@ -1292,6 +1294,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {HIDDEN_HITS, &hidden_hits_str},
         {CONVERSATION_ID, &conversation_id},
         {DROP_TOKENS_MODE, &drop_tokens_mode_str},
+        {OVERRIDE_TAGS, &override_tags},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -1511,8 +1514,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           group_missing_values,
                                                           conversation,
                                                           (conversation_model_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_model_id),
-                                                          conversation_id);
-  
+                                                          conversation_id,
+                                                          override_tags);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

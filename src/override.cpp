@@ -101,6 +101,20 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         }
     }
 
+    if(override_json.count("tags") != 0) {
+        if(!override_json["tags"].is_array()) {
+            return Option<bool>(400, "The `tags` value must be an array of strings.");
+        }
+
+        for(const auto& tag: override_json["tags"]) {
+            if(!tag.is_string()) {
+                return Option<bool>(400, "The `tags` value must be an array of strings.");
+            }
+
+            override.tags.insert(tag.get<std::string>());
+        }
+    }
+
     if(!id.empty()) {
         override.id = id;
     } else if(override_json.count("id") != 0) {
@@ -250,6 +264,10 @@ nlohmann::json override_t::to_json() const {
 
     if(!replace_query.empty()) {
         override["replace_query"] = replace_query;
+    }
+
+    if(!tags.empty()) {
+        override["tags"] = tags;
     }
 
     if(effective_from_ts != -1) {
