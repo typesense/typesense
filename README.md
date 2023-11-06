@@ -130,6 +130,10 @@ Linux (x86_64 & arm64) and Mac (x86_64).
 
 <a href="https://cloud.typesense.org"><img src="assets/deploy_with_typesense_cloud.svg?raw=true" alt="Deploy with Typesense Cloud" height="60" /></a> 
 
+**Option 4:** Deploy as a fully managed instance on [Elestio](https://elest.io/) with just few clicks. Elestio takes care of configurations, updates, backups and security for you!
+
+[![Deploy](https://pub-da36157c854648669813f3f76c526c2b.r2.dev/deploy-on-elestio-black.png)](https://elest.io/open-source/typesense)
+
 ## Quick Start
 
 Here's a quick example showcasing how you can create a collection, index a document and search it on Typesense.
