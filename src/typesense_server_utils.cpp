@@ -441,7 +441,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
     TextEmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
-    auto conversations_init = ConversationManager::init(&meta_store);
+    auto conversations_init = ConversationManager::init(&store);
 
     if(!conversations_init.ok()) {
         LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
@@ -449,7 +449,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Loaded " << conversations_init.get() << "(s) conversations.";
     }
 
-    auto conversation_models_init = ConversationModelManager::init(&meta_store);
+    auto conversation_models_init = ConversationModelManager::init(&store);
 
     if(!conversation_models_init.ok()) {
         LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
