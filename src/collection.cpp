@@ -20,6 +20,9 @@
 #include "vector_query_ops.h"
 #include "text_embedder_manager.h"
 #include "stopwords_manager.h"
+#include "conversation_model.h"
+#include "conversation_manager.h"
+#include "conversation_model_manager.h"
 #include "field.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
@@ -1512,8 +1515,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::string& drop_tokens_mode,
                                   const bool prioritize_num_matching_fields,
                                   const bool group_missing_values,
+                                  const bool conversation,
+                                  const int conversation_model_id,
+                                  std::string conversation_id,
                                   const std::string& override_tags_str) const {
-
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -1609,6 +1614,48 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     size_t num_embed_fields = 0;
     std::string query = raw_query;
 
+    if(conversation) {
+        if(conversation_model_id == -1) {
+            return Option<nlohmann::json>(400, "Conversation is enabled but no conversation model ID is provided.");
+        }
+
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
+
+        if(!conversation_model_op.ok()) {
+            return Option<nlohmann::json>(400, conversation_model_op.error());
+        }
+    }
+
+    if(!conversation_id.empty()) {
+        if(!conversation) {
+            return Option<nlohmann::json>(400, "Conversation ID provided but conversation is not enabled for this collection.");
+        }
+
+        auto conversation_history_op = ConversationManager::get_conversation(conversation_id);
+        if(!conversation_history_op.ok()) {
+            return Option<nlohmann::json>(400, conversation_history_op.error());
+        }
+
+        auto conversation_history = conversation_history_op.get();
+
+        auto truncate_conversation_history = ConversationManager::truncate_conversation(conversation_history_op.get()["conversation"]);
+
+        conversation_history["conversation"] = truncate_conversation_history.get();
+       
+
+        if(!truncate_conversation_history.ok()) {
+            return Option<nlohmann::json>(400, truncate_conversation_history.error());
+        }
+
+        auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
+
+        auto standalone_question_op = ConversationModel::get_standalone_question(conversation_history, raw_query, conversation_model_op.get());
+        if(!standalone_question_op.ok()) {
+            return Option<nlohmann::json>(400, standalone_question_op.error());
+        }
+        query = standalone_question_op.get();
+    }
+
     for(size_t i = 0; i < raw_search_fields.size(); i++) {
         const std::string& field_name = raw_search_fields[i];
         if(field_name == "id") {
@@ -1683,7 +1730,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     }
                 }
 
-                std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + raw_query;
+                std::string embed_query = embedder_manager.get_query_prefix(search_field.embed[fields::model_config]) + query;
                 auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
                 if(!embedding_op.success) {
                     if(!embedding_op.error["error"].get<std::string>().empty()) {
@@ -1716,6 +1763,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         query = "*";
     }
 
+
     if(!vector_query.field_name.empty() && vector_query.values.empty() && num_embed_fields == 0) {
         std::string error = "Vector query could not find any embedded fields.";
         return Option<nlohmann::json>(400, error);
@@ -1725,7 +1773,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         std::string error = "Error, query_by_weights.size != query_by.size.";
         return Option<nlohmann::json>(400, error);
     }
-
 
     for(const auto& processed_search_field: processed_search_fields) {
         const auto& field_name = processed_search_field.name;
@@ -2227,6 +2274,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         index_symbols[uint8_t(c)] = 1;
     }
 
+    nlohmann::json docs_array = nlohmann::json::array();
+
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
@@ -2398,6 +2447,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
             }
 
+            if(conversation) {
+                docs_array.push_back(document);
+            }
+
             wrapper_doc["document"] = document;
             wrapper_doc["highlight"] = highlight_res;
 
@@ -2443,6 +2496,83 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 group_hits["found"] = itr->second;
             }
             result["grouped_hits"].push_back(group_hits);
+        }
+    }
+
+    if(conversation) {
+        result["conversation"] = nlohmann::json::object();
+        result["conversation"]["query"] = raw_query;
+
+        // remove all fields with vector type from docs_array
+        for(const auto& field : search_schema) {
+            if(field.type == field_types::FLOAT_ARRAY && field.num_dim > 0) {
+                for(auto& doc : docs_array) {
+                    doc.erase(field.name);
+                }
+            }
+        }
+
+        // remove document with lowest score until total tokens is less than MAX_TOKENS
+        while(ConversationManager::get_token_count(docs_array) > ConversationManager::MAX_TOKENS) {
+            try {
+                docs_array.erase(docs_array.size() - 1);
+            } catch(...) {
+                return Option<nlohmann::json>(400, "Failed to remove document from search results.");
+            }
+        }
+
+        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
+
+        bool has_conversation_history = !conversation_id.empty();
+        auto qa_op = ConversationModel::get_answer(docs_array.dump(0), raw_query, conversation_model);
+        if(!qa_op.ok()) {
+            return Option<nlohmann::json>(qa_op.code(), qa_op.error());
+        }
+        result["conversation"]["answer"] = qa_op.get();
+        result["conversation"]["conversation_id"] = conversation_id;
+
+        auto formatted_question_op = ConversationModel::format_question(raw_query, conversation_model);
+        if(!formatted_question_op.ok()) {
+            return Option<nlohmann::json>(formatted_question_op.code(), formatted_question_op.error());
+        }
+
+        auto formatted_answer_op = ConversationModel::format_answer(qa_op.get(), conversation_model);
+        if(!formatted_answer_op.ok()) {
+            return Option<nlohmann::json>(formatted_answer_op.code(), formatted_answer_op.error());
+        }
+
+        if(has_conversation_history) {
+            ConversationManager::append_conversation(conversation_id, formatted_question_op.get());
+            ConversationManager::append_conversation(conversation_id, formatted_answer_op.get());
+            auto get_conversation_op = ConversationManager::get_conversation(conversation_id);
+            if(!get_conversation_op.ok()) {
+                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
+            }
+
+            auto conversation_history = get_conversation_op.get();
+            if(exclude_fields.count("conversation_history") == 0) {
+                result["conversation"]["conversation_history"] = conversation_history;
+            }
+            result["conversation"]["conversation_id"] = conversation_id;
+        } else {
+            nlohmann::json conversation_history = nlohmann::json::array();
+            conversation_history.push_back(formatted_question_op.get());
+            conversation_history.push_back(formatted_answer_op.get());
+
+            auto create_conversation_op = ConversationManager::create_conversation(conversation_history);
+            if(!create_conversation_op.ok()) {
+                return Option<nlohmann::json>(create_conversation_op.code(), create_conversation_op.error());
+            }
+
+            auto get_conversation_op = ConversationManager::get_conversation(create_conversation_op.get());
+            if(!get_conversation_op.ok()) {
+                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
+            }
+
+            if(exclude_fields.count("conversation_history") == 0) {
+                result["conversation"]["conversation_history"] = get_conversation_op.get();
+            }
+            result["conversation"]["conversation_id"] = create_conversation_op.get();
         }
     }
 
@@ -5102,6 +5232,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                     embedding_fields.emplace(f.name, f);
                 }
 
+
                 if(f.nested && enable_nested_fields) {
                     updated_nested_fields.emplace(f.name, f);
 
@@ -5816,6 +5947,10 @@ Option<bool> Collection::populate_include_exclude_fields(const spp::sparse_hash_
     for(auto& f_name: exclude_fields) {
         if(f_name == "out_of") {
             // `out_of` is strictly a meta-field, but we handle it since it's useful
+            continue;
+        }
+
+        if(f_name == "conversation_history") {
             continue;
         }
 

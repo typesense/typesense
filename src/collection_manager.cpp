@@ -9,6 +9,7 @@
 #include "logger.h"
 #include "magic_enum.hpp"
 #include "stopwords_manager.h"
+#include "conversation_model.h"
 #include "field.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
@@ -1115,6 +1116,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_SAMPLE_PERCENT = "facet_sample_percent";
     const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
 
+    const char *CONVERSATION = "conversation";
+    const char *CONVERSATION_ID = "conversation_id";
+    const char *SYSTEM_PROMPT = "system_prompt";
+    const char *CONVERSATION_MODEL_ID = "conversation_model_id";
+
     const char *DROP_TOKENS_MODE = "drop_tokens_mode";
     const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
     const char *OVERRIDE_TAGS = "override_tags";
@@ -1236,13 +1242,18 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
-
+    
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
+
+    bool conversation = false;
+    std::string conversation_id;
+    size_t conversation_model_id = std::numeric_limits<size_t>::max();
 
     std::string drop_tokens_mode_str = "right_to_left";
     bool prioritize_num_matching_fields = true;
     std::string override_tags;
+
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -1268,6 +1279,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
+        {CONVERSATION_MODEL_ID, &conversation_model_id},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1280,6 +1292,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {HIGHLIGHT_END_TAG, &highlight_end_tag},
         {PINNED_HITS, &pinned_hits_str},
         {HIDDEN_HITS, &hidden_hits_str},
+        {CONVERSATION_ID, &conversation_id},
         {DROP_TOKENS_MODE, &drop_tokens_mode_str},
         {OVERRIDE_TAGS, &override_tags},
     };
@@ -1291,6 +1304,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
         {ENABLE_OVERRIDES, &enable_overrides},
         {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
+        {CONVERSATION, &conversation},
         {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
         {GROUP_MISSING_VALUES, &group_missing_values},
     };
@@ -1445,6 +1459,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
+
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, filter_query, facet_fields,
                                                           sort_fields, num_typos,
                                                           per_page,
@@ -1497,6 +1512,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           drop_tokens_mode_str,
                                                           prioritize_num_matching_fields,
                                                           group_missing_values,
+                                                          conversation,
+                                                          (conversation_model_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_model_id),
+                                                          conversation_id,
                                                           override_tags);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1654,6 +1672,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     if(!parse_op.ok()) {
         return Option<Collection*>(parse_op.code(), parse_op.error());
     }
+
 
     const auto created_at = static_cast<uint64_t>(std::time(nullptr));
 

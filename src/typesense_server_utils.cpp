@@ -23,6 +23,8 @@
 #include "file_utils.h"
 #include "threadpool.h"
 #include "stopwords_manager.h"
+#include "conversation_manager.h"
+#include "conversation_model_manager.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -439,6 +441,22 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
     TextEmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
+    auto conversations_init = ConversationManager::init(&store);
+
+    if(!conversations_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << conversations_init.get() << "(s) conversations.";
+    }
+
+    auto conversation_models_init = ConversationModelManager::init(&store);
+
+    if(!conversation_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << conversation_models_init.get() << "(s) conversation models.";
+    }
+
     // first we start the peering service
 
     ReplicationState replication_state(server, batch_indexer, &store,
@@ -459,6 +477,18 @@ int run_server(const Config & config, const std::string & version, void (*master
             AnalyticsManager::get_instance().run(&replication_state);
         });
 
+        std::thread conersation_garbage_collector_thread([]() {
+            LOG(INFO) << "Conversation garbage collector thread started.";
+            int last_clear_time = 0;
+            while(!brpc::IsAskedToQuit()) {
+                if(last_clear_time + 60 < std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) {
+                    last_clear_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                    ConversationManager::clear_expired_conversations();
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+            }
+        });
+          
         HouseKeeper::get_instance().init(config.get_housekeeping_interval());
         std::thread housekeeping_thread([]() {
             HouseKeeper::get_instance().run();
@@ -503,6 +533,10 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Shutting down replication_thread_pool.";
 
         replication_thread_pool.shutdown();
+
+        LOG(INFO) << "Shutting down conversation garbage collector thread.";
+
+        conersation_garbage_collector_thread.join();
 
         server->stop();
     });

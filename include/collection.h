@@ -317,7 +317,6 @@ private:
     Option<bool> get_related_ids(const std::string& ref_collection_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
 
-    static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
     void remove_embedding_field(const std::string& field_name);
 
@@ -348,6 +347,7 @@ public:
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
 
+    static constexpr const char* REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
     // methods
 
     Collection() = delete;
@@ -544,6 +544,9 @@ public:
                                   const std::string& drop_tokens_mode = "right_to_left",
                                   const bool prioritize_num_matching_fields = true,
                                   const bool group_missing_values = true,
+                                  const bool converstaion = false,
+                                  const int conversation_model_id = -1,
+                                  std::string conversation_id = "",
                                   const std::string& override_tags_str = "") const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
@@ -654,6 +657,8 @@ public:
                                            std::vector<uint32_t>& result) const;
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
+
+    static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
     friend class filter_result_iterator_t;
 };
