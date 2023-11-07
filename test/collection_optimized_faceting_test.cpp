@@ -1423,6 +1423,39 @@ TEST_F(CollectionOptimizedFacetingTest, FacetQueryTest) {
     ASSERT_EQ("<mark>a</mark>mazon <mark>green</mark>", results["facet_counts"][0]["counts"][0]["highlighted"]);
 }
 
+TEST_F(CollectionOptimizedFacetingTest, FacetQueryWithSymbols) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string", "facet": true}
+        ],
+        "symbols_to_index": ["[", "]"],
+        "token_separators": ["[", "]"]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::string> titles = {"Article 4", "Article 4[7]", "Article 4[11]", "Article 4[22][a]"};
+
+    for(size_t i = 0; i < titles.size(); i++) {
+        nlohmann::json doc;
+        doc["title"] = titles[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {},
+                                 "", {"title"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 5, "title:article 4[", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("<mark>Article</mark> <mark>4[</mark>7]", results["facet_counts"][0]["counts"][0]["highlighted"]);
+    ASSERT_EQ("<mark>Article</mark> <mark>4[</mark>11]", results["facet_counts"][0]["counts"][1]["highlighted"]);
+    ASSERT_EQ("<mark>Article</mark> <mark>4[</mark>22][a]", results["facet_counts"][0]["counts"][2]["highlighted"]);
+}
+
 TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
     std::vector<field> fields = {
             field("tags", field_types::STRING_ARRAY, true),
