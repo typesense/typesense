@@ -75,6 +75,8 @@ bool EventManager::add_event(const nlohmann::json& event) {
             const std::string& collection = event_data_val["collection"].get<std::string>();
 
             AnalyticsManager::get_instance().add_click_event(collection, query, user_id, doc_id, position);
+        } else {
+            return false;
         }
     }
 
