@@ -330,7 +330,9 @@ TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
     req->body = click_events.dump();
     ASSERT_TRUE(post_replicate_click_event(req, res));
 
-    auto result = analyticsManager.get_click_events();
+    auto result_op = analyticsManager.get_click_events();
+    ASSERT_TRUE(result_op.ok());
+    auto result = result_op.get();
 
     ASSERT_EQ("0", result[0]["collection_id"]);
     ASSERT_EQ("13", result[0]["data"]["user_id"]);

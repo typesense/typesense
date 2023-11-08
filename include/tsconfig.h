@@ -842,10 +842,6 @@ public:
             return Option<bool>(500, "API key is not specified.");
         }
 
-        if(analytics_dir.empty()) {
-            return Option<bool>(500, "Analytics Directory is not specified.");
-        }
-
         return Option<bool>(true);
     }
 

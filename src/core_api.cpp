@@ -2381,9 +2381,13 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto click_events = AnalyticsManager::get_instance().get_click_events();
+    auto click_events_op = AnalyticsManager::get_instance().get_click_events();
 
-    res->set_200(click_events.dump());
+    if(!click_events_op.ok()) {
+        res->set(click_events_op.code(), click_events_op.error());
+    }
+
+    res->set_200(click_events_op.get().dump());
     return true;
 }
 

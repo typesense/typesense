@@ -396,19 +396,24 @@ std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_q
     return popular_queries;
 }
 
-nlohmann::json AnalyticsManager::get_click_events() {
+Option<nlohmann::json> AnalyticsManager::get_click_events() {
     std::unique_lock lk(mutex);
     std::vector<std::string> click_event_jsons;
-    analytics_store->scan_fill(std::string(CLICK_EVENT) + "_", std::string(CLICK_EVENT) + "`",
-                        click_event_jsons);
+    if (analytics_store) {
+        analytics_store->scan_fill(std::string(CLICK_EVENT) + "_", std::string(CLICK_EVENT) + "`",
+                                   click_event_jsons);
+    } else {
+        return Option<nlohmann::json>(500, "Analytics DB not initialized.");
+    }
 
     nlohmann::json result_json = nlohmann::json::array();
-    for(const auto & click_event_json: click_event_jsons) {
+    for (const auto &click_event_json: click_event_jsons) {
         nlohmann::json click_event = nlohmann::json::parse(click_event_json);
         result_json.push_back(click_event);
     }
 
-    return result_json;
+
+    return Option<nlohmann::json>(result_json);
 }
 
 Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_event_jsons) {
@@ -417,9 +422,13 @@ Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_
         auto timestamp = click_event_json["timestamp"].get<uint64_t>();
         const std::string key = std::string(CLICK_EVENT) + "_" + collection_id + "_" +
                                 std::to_string(timestamp);
-        bool inserted = analytics_store->insert(key, click_event_json.dump());
-        if (!inserted) {
-            return Option<bool>(500, "Unable to insert clickevent into store.");
+        if(analytics_store) {
+            bool inserted = analytics_store->insert(key, click_event_json.dump());
+            if (!inserted) {
+                return Option<bool>(500, "Unable to insert clickevent into store.");
+            }
+        } else {
+            return Option<bool>(500, "Analytics DB not initialized.");
         }
     }
     return Option<bool>(true);

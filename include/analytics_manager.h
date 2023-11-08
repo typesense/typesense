@@ -138,7 +138,7 @@ public:
 
     void persist_click_event(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
-    nlohmann::json get_click_events();
+    Option<nlohmann::json> get_click_events();
 
     Option<bool> write_click_event_to_store(nlohmann::json& click_event_json);
 };
