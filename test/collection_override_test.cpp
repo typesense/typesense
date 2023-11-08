@@ -3339,10 +3339,10 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
        "id": "ov-1",
        "rule": {
             "query": "queryA",
-            "match": "exact"
+            "match": "exact",
+            "tags": ["alpha", "beta"]
         },
-        "filter_by": "category: kids",
-        "tags": ["alpha", "beta"]
+        "filter_by": "category: kids"
     })"_json;
 
     override_t override1;
@@ -3355,10 +3355,10 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
        "id": "ov-2",
        "rule": {
             "query": "queryA",
-            "match": "exact"
+            "match": "exact",
+            "tags": ["alpha"]
         },
-        "filter_by": "category: kitchen",
-        "tags": ["alpha"]
+        "filter_by": "category: kitchen"
     })"_json;
 
     override_t override2;
@@ -3475,10 +3475,10 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsPartialMatch) {
        "id": "ov-1",
        "rule": {
             "query": "queryA",
-            "match": "exact"
+            "match": "exact",
+            "tags": ["alpha", "beta"]
         },
-        "filter_by": "category: kids",
-        "tags": ["alpha", "beta"]
+        "filter_by": "category: kids"
     })"_json;
 
     override_t override1;
@@ -3491,10 +3491,10 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsPartialMatch) {
        "id": "ov-2",
        "rule": {
             "query": "queryB",
-            "match": "exact"
+            "match": "exact",
+            "tags": ["alpha"]
         },
-        "filter_by": "category: kitchen",
-        "tags": ["alpha"]
+        "filter_by": "category: kitchen"
     })"_json;
 
     override_t override2;
@@ -3554,12 +3554,12 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsWithoutStopProcessing) {
        "id": "ov-1",
        "rule": {
             "query": "queryA",
-            "match": "exact"
+            "match": "exact",
+            "tags": ["alpha", "beta"]
         },
         "stop_processing": false,
         "remove_matched_tokens": false,
-        "filter_by": "category: kids",
-        "tags": ["alpha", "beta"]
+        "filter_by": "category: kids"
     })"_json;
 
     override_t override1;
@@ -3572,12 +3572,12 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsWithoutStopProcessing) {
        "id": "ov-2",
        "rule": {
             "query": "queryA",
-            "match": "exact"
+            "match": "exact",
+            "tags": ["alpha"]
         },
         "stop_processing": false,
         "remove_matched_tokens": false,
-        "filter_by": "category: kitchen",
-        "tags": ["alpha"]
+        "filter_by": "category: kitchen"
     })"_json;
 
     override_t override2;

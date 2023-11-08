@@ -865,7 +865,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
                         const auto& override = override_it->second;
 
-                        if(override.tags == tags) {
+                        if(override.rule.tags == tags) {
                             bool match_found = does_override_match(override, query, excluded_set, actual_query,
                                                                    filter_query, already_segmented, tags,
                                                                    pinned_hits, hidden_hits, included_ids,
@@ -905,7 +905,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
                         const auto& override = override_it->second;
                         std::set<std::string> matching_tags;
-                        std::set_intersection(override.tags.begin(), override.tags.end(),
+                        std::set_intersection(override.rule.tags.begin(), override.rule.tags.end(),
                                               tags.begin(), tags.end(),
                                               std::inserter(matching_tags, matching_tags.begin()));
 
@@ -4121,9 +4121,9 @@ Option<uint32_t> Collection::add_override(const override_t & override, bool writ
 
     std::unique_lock lock(mutex);
 
-    if(overrides.count(override.id) != 0 && !overrides[override.id].tags.empty()) {
+    if(overrides.count(override.id) != 0 && !overrides[override.id].rule.tags.empty()) {
         // remove existing tags
-        for(auto& tag: overrides[override.id].tags) {
+        for(auto& tag: overrides[override.id].rule.tags) {
             if(override_tags.count(tag) != 0) {
                 override_tags[tag].erase(override.id);
             }
@@ -4131,7 +4131,7 @@ Option<uint32_t> Collection::add_override(const override_t & override, bool writ
     }
 
     overrides[override.id] = override;
-    for(const auto& tag: override.tags) {
+    for(const auto& tag: override.rule.tags) {
         override_tags[tag].insert(override.id);
     }
 
@@ -4146,7 +4146,7 @@ Option<uint32_t> Collection::remove_override(const std::string & id) {
         }
 
         std::unique_lock lock(mutex);
-        for(const auto& tag: overrides[id].tags) {
+        for(const auto& tag: overrides[id].rule.tags) {
             if(override_tags.count(tag) != 0) {
                 override_tags[tag].erase(id);
             }
