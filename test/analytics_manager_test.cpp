@@ -232,6 +232,7 @@ TEST_F(AnalyticsManagerTest, ClickEventsValidation) {
 
     req->body = event1.dump();
     ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"event_type click not found.\"}", res->body);
 
     //missing query param
     nlohmann::json event2 = R"({
@@ -246,6 +247,7 @@ TEST_F(AnalyticsManagerTest, ClickEventsValidation) {
 
     req->body = event2.dump();
     ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"event json data fields should contain `q`, `doc_id`, `position`, `user_id`, and `collection`.\"}", res->body);
 
     //should be string type
     nlohmann::json event3 = R"({
@@ -261,6 +263,7 @@ TEST_F(AnalyticsManagerTest, ClickEventsValidation) {
 
     req->body = event3.dump();
     ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"`doc_id` value should be string.\"}", res->body);
 
     //correct params
     nlohmann::json event4 = R"({
