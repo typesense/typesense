@@ -129,6 +129,17 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         if (a_field.is_reference_helper && a_field.is_array()) {
             auto num_tree = new num_tree_t;
             reference_index.emplace(a_field.name, num_tree);
+
+            if (a_field.nested) {
+                std::vector<std::string> keys;
+                StringUtils::split(a_field.name, keys, ".");
+
+                // `object_array_reference_index` only includes the reference fields that are part of an object array.
+                if (search_schema.count(keys[0]) != 0 && search_schema.at(keys[0]).is_array()) {
+                    auto index = new spp::sparse_hash_map<std::pair<uint32_t, uint32_t>, uint32_t, pair_hash>();
+                    object_array_reference_index.emplace(a_field.name, index);
+                }
+            }
         }
     }
 
@@ -216,6 +227,13 @@ Index::~Index() {
     }
 
     reference_index.clear();
+
+    for(auto & name_tree: object_array_reference_index) {
+        delete name_tree.second;
+        name_tree.second = nullptr;
+    }
+
+    object_array_reference_index.clear();
 }
 
 int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field) {
@@ -1008,8 +1026,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             // all other numerical arrays
             auto num_tree = afield.range_index ? nullptr : numerical_index.at(afield.name);
             auto trie = afield.range_index ? range_index.at(afield.name) : nullptr;
-            auto reference = afield.is_reference_helper ? reference_index.at(afield.name) : nullptr;
-            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree, trie, reference]
+            auto reference = reference_index.count(afield.name) != 0 ? reference_index.at(afield.name) : nullptr;
+            auto object_array_reference = object_array_reference_index.count(afield.name) != 0 ?
+                                                                object_array_reference_index.at(afield.name) : nullptr;
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree, trie, reference, object_array_reference]
                     (const index_record& record, uint32_t seq_id) {
                 for(size_t arr_i = 0; arr_i < record.doc[afield.name].size(); arr_i++) {
                     const auto& arr_value = record.doc[afield.name][arr_i];
@@ -1024,7 +1044,13 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     }
 
                     else if(afield.type == field_types::INT64_ARRAY) {
-                        const int64_t value = arr_value;
+                        int64_t value;
+                        if (object_array_reference != nullptr) { // arr_value is an array [object_index, value]
+                            value = arr_value.at(1);
+                        } else {
+                            value = arr_value;
+                        }
+
                         if (afield.range_index) {
                             trie->insert(value, seq_id);
                         } else {
@@ -1032,6 +1058,9 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         }
                         if (reference != nullptr) {
                             reference->insert(seq_id, value);
+                        }
+                        if (object_array_reference != nullptr) {
+                            (*object_array_reference)[std::make_pair(seq_id, arr_value.at(0))] = value;
                         }
                     }
 
@@ -1795,6 +1824,9 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         auto const& ref_index = *sort_index.at(reference_helper_field_name);
         for (uint32_t i = 0; i < count; i++) {
             auto& reference_doc_id = reference_docs[i];
+            if (ref_index.count(reference_doc_id) == 0) { // Reference field might be optional.
+                continue;
+            }
             auto doc_id = ref_index.at(reference_doc_id);
 
             id_pairs.emplace_back(std::pair(doc_id, reference_doc_id));
@@ -7114,6 +7146,23 @@ Option<bool> Index::get_related_ids(const std::string& collection_name, const st
         result.emplace_back(ids[i]);
     }
     delete [] ids;
+    return Option<bool>(true);
+}
+
+Option<bool> Index::get_object_array_related_id(const std::string& collection_name,
+                                                const std::string& field_name,
+                                                const uint32_t& seq_id, const uint32_t& object_index,
+                                                uint32_t& result) const {
+    std::shared_lock lock(mutex);
+    if (object_array_reference_index.count(field_name) == 0 || object_array_reference_index.at(field_name) == nullptr) {
+        return Option<bool>(404, "`" + field_name + "` not found in `" + collection_name +
+                                    ".object_array_reference_index`");
+    } else if (object_array_reference_index.at(field_name)->count({seq_id, object_index}) == 0) {
+        return Option<bool>(400, "Key `{" + std::to_string(seq_id) + ", " + std::to_string(object_index) + "}`"
+                                    " not found in `" + collection_name + ".object_array_reference_index`");
+    }
+
+    result = object_array_reference_index.at(field_name)->at({seq_id, object_index});
     return Option<bool>(true);
 }
 

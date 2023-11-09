@@ -320,9 +320,12 @@ private:
 
     Option<std::string> get_referenced_in_field(const std::string& collection_name) const;
 
-    Option<bool> get_related_ids(const std::string& ref_collection_name, const uint32_t& seq_id,
+    Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
 
+    Option<bool> get_object_array_related_id(const std::string& ref_field_name,
+                                             const uint32_t& seq_id, const uint32_t& object_index,
+                                             uint32_t& result) const;
 
     void remove_embedding_field(const std::string& field_name);
 
@@ -430,15 +433,15 @@ public:
 
     static void remove_reference_helper_fields(nlohmann::json& document);
 
-    static Option<bool> add_reference_fields(nlohmann::json& doc,
-                                             const std::string& ref_collection_name,
-                                             Collection *const ref_collection,
-                                             const std::string& alias,
-                                             const reference_filter_result_t& references,
-                                             const tsl::htrie_set<char>& ref_include_fields_full,
-                                             const tsl::htrie_set<char>& ref_exclude_fields_full,
-                                             const std::string& error_prefix, const bool& is_reference_array,
-                                             const bool& nest_ref_doc);
+    static Option<bool> include_references(nlohmann::json& doc,
+                                           const std::string& ref_collection_name,
+                                           Collection *const ref_collection,
+                                           const std::string& alias,
+                                           const reference_filter_result_t& references,
+                                           const tsl::htrie_set<char>& ref_include_fields_full,
+                                           const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                           const std::string& error_prefix, const bool& is_reference_array,
+                                           const bool& nest_ref_doc);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",

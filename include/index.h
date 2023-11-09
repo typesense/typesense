@@ -335,6 +335,13 @@ struct Hasher32 {
     size_t operator()(uint32_t k) const { return (k ^ 2166136261U)  * 16777619UL; }
 };
 
+struct pair_hash {
+    template <class T1, class T2>
+    std::size_t operator() (const std::pair<T1, T2> &pair) const {
+        return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
+    }
+};
+
 class Index {
 private:
     mutable std::shared_mutex mutex;
@@ -360,6 +367,10 @@ private:
     // reference_helper_field => (seq_id => ref_seq_ids)
     // Only used when the reference field is an array type otherwise sort_index is used.
     spp::sparse_hash_map<std::string, num_tree_t*> reference_index;
+
+    /// field_name => ((doc_id, object_index) => ref_doc_id)
+    /// Used when a field inside an object array has reference.
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::pair<uint32_t, uint32_t>, uint32_t, pair_hash>*> object_array_reference_index;
 
     spp::sparse_hash_map<std::string, NumericTrie*> range_index;
 
@@ -1025,6 +1036,11 @@ public:
     Option<bool> get_related_ids(const std::string& collection_name,
                                  const std::string& reference_helper_field_name,
                                  const uint32_t& seq_id, std::vector<uint32_t>& result) const;
+
+    Option<bool> get_object_array_related_id(const std::string& collection_name,
+                                             const std::string& reference_helper_field_name,
+                                             const uint32_t& seq_id, const uint32_t& object_index,
+                                             uint32_t& result) const;
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& collection_name,
                                                     const std::string& field_name,
