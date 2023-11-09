@@ -356,7 +356,6 @@ public:
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
 
-    static constexpr const char* REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
     // methods
 
     Collection() = delete;
