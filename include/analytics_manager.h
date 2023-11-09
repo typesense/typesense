@@ -47,15 +47,15 @@ struct ClickEvent {
 };
 
 struct event_cache_t {
-    uint64_t creation_time;
+    uint64_t last_update_time;
     uint64_t count;
 
     bool operator == (const event_cache_t& res) const {
-        return creation_time == res.creation_time;
+        return last_update_time == res.last_update_time;
     }
 
     bool operator != (const event_cache_t& res) const {
-        return creation_time != res.creation_time;
+        return last_update_time != res.last_update_time;
     }
 };
 
@@ -154,4 +154,6 @@ public:
     Option<nlohmann::json> get_click_events();
 
     Option<bool> write_click_event_to_store(nlohmann::json& click_event_json);
+
+    void resetRateLimit();
 };

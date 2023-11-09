@@ -8,7 +8,7 @@
 
 LRU::Cache<std::string, event_cache_t> events_cache;
 #define CLICK_EVENTS_RATE_LIMIT_SEC 60
-#define CLICK_EVENTS_RATE_LIMIT_COUNT 100
+#define CLICK_EVENTS_RATE_LIMIT_COUNT 5
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*
@@ -234,13 +234,14 @@ Option<bool> AnalyticsManager::add_click_event(const std::string &query_collecti
 
     if(events_cache_it != events_cache.end()) {
         //event found in events cache
-        if ((now_ts_seconds - events_cache_it->second.creation_time) < CLICK_EVENTS_RATE_LIMIT_SEC) {
+        if ((now_ts_seconds - events_cache_it->second.last_update_time) < CLICK_EVENTS_RATE_LIMIT_SEC) {
             if (events_cache_it->second.count >= CLICK_EVENTS_RATE_LIMIT_COUNT) {
                 return Option<bool>(500, "click event rate limit reached.");
             } else {
                 events_cache_it->second.count++;
             }
         } else {
+            events_cache_it->second.last_update_time = now_ts_seconds;
             events_cache_it->second.count = 1;
         }
     } else {
@@ -459,4 +460,8 @@ Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_
         }
     }
     return Option<bool>(true);
+}
+
+void AnalyticsManager::resetRateLimit() {
+    events_cache.clear();
 }

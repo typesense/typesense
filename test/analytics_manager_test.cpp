@@ -349,3 +349,40 @@ TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
     ASSERT_EQ(4, result[1]["data"]["position"]);
     ASSERT_EQ("technology", result[1]["data"]["q"]);
 }
+
+TEST_F(AnalyticsManagerTest, ClickEventsRateLimitTest) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json event = R"({
+        "type": "query_click",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 2,
+            "user_id": "13"
+        }
+    })"_json;
+
+    //reset the LRU cache to test the rate limit
+    analyticsManager.resetRateLimit();
+
+    req->body = event.dump();
+    for(auto i = 0; i < 5; ++i) {
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    //as rate limit is 5, adding one more event above that should trigger rate limit
+    ASSERT_FALSE(post_create_event(req, res));
+    ASSERT_EQ("{\"message\": \"click event rate limit reached.\"}", res->body);
+}
