@@ -130,13 +130,14 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
         // 5, 4, [4 -> 7]
         // 5, 4, [4 -> 7], 3
         // 5, [4 -> 7]
+        // [4 -> 5]
 
         // delete count map entry if `curr` is the anchor for `old_count`
         if(std::next(curr) == count_list.end() || std::next(curr)->count < old_count) {
             count_map.erase(old_count);
 
             // find a replacement for orig_count
-            if(std::prev(curr)->count == old_count) {
+            if(curr != count_list.begin() && std::prev(curr)->count == old_count) {
                 count_map.emplace(old_count, std::prev(curr));
             }
         }
@@ -148,8 +149,12 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
         // entry for new_count already exists in count map
         // a) 10, 7, [5 -> 7], 3
         //    10, 7, 5, [5 -> 7]
+        //    10, 7, 5, [5 -> 8]
         //    10, 7, [5 -> 7]
         //    10, 7, [5 -> 7], 5
+
+        //    [9 -> 8], 8
+        //    10, [9 -> 8], 8
 
         auto existing_node = count_map_it->second;
 
@@ -158,7 +163,7 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
             count_map.erase(old_count);
 
             // find a replacement for orig_count
-            if(std::prev(curr)->count == old_count) {
+            if(curr != count_list.begin() && std::prev(curr)->count == old_count) {
                 count_map.emplace(old_count, std::prev(curr));
             }
         }
@@ -172,6 +177,12 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
         //    10, [7 -> 9], 7
         //    10, 7, [5 -> 9], 3
 
+        //    [10 -> 9]
+        //    [5 -> 4], 2
+        //    [5 -> 1], 2
+        //    5, 5, [5 -> 4], 5
+        //    5, 5, 5, [5 -> 4]
+
         auto gt_node = count_map_it->second;
 
         // delete old entry if `orig_count` iterator is same as `curr`
@@ -179,7 +190,7 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
             count_map.erase(old_count);
 
             // find a replacement for orig_count
-            if(std::prev(curr)->count == old_count) {
+            if(curr != count_list.begin() && std::prev(curr)->count == old_count) {
                 count_map.emplace(old_count, std::prev(curr));
             }
         }

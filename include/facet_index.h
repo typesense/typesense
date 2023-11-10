@@ -160,7 +160,7 @@ public:
     static void update_count_nodes(std::list<facet_count_t>& count_list,
                             std::map<uint32_t, std::list<facet_count_t>::iterator>& count_map,
                             uint32_t old_count, uint32_t new_count,
-                            std::list<facet_count_t>::iterator& curr) ;
+                            std::list<facet_count_t>::iterator& curr);
 
     bool facet_value_exists(const std::string& field_name, const std::string& fvalue);
 };
