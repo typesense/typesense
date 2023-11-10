@@ -44,13 +44,13 @@
                 }
 #define FACET_INDEX_THRESHOLD 1000000000
 
-spp::sparse_hash_map<uint32_t, int64_t> Index::text_match_sentinel_value;
-spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
-spp::sparse_hash_map<uint32_t, int64_t> Index::eval_sentinel_value;
-spp::sparse_hash_map<uint32_t, int64_t> Index::geo_sentinel_value;
-spp::sparse_hash_map<uint32_t, int64_t> Index::str_sentinel_value;
-spp::sparse_hash_map<uint32_t, int64_t> Index::vector_distance_sentinel_value;
-spp::sparse_hash_map<uint32_t, int64_t> Index::vector_query_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::text_match_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::seq_id_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::eval_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::geo_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::str_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::vector_distance_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t, Hasher32> Index::vector_query_sentinel_value;
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
              SynonymIndex* synonym_index, ThreadPool* thread_pool,
@@ -100,7 +100,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
                 adi_tree_t* tree = new adi_tree_t();
                 str_sort_index.emplace(a_field.name, tree);
             } else if(a_field.type != field_types::GEOPOINT_ARRAY) {
-                spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
+                auto doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t, Hasher32>();
                 sort_index.emplace(a_field.name, doc_to_score);
             }
         }
@@ -1059,7 +1059,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
         // add numerical values automatically into sort index if sorting is enabled
         if(afield.is_num_sortable() && afield.type != field_types::GEOPOINT_ARRAY) {
-            spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = sort_index.at(afield.name);
+            auto doc_to_score = sort_index.at(afield.name);
 
             bool is_integer = afield.is_integer();
             bool is_float = afield.is_float();
@@ -1547,7 +1547,7 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                           const size_t max_candidates,
                                           int syn_orig_num_tokens,
                                           const int* sort_order,
-                                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                          std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                           const std::vector<size_t>& geopoint_indices,
                                           std::set<uint64>& query_hashes,
                                           std::vector<uint32_t>& id_buff, const std::string& collection_name) const {
@@ -1640,7 +1640,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
     long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
 
     int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
-    std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values;
+    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values;
     std::vector<size_t> geopoint_indices;
 
     populate_sort_mapping(sort_order, geopoint_indices, sort_fields, field_values);
@@ -2410,7 +2410,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     handle_exclusion(num_search_fields, field_query_tokens, the_fields, exclude_token_ids, exclude_token_ids_size);
 
     int sort_order[3];  // 1 or -1 based on DESC or ASC respectively
-    std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values;
+    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values;
     std::vector<size_t> geopoint_indices;
     populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
 
@@ -3425,7 +3425,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         size_t min_len_2typo,
                                         int syn_orig_num_tokens,
                                         const int* sort_order,
-                                        std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                        std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                         const std::vector<size_t>& geopoint_indices,
                                         const std::string& collection_name) const {
 
@@ -3835,7 +3835,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
                                          const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
                                          const std::unordered_set<uint32_t>& excluded_group_ids,
                                          const int* sort_order,
-                                         std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                          const std::vector<size_t>& geopoint_indices,
                                          std::vector<uint32_t>& id_buff,
                                          uint32_t*& all_result_ids, size_t& all_result_ids_len,
@@ -4160,7 +4160,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
 }
 
 Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
-                                        std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                                        std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                         const std::vector<size_t>& geopoint_indices,
                                         uint32_t seq_id, const std::map<basic_string<char>, reference_filter_result_t>& references,
                                         std::vector<uint32_t>& filter_indexes, int64_t max_field_match_score, int64_t* scores,
@@ -4170,7 +4170,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
     int64_t geopoint_distances[3];
 
     for(auto& i: geopoint_indices) {
-        spp::sparse_hash_map<uint32_t, int64_t>* geopoints = field_values[i];
+        auto geopoints = field_values[i];
         int64_t dist = INT32_MAX;
 
         S2LatLng reference_lat_lng;
@@ -4751,7 +4751,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
                                      const bool group_missing_values,
                                      Topster* actual_topster,
                                      const int sort_order[3],
-                                     std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                                     std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                      const std::vector<size_t>& geopoint_indices,
                                      const std::vector<uint32_t>& curated_ids_sorted,
                                      filter_result_iterator_t*& filter_result_iterator,
@@ -4951,7 +4951,7 @@ Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fie
                                       filter_result_iterator_t* const filter_result_iterator,
                                       std::set<uint64>& query_hashes,
                                       const int* sort_order,
-                                      std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                       const std::vector<size_t>& geopoint_indices,
                                       tsl::htrie_map<char, token_leaf>& qtoken_set,
                                       const std::string& collection_name) const {
@@ -4991,7 +4991,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                                     const std::vector<token_t>& query_tokens, Topster* actual_topster,
                                     filter_result_iterator_t* const filter_result_iterator,
                                     const int sort_order[3],
-                                    std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                     const std::vector<size_t>& geopoint_indices,
                                     const std::vector<uint32_t>& curated_ids_sorted,
                                     const std::unordered_set<uint32_t>& excluded_group_ids,
@@ -5369,7 +5369,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                                     filter_result_iterator_t* const filter_result_iterator,
                                     const size_t concurrency,
                                     const int* sort_order,
-                                    std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                     const std::vector<size_t>& geopoint_indices,
                                     const std::string& collection_name) const {
 
@@ -5527,7 +5527,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
 void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
                                   std::vector<sort_by>& sort_fields_std,
-                                  std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const {
+                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
     for (size_t i = 0; i < sort_fields_std.size(); i++) {
         if (!sort_fields_std[i].reference_collection_name.empty()) {
             auto& cm = CollectionManager::get_instance();
@@ -5538,7 +5538,7 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             std::vector<sort_by> ref_sort_fields_std;
             ref_sort_fields_std.emplace_back(sort_fields_std[i]);
             ref_sort_fields_std.front().reference_collection_name.clear();
-            std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> ref_field_values;
+            std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> ref_field_values;
             ref_collection->reference_populate_sort_mapping(ref_sort_order, ref_geopoint_indices,
                                                             ref_sort_fields_std, ref_field_values);
 
@@ -5602,7 +5602,7 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
 
 void Index::populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>& geopoint_indices,
                                             std::vector<sort_by>& sort_fields_std,
-                                            std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const {
+                                            std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const {
     std::shared_lock lock(mutex);
     populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
 }
@@ -5923,7 +5923,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           const std::vector<art_leaf *> &query_suggestion,
                           spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                           const uint32_t seq_id, const int sort_order[3],
-                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                          std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                           const std::vector<size_t>& geopoint_indices,
                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
                           const bool group_missing_values,
@@ -5936,7 +5936,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
     int64_t geopoint_distances[3];
 
     for(auto& i: geopoint_indices) {
-        spp::sparse_hash_map<uint32_t, int64_t>* geopoints = field_values[i];
+        auto geopoints = field_values[i];
         int64_t dist = INT32_MAX;
 
         S2LatLng reference_lat_lng;
@@ -6543,7 +6543,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
         if(new_field.is_sortable()) {
             if(new_field.is_num_sortable()) {
-                spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
+                auto doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t, Hasher32>();
                 sort_index.emplace(new_field.name, doc_to_score);
             } else if(new_field.is_str_sortable()) {
                 str_sort_index.emplace(new_field.name, new adi_tree_t);
