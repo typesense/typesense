@@ -59,9 +59,8 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
                 fis.facet_id = facet_id;
 
                 if(facet_index.has_value_index) {
-                    auto new_count = seq_ids.size();
                     fis.seq_ids = ids_t::create(seq_ids);
-
+                    auto new_count = ids_t::num_ids(fis.seq_ids);
                     auto& count_map = facet_index.count_map;
                     auto count_map_it = count_map.lower_bound(new_count);
 
@@ -227,7 +226,7 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
                 auto& count_list = facet_field_it->second.counts;
                 auto curr = facet_ids_seq_ids->second.facet_count_it;
                 auto old_count = curr->count;
-                curr->count--;
+                curr->count = ids_t::num_ids(ids);
                 auto new_count = curr->count;
 
                 // move the node lower in the count list
@@ -496,3 +495,30 @@ bool facet_index_t::facet_value_exists(const std::string& field_name, const std:
     const auto& facet_index = facet_field_map_it->second;
     return facet_index.fvalue_seq_ids.find(fvalue) != facet_index.fvalue_seq_ids.end();
 }
+
+size_t facet_index_t::facet_val_num_ids(const string &field_name, const string &fvalue) {
+    const auto facet_field_map_it = facet_field_map.find(field_name);
+    if(facet_field_map_it == facet_field_map.end()) {
+        return 0;
+    }
+
+    if(facet_field_map_it->second.fvalue_seq_ids.count(fvalue) == 0) {
+        return 0;
+    }
+
+    return ids_t::num_ids(facet_field_map_it->second.fvalue_seq_ids[fvalue].seq_ids);
+}
+
+size_t facet_index_t::facet_node_count(const string &field_name, const string &fvalue) {
+    const auto facet_field_map_it = facet_field_map.find(field_name);
+    if(facet_field_map_it == facet_field_map.end()) {
+        return 0;
+    }
+
+    if(facet_field_map_it->second.fvalue_seq_ids.count(fvalue) == 0) {
+        return 0;
+    }
+
+    return facet_field_map_it->second.fvalue_seq_ids[fvalue].facet_count_it->count;
+}
+

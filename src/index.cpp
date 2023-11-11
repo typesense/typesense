@@ -6525,6 +6525,10 @@ const spp::sparse_hash_map<std::string, hnsw_index_t*>& Index::_get_vector_index
     return vector_index;
 }
 
+facet_index_t* Index::_get_facet_index() const {
+    return facet_index_v4;
+}
+
 void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields) {
     std::unique_lock lock(mutex);
 

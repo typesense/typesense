@@ -608,6 +608,43 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCountsFloatPrecision) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOptimizedFacetingTest, FacetDeleteRepeatingValuesInArray) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("tags", field_types::STRING_ARRAY, true)};
+
+    std::vector<sort_by> sort_fields = {};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields).get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["tags"] = {"alpha", "beta", "alpha"};
+
+    coll1->add(doc.dump());
+
+    auto findex = coll1->_get_index()->_get_facet_index();
+    ASSERT_EQ(1, findex->facet_val_num_ids("tags", "alpha"));
+    ASSERT_EQ(1, findex->facet_node_count("tags", "alpha"));
+
+    doc["id"] = "1";
+    doc["tags"] = {"alpha"};
+    coll1->add(doc.dump());
+
+    coll1->remove("0");
+
+    ASSERT_EQ(1, findex->facet_val_num_ids("tags", "alpha"));
+    ASSERT_EQ(1, findex->facet_node_count("tags", "alpha"));
+
+    ASSERT_EQ(0, findex->facet_val_num_ids("tags", "beta"));
+    ASSERT_EQ(0, findex->facet_node_count("tags", "beta"));
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOptimizedFacetingTest, FacetStatOnFloatFields) {
     Collection *coll_float_fields;
 

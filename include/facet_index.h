@@ -163,4 +163,8 @@ public:
                             std::list<facet_count_t>::iterator& curr);
 
     bool facet_value_exists(const std::string& field_name, const std::string& fvalue);
+
+    size_t facet_val_num_ids(const std::string& field_name, const std::string& fvalue);
+
+    size_t facet_node_count(const std::string& field_name, const std::string& fvalue);
 };
