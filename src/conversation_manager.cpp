@@ -163,15 +163,15 @@ void ConversationManager::clear_expired_conversations() {
 
     int cleared_conversations = 0;
 
-    for(auto& conversation : conversations) {
-        const std::string& conversation_id = conversation.first;
-        nlohmann::json conversation_json = conversation.second;
+    for(auto it = conversations.begin(); it != conversations.end();) {
+        const std::string& conversation_id = it->first;
+        nlohmann::json conversation_json = it->second;
         if(conversation_json.count("last_updated") == 0 || conversation_json.count("ttl") == 0) {
             bool delete_op = store->remove(get_conversation_key(conversation_id));
             if(!delete_op) {
                 LOG(ERROR) << "Error while deleting conversation from the store";
             }
-            conversations.erase(conversation_id);
+            it = conversations.erase(it);
             cleared_conversations++;
             continue;   
         }
@@ -182,8 +182,10 @@ void ConversationManager::clear_expired_conversations() {
             if(!delete_op) {
                 LOG(ERROR) << "Error while deleting conversation from the store";
             }
-            conversations.erase(conversation_id);
+            it = conversations.erase(it);
             cleared_conversations++;
+        } else {
+            it++;
         }
     }
 
