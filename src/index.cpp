@@ -1301,7 +1301,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                       const size_t group_limit, const std::vector<std::string>& group_by_fields,
                       const bool group_missing_values,
                       const uint32_t* result_ids, size_t results_size, 
-                      int max_facet_count, bool is_wildcard_query, bool no_filters_provided,
+                      int max_facet_count, bool is_wildcard_no_filter_query,
                       facet_index_type_t facet_index_type) const {
 
     if(results_size == 0) {
@@ -1329,7 +1329,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             continue;
         }
 
-        bool is_wildcard_no_filter_query = is_wildcard_query && no_filters_provided;
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
 
 #ifdef TEST_BUILD
@@ -2422,9 +2421,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     auto is_wildcard_query = !field_query_tokens.empty() && !field_query_tokens[0].q_include_tokens.empty() &&
                              field_query_tokens[0].q_include_tokens[0].value == "*";
+
+    // phrase queries are handled as a filtering query
+    bool is_wildcard_non_phrase_query = is_wildcard_query && field_query_tokens[0].q_phrases.empty();
     
     bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator->is_valid);
-    
 
     // handle phrase searches
     if (!field_query_tokens[0].q_phrases.empty()) {
@@ -2451,7 +2452,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
     }
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
-    if (is_wildcard_query && field_query_tokens[0].q_phrases.empty()) {
+    if (is_wildcard_non_phrase_query) {
         if(no_filters_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
            sort_fields_std.size() == 1 && sort_fields_std[0].name == sort_field_const::seq_id &&
            sort_fields_std[0].order == sort_field_const::desc) {
@@ -3108,7 +3109,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     delete [] excluded_result_ids;
 
     bool estimate_facets = (facet_sample_percent < 100 && all_result_ids_len > facet_sample_threshold);
-    bool is_wildcard_no_filter_query = is_wildcard_query && no_filters_provided;
+    bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && no_filters_provided;
 
     if(!facets.empty()) {
         const size_t num_threads = 1;
@@ -3160,8 +3161,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             thread_pool->enqueue([this, thread_id, &facet_batches, &facet_query, group_limit, group_by_fields,
                                          batch_result_ids, batch_res_len, &facet_infos, max_facet_values,
-                                         is_wildcard_query, no_filters_provided, estimate_facets, facet_sample_percent, 
-                                         group_missing_values,
+                                         is_wildcard_no_filter_query, no_filters_provided, estimate_facets,
+                                         facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                                          &num_processed, &m_process, &cv_process, facet_index_type]() {
                 search_begin_us = parent_search_begin;
@@ -3172,9 +3173,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 std::vector<std::pair<std::string, uint32_t>> found_docs;
                 do_facets(facet_batches[thread_id], fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields, group_missing_values,
-                          batch_result_ids, batch_res_len, max_facet_values, 
-                          is_wildcard_query, no_filters_provided,
-                          facet_index_type);
+                          batch_result_ids, batch_res_len, max_facet_values,
+                          is_wildcard_no_filter_query, facet_index_type);
 
                 std::unique_lock<std::mutex> lock(m_process);
                 num_processed++;
@@ -3286,7 +3286,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         max_candidates, facet_infos, facet_index_type);
     do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
               facet_infos, group_limit, group_by_fields, group_missing_values, &included_ids_vec[0], 
-              included_ids_vec.size(), max_facet_values, is_wildcard_query, no_filters_provided,
+              included_ids_vec.size(), max_facet_values, is_wildcard_no_filter_query,
               facet_index_type);
 
     all_result_ids_len += curated_topster->size;
