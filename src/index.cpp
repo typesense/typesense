@@ -4252,6 +4252,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
     }
 
     const int64_t default_score = INT64_MIN;  // to handle field that doesn't exist in document (e.g. optional)
+    uint32_t ref_seq_id;
 
     // avoiding loop
     if (sort_fields.size() > 0) {
@@ -4267,7 +4268,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             // Joined on ref collection
             if (references.count(ref_collection_name) > 0) {
                 if (references.at(ref_collection_name).count == 1) {
-                    seq_id = references.at(ref_collection_name).docs[0];
+                    ref_seq_id = references.at(ref_collection_name).docs[0];
                 } else {
                     return Option<bool>(400, references.at(ref_collection_name).count > 1 ?
                                                 multiple_references_error_message : no_references_error_message);
@@ -4291,7 +4292,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                         return Option<bool>(400, "Could not find a reference for doc " + std::to_string(seq_id));
                     }
 
-                    seq_id = sort_index.at(field_name)->at(seq_id);
+                    ref_seq_id = sort_index.at(field_name)->at(seq_id);
                 }
                 // Joined collection has a reference
                 else {
@@ -4329,7 +4330,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                             return Option<bool>(op.code(), op.error());
                         }
 
-                        seq_id = op.get();
+                        ref_seq_id = op.get();
                     } else {
                         return Option<bool>(400, count > 1 ? multiple_references_error_message :
                                                                     no_references_error_message);
@@ -4356,7 +4357,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                                                 "` not found.");
                 }
 
-                scores[0] = ref_collection->reference_string_sort_score(sort_fields[0].name, seq_id);
+                scores[0] = ref_collection->reference_string_sort_score(sort_fields[0].name, ref_seq_id);
             }
 
             if(scores[0] == adi_tree_t::NOT_FOUND) {
@@ -4412,7 +4413,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 // do nothing
             }
         } else {
-            auto it = field_values[0]->find(seq_id);
+            auto it = field_values[0]->find(sort_fields[0].reference_collection_name.empty() ? seq_id : ref_seq_id);
             scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
 
             if(scores[0] == INT64_MIN && sort_fields[0].missing_values == sort_by::missing_values_t::first) {
@@ -4442,7 +4443,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             // Joined on ref collection
             if (references.count(ref_collection_name) > 0) {
                 if (references.at(ref_collection_name).count == 1) {
-                    seq_id = references.at(ref_collection_name).docs[0];
+                    ref_seq_id = references.at(ref_collection_name).docs[0];
                 } else {
                     return Option<bool>(400, references.at(ref_collection_name).count > 1 ?
                                              multiple_references_error_message : no_references_error_message);
@@ -4466,7 +4467,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                         return Option<bool>(400, "Could not find a reference for doc " + std::to_string(seq_id));
                     }
 
-                    seq_id = sort_index.at(field_name)->at(seq_id);
+                    ref_seq_id = sort_index.at(field_name)->at(seq_id);
                 }
                     // Joined collection has a reference
                 else {
@@ -4504,7 +4505,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                             return Option<bool>(op.code(), op.error());
                         }
 
-                        seq_id = op.get();
+                        ref_seq_id = op.get();
                     } else {
                         return Option<bool>(400, count > 1 ? multiple_references_error_message :
                                                  no_references_error_message);
@@ -4531,7 +4532,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                                              "` not found.");
                 }
 
-                scores[1] = ref_collection->reference_string_sort_score(sort_fields[1].name, seq_id);
+                scores[1] = ref_collection->reference_string_sort_score(sort_fields[1].name, ref_seq_id);
             }
 
             if(scores[1] == adi_tree_t::NOT_FOUND) {
@@ -4588,7 +4589,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             }
 
         } else {
-            auto it = field_values[1]->find(seq_id);
+            auto it = field_values[1]->find(sort_fields[1].reference_collection_name.empty() ? seq_id : ref_seq_id);
             scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
             if(scores[1] == INT64_MIN && sort_fields[1].missing_values == sort_by::missing_values_t::first) {
                 bool is_asc = (sort_order[1] == -1);
@@ -4614,7 +4615,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             // Joined on ref collection
             if (references.count(ref_collection_name) > 0) {
                 if (references.at(ref_collection_name).count == 1) {
-                    seq_id = references.at(ref_collection_name).docs[0];
+                    ref_seq_id = references.at(ref_collection_name).docs[0];
                 } else {
                     return Option<bool>(400, references.at(ref_collection_name).count > 1 ?
                                              multiple_references_error_message : no_references_error_message);
@@ -4638,7 +4639,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                         return Option<bool>(400, "Could not find a reference for doc " + std::to_string(seq_id));
                     }
 
-                    seq_id = sort_index.at(field_name)->at(seq_id);
+                    ref_seq_id = sort_index.at(field_name)->at(seq_id);
                 }
                     // Joined collection has a reference
                 else {
@@ -4676,7 +4677,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                             return Option<bool>(op.code(), op.error());
                         }
 
-                        seq_id = op.get();
+                        ref_seq_id = op.get();
                     } else {
                         return Option<bool>(400, count > 1 ? multiple_references_error_message :
                                                  no_references_error_message);
@@ -4703,7 +4704,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                                              "` not found.");
                 }
 
-                scores[2] = ref_collection->reference_string_sort_score(sort_fields[2].name, seq_id);
+                scores[2] = ref_collection->reference_string_sort_score(sort_fields[2].name, ref_seq_id);
             }
 
             if(scores[2] == adi_tree_t::NOT_FOUND) {
@@ -4759,7 +4760,7 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
                 // do nothing
             }
         } else {
-            auto it = field_values[2]->find(seq_id);
+            auto it = field_values[2]->find(sort_fields[2].reference_collection_name.empty() ? seq_id : ref_seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
             if(scores[2] == INT64_MIN && sort_fields[2].missing_values == sort_by::missing_values_t::first) {
                 bool is_asc = (sort_order[2] == -1);
