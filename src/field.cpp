@@ -347,9 +347,8 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         while(it != value.end()) {
             const std::string& child_field_name = flat_name + "." + it.key();
             if(it.value().is_null()) {
-                if(has_array) {
-                    doc[child_field_name].push_back(nullptr);
-                } else {
+                if(!has_array) {
+                    // we don't want to push null values into an array because that's not valid
                     doc[child_field_name] = nullptr;
                 }
 
