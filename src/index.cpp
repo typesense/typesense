@@ -6025,13 +6025,13 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
                 if (posting_t::num_ids(leaf->values) == 0) {
                     void* values = art_delete(search_index.at(field_name), key, key_len);
                     posting_t::destroy_list(values);
-                }
-            }
 
-            if(search_field.infix) {
-                auto strhash = StringUtils::hash_wy(key, token.size());
-                const auto& infix_sets = infix_index.at(search_field.name);
-                infix_sets[strhash % 4]->erase(token);
+                    if(search_field.infix) {
+                        auto strhash = StringUtils::hash_wy(key, token.size());
+                        const auto& infix_sets = infix_index.at(search_field.name);
+                        infix_sets[strhash % 4]->erase(token);
+                    }
+                }
             }
         }
     } else if(search_field.is_int32()) {
