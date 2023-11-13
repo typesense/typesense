@@ -359,10 +359,10 @@ Option<uint32_t> validator_t::coerce_int64_t(const DIRTY_VALUES& dirty_values, c
         item = std::atoll(item.get<std::string>().c_str());
     }
 
-    else if(is_array) {
-        if(!a_field.nested || !a_field.is_reference_helper || item.size() != 2 ||
-            !item.at(0).is_number() || !item.at(1).is_number()) {
-            return Option<>(400, "Expected `" + field_name + "` to be an object array reference helper field.");
+    else if(is_array && a_field.nested && a_field.is_reference_helper) {
+        if(item.size() != 2 || !item.at(0).is_number() || !item.at(1).is_number()) {
+            return Option<>(400, "`" + field_name + "` object array reference helper field has wrong value `"
+                                    + item.dump() + "`.");
         }
     }
 
