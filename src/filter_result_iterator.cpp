@@ -1779,6 +1779,11 @@ void filter_result_iterator_t::compute_result() {
             LOG(ERROR) << "result_index is not 0";
         }
 
+        if (result_index >= filter_result.count) {
+            is_valid = false;
+            LOG(ERROR) << "result_index is greater than filter_result.count";
+        }
+
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
