@@ -18,12 +18,12 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
             void* handle = dlopen("libonnxruntime_providers_shared.so", RTLD_NOW | RTLD_GLOBAL);
             if(!handle) {
                 LOG(INFO) << "ONNX shared libs: off";
+                // log error
                 continue;
             }
 
             dlclose(handle);
 
-            LOG(INFO) << "Using CUDAExecutionProvider";
             OrtCUDAProviderOptions cuda_options;
             session_options.AppendExecutionProvider_CUDA(cuda_options);
         }

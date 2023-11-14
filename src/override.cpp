@@ -28,6 +28,20 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
                                  "`filter_by`, `sort_by`, `remove_matched_tokens`, `replace_query`.");
     }
 
+    if(override_json["rule"].count("tags") != 0) {
+        if(!override_json["rule"]["tags"].is_array()) {
+            return Option<bool>(400, "The `tags` value must be an array of strings.");
+        }
+
+        for(const auto& tag: override_json["rule"]["tags"]) {
+            if(!tag.is_string()) {
+                return Option<bool>(400, "The `tags` value must be an array of strings.");
+            }
+
+            override.rule.tags.insert(tag.get<std::string>());
+        }
+    }
+
     if(override_json.count("includes") != 0) {
         if(!override_json["includes"].is_array()) {
             return Option<bool>(400, "The `includes` value must be an array.");
@@ -222,6 +236,10 @@ nlohmann::json override_t::to_json() const {
 
     if(!rule.filter_by.empty()) {
         override["rule"]["filter_by"] = rule.filter_by;
+    }
+
+    if(!rule.tags.empty()) {
+        override["rule"]["tags"] = rule.tags;
     }
 
     override["includes"] = nlohmann::json::array();

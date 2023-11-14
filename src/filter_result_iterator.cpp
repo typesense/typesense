@@ -1036,7 +1036,7 @@ void filter_result_iterator_t::init() {
             std::vector<uint32_t> exact_geo_result_ids;
 
             if (f.is_single_geopoint()) {
-                spp::sparse_hash_map<uint32_t, int64_t>* sort_field_index = index->sort_index.at(f.name);
+                auto sort_field_index = index->sort_index.at(f.name);
 
                 for (auto result_id : geo_result_ids) {
                     // no need to check for existence of `result_id` because of indexer based pre-filtering above

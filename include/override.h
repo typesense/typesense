@@ -13,6 +13,7 @@ struct override_t {
         std::string match;
         bool dynamic_query = false;
         std::string filter_by;
+        std::set<std::string> tags;
     };
 
     struct add_hit_t {

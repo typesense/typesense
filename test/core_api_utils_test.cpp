@@ -5,6 +5,8 @@
 #include <core_api.h>
 #include "core_api_utils.h"
 #include "raft_server.h"
+#include "conversation_model_manager.h"
+#include "conversation_manager.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -23,6 +25,9 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        ConversationModelManager::init(store);
+        ConversationManager::init(store);
     }
 
     virtual void SetUp() {
@@ -1193,6 +1198,139 @@ TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {
     ASSERT_EQ("Server error on remote server. Please try again later.", nlohmann::json::parse(resp->body)["message"]);
 }
 
+TEST_F(CoreAPIUtilsTest, TestGetConversations) {
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["id"] = "0";
+
+    get_conversations(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    nlohmann::json res_json = nlohmann::json::parse(resp->body);
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(0, res_json.size());
+
+    get_conversation(req, resp);
+
+    ASSERT_EQ(404, resp->status_code);
+
+    auto schema_json =
+        R"({
+        "name": "Products",
+        "fields": [
+            {"name": "product_name", "type": "string", "infix": true},
+            {"name": "category", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "product_name": "moisturizer",
+        "category": "beauty"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "shampoo",
+        "category": "beauty"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "shirt",
+        "category": "clothing"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "pants",
+        "category": "clothing"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo"
+    })"_json;
+
+    model_config["api_key"] = api_key;
+
+    auto add_model_op = ConversationModelManager::add_model(model_config);
+
+    ASSERT_TRUE(add_model_op.ok());
+
+    auto results_op = coll->search("how many products are there for clothing category?", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(), {},
+                                 10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
+                                 true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
+                                 true, 0, max_score, 100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true, true, true, 0);
+    
+    ASSERT_TRUE(results_op.ok());
+
+    get_conversations(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    res_json = nlohmann::json::parse(resp->body);
+
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(1, res_json.size());
+
+    ASSERT_EQ(0, res_json[0]["id"].get<size_t>());
+    ASSERT_TRUE(res_json[0]["conversation"].is_array());
+    ASSERT_EQ(2, res_json[0]["conversation"].size());
+    ASSERT_EQ("how many products are there for clothing category?", res_json[0]["conversation"][0]["user"].get<std::string>());
+
+
+    get_conversation(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    res_json = nlohmann::json::parse(resp->body);
+
+    ASSERT_TRUE(res_json.is_object());
+    ASSERT_EQ(0, res_json["id"].get<size_t>());
+    ASSERT_TRUE(res_json["conversation"].is_array());
+    ASSERT_EQ(2, res_json["conversation"].size());
+
+
+    ASSERT_EQ("how many products are there for clothing category?", res_json["conversation"][0]["user"].get<std::string>());
+
+    del_conversation(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    get_conversations(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    res_json = nlohmann::json::parse(resp->body);
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(0, res_json.size());
+}
+
 TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
     Collection *coll_hnstories;
 
@@ -1246,4 +1384,115 @@ TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
     ASSERT_EQ("{\"points\":1,\"title\":\"Telemba Turns Your Old Roomba and Tablet Into a Telepresence Robot\"}", doc_lines[13]);
 
     infile.close();
+}
+
+TEST_F(CoreAPIUtilsTest, TestConversationModels) {
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo"
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    model_config["api_key"] = std::string(std::getenv("api_key"));
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    req->params["id"] = "0";
+
+    get_conversation_model(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+    ASSERT_EQ(0, nlohmann::json::parse(resp->body)["id"].get<size_t>());
+
+    get_conversation_models(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+    ASSERT_EQ(1, nlohmann::json::parse(resp->body).size());
+
+    del_conversation_model(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    get_conversation_models(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+    ASSERT_EQ(0, nlohmann::json::parse(resp->body).size());
+}
+
+TEST_F(CoreAPIUtilsTest, TestInvalidConversationModels) {
+    // test with no model_name
+    nlohmann::json model_config = R"({
+    })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    model_config["api_key"] = std::string(std::getenv("api_key"));
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Property `model_name` is not provided or not a string.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with invalid model_name
+    model_config["model_name"] = "invalid_model_name";
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Model namespace `` is not supported.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with no api_key
+    model_config["model_name"] = "openai/gpt-3.5-turbo";
+    model_config.erase("api_key");
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("API key is not provided", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with api_key as integer
+    model_config["api_key"] = 123;
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("API key is not a string", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with model_name as integer
+
+    model_config["api_key"] = std::string(std::getenv("api_key"));
+    model_config["model_name"] = 123;
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Property `model_name` is not provided or not a string.", nlohmann::json::parse(resp->body)["message"]);
 }

@@ -5,6 +5,8 @@
 #include "collection.h"
 #include <cstdlib>
 #include <ctime>
+#include "conversation_manager.h"
+#include "conversation_model_manager.h"
 
 class CollectionVectorTest : public ::testing::Test {
 protected:
@@ -23,6 +25,9 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        ConversationModelManager::init(store);
+        ConversationManager::init(store);
     }
 
     virtual void SetUp() {
@@ -1923,7 +1928,6 @@ TEST_F(CollectionVectorTest, HybridSearchReturnAllInfo) {
     ASSERT_EQ(1, results["hits"][0].count("hybrid_search_info"));
 }
 
-
 TEST_F(CollectionVectorTest, DISABLED_HybridSortingTest) {
     auto schema_json =
             R"({
@@ -2054,7 +2058,6 @@ TEST_F(CollectionVectorTest, TestMultilingualE5) {
     
     ASSERT_TRUE(semantic_results.ok());
 }
-
 
 TEST_F(CollectionVectorTest, TestTwoEmbeddingFieldsSamePrefix) {
     nlohmann::json schema = R"({
@@ -2280,7 +2283,7 @@ TEST_F(CollectionVectorTest, TestUnloadingModelsOnCollectionDelete) {
     ASSERT_TRUE(collection_create_op.ok());
 
     auto coll = collection_create_op.get();
-
+ 
     auto text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
 
     ASSERT_EQ(1, text_embedders.size());
@@ -2838,4 +2841,101 @@ TEST_F(CollectionVectorTest, TestSemanticSearchAfterUpdate) {
     ASSERT_TRUE(result.ok());
     ASSERT_EQ(1, result.get()["hits"].size());
     ASSERT_EQ("potato", result.get()["hits"][0]["document"]["name"]);   
+}
+
+TEST_F(CollectionVectorTest, TestQAConversation) {
+    auto schema_json =
+        R"({
+        "name": "Products",
+        "fields": [
+            {"name": "product_name", "type": "string", "infix": true},
+            {"name": "category", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+
+    auto conversation_model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo"
+    })"_json;
+
+    conversation_model_config["api_key"] = api_key;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto model_add_op = ConversationModelManager::add_model(conversation_model_config);
+
+    ASSERT_TRUE(model_add_op.ok());
+
+    auto add_op = coll->add(R"({
+        "product_name": "moisturizer",
+        "category": "beauty"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "shampoo",
+        "category": "beauty"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "shirt",
+        "category": "clothing"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "pants",
+        "category": "clothing"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+    
+    auto results_op = coll->search("how many products are there for clothing category?", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(), {},
+                                 10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
+                                 true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
+                                 true, 0, max_score, 100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true, true, true, 0);
+    
+    ASSERT_TRUE(results_op.ok());
+
+    auto results = results_op.get();
+
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_TRUE(results.contains("conversation"));
+    ASSERT_TRUE(results["conversation"].is_object());
+    ASSERT_EQ("how many products are there for clothing category?", results["conversation"]["query"]);
+    std::string conversation_id =  results["conversation"]["conversation_id"];
+
+    
+    // test getting conversation history
+    auto history_op = ConversationManager::get_conversation(conversation_id);
+
+    ASSERT_TRUE(history_op.ok());
+
+    auto history = history_op.get();
+
+    ASSERT_TRUE(history.is_object());
+    ASSERT_TRUE(history.contains("conversation"));
+    ASSERT_TRUE(history["conversation"].is_array());
+
+    ASSERT_EQ("how many products are there for clothing category?", history["conversation"][0]["user"]);
 }

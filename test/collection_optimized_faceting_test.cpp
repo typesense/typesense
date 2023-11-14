@@ -198,6 +198,8 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCounts) {
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
 
+    LOG(INFO) << results["facet_counts"][0];
+
     ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
@@ -604,6 +606,43 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCountsFloatPrecision) {
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_STREQ("113.4", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("113.4",results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetDeleteRepeatingValuesInArray) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("tags", field_types::STRING_ARRAY, true)};
+
+    std::vector<sort_by> sort_fields = {};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields).get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["tags"] = {"alpha", "beta", "alpha"};
+
+    coll1->add(doc.dump());
+
+    auto findex = coll1->_get_index()->_get_facet_index();
+    ASSERT_EQ(1, findex->facet_val_num_ids("tags", "alpha"));
+    ASSERT_EQ(1, findex->facet_node_count("tags", "alpha"));
+
+    doc["id"] = "1";
+    doc["tags"] = {"alpha"};
+    coll1->add(doc.dump());
+
+    coll1->remove("0");
+
+    ASSERT_EQ(1, findex->facet_val_num_ids("tags", "alpha"));
+    ASSERT_EQ(1, findex->facet_node_count("tags", "alpha"));
+
+    ASSERT_EQ(0, findex->facet_val_num_ids("tags", "beta"));
+    ASSERT_EQ(0, findex->facet_node_count("tags", "beta"));
 
     collectionManager.drop_collection("coll1");
 }
@@ -1421,6 +1460,39 @@ TEST_F(CollectionOptimizedFacetingTest, FacetQueryTest) {
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ("amazon green", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("<mark>a</mark>mazon <mark>green</mark>", results["facet_counts"][0]["counts"][0]["highlighted"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetQueryWithSymbols) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string", "facet": true}
+        ],
+        "symbols_to_index": ["[", "]"],
+        "token_separators": ["[", "]"]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::vector<std::string> titles = {"Article 4", "Article 4[7]", "Article 4[11]", "Article 4[22][a]"};
+
+    for(size_t i = 0; i < titles.size(); i++) {
+        nlohmann::json doc;
+        doc["title"] = titles[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {},
+                                 "", {"title"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 5, "title:article 4[", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("<mark>Article</mark> <mark>4[</mark>7]", results["facet_counts"][0]["counts"][0]["highlighted"]);
+    ASSERT_EQ("<mark>Article</mark> <mark>4[</mark>11]", results["facet_counts"][0]["counts"][1]["highlighted"]);
+    ASSERT_EQ("<mark>Article</mark> <mark>4[</mark>22][a]", results["facet_counts"][0]["counts"][2]["highlighted"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
@@ -2310,6 +2382,47 @@ TEST_F(CollectionOptimizedFacetingTest, ValueIndexStatsMinMax) {
     ASSERT_FLOAT_EQ(9.300000190734863, results["facet_counts"][0]["stats"]["max"].get<double>());
     ASSERT_FLOAT_EQ(18.2, results["facet_counts"][0]["stats"]["sum"].get<double>());
     ASSERT_FLOAT_EQ(2, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetWithPhraseSearch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("rating", field_types::FLOAT, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("rating", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "rating").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "The Shawshank Redemption";
+    doc["rating"] = 9.3;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "1";
+    doc["title"] = "The Godfather";
+    doc["rating"] = 9.2;
+
+    coll1->add(doc.dump());
+
+    std::vector<std::string> facets = {"title"};
+
+    nlohmann::json results = coll1->search(R"("shawshank")", {"title"}, "", facets, sort_fields, {0}, 10, 1,
+                                           token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 2,"",  30UL, 4UL,
+                                           "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {},
+                                           4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                           7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                           "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("The Shawshank Redemption", results["facet_counts"][0]["counts"][0]["value"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, StringFacetsCountListOrderTest) {
