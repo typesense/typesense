@@ -314,6 +314,14 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         if (tokens.size() < 2) {
             return Option<bool>(400, "Invalid reference `" + field_json[fields::reference].get<std::string>()  + "`.");
         }
+
+        tokens.clear();
+        StringUtils::split(field_json[fields::name].get<std::string>(), tokens, ".");
+
+        if (tokens.size() > 2) {
+            return Option<bool>(400, "`" + field_json[fields::name].get<std::string>() + "` field cannot have a reference."
+                                        " Only the top-level field of an object is allowed.");
+        }
     }
 
     the_fields.emplace_back(
@@ -327,11 +335,11 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
     if (!field_json[fields::reference].get<std::string>().empty()) {
         // Add a reference helper field in the schema. It stores the doc id of the document it references to reduce the
         // computation while searching.
-        the_fields.emplace_back(
-                field(field_json[fields::name].get<std::string>() + fields::REFERENCE_HELPER_FIELD_SUFFIX,
-                      field_types::is_array(field_json[fields::type].get<std::string>()) ? field_types::INT64_ARRAY : field_types::INT64,
-                      false, field_json[fields::optional], true)
-        );
+        auto f = field(field_json[fields::name].get<std::string>() + fields::REFERENCE_HELPER_FIELD_SUFFIX,
+                       field_types::is_array(field_json[fields::type].get<std::string>()) ? field_types::INT64_ARRAY : field_types::INT64,
+                       false, field_json[fields::optional], true);
+        f.nested = field_json[fields::nested];
+        the_fields.emplace_back(std::move(f));
     }
 
     return Option<bool>(true);

@@ -147,6 +147,10 @@ private:
     /// collection_name -> field_name
     spp::sparse_hash_map<std::string, std::string> referenced_in;
 
+    /// Reference helper fields that are part of an object. The reference doc of these fields will be included in the
+    /// object rather than in the document.
+    tsl::htrie_set<char> object_reference_helper_fields;
+
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
@@ -208,7 +212,9 @@ private:
                                           const std::string& fallback_field_type,
                                           bool is_update,
                                           std::vector<field>& new_fields,
-                                          bool enable_nested_fields);
+                                          bool enable_nested_fields,
+                                          const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                          tsl::htrie_set<char>& object_reference_helper_fields);
 
     static bool facet_count_compare(const facet_count_t& a, const facet_count_t& b) {
         return std::tie(a.count, a.fhash) > std::tie(b.count, b.fhash);
@@ -314,9 +320,12 @@ private:
 
     Option<std::string> get_referenced_in_field(const std::string& collection_name) const;
 
-    Option<bool> get_related_ids(const std::string& ref_collection_name, const uint32_t& seq_id,
+    Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
 
+    Option<bool> get_object_array_related_id(const std::string& ref_field_name,
+                                             const uint32_t& seq_id, const uint32_t& object_index,
+                                             uint32_t& result) const;
 
     void remove_embedding_field(const std::string& field_name);
 
@@ -347,7 +356,6 @@ public:
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
 
-    static constexpr const char* REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
     // methods
 
     Collection() = delete;
@@ -397,9 +405,13 @@ public:
 
     tsl::htrie_map<char, field> get_embedding_fields_unsafe();
 
+    tsl::htrie_set<char> get_object_reference_helper_fields();
+
     std::string get_default_sorting_field();
 
-    Option<bool> add_reference_helper_fields(nlohmann::json& document);
+    static Option<bool> add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
+                                                    const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                                    tsl::htrie_set<char>& object_reference_helper_fields);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
@@ -420,15 +432,15 @@ public:
 
     static void remove_reference_helper_fields(nlohmann::json& document);
 
-    static Option<bool> add_reference_fields(nlohmann::json& doc,
-                                             const std::string& ref_collection_name,
-                                             Collection *const ref_collection,
-                                             const std::string& alias,
-                                             const reference_filter_result_t& references,
-                                             const tsl::htrie_set<char>& ref_include_fields_full,
-                                             const tsl::htrie_set<char>& ref_exclude_fields_full,
-                                             const std::string& error_prefix, const bool& is_reference_array,
-                                             const bool& nest_ref_doc);
+    static Option<bool> include_references(nlohmann::json& doc,
+                                           const std::string& ref_collection_name,
+                                           Collection *const ref_collection,
+                                           const std::string& alias,
+                                           const reference_filter_result_t& references,
+                                           const tsl::htrie_set<char>& ref_include_fields_full,
+                                           const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                           const std::string& error_prefix, const bool& is_reference_array,
+                                           const bool& nest_ref_doc);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
