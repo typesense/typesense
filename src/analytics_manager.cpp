@@ -4,6 +4,11 @@
 #include "tokenizer.h"
 #include "http_client.h"
 #include "collection_manager.h"
+#include "lru/lru.hpp"
+
+LRU::Cache<std::string, event_cache_t> events_cache;
+#define CLICK_EVENTS_RATE_LIMIT_SEC 60
+#define CLICK_EVENTS_RATE_LIMIT_COUNT 5
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*
@@ -218,6 +223,41 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection, const
     }
 }
 
+Option<bool> AnalyticsManager::add_click_event(const std::string &query_collection, const std::string &query, const std::string &user_id,
+                                       std::string doc_id, uint64_t position, const std::string& client_ip) {
+    std::unique_lock lock(mutex);
+    auto &click_events_vec = query_collection_click_events[query_collection];
+
+    auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto events_cache_it = events_cache.find(client_ip);
+
+    if(events_cache_it != events_cache.end()) {
+        //event found in events cache
+        if ((now_ts_seconds - events_cache_it->second.last_update_time) < CLICK_EVENTS_RATE_LIMIT_SEC) {
+            if (events_cache_it->second.count >= CLICK_EVENTS_RATE_LIMIT_COUNT) {
+                return Option<bool>(500, "click event rate limit reached.");
+            } else {
+                events_cache_it->second.count++;
+            }
+        } else {
+            events_cache_it->second.last_update_time = now_ts_seconds;
+            events_cache_it->second.count = 1;
+        }
+    } else {
+        event_cache_t eventCache{(uint64_t) now_ts_seconds, 1};
+        events_cache.insert(client_ip, eventCache);
+    }
+
+    auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    ClickEvent click_event(query, now_ts_useconds, user_id, doc_id, position);
+    click_events_vec.emplace_back(click_event);
+
+    return Option<bool>(true);
+}
+
 void AnalyticsManager::run(ReplicationState* raft_server) {
     uint64_t prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                                     std::chrono::system_clock::now().time_since_epoch()).count();
@@ -243,6 +283,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         }
 
         persist_suggestions(raft_server, prev_persistence_s);
+        persist_click_events(raft_server, prev_persistence_s);
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -317,6 +358,47 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
     }
 }
 
+void AnalyticsManager::persist_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+    // lock is held by caller
+    nlohmann::json payload_json = nlohmann::json::array();
+
+    for (const auto &click_events_collection_it: query_collection_click_events) {
+        auto collection_id = CollectionManager::get_instance().get_collection(
+                click_events_collection_it.first)->get_collection_id();
+        for (const auto &click_event: click_events_collection_it.second) {
+            // send http request
+            nlohmann::json click_event_json;
+            click_event.to_json(click_event_json);
+            click_event_json["collection_id"] = std::to_string(collection_id);
+            payload_json.push_back(click_event_json);
+        }
+    }
+
+    if(payload_json.empty()) {
+        return;
+    }
+
+    const std::string import_payload = payload_json.dump();
+
+    std::string leader_url = raft_server->get_leader_url();
+    if (!leader_url.empty()) {
+        const std::string &base_url = leader_url + "analytics";
+        std::string res;
+
+        const std::string &update_url = base_url + "/click_events/replicate";
+        std::map<std::string, std::string> res_headers;
+        long status_code = HttpClient::post_response(update_url, import_payload,
+                                                     res, res_headers, {}, 10 * 1000, true);
+
+        if (status_code != 200) {
+            LOG(ERROR) << "Error while sending click events to leader. "
+                       << "Status code: " << status_code << ", response: " << res;
+        } else {
+            query_collection_click_events.clear();
+        }
+    }
+}
+
 void AnalyticsManager::stop() {
     quit = true;
     cv.notify_all();
@@ -332,11 +414,54 @@ void AnalyticsManager::dispose() {
     popular_queries.clear();
 }
 
-void AnalyticsManager::init(Store* store) {
+void AnalyticsManager::init(Store* store, Store* analytics_store) {
     this->store = store;
+    this->analytics_store = analytics_store;
 }
 
 std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_queries() {
     std::unique_lock lk(mutex);
     return popular_queries;
+}
+
+Option<nlohmann::json> AnalyticsManager::get_click_events() {
+    std::unique_lock lk(mutex);
+    std::vector<std::string> click_event_jsons;
+    if (analytics_store) {
+        analytics_store->scan_fill(std::string(CLICK_EVENT) + "_", std::string(CLICK_EVENT) + "`",
+                                   click_event_jsons);
+    } else {
+        return Option<nlohmann::json>(500, "Analytics DB not initialized.");
+    }
+
+    nlohmann::json result_json = nlohmann::json::array();
+    for (const auto &click_event_json: click_event_jsons) {
+        nlohmann::json click_event = nlohmann::json::parse(click_event_json);
+        result_json.push_back(click_event);
+    }
+
+
+    return Option<nlohmann::json>(result_json);
+}
+
+Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_event_jsons) {
+    for(const auto& click_event_json : click_event_jsons) {
+        auto collection_id = click_event_json["collection_id"].get<std::string>();
+        auto timestamp = click_event_json["timestamp"].get<uint64_t>();
+        const std::string key = std::string(CLICK_EVENT) + "_" + collection_id + "_" +
+                                std::to_string(timestamp);
+        if(analytics_store) {
+            bool inserted = analytics_store->insert(key, click_event_json.dump());
+            if (!inserted) {
+                return Option<bool>(500, "Unable to insert clickevent into store.");
+            }
+        } else {
+            return Option<bool>(500, "Analytics DB not initialized.");
+        }
+    }
+    return Option<bool>(true);
+}
+
+void AnalyticsManager::resetRateLimit() {
+    events_cache.clear();
 }

@@ -169,6 +169,10 @@ bool put_upsert_analytics_rules(const std::shared_ptr<http_req>& req, const std:
 
 bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool post_replicate_click_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Misc helpers
 
 void get_collections_for_auth(std::map<std::string, std::string>& req_params, const std::string& body,

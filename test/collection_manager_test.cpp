@@ -9,7 +9,7 @@
 
 class CollectionManagerTest : public ::testing::Test {
 protected:
-    Store *store;
+    Store *store, *analytics_store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *collection1;
@@ -18,14 +18,16 @@ protected:
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
+        std::string analytics_db_path = "/tmp/typesense_test/analytics_db";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
+        analytics_store = new Store(analytics_db_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        AnalyticsManager::get_instance().init(store);
+        AnalyticsManager::get_instance().init(store, analytics_store);
 
         schema = R"({
             "name": "collection1",

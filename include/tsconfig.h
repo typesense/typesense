@@ -11,6 +11,7 @@ class Config {
 private:
     std::string data_dir;
     std::string log_dir;
+    std::string analytics_dir;
 
     std::string api_key;
 
@@ -124,6 +125,10 @@ public:
         this->log_dir = log_dir;
     }
 
+    void set_analytics_dir(const std::string& analytics_dir) {
+        this->analytics_dir = analytics_dir;
+    }
+
     void set_api_key(const std::string & api_key) {
         this->api_key = api_key;
     }
@@ -191,6 +196,9 @@ public:
         return this->log_dir;
     }
 
+    std::string get_analytics_dir() const {
+        return this->analytics_dir;
+    }
 
     std::string get_api_key() const {
         return this->api_key;
@@ -350,6 +358,7 @@ public:
     void load_config_env() {
         this->data_dir = get_env("TYPESENSE_DATA_DIR");
         this->log_dir = get_env("TYPESENSE_LOG_DIR");
+        this->analytics_dir = get_env("TYPESENSE_ANALYTICS_DIR");
         this->api_key = get_env("TYPESENSE_API_KEY");
 
         // @deprecated
@@ -493,6 +502,10 @@ public:
 
         if(reader.Exists("server", "log-dir")) {
             this->log_dir = reader.Get("server", "log-dir", "");
+        }
+
+        if(reader.Exists("server", "analytics-dir")) {
+            this->analytics_dir = reader.Get("server", "analytics-dir", "");
         }
 
         if(reader.Exists("server", "api-key")) {
@@ -652,6 +665,10 @@ public:
 
         if(options.exist("log-dir")) {
             this->log_dir = options.get<std::string>("log-dir");
+        }
+
+        if(options.exist("analytics-dir")) {
+            this->analytics_dir = options.get<std::string>("analytics-dir");
         }
 
         if(options.exist("api-key")) {

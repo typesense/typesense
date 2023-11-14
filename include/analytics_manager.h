@@ -7,6 +7,58 @@
 #include <unordered_map>
 #include <shared_mutex>
 
+struct ClickEvent {
+    std::string query;
+    uint64_t timestamp;
+    std::string user_id;
+    std::string doc_id;
+    uint64_t position;
+
+    ClickEvent() = delete;
+
+    ~ClickEvent() = default;
+
+    ClickEvent(std::string q, uint64_t ts, std::string uid, std::string id, uint64_t pos) {
+        query = q;
+        timestamp = ts;
+        user_id = uid;
+        doc_id = id;
+        position = pos;
+    }
+
+    ClickEvent& operator=(ClickEvent& other) {
+        if (this != &other) {
+            query = other.query;
+            timestamp = other.timestamp;
+            user_id = other.user_id;
+            doc_id = other.doc_id;
+            position = other.position;
+            return *this;
+        }
+    }
+
+    void to_json(nlohmann::json& obj) const {
+        obj["query"] = query;
+        obj["timestamp"] = timestamp;
+        obj["user_id"] = user_id;
+        obj["doc_id"] = doc_id;
+        obj["position"] = position;
+    }
+};
+
+struct event_cache_t {
+    uint64_t last_update_time;
+    uint64_t count;
+
+    bool operator == (const event_cache_t& res) const {
+        return last_update_time == res.last_update_time;
+    }
+
+    bool operator != (const event_cache_t& res) const {
+        return last_update_time != res.last_update_time;
+    }
+};
+
 class AnalyticsManager {
 private:
     mutable std::mutex mutex;
@@ -41,7 +93,11 @@ private:
     // suggestion collection => popular queries
     std::unordered_map<std::string, PopularQueries*> popular_queries;
 
+    //query collection => click events
+    std::unordered_map<std::string, std::vector<ClickEvent>> query_collection_click_events;
+
     Store* store = nullptr;
+    Store* analytics_store = nullptr;
 
     AnalyticsManager() {}
 
@@ -57,6 +113,7 @@ public:
 
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
+    static constexpr const char* CLICK_EVENT = "$CE";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -66,7 +123,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store);
+    void init(Store* store, Store* analytics_store);
 
     void run(ReplicationState* raft_server);
 
@@ -88,4 +145,15 @@ public:
     void persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     std::unordered_map<std::string, PopularQueries*> get_popular_queries();
+
+    Option<bool> add_click_event(const std::string& query_collection, const std::string& query, const std::string& user_id,
+                            std::string doc_id, uint64_t position, const std::string& client_ip);
+
+    void persist_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+
+    Option<nlohmann::json> get_click_events();
+
+    Option<bool> write_click_event_to_store(nlohmann::json& click_event_json);
+
+    void resetRateLimit();
 };

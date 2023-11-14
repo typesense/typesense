@@ -65,6 +65,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
     options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
     options.add<std::string>("search-only-api-key", 's', "[DEPRECATED: use API key management end-point] API key that allows only searches.", false);
+    options.add<std::string>("analytics-dir", 'n', "Directory where Analytics will be stored.", false);
 
     options.add<std::string>("api-address", '\0', "Address to which Typesense API service binds.", false, "0.0.0.0");
     options.add<uint32_t>("api-port", '\0', "Port on which Typesense API service listens.", false, 8108);
@@ -376,6 +377,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     std::string db_dir = config.get_data_dir() + "/db";
     std::string state_dir = config.get_data_dir() + "/state";
     std::string meta_dir = config.get_data_dir() + "/meta";
+    std::string analytics_dir = config.get_analytics_dir();
 
     size_t thread_pool_size = config.get_thread_pool_size();
 
@@ -397,11 +399,17 @@ int run_server(const Config & config, const std::string & version, void (*master
     // meta DB for storing house keeping things
     Store meta_store(meta_dir, 24*60*60, 1024, false);
 
+    //analytics DB for storing query click events
+    std::unique_ptr<Store> analytics_store = nullptr;
+    if(!analytics_dir.empty()) {
+        analytics_store.reset(new Store(analytics_dir, 24 * 60 * 60, 1024, false));
+    }
+
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
 
-    AnalyticsManager::get_instance().init(&store);
+    AnalyticsManager::get_instance().init(&store, analytics_store.get());
 
     server = new HttpServer(
         version,

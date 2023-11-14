@@ -542,7 +542,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         res->set_400("`conversation_id` can only be used if `conversation` is enabled.");
         return false;
     }
-    
+
     if(conversation) {
         if(orig_req_params.find("q") == orig_req_params.end()) {
             res->set_400("`q` parameter has to be common for all searches if conversation is enabled. Please set `q` as a query parameter in the request, instead of inside the POST body");
@@ -607,7 +607,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         req->params = orig_req_params;
-
 
         for(auto& search_item: search_params.items()) {
             if(search_item.key() == "cache_ttl") {
@@ -747,7 +746,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             res->set_400(formatted_question_op.error());
             return false;
         }
-        
+
 
         auto formatted_answer_op = ConversationModel::format_answer(answer_op.get(), conversation_model);
         if(!formatted_answer_op.ok()) {
@@ -756,7 +755,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         std::vector<std::string> exclude_fields;
-        StringUtils::split(req->params["exclude_fields"], exclude_fields, ","); 
+        StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
 
         if(conversation_history) {
@@ -2450,13 +2449,13 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
-    bool success = EventManager::get_instance().add_event(req_json);
-    if(success) {
+    auto add_event_op = EventManager::get_instance().add_event(req_json, req->client_ip);
+    if(add_event_op.ok()) {
         res->set_201(R"({"ok": true)");
         return true;
     }
 
-    res->set_400(R"({"ok": false)");
+    res->set_400(add_event_op.error());
     return false;
 }
 
@@ -2616,7 +2615,7 @@ bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
     }
 
     res->set_200(conversation_op.get().dump());
-    return true;    
+    return true;
 }
 
 
@@ -2631,7 +2630,7 @@ bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
     }
 
     res->set_200(conversation_op.get().dump());
-    return true;    
+    return true;
 }
 
 bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -2643,7 +2642,7 @@ bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     res->set_200(conversations_op.get().dump());
-    return true;    
+    return true;
 }
 
 bool put_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -2720,7 +2719,7 @@ bool get_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     Collection::hide_credential(model, "api_key");
 
     res->set_200(model.dump());
-    return true;    
+    return true;
 }
 
 bool get_conversation_models(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -2738,7 +2737,7 @@ bool get_conversation_models(const std::shared_ptr<http_req>& req, const std::sh
     }
 
     res->set_200(models.dump());
-    return true;    
+    return true;
 }
 
 
@@ -2761,7 +2760,7 @@ bool del_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     Collection::hide_credential(model, "api_key");
 
     res->set_200(model.dump());
-    return true;    
+    return true;
 }
 
 bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -2798,5 +2797,36 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     Collection::hide_credential(model, "api_key");
 
     res->set_200(model.dump());
-    return true;   
+    return true;
+}
+bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto click_events_op = AnalyticsManager::get_instance().get_click_events();
+
+    if(!click_events_op.ok()) {
+        res->set(click_events_op.code(), click_events_op.error());
+    }
+
+    res->set_200(click_events_op.get().dump());
+    return true;
+}
+
+bool post_replicate_click_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto op = AnalyticsManager::get_instance().write_click_event_to_store(req_json);
+    if(!op.ok()) {
+        res->set_body(op.code(), op.error());
+        return false;
+    }
+
+    res->set_200("ClickEvent wrote to DB.");
+    return true;
 }
