@@ -1770,6 +1770,15 @@ void filter_result_iterator_t::compute_result() {
             filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
         }
 
+        if (filter_result.count == 0) {
+            is_valid = false;
+            LOG(ERROR) << "filter_result.count is 0";
+            return;
+        } else if (result_index != 0) {
+            result_index = 0;
+            LOG(ERROR) << "result_index is not 0";
+        }
+
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
