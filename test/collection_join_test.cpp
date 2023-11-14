@@ -3317,7 +3317,7 @@ TEST_F(CollectionJoinTest, SortByReference) {
                 "name": "Customers",
                 "fields": [
                     {"name": "customer_id", "type": "string"},
-                    {"name": "customer_name", "type": "string"},
+                    {"name": "customer_name", "type": "string", "sort": true},
                     {"name": "product_price", "type": "float"},
                     {"name": "product_available", "type": "bool"},
                     {"name": "product_location", "type": "geopoint"},
@@ -3721,12 +3721,41 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ("soap", res_obj["hits"][1]["document"].at("product_name"));
     ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
 
+    req_params = {
+            {"collection", "Customers"},
+            {"q", "*"},
+            {"include_fields", "$Products(product_name:merge), customer_name, id"},
+            {"sort_by", "$Products(product_name:asc), customer_name:desc"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ(3, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("0", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ("Joe", res_obj["hits"][0]["document"].at("customer_name"));
+    ASSERT_EQ("shampoo", res_obj["hits"][0]["document"].at("product_name"));
+    ASSERT_EQ(3, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("id"));
+    ASSERT_EQ("Dan", res_obj["hits"][1]["document"].at("customer_name"));
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"].at("product_name"));
+    ASSERT_EQ(3, res_obj["hits"][2]["document"].size());
+    ASSERT_EQ("1", res_obj["hits"][2]["document"].at("id"));
+    ASSERT_EQ("Joe", res_obj["hits"][2]["document"].at("customer_name"));
+    ASSERT_EQ("soap", res_obj["hits"][2]["document"].at("product_name"));
+    ASSERT_EQ(3, res_obj["hits"][3]["document"].size());
+    ASSERT_EQ("3", res_obj["hits"][3]["document"].at("id"));
+    ASSERT_EQ("Dan", res_obj["hits"][3]["document"].at("customer_name"));
+    ASSERT_EQ("soap", res_obj["hits"][3]["document"].at("product_name"));
+
     schema_json =
             R"({
                 "name": "Users",
                 "fields": [
                     {"name": "user_id", "type": "string"},
-                    {"name": "user_name", "type": "string"}
+                    {"name": "user_name", "type": "string", "sort": true}
                 ]
             })"_json;
     documents = {
@@ -3900,7 +3929,7 @@ TEST_F(CollectionJoinTest, SortByReference) {
             {"filter_by", "$Links(repo_id:=[repo_a, repo_d])"},
             {"include_fields", "user_id, user_name, $Repos(repo_content, repo_stars:merge), "},
             {"exclude_fields", "$Links(*), "},
-            {"sort_by", "$Repos(repo_stars: desc)"}
+            {"sort_by", "$Repos(repo_stars: desc), user_name:desc"}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
@@ -3909,13 +3938,13 @@ TEST_F(CollectionJoinTest, SortByReference) {
     ASSERT_EQ(3, res_obj["found"].get<size_t>());
     ASSERT_EQ(3, res_obj["hits"].size());
     ASSERT_EQ(4, res_obj["hits"][0]["document"].size());
-    ASSERT_EQ("user_c", res_obj["hits"][0]["document"].at("user_id"));
-    ASSERT_EQ("Joe", res_obj["hits"][0]["document"].at("user_name"));
+    ASSERT_EQ("user_b", res_obj["hits"][0]["document"].at("user_id"));
+    ASSERT_EQ("Ruby", res_obj["hits"][0]["document"].at("user_name"));
     ASSERT_EQ("body1", res_obj["hits"][0]["document"].at("repo_content"));
     ASSERT_EQ(431, res_obj["hits"][0]["document"].at("repo_stars"));
 
-    ASSERT_EQ("user_b", res_obj["hits"][1]["document"].at("user_id"));
-    ASSERT_EQ("Ruby", res_obj["hits"][1]["document"].at("user_name"));
+    ASSERT_EQ("user_c", res_obj["hits"][1]["document"].at("user_id"));
+    ASSERT_EQ("Joe", res_obj["hits"][1]["document"].at("user_name"));
     ASSERT_EQ("body1", res_obj["hits"][1]["document"].at("repo_content"));
     ASSERT_EQ(431, res_obj["hits"][1]["document"].at("repo_stars"));
 
