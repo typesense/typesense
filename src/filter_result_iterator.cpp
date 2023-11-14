@@ -1777,11 +1777,13 @@ void filter_result_iterator_t::compute_result() {
         } else if (result_index != 0) {
             result_index = 0;
             LOG(ERROR) << "result_index is not 0";
+            return;
         }
 
         if (result_index >= filter_result.count) {
             is_valid = false;
             LOG(ERROR) << "result_index is greater than filter_result.count";
+            return;
         }
 
         seq_id = filter_result.docs[result_index];
