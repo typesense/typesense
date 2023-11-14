@@ -149,7 +149,7 @@ public:
     Option<bool> add_click_event(const std::string& query_collection, const std::string& query, const std::string& user_id,
                             std::string doc_id, uint64_t position, const std::string& client_ip);
 
-    void persist_click_event(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     Option<nlohmann::json> get_click_events();
 

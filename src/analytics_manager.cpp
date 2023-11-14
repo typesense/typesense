@@ -283,7 +283,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         }
 
         persist_suggestions(raft_server, prev_persistence_s);
-        persist_click_event(raft_server, prev_persistence_s);
+        persist_click_events(raft_server, prev_persistence_s);
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -358,7 +358,7 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
     }
 }
 
-void AnalyticsManager::persist_click_event(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+void AnalyticsManager::persist_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // lock is held by caller
     nlohmann::json payload_json = nlohmann::json::array();
 
