@@ -2094,7 +2094,8 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
                     {"name": "name", "type": "string"},
                     {"name": "age", "type": "int32"},
                     {"name": "years", "type": "int32[]"},
-                    {"name": "rating", "type": "float"}
+                    {"name": "rating", "type": "float"},
+                    {"name": "tags", "type": "string[]"}
                 ]
             })"_json;
 

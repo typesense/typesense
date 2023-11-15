@@ -62,10 +62,11 @@ struct filter {
 
 struct filter_node_t {
     filter filter_exp;
-    FILTER_OPERATOR filter_operator;
-    bool isOperator;
+    FILTER_OPERATOR filter_operator = AND;
+    bool isOperator = false;
     filter_node_t* left = nullptr;
     filter_node_t* right = nullptr;
+    std::string filter_query;
 
     filter_node_t() = default;
 
