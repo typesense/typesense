@@ -1772,17 +1772,17 @@ void filter_result_iterator_t::compute_result() {
 
         if (filter_result.count == 0) {
             is_valid = false;
-            LOG(ERROR) << "filter_result.count is 0";
+            LOG(ERROR) << "filter_result.count is 0 " << filter_node->filter_query;
             return;
         } else if (result_index != 0) {
             result_index = 0;
-            LOG(ERROR) << "result_index is not 0";
+            LOG(ERROR) << "result_index is not 0 " << filter_node->filter_query;
             return;
         }
 
         if (result_index >= filter_result.count) {
             is_valid = false;
-            LOG(ERROR) << "result_index is greater than filter_result.count";
+            LOG(ERROR) << "result_index is greater than filter_result.count " << filter_node->filter_query;
             return;
         }
 
