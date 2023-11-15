@@ -2800,13 +2800,13 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     return true;
 }
 bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto click_events_op = AnalyticsManager::get_instance().get_click_events();
+    auto click_events = AnalyticsManager::get_instance().get_click_events();
 
-    if(!click_events_op.ok()) {
-        res->set(click_events_op.code(), click_events_op.error());
+    if(click_events.empty()) {
+        res->set_400(click_events.dump());
     }
 
-    res->set_200(click_events_op.get().dump());
+    res->set_200(click_events.dump());
     return true;
 }
 

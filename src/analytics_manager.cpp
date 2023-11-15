@@ -424,24 +424,22 @@ std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_q
     return popular_queries;
 }
 
-Option<nlohmann::json> AnalyticsManager::get_click_events() {
+nlohmann::json AnalyticsManager::get_click_events() {
     std::unique_lock lk(mutex);
     std::vector<std::string> click_event_jsons;
+    nlohmann::json result_json = nlohmann::json::array();
+
     if (analytics_store) {
         analytics_store->scan_fill(std::string(CLICK_EVENT) + "_", std::string(CLICK_EVENT) + "`",
                                    click_event_jsons);
-    } else {
-        return Option<nlohmann::json>(500, "Analytics DB not initialized.");
+
+        for (const auto &click_event_json: click_event_jsons) {
+            nlohmann::json click_event = nlohmann::json::parse(click_event_json);
+            result_json.push_back(click_event);
+        }
     }
 
-    nlohmann::json result_json = nlohmann::json::array();
-    for (const auto &click_event_json: click_event_jsons) {
-        nlohmann::json click_event = nlohmann::json::parse(click_event_json);
-        result_json.push_back(click_event);
-    }
-
-
-    return Option<nlohmann::json>(result_json);
+    return result_json;
 }
 
 Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_event_jsons) {
