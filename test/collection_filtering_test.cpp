@@ -2116,6 +2116,10 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
                                           {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
 
+    results = coll->search("*", {"name"}, "(age:>50 && rating:>5) || years:<2000",
+                                          {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
     results = coll->search("Jeremy", {"name"}, "(age:>50 || rating:>5) && years:<2000",
                                           {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(2, results["hits"].size());
