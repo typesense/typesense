@@ -1770,22 +1770,15 @@ void filter_result_iterator_t::compute_result() {
             filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
         }
 
+        // In a complex filter query a sub-expression might not match any document while the full expression does match
+        // at least one document. If the full expression doesn't match any document, we return early in the search.
         if (filter_result.count == 0) {
             is_valid = false;
-            LOG(ERROR) << "filter_result.count is 0 " << filter_node->filter_query;
-            return;
-        } else if (result_index != 0) {
-            result_index = 0;
-            LOG(ERROR) << "result_index is not 0 " << filter_node->filter_query;
+            is_filter_result_initialized = true;
             return;
         }
 
-        if (result_index >= filter_result.count) {
-            is_valid = false;
-            LOG(ERROR) << "result_index is greater than filter_result.count " << filter_node->filter_query;
-            return;
-        }
-
+        result_index = 0;;
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;
