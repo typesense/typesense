@@ -51,7 +51,8 @@ private:
 
     mutable std::shared_mutex mutex;
 
-    mutable std::shared_mutex index_repair_lock;
+    // ensures that a Collection* is not destructed while in use by multiple threads
+    mutable std::shared_mutex lifecycle_mutex;
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
@@ -578,6 +579,8 @@ public:
                                       std::vector<search_field_t>& weighted_search_fields) const;
 
     Option<bool> truncate_after_top_k(const std::string& field_name, size_t k);
+
+    std::shared_mutex& get_lifecycle_mutex();
 };
 
 template<class T>

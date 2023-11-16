@@ -53,7 +53,7 @@ class CollectionManager {
 private:
     mutable std::shared_mutex mutex;
 
-    mutable std::mutex coll_create_mutex;
+    mutable std::shared_mutex noop_coll_mutex;
 
     Store *store;
     ThreadPool* thread_pool;

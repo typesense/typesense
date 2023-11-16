@@ -57,8 +57,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 }
 
 Collection::~Collection() {
+    std::unique_lock lifecycle_lock(lifecycle_mutex);
     std::unique_lock lock(mutex);
-    std::unique_lock repair_lock(index_repair_lock);
     delete index;
     delete synonym_index;
 }
@@ -5195,6 +5195,10 @@ Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k
     return Option<bool>(true);
 }
 
+std::shared_mutex& Collection::get_lifecycle_mutex() {
+    return lifecycle_mutex;
+}
+
 void Collection::remove_embedding_field(const std::string& field_name) {
     if(embedding_fields.find(field_name) == embedding_fields.end()) {
         return;
@@ -5211,6 +5215,6 @@ tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
 }
 
 void Collection::do_housekeeping() {
-    std::unique_lock lock(index_repair_lock);
+    std::unique_lock lock(lifecycle_mutex);
     index->repair_hnsw_index();
 }
