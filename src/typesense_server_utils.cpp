@@ -467,7 +467,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // first we start the peering service
 
-    ReplicationState replication_state(server, batch_indexer, &store,
+    ReplicationState replication_state(server, batch_indexer, &store, analytics_store.get(),
                                        &replication_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled,
                                        &config,
