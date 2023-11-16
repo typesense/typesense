@@ -493,13 +493,16 @@ void* ReplicationState::save_snapshot(void* arg) {
         }
     }
 
-    //add analytics db snapshot files to writer state
-    butil::FileEnumerator analytics_dir_enum(butil::FilePath(sa->analytics_db_snapshot_path), false, butil::FileEnumerator::FILES);
-    for (butil::FilePath file = analytics_dir_enum.Next(); !file.empty(); file = analytics_dir_enum.Next()) {
-        auto file_name = std::string(analytics_db_snapshot_name) + "/" + file.BaseName().value();
-        if (sa->writer->add_file(file_name) != 0) {
-            sa->done->status().set_error(EIO, "Fail to add analytics file to writer.");
-            return nullptr;
+    if(!sa->analytics_db_snapshot_path.empty()) {
+        //add analytics db snapshot files to writer state
+        butil::FileEnumerator analytics_dir_enum(butil::FilePath(sa->analytics_db_snapshot_path), false,
+                                                 butil::FileEnumerator::FILES);
+        for (butil::FilePath file = analytics_dir_enum.Next(); !file.empty(); file = analytics_dir_enum.Next()) {
+            auto file_name = std::string(analytics_db_snapshot_name) + "/" + file.BaseName().value();
+            if (sa->writer->add_file(file_name) != 0) {
+                sa->done->status().set_error(EIO, "Fail to add analytics file to writer.");
+                return nullptr;
+            }
         }
     }
 
@@ -590,8 +593,11 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     arg->writer = writer;
     arg->state_dir_path = raft_dir_path;
     arg->db_snapshot_path = db_snapshot_path;
-    arg->analytics_db_snapshot_path = analytics_db_snapshot_path;
     arg->done = done;
+
+    if(analytics_store) {
+        arg->analytics_db_snapshot_path = analytics_db_snapshot_path;
+    }
 
     if(!ext_snapshot_path.empty()) {
         arg->ext_snapshot_path = ext_snapshot_path;

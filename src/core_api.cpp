@@ -2803,7 +2803,7 @@ bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_pt
     auto click_events = AnalyticsManager::get_instance().get_click_events();
 
     if(click_events.empty()) {
-        res->set_400(click_events.dump());
+        res->set_200(click_events.dump());
     }
 
     res->set_200(click_events.dump());

@@ -259,7 +259,8 @@ Option<bool> AnalyticsManager::add_click_event(const std::string &query_collecti
         return Option<bool>(true);
     }
 
-    return Option<bool>(500, "Analytics Directory not provided.");
+    LOG(ERROR) << "Analytics Directory not provided.";
+    return Option<bool>(true);
 }
 
 void AnalyticsManager::run(ReplicationState* raft_server) {
