@@ -1,7 +1,7 @@
 #include <store.h>
 #include "field.h"
 #include "magic_enum.hpp"
-#include "text_embedder_manager.h"
+#include "embedder_manager.h"
 #include <stack>
 #include <collection_manager.h>
 #include <regex>
@@ -23,6 +23,11 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
         return Option<bool>(400, "Wrong format for `fields`. It should be an array of objects containing "
                                  "`name`, `type`, `optional` and `facet` properties.");
+    }
+
+    if(field_json.count("store") != 0 && !field_json.at("store").is_boolean()) {
+        return Option<bool>(400, std::string("The `store` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
     }
 
     if(field_json.count("drop") != 0) {
@@ -159,6 +164,10 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
     if(field_json.count(fields::locale) == 0) {
         field_json[fields::locale] = "";
+    }
+
+    if(field_json.count(fields::store) == 0) {
+        field_json[fields::store] = true;
     }
 
     if(field_json.count(fields::sort) == 0) {
@@ -321,7 +330,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
-                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index])
+                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], field_json[fields::store])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
@@ -630,8 +639,9 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
                                                   const nlohmann::json& fields_json,
                                                   field& the_field) {
     const std::string err_msg = "Property `" + fields::embed + "." + fields::from +
-                                    "` can only refer to string or string array fields.";
+                                    "` can only refer to string, string array or image (for supported models) fields.";
 
+    bool found_image_field = false;
     for(auto& field_name : field_json[fields::embed][fields::from].get<std::vector<std::string>>()) {
 
         auto embed_field = std::find_if(fields_json.begin(), fields_json.end(), [&field_name](const nlohmann::json& x) {
@@ -643,18 +653,36 @@ Option<bool> field::validate_and_init_embed_field(const tsl::htrie_map<char, fie
             const auto& embed_field2 = search_schema.find(field_name);
             if (embed_field2 == search_schema.end()) {
                 return Option<bool>(400, err_msg);
-            } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY) {
+            } else if (embed_field2->type != field_types::STRING && embed_field2->type != field_types::STRING_ARRAY && embed_field2->type != field_types::IMAGE) {
                 return Option<bool>(400, err_msg);
             }
+            if(embed_field2->type == field_types::IMAGE) {
+                if(found_image_field) {
+                    return Option<bool>(400, "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
+                }
+                if(field_json[fields::embed][fields::from].get<std::vector<std::string>>().size() > 1) {
+                    return Option<bool>(400, "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
+                }
+                found_image_field = true;
+            }
         } else if((*embed_field)[fields::type] != field_types::STRING &&
-                  (*embed_field)[fields::type] != field_types::STRING_ARRAY) {
+                  (*embed_field)[fields::type] != field_types::STRING_ARRAY &&
+                    (*embed_field)[fields::type] != field_types::IMAGE) {
             return Option<bool>(400, err_msg);
+        } else if((*embed_field)[fields::type] == field_types::IMAGE) {
+            if(found_image_field) {
+                return Option<bool>(400, "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
+            }
+            if(field_json[fields::embed][fields::from].get<std::vector<std::string>>().size() > 1) {
+                return Option<bool>(400, "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
+            }
+            found_image_field = true;
         }
     }
 
     const auto& model_config = field_json[fields::embed][fields::model_config];
     size_t num_dim = 0;
-    auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+    auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
     if(!res.ok()) {
         return Option<bool>(res.code(), res.error());
     }

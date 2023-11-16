@@ -18,7 +18,7 @@
 
 #include "core_api.h"
 #include "ratelimit_manager.h"
-#include "text_embedder_manager.h"
+#include "embedder_manager.h"
 #include "typesense_server_utils.h"
 #include "file_utils.h"
 #include "threadpool.h"
@@ -439,7 +439,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     if(!rate_limit_manager_init.ok()) {
         LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
     }
-    TextEmbedderManager::set_model_dir(config.get_data_dir() + "/models");
+    EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
     auto conversations_init = ConversationManager::init(&store);
 

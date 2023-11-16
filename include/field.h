@@ -10,7 +10,7 @@
 #include <tsl/htrie_map.h>
 #include <filter.h>
 #include "json.hpp"
-#include "text_embedder_manager.h"
+#include "embedder_manager.h"
 #include "vector_query_ops.h"
 
 namespace field_types {
@@ -32,6 +32,8 @@ namespace field_types {
     static const std::string FLOAT_ARRAY = "float[]";
     static const std::string BOOL_ARRAY = "bool[]";
     static const std::string GEOPOINT_ARRAY = "geopoint[]";
+
+    static const std::string IMAGE = "image";
 
     static bool is_string_or_array(const std::string& type_def) {
         return type_def == "string*";
@@ -70,6 +72,8 @@ namespace fields {
 
     static const std::string reference_helper_fields = ".ref";
     static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
+
+    static const std::string store = "store";
 }
 
 enum vector_distance_type_t {
@@ -88,6 +92,8 @@ struct field {
     bool infix;
 
     bool nested;        // field inside an object
+
+    bool store = true;        // store the field in disk
 
     // field inside an array of objects that is forced to be an array
     // integer to handle tri-state: true (1), false (0), not known yet (2)
@@ -111,10 +117,10 @@ struct field {
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
-          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false) :
+          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false, const bool store = true) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index) {
+            embed(embed), range_index(range_index), store(store) {
 
         set_computed_defaults(sort, infix);
 
@@ -158,6 +164,10 @@ struct field {
 
     bool is_single_geopoint() const {
         return (type == field_types::GEOPOINT);
+    }
+
+    bool is_image() const {
+        return (type == field_types::IMAGE);
     }
 
     bool is_integer() const {
@@ -248,7 +258,7 @@ struct field {
 
     bool has_valid_type() const {
         bool is_basic_type = is_string() || is_integer() || is_float() || is_bool() || is_geopoint() ||
-                             is_object() || is_auto();
+                             is_object() || is_auto() || is_image();
         if(!is_basic_type) {
             return field_types::is_string_or_array(type);
         }
@@ -331,6 +341,8 @@ struct field {
             field_val[fields::infix] = field.infix;
 
             field_val[fields::locale] = field.locale;
+
+            field_val[fields::store] = field.store;
             
             if(field.embed.count(fields::from) != 0) {
                 field_val[fields::embed] = field.embed;

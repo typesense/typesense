@@ -15,6 +15,8 @@ struct embedding_res_t {
     int status_code;
     bool success;
 
+    embedding_res_t() : success(false) {} 
+
     embedding_res_t(const std::vector<float>& embedding) : embedding(embedding), success(true) {}
 
     embedding_res_t(int status_code, const nlohmann::json& error) : error(error), success(false), status_code(status_code) {}

@@ -1585,7 +1585,7 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldDrop) {
                 ]
             })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1634,7 +1634,7 @@ TEST_F(CollectionSchemaChangeTest, NestedFieldReIndex) {
                 ]
             })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1667,7 +1667,7 @@ TEST_F(CollectionSchemaChangeTest, UpdateSchemaWithNewEmbeddingField) {
                 ]
             })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1717,7 +1717,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldUsedForEmbedding) {
             ]
         })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1783,7 +1783,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldsMapTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1820,7 +1820,7 @@ TEST_F(CollectionSchemaChangeTest, DropAndReindexEmbeddingField) {
         ]
     })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto create_op = collectionManager.create_collection(schema);
     ASSERT_TRUE(create_op.ok());
@@ -1859,7 +1859,7 @@ TEST_F(CollectionSchemaChangeTest, DropAndReindexEmbeddingField) {
 
     update_op = coll->alter(alter_schema);
     ASSERT_FALSE(update_op.ok());
-    ASSERT_EQ("Property `embed.from` can only refer to string or string array fields.", update_op.error());
+    ASSERT_EQ("Property `embed.from` can only refer to string, string array or image (for supported models) fields.", update_op.error());
 
     // alter with bad model name
     alter_schema = R"({
@@ -1889,7 +1889,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterDropTest) {
                 ]
             })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -1923,7 +1923,7 @@ TEST_F(CollectionSchemaChangeTest, EmbeddingFieldAlterUpdateOldDocs) {
             "enable_nested_fields": true
         })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());

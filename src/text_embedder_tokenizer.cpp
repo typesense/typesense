@@ -1,6 +1,7 @@
 #include <fstream>
 #include <sstream>
 #include "text_embedder_tokenizer.h"
+#include "logger.h"
 
 
 BertTokenizerWrapper::BertTokenizerWrapper(const std::string& vocab_path) {
@@ -85,4 +86,39 @@ encoded_input_t XLMRobertaTokenizer::Encode(const std::string& text) {
     }
 
     return {input_ids, {}, attention_mask};
+}
+
+
+CLIPTokenizer::CLIPTokenizer(const std::string& model_path) {
+    Ort::SessionOptions session_options;
+    session_options.EnableOrtCustomOps();
+    auto tokenizer_path= model_path + "/clip_tokenizer.onnx";
+    LOG(INFO) << "Loading tokenizer from " << tokenizer_path;
+    session_ = std::make_unique<Ort::Session>(env_, tokenizer_path.c_str(), session_options);
+}
+
+encoded_input_t CLIPTokenizer::Encode(const std::string& text) {
+    std::unique_lock<std::mutex> lock(mutex_);
+
+    Ort::AllocatorWithDefaultOptions allocator;
+    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    std::vector<Ort::Value> input_tensors;
+    std::vector<int64_t> input_shape = {1};
+    std::vector<const char*> input_names = {"string_input"};
+    const char* const input_array[] = {text.c_str()};
+
+    Ort::Value input_tensor = Ort::Value::CreateTensor(allocator, input_shape.data(), input_shape.size(), ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING);
+    input_tensor.FillStringTensor(input_array, 1U);
+    input_tensors.push_back(std::move(input_tensor));
+    
+    const std::vector<const char*> output_names = {"input_ids", "attention_mask"};
+    auto output_tensors = session_->Run(Ort::RunOptions{nullptr}, input_names.data(), input_tensors.data(), input_tensors.size(), output_names.data(), output_names.size());
+    auto input_ids_tensor = output_tensors[0].GetTensorMutableData<int64_t>();
+    auto attention_mask_tensor = output_tensors[1].GetTensorMutableData<int64_t>();
+
+    auto input_ids = std::vector<int64_t>(input_ids_tensor, input_ids_tensor + output_tensors[0].GetTensorTypeAndShapeInfo().GetElementCount());
+    auto attention_mask = std::vector<int64_t>(attention_mask_tensor, attention_mask_tensor + output_tensors[1].GetTensorTypeAndShapeInfo().GetElementCount());
+
+
+    return {std::move(input_ids), {}, std::move(attention_mask)};
 }

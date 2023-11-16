@@ -10,6 +10,7 @@
 #include "http_client.h"
 #include "option.h"
 #include "text_embedder.h"
+#include "image_embedder.h"
 
 struct text_embedding_model {
     std::string model_name;
@@ -17,9 +18,14 @@ struct text_embedding_model {
     std::string vocab_file_name;
     std::string vocab_md5;
     std::string data_file_md5;
+    std::string tokenizer_md5;
+    std::string tokenizer_file_name;
+    std::string image_processor_md5;
+    std::string image_processor_file_name;
     TokenizerType tokenizer_type;
     std::string indexing_prefix = "";
     std::string query_prefix = "";
+    bool has_image_embedder = false;
 
     text_embedding_model(const nlohmann::json& json);
 
@@ -27,19 +33,23 @@ struct text_embedding_model {
 };
 
 // Singleton class
-class TextEmbedderManager {
+class EmbedderManager {
 public:
-    static TextEmbedderManager& get_instance();
+    static EmbedderManager& get_instance();
     
-    TextEmbedderManager(TextEmbedderManager&&) = delete;
-    TextEmbedderManager& operator=(TextEmbedderManager&&) = delete;
-    TextEmbedderManager(const TextEmbedderManager&) = delete;
-    TextEmbedderManager& operator=(const TextEmbedderManager&) = delete;
+    EmbedderManager(EmbedderManager&&) = delete;
+    EmbedderManager& operator=(EmbedderManager&&) = delete;
+    EmbedderManager(const EmbedderManager&) = delete;
+    EmbedderManager& operator=(const EmbedderManager&) = delete;
 
     Option<TextEmbedder*> get_text_embedder(const nlohmann::json& model_config);
+    Option<ImageEmbedder*> get_image_embedder(const nlohmann::json& model_config);
 
     void delete_text_embedder(const std::string& model_path);
     void delete_all_text_embedders();
+
+    void delete_image_embedder(const std::string& model_path);
+    void delete_all_image_embedders();
 
     static const TokenizerType get_tokenizer_type(const nlohmann::json& model_config);
     const std::string get_indexing_prefix(const nlohmann::json& model_config);
@@ -47,7 +57,7 @@ public:
     static void set_model_dir(const std::string& dir);
     static const std::string& get_model_dir();
 
-    ~TextEmbedderManager();
+    ~EmbedderManager();
 
     inline static const std::string MODELS_REPO_URL = "https://models.typesense.org/public/";
     inline static const std::string MODEL_CONFIG_FILE = "config.json";
@@ -79,11 +89,12 @@ public:
     }
 
 private:
-    TextEmbedderManager() = default;
+    EmbedderManager() = default;
 
     std::unordered_map<std::string, std::shared_ptr<TextEmbedder>> text_embedders;
+    std::unordered_map<std::string, std::shared_ptr<ImageEmbedder>> image_embedders;
     std::unordered_map<std::string, text_embedding_model> public_models;
-    std::mutex text_embedders_mutex;
+    std::mutex text_embedders_mutex, image_embedders_mutex;
 
     static Option<std::string> get_namespace(const std::string& model_name);
 };

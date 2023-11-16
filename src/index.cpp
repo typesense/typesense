@@ -540,7 +540,6 @@ size_t Index::batch_memory_index(Index *index,
                                  const bool do_validation, const size_t remote_embedding_batch_size,
                                  const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings, 
                                  const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields) {
-
     const size_t concurrency = 4;
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
@@ -6959,8 +6958,9 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                                const tsl::htrie_map<char, field> & search_schema, const size_t remote_embedding_batch_size,
                                const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     for(const auto& field : embedding_fields) {
-        std::vector<std::pair<index_record*, std::string>> texts_to_embed;
-        auto indexing_prefix = TextEmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
+        std::vector<std::pair<index_record*, std::string>> values_to_embed;
+        bool is_image_embedding;
+        auto indexing_prefix = EmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
         for(auto& record : records) {
             if(!record->indexed.ok()) {
                 continue;
@@ -6981,7 +6981,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 continue;
             }
 
-            std::string text = indexing_prefix;
+            std::string value = indexing_prefix;
             const auto& embed_from = field.embed[fields::from].get<std::vector<std::string>>();
             for(const auto& field_name : embed_from) {
                 auto field_it = search_schema.find(field_name);
@@ -6989,59 +6989,81 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 if(doc_field_it == document->end()) {
                         continue;
                 }
+                if(field_it.value().type == field_types::IMAGE) {
+                    is_image_embedding = true;
+                    value = doc_field_it->get<std::string>();
+                    continue;
+                }
                 if(field_it.value().type == field_types::STRING) {
-                    text += doc_field_it->get<std::string>() + " ";
+                    value += doc_field_it->get<std::string>() + " ";
                 } else if(field_it.value().type == field_types::STRING_ARRAY) {
                     for(const auto& val : *(doc_field_it)) {
-                        text += val.get<std::string>() + " ";
+                        value += val.get<std::string>() + " ";
                     }
                 }
             }
-            if(text != indexing_prefix) {
-                texts_to_embed.push_back(std::make_pair(record, text));
+            if(value != indexing_prefix) {
+                values_to_embed.push_back(std::make_pair(record, value));
             }
         }
 
-        if(texts_to_embed.empty()) {
+        if(values_to_embed.empty()) {
             continue;
         }
 
-        TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
-        auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
+        std::vector<embedding_res_t> embeddings;
 
-        if(!embedder_op.ok()) {
-            LOG(ERROR) << "Error while getting embedder for model: " << field.embed[fields::model_config];
-            LOG(ERROR) << "Error: " << embedder_op.error();
-            return;
-        }
+
+
 
         // sort texts by length
-        std::sort(texts_to_embed.begin(), texts_to_embed.end(),
-                  [](const std::pair<index_record*, std::string>& a,
-                     const std::pair<index_record*, std::string>& b) {
-                      return a.second.size() < b.second.size();
-                  });
+        if(!is_image_embedding) {
+            std::sort(values_to_embed.begin(), values_to_embed.end(),
+                    [](const std::pair<index_record*, std::string>& a,
+                        const std::pair<index_record*, std::string>& b) {
+                        return a.second.size() < b.second.size();
+                    });
+        }
         
-        // get vector of texts
-        std::vector<std::string> texts;
-        for(const auto& text_to_embed : texts_to_embed) {
-            texts.push_back(text_to_embed.second);
+        // get vector of values
+        std::vector<std::string> values;
+        for(const auto& value_to_embed : values_to_embed) {
+            values.push_back(value_to_embed.second);
         }
 
-        auto embeddings = embedder_op.get()->batch_embed(texts, remote_embedding_batch_size, remote_embedding_timeout_ms,
-                                                         remote_embedding_num_tries);
+        EmbedderManager& embedder_manager = EmbedderManager::get_instance();
+        if(is_image_embedding) {
+            auto embedder_op = embedder_manager.get_image_embedder(field.embed[fields::model_config]);
+            if(!embedder_op.ok()) {
+                for(auto& record : records) {
+                    record->index_failure(400, "Could not find image embedder for model: " + field.embed[fields::model_config][fields::model_name].get<std::string>());
+                }
+                LOG(ERROR) << "Error: " << "Could not find image embedder for model: " + field.embed[fields::model_config][fields::model_name].get<std::string>();
+                return;
+            }
+            embeddings = embedder_op.get()->batch_embed(values);
+        } else {
+            auto embedder_op = embedder_manager.get_text_embedder(field.embed[fields::model_config]);
+            if(!embedder_op.ok()) {
+                LOG(ERROR) << "Error while getting embedder for model: " << field.embed[fields::model_config];
+                LOG(ERROR) << "Error: " << embedder_op.error();
+                return;
+            }
+            embeddings = embedder_op.get()->batch_embed(values, remote_embedding_batch_size, remote_embedding_timeout_ms,
+                                                            remote_embedding_num_tries);
+        }
 
         for(size_t i = 0; i < embeddings.size(); i++) {
             auto& embedding_res = embeddings[i];
             if(!embedding_res.success) {
-                texts_to_embed[i].first->embedding_res = embedding_res.error;
-                texts_to_embed[i].first->index_failure(embedding_res.status_code, "");
+                values_to_embed[i].first->embedding_res = embedding_res.error;
+                values_to_embed[i].first->index_failure(embedding_res.status_code, "");
                 continue;
             }
-            if(texts_to_embed[i].first->is_update) {
-                texts_to_embed[i].first->new_doc[field.name] = embedding_res.embedding;
+            if(values_to_embed[i].first->is_update) {
+                values_to_embed[i].first->new_doc[field.name] = embedding_res.embedding;
             } 
-            texts_to_embed[i].first->doc[field.name] = embedding_res.embedding;
+            values_to_embed[i].first->doc[field.name] = embedding_res.embedding;
         }
     }
 }

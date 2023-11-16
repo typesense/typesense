@@ -130,6 +130,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":false,
               "sort":false,
+              "store":true,
               "type":"string"
             },
             {
@@ -141,6 +142,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":false,
               "sort":false,
+              "store":true,
               "type":"string"
             },
             {
@@ -152,6 +154,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"string[]"
             },
             {
@@ -163,6 +166,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":true,
+              "store":true,
               "type":"int32"
             },
             {
@@ -174,6 +178,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":true,
+              "store":true,
               "type":"geopoint"
             },
             {
@@ -185,6 +190,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"string"
             },
             {
@@ -196,6 +202,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":false,
               "sort":true,
+              "store":true,
               "type":"int32"
             },
             {
@@ -208,6 +215,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested_array":2,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"object"
             },
             {
@@ -220,6 +228,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "num_dim":128,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"float[]",
               "vec_dist":"cosine"
             },
@@ -232,6 +241,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"string",
               "reference":"Products.product_id"
             },
@@ -244,6 +254,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":true,
+              "store":true,
               "type":"int64"
             }
           ],
@@ -261,6 +272,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
 
     auto actual_json = nlohmann::json::parse(collection_meta_json);
     expected_meta_json["created_at"] = actual_json["created_at"];
+
+
 
     ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
     ASSERT_EQ("1", next_collection_id);

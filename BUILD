@@ -210,6 +210,10 @@ mkdir -p $INSTALLDIR/lib/_deps/pytorch_cpuinfo-build
 mkdir -p $INSTALLDIR/lib/_deps/pytorch_cpuinfo-build/deps
 mkdir -p $INSTALLDIR/lib/_deps/pytorch_cpuinfo-build/deps/clog
 mkdir -p $INSTALLDIR/lib/_deps/google_nsync-build
+mkdir -p $INSTALLDIR/lib/_deps/opencv-build
+mkdir -p $INSTALLDIR/lib/_deps/opencv-build/lib
+mkdir -p $INSTALLDIR/lib/_deps/opencv-build/3rdparty
+mkdir -p $INSTALLDIR/lib/_deps/opencv-build/3rdparty/lib
 cp $BUILD_TMPDIR/_deps/onnx-build/libonnx.a $INSTALLDIR/lib/_deps/onnx-build
 cp $BUILD_TMPDIR/_deps/onnx-build/libonnx_proto.a $INSTALLDIR/lib/_deps/onnx-build
 cp $BUILD_TMPDIR/_deps/re2-build/libre2.a $INSTALLDIR/lib/_deps/re2-build
@@ -217,6 +221,14 @@ cp -r $BUILD_TMPDIR/_deps/abseil_cpp-build/. $INSTALLDIR/lib/_deps/abseil_cpp-bu
 cp $BUILD_TMPDIR/_deps/google_nsync-build/libnsync_cpp.a $INSTALLDIR/lib/_deps/google_nsync-build
 cp $BUILD_TMPDIR/_deps/pytorch_cpuinfo-build/deps/clog/libclog.a $INSTALLDIR/lib/_deps/pytorch_cpuinfo-build/deps/clog
 cp $BUILD_TMPDIR/_deps/pytorch_cpuinfo-build/libcpuinfo.a $INSTALLDIR/lib/_deps/pytorch_cpuinfo-build
+cp $BUILD_TMPDIR/_deps/opencv-build/lib/libopencv_imgcodecs.a $INSTALLDIR/lib/_deps/opencv-build/lib
+cp $BUILD_TMPDIR/_deps/opencv-build/lib/libopencv_imgproc.a $INSTALLDIR/lib/_deps/opencv-build/lib
+cp $BUILD_TMPDIR/_deps/opencv-build/lib/libopencv_core.a $INSTALLDIR/lib/_deps/opencv-build/lib
+cp $BUILD_TMPDIR/_deps/opencv-build/3rdparty/lib/liblibjpeg-turbo.a $INSTALLDIR/lib/_deps/opencv-build/3rdparty/lib
+cp $BUILD_TMPDIR/_deps/opencv-build/3rdparty/lib/liblibpng.a $INSTALLDIR/lib/_deps/opencv-build/3rdparty/lib
+cp $BUILD_TMPDIR/lib/libnoexcep_operators.a $INSTALLDIR/lib
+cp $BUILD_TMPDIR/lib/libocos_operators.a $INSTALLDIR/lib
+cp $BUILD_TMPDIR/lib/libortcustomops.a $INSTALLDIR/lib
 """
 
 __POSTFIX_WITH_CUDA = __POSTFIX + """
@@ -281,6 +293,9 @@ __ONNXRUNTIME_WITHOUT_CUDA = {'onnxruntime_RUN_ONNX_TESTS':'OFF',
 'onnxruntime_USE_CANN':'OFF', 'CMAKE_TLS_VERIFY':'ON', 'FETCHCONTENT_QUIET':'OFF',
 'onnxruntime_PYBIND_EXPORT_OPSCHEMA':'OFF', 'onnxruntime_ENABLE_MEMLEAK_CHECKER':'OFF',
 'CMAKE_BUILD_TYPE':'Release',
+'onnxruntime_USE_EXTENSIONS': 'ON',
+'onnxruntime_EXTENSIONS_PATH': '$EXT_BUILD_ROOT/external/onnx_runtime/cmake/external/onnxruntime-extensions',
+'OCOS_ENABLE_BLINGFIRE': 'OFF'
 }
 
 
@@ -337,11 +352,13 @@ __ONNXRUNTIME_WITH_CUDA = {'onnxruntime_RUN_ONNX_TESTS':'OFF',
 'onnxruntime_USE_CANN':'OFF', 'CMAKE_TLS_VERIFY':'ON', 'FETCHCONTENT_QUIET':'OFF',
 'onnxruntime_PYBIND_EXPORT_OPSCHEMA':'OFF', 'onnxruntime_ENABLE_MEMLEAK_CHECKER':'OFF',
 'CMAKE_BUILD_TYPE':'Release', 'onnxruntime_USE_CUDA':'ON', 'onnxruntime_USE_CUDNN':'ON',
+'onnxruntime_USE_EXTENSIONS': 'ON',
+'onnxruntime_EXTENSIONS_PATH': '$EXT_BUILD_ROOT/external/onnx_runtime/cmake/external/onnxruntime-extensions',
 'onnxruntime_CUDA_HOME': CUDA_HOME,
 'onnxruntime_CUDNN_HOME': CUDNN_HOME,
-'CMAKE_CUDA_COMPILER': CUDA_HOME + "/bin/nvcc"
+'CMAKE_CUDA_COMPILER': CUDA_HOME + "/bin/nvcc",
+'OCOS_ENABLE_BLINGFIRE': 'OFF'
 }
-
 
 config_setting(
     name = "with_cuda",
@@ -373,6 +390,9 @@ cmake(
     "libonnxruntime_mlas.a",
     "libonnxruntime_common.a",
     "libonnxruntime_flatbuffers.a",
+    "libortcustomops.a",
+    "libocos_operators.a",
+    "libnoexcep_operators.a",
     "_deps/onnx-build/libonnx.a",
     "_deps/onnx-build/libonnx_proto.a",
     "_deps/re2-build/libre2.a",
@@ -385,6 +405,11 @@ cmake(
     "_deps/google_nsync-build/libnsync_cpp.a",
     "_deps/pytorch_cpuinfo-build/libcpuinfo.a",
     "_deps/pytorch_cpuinfo-build/deps/clog/libclog.a",
+    "_deps/opencv-build/lib/libopencv_imgcodecs.a",
+    "_deps/opencv-build/lib/libopencv_imgproc.a",
+    "_deps/opencv-build/lib/libopencv_core.a",
+    "_deps/opencv-build/3rdparty/lib/liblibjpeg-turbo.a",
+    "_deps/opencv-build/3rdparty/lib/liblibpng.a"
     ],
     postfix_script= select({
         ":with_cuda": __POSTFIX_WITH_CUDA,

@@ -1,6 +1,6 @@
 #include <http_proxy.h>
 #include "text_embedder_remote.h"
-#include "text_embedder_manager.h"
+#include "embedder_manager.h"
 
 
 Option<bool> RemoteEmbedder::validate_string_properties(const nlohmann::json& model_config, const std::vector<std::string>& properties) {
@@ -55,7 +55,7 @@ long RemoteEmbedder::call_remote_api(const std::string& method, const std::strin
 
 
 const std::string RemoteEmbedder::get_model_key(const nlohmann::json& model_config) {
-    const std::string model_namespace = TextEmbedderManager::get_model_namespace(model_config["model_name"].get<std::string>());
+    const std::string model_namespace = EmbedderManager::get_model_namespace(model_config["model_name"].get<std::string>());
 
     if(model_namespace == "openai") {
         return OpenAIEmbedder::get_model_key(model_config);
@@ -82,7 +82,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     auto model_name = model_config["model_name"].get<std::string>();
     auto api_key = model_config["api_key"].get<std::string>();
 
-    if(TextEmbedderManager::get_model_namespace(model_name) != "openai") {
+    if(EmbedderManager::get_model_namespace(model_name) != "openai") {
         return Option<bool>(400, "Property `embed.model_config.model_name` malformed.");
     }
 
@@ -117,7 +117,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     }
     bool found = false;
     // extract model name by removing "openai/" prefix
-    auto model_name_without_namespace = TextEmbedderManager::get_model_name_without_namespace(model_name);
+    auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_name);
     for (auto& model : models_json["data"]) {
         if (model["id"] == model_name_without_namespace) {
             found = true;
@@ -175,7 +175,7 @@ embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remo
     nlohmann::json req_body;
     req_body["input"] = std::vector<std::string>{text};
     // remove "openai/" prefix
-    req_body["model"] = TextEmbedderManager::get_model_name_without_namespace(openai_model_path);
+    req_body["model"] = EmbedderManager::get_model_name_without_namespace(openai_model_path);
     auto res_code = call_remote_api("POST", OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
     if (res_code != 200) {
         return embedding_res_t(res_code, get_error_json(req_body, res_code, res));
@@ -305,11 +305,11 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
     auto model_name = model_config["model_name"].get<std::string>();
     auto api_key = model_config["api_key"].get<std::string>();
 
-    if(TextEmbedderManager::get_model_namespace(model_name) != "google") {
+    if(EmbedderManager::get_model_namespace(model_name) != "google") {
         return Option<bool>(400, "Property `embed.model_config.model_name` malformed.");
     }
 
-    if(TextEmbedderManager::get_model_name_without_namespace(model_name) != std::string(SUPPORTED_MODEL)) {
+    if(EmbedderManager::get_model_name_without_namespace(model_name) != std::string(SUPPORTED_MODEL)) {
         return Option<bool>(400, "Property `embed.model_config.model_name` is not a supported Google model.");
     }
 
@@ -428,7 +428,7 @@ GCPEmbedder::GCPEmbedder(const std::string& project_id, const std::string& model
                          const std::string& refresh_token, const std::string& client_id, const std::string& client_secret) : 
         project_id(project_id), access_token(access_token), refresh_token(refresh_token), client_id(client_id), client_secret(client_secret) {
     
-    this->model_name = TextEmbedderManager::get_model_name_without_namespace(model_name);
+    this->model_name = EmbedderManager::get_model_name_without_namespace(model_name);
 }
 
 Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims)  {
@@ -445,11 +445,11 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
     auto client_id = model_config["client_id"].get<std::string>();
     auto client_secret = model_config["client_secret"].get<std::string>();
 
-    if(TextEmbedderManager::get_model_namespace(model_name) != "gcp") {
+    if(EmbedderManager::get_model_namespace(model_name) != "gcp") {
         return Option<bool>(400, "Invalid GCP model name");
     }
 
-    auto model_name_without_namespace = TextEmbedderManager::get_model_name_without_namespace(model_name);
+    auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_name);
 
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;

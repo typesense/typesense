@@ -83,7 +83,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             size_t num_dim = 0;
             auto& model_config = field_obj[fields::embed][fields::model_config];
 
-            auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+            auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
             if(!res.ok()) {
                 const std::string& model_name = model_config["model_name"].get<std::string>();
                 LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
@@ -1996,6 +1996,7 @@ void CollectionManager::process_embedding_field_delete(const std::string& model_
 
     if(!found) {
         LOG(INFO) << "Deleting text embedder: " << model_name;
-        TextEmbedderManager::get_instance().delete_text_embedder(model_name);
+        EmbedderManager::get_instance().delete_text_embedder(model_name);
+        EmbedderManager::get_instance().delete_image_embedder(model_name);
     }
 }

@@ -1683,7 +1683,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
             })"_json
     };
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -2039,7 +2039,7 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
     })"_json;
-    auto query_embedding = TextEmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
     std::string vec_string = "[";
     for (auto const& i : query_embedding.embedding) {
         vec_string += std::to_string(i);
@@ -2801,7 +2801,7 @@ TEST_F(CollectionJoinTest, SortByReference) {
             })"_json
     };
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3078,7 +3078,7 @@ TEST_F(CollectionJoinTest, SortByReference) {
     nlohmann::json model_config = R"({
         "model_name": "ts/e5-small"
     })"_json;
-    auto query_embedding = TextEmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
+    auto query_embedding = EmbedderManager::get_instance().get_text_embedder(model_config).get()->Embed("natural products");
     std::string vec_string = "[";
     for (auto const& i : query_embedding.embedding) {
         vec_string += std::to_string(i);
