@@ -50,7 +50,6 @@ embedding_res_t CLIPImageEmbedder::embed(const std::string& encoded_image) {
 
 
 std::vector<embedding_res_t> CLIPImageEmbedder::batch_embed(const std::vector<std::string>& inputs) {
-    LOG(INFO) << "Batch embedding " << inputs.size() << " images";
     std::vector<processed_image_t> processed_images;
     std::unordered_map<int, embedding_res_t> results;
 
