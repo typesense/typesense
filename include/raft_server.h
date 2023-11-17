@@ -99,6 +99,7 @@ public:
 class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
+    static constexpr const char* analytics_db_snapshot_name = "analytics_db_snapshot";
 
     mutable std::shared_mutex node_mutex;
 
@@ -109,6 +110,7 @@ private:
     BatchedIndexer* batched_indexer;
 
     Store* store;
+    Store* analytics_store;
 
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
@@ -148,7 +150,7 @@ public:
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer, Store* store,
+    ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer, Store* store, Store* analytics_store,
                      ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
                      bool api_uses_ssl, const Config* config,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
@@ -253,6 +255,7 @@ private:
         braft::SnapshotWriter* writer;
         std::string state_dir_path;
         std::string db_snapshot_path;
+        std::string analytics_db_snapshot_path;
         std::string ext_snapshot_path;
         braft::Closure* done;
     };

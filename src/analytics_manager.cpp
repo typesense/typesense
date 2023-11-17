@@ -226,35 +226,40 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection, const
 Option<bool> AnalyticsManager::add_click_event(const std::string &query_collection, const std::string &query, const std::string &user_id,
                                        std::string doc_id, uint64_t position, const std::string& client_ip) {
     std::unique_lock lock(mutex);
-    auto &click_events_vec = query_collection_click_events[query_collection];
+    if(analytics_store) {
+        auto &click_events_vec = query_collection_click_events[query_collection];
 
-    auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-    auto events_cache_it = events_cache.find(client_ip);
+        auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto events_cache_it = events_cache.find(client_ip);
 
-    if(events_cache_it != events_cache.end()) {
-        //event found in events cache
-        if ((now_ts_seconds - events_cache_it->second.last_update_time) < CLICK_EVENTS_RATE_LIMIT_SEC) {
-            if (events_cache_it->second.count >= CLICK_EVENTS_RATE_LIMIT_COUNT) {
-                return Option<bool>(500, "click event rate limit reached.");
+        if (events_cache_it != events_cache.end()) {
+            //event found in events cache
+            if ((now_ts_seconds - events_cache_it->second.last_update_time) < CLICK_EVENTS_RATE_LIMIT_SEC) {
+                if (events_cache_it->second.count >= CLICK_EVENTS_RATE_LIMIT_COUNT) {
+                    return Option<bool>(500, "click event rate limit reached.");
+                } else {
+                    events_cache_it->second.count++;
+                }
             } else {
-                events_cache_it->second.count++;
+                events_cache_it->second.last_update_time = now_ts_seconds;
+                events_cache_it->second.count = 1;
             }
         } else {
-            events_cache_it->second.last_update_time = now_ts_seconds;
-            events_cache_it->second.count = 1;
+            event_cache_t eventCache{(uint64_t) now_ts_seconds, 1};
+            events_cache.insert(client_ip, eventCache);
         }
-    } else {
-        event_cache_t eventCache{(uint64_t) now_ts_seconds, 1};
-        events_cache.insert(client_ip, eventCache);
+
+        auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        ClickEvent click_event(query, now_ts_useconds, user_id, doc_id, position);
+        click_events_vec.emplace_back(click_event);
+
+        return Option<bool>(true);
     }
 
-    auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-
-    ClickEvent click_event(query, now_ts_useconds, user_id, doc_id, position);
-    click_events_vec.emplace_back(click_event);
-
+    LOG(ERROR) << "Analytics Directory not provided.";
     return Option<bool>(true);
 }
 
@@ -424,24 +429,22 @@ std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_q
     return popular_queries;
 }
 
-Option<nlohmann::json> AnalyticsManager::get_click_events() {
+nlohmann::json AnalyticsManager::get_click_events() {
     std::unique_lock lk(mutex);
     std::vector<std::string> click_event_jsons;
+    nlohmann::json result_json = nlohmann::json::array();
+
     if (analytics_store) {
         analytics_store->scan_fill(std::string(CLICK_EVENT) + "_", std::string(CLICK_EVENT) + "`",
                                    click_event_jsons);
-    } else {
-        return Option<nlohmann::json>(500, "Analytics DB not initialized.");
+
+        for (const auto &click_event_json: click_event_jsons) {
+            nlohmann::json click_event = nlohmann::json::parse(click_event_json);
+            result_json.push_back(click_event);
+        }
     }
 
-    nlohmann::json result_json = nlohmann::json::array();
-    for (const auto &click_event_json: click_event_jsons) {
-        nlohmann::json click_event = nlohmann::json::parse(click_event_json);
-        result_json.push_back(click_event);
-    }
-
-
-    return Option<nlohmann::json>(result_json);
+    return result_json;
 }
 
 Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_event_jsons) {
