@@ -567,6 +567,7 @@ void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raf
              << ", known_applied_index: " << nodeStatus.known_applied_index
              << ", applying_index: " << nodeStatus.applying_index
              << ", queued_writes: " << batched_indexer->get_queued_writes()
+             << ", pending_writes: " << pending_writes
              << ", pending_queue_size: " << nodeStatus.pending_queue_size
              << ", local_sequence: " << store->get_latest_seq_number();
 
