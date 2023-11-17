@@ -677,6 +677,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             nodeStack.pop();
 
             filter_node = new filter_node_t(expression == "&&" ? AND : OR, operandA, operandB);
+            filter_node->filter_query = operandA->filter_query + " " + expression + " " + operandB->filter_query;
         } else {
             filter filter_exp;
 
@@ -706,6 +707,7 @@ Option<bool> toParseTree(std::queue<std::string>& postfix, filter_node_t*& root,
             }
 
             filter_node = new filter_node_t(filter_exp);
+            filter_node->filter_query = expression;
         }
 
         nodeStack.push(filter_node);
@@ -765,5 +767,6 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
         return toParseTree_op;
     }
 
+    root->filter_query = filter_query;
     return Option<bool>(true);
 }

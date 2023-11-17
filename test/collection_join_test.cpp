@@ -3044,7 +3044,7 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
     for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
+        auto add_op = collection_create_op.get()->add(json.dump(), CREATE, "", DIRTY_VALUES::REJECT);
         if (!add_op.ok()) {
             LOG(INFO) << add_op.error();
         }

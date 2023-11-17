@@ -319,6 +319,16 @@ Option<uint32_t> validator_t::coerce_int64_t(const DIRTY_VALUES& dirty_values, c
     std::string suffix = is_array ? "an array of" : "an";
     auto& item = is_array ? array_iter.value() : document[field_name];
 
+    // Object array reference helper field. It's not provided by the user.
+    if(is_array && a_field.nested && a_field.is_reference_helper) {
+        // It's an array of two uint32_t values indicating the object index and referenced doc id respectively.
+        if(item.size() != 2 || !item.at(0).is_number_unsigned() || !item.at(1).is_number_unsigned()) {
+            return Option<>(400, "`" + field_name + "` object array reference helper field has wrong value `"
+                                 + item.dump() + "`.");
+        }
+        return Option<uint32_t>(200);
+    }
+
     if(dirty_values == DIRTY_VALUES::REJECT) {
         if(a_field.nested && item.is_array()) {
             return Option<>(400, "Field `" + field_name + "` has an incorrect type. "
@@ -357,13 +367,6 @@ Option<uint32_t> validator_t::coerce_int64_t(const DIRTY_VALUES& dirty_values, c
 
     else if(item.is_string() && StringUtils::is_int64_t(item)) {
         item = std::atoll(item.get<std::string>().c_str());
-    }
-
-    else if(is_array && a_field.nested && a_field.is_reference_helper) {
-        if(item.size() != 2 || !item.at(0).is_number() || !item.at(1).is_number()) {
-            return Option<>(400, "`" + field_name + "` object array reference helper field has wrong value `"
-                                    + item.dump() + "`.");
-        }
     }
 
     else {

@@ -2094,7 +2094,8 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
                     {"name": "name", "type": "string"},
                     {"name": "age", "type": "int32"},
                     {"name": "years", "type": "int32[]"},
-                    {"name": "rating", "type": "float"}
+                    {"name": "rating", "type": "float"},
+                    {"name": "tags", "type": "string[]"}
                 ]
             })"_json;
 
@@ -2114,6 +2115,10 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
     nlohmann::json results = coll->search("Jeremy", {"name"}, "(rating:>=0 && years:>2000) && age:>50",
                                           {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
+
+    results = coll->search("*", {"name"}, "(age:>50 && rating:>5) || years:<2000",
+                                          {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
 
     results = coll->search("Jeremy", {"name"}, "(age:>50 || rating:>5) && years:<2000",
                                           {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
