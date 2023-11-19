@@ -165,7 +165,9 @@ public:
 
     nlohmann::json get_collection_summaries() const;
 
-    Option<nlohmann::json> drop_collection(const std::string& collection_name, const bool remove_from_store = true);
+    Option<nlohmann::json> drop_collection(const std::string& collection_name,
+                                           const bool remove_from_store = true,
+                                           const bool compact_store = true);
 
     uint32_t get_next_collection_id() const;
 

@@ -486,7 +486,9 @@ std::vector<std::string> CollectionManager::get_collection_names() const {
     return collection_vec;
 }
 
-Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
+Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name,
+                                                          const bool remove_from_store,
+                                                          const bool compact_store) {
     std::shared_lock s_lock(mutex);
     auto collection = get_collection_unsafe(collection_name);
 
@@ -503,8 +505,11 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         const std::string& del_key_prefix = std::to_string(collection->get_collection_id()) + "_";
         const std::string& del_end_prefix = std::to_string(collection->get_collection_id()) + "`";
         store->delete_range(del_key_prefix, del_end_prefix);
-        store->flush();
-        store->compact_range(del_key_prefix, del_end_prefix);
+
+        if(compact_store) {
+            store->flush();
+            store->compact_range(del_key_prefix, del_end_prefix);
+        }
 
         // delete overrides
         const std::string& del_override_prefix =
