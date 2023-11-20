@@ -5215,6 +5215,5 @@ tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
 }
 
 void Collection::do_housekeeping() {
-    std::unique_lock lock(lifecycle_mutex);
     index->repair_hnsw_index();
 }
