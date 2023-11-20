@@ -239,6 +239,8 @@ public:
 
     std::string get_leader_url() const;
 
+    void decr_pending_writes();
+
 private:
 
     friend class ReplicationClosure;
