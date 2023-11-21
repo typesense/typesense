@@ -7035,10 +7035,11 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         if(is_image_embedding) {
             auto embedder_op = embedder_manager.get_image_embedder(field.embed[fields::model_config]);
             if(!embedder_op.ok()) {
+                const std::string& error_msg = "Could not find image embedder for model: " + field.embed[fields::model_config][fields::model_name].get<std::string>();
                 for(auto& record : records) {
-                    record->index_failure(400, "Could not find image embedder for model: " + field.embed[fields::model_config][fields::model_name].get<std::string>());
+                    record->index_failure(400, error_msg);
                 }
-                LOG(ERROR) << "Error: " << "Could not find image embedder for model: " + field.embed[fields::model_config][fields::model_name].get<std::string>();
+                LOG(ERROR) << "Error: " << error_msg;
                 return;
             }
             embeddings = embedder_op.get()->batch_embed(values);
