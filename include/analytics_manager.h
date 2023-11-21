@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <shared_mutex>
+#include "noresults_queries.h"
 
 struct ClickEvent {
     std::string query;
@@ -93,6 +94,9 @@ private:
     // suggestion collection => popular queries
     std::unordered_map<std::string, PopularQueries*> popular_queries;
 
+    // suggestion collection => noresults queries
+    std::unordered_map<std::string, NoresultsQueries*> noresults_queries;
+
     //query collection => click events
     std::unordered_map<std::string, std::vector<ClickEvent>> query_collection_click_events;
 
@@ -103,17 +107,18 @@ private:
 
     ~AnalyticsManager();
 
-    Option<bool> remove_popular_queries_index(const std::string& name);
+    Option<bool> remove_queries_index(const std::string& name);
 
-    Option<bool> create_popular_queries_index(nlohmann::json &payload,
+    Option<bool> create_queries_index(nlohmann::json &payload,
                                               bool upsert,
                                               bool write_to_disk);
 
 public:
 
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
-    static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* CLICK_EVENT = "$CE";
+    static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
+    static constexpr const char* NORESULTS_QUERIES_TYPE = "noresults_queries";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -154,6 +159,13 @@ public:
     nlohmann::json get_click_events();
 
     Option<bool> write_click_event_to_store(nlohmann::json& click_event_json);
+
+    void add_noresults_query(const std::string& query_collection,
+                        const std::string& query, bool live_query, const std::string& user_id);
+
+    void persist_noresults_queries(ReplicationState *raft_server, uint64_t prev_persistence_s);
+
+    std::unordered_map<std::string, NoresultsQueries*> get_noresults_queries();
 
     void resetRateLimit();
 };

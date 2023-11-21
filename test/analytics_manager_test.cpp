@@ -384,3 +384,60 @@ TEST_F(AnalyticsManagerTest, ClickEventsRateLimitTest) {
     ASSERT_FALSE(post_create_event(req, res));
     ASSERT_EQ("{\"message\": \"click event rate limit reached.\"}", res->body);
 }
+
+TEST_F(AnalyticsManagerTest, NoresultsQueries) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "search_queries",
+        "type": "noresults_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    std::string q = "foobar";
+    analyticsManager.add_noresults_query("titles", q, true, "1");
+
+    auto noresults_queries = analyticsManager.get_noresults_queries();
+    auto userQueries = noresults_queries["top_queries"]->get_user_prefix_queries()["1"];
+
+    ASSERT_EQ(1, userQueries.size());
+    ASSERT_EQ("foobar", userQueries[0].query);
+
+    //try deleting noresults_queries rule
+    ASSERT_TRUE(analyticsManager.remove_rule("search_queries").ok());
+
+    noresults_queries = analyticsManager.get_noresults_queries();
+    ASSERT_EQ(0, noresults_queries.size());
+}
