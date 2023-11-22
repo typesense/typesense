@@ -152,17 +152,21 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
 
     if (res != CURLE_OK) {
         char* url = nullptr;
+        char *method = nullptr;
+
         curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
+        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_METHOD, &method);
 
         long status_code = 0;
 
         if(res == CURLE_OPERATION_TIMEDOUT) {
             double total_time;
             curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &total_time);
-            LOG(ERROR) << "CURL timeout. Time taken: " << total_time << ", URL: " << url;
+            LOG(ERROR) << "CURL timeout. Time taken: " << total_time << ", method: " << method << ", url: " << url;
             status_code = 408;
         } else {
-            LOG(ERROR) << "CURL failed. URL: " << url << ", Code: " << res << ", strerror: " << curl_easy_strerror(res);
+            LOG(ERROR) << "CURL failed. Code: " << res << ", strerror: " << curl_easy_strerror(res)
+                       << ", method: " << method << ", url: " << url;
             status_code = 500;
         }
 

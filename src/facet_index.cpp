@@ -59,9 +59,8 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
                 fis.facet_id = facet_id;
 
                 if(facet_index.has_value_index) {
-                    auto new_count = seq_ids.size();
                     fis.seq_ids = ids_t::create(seq_ids);
-
+                    auto new_count = ids_t::num_ids(fis.seq_ids);
                     auto& count_map = facet_index.count_map;
                     auto count_map_it = count_map.lower_bound(new_count);
 
@@ -130,13 +129,14 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
         // 5, 4, [4 -> 7]
         // 5, 4, [4 -> 7], 3
         // 5, [4 -> 7]
+        // [4 -> 5]
 
         // delete count map entry if `curr` is the anchor for `old_count`
         if(std::next(curr) == count_list.end() || std::next(curr)->count < old_count) {
             count_map.erase(old_count);
 
             // find a replacement for orig_count
-            if(std::prev(curr)->count == old_count) {
+            if(curr != count_list.begin() && std::prev(curr)->count == old_count) {
                 count_map.emplace(old_count, std::prev(curr));
             }
         }
@@ -148,8 +148,12 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
         // entry for new_count already exists in count map
         // a) 10, 7, [5 -> 7], 3
         //    10, 7, 5, [5 -> 7]
+        //    10, 7, 5, [5 -> 8]
         //    10, 7, [5 -> 7]
         //    10, 7, [5 -> 7], 5
+
+        //    [9 -> 8], 8
+        //    10, [9 -> 8], 8
 
         auto existing_node = count_map_it->second;
 
@@ -158,7 +162,7 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
             count_map.erase(old_count);
 
             // find a replacement for orig_count
-            if(std::prev(curr)->count == old_count) {
+            if(curr != count_list.begin() && std::prev(curr)->count == old_count) {
                 count_map.emplace(old_count, std::prev(curr));
             }
         }
@@ -172,6 +176,12 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
         //    10, [7 -> 9], 7
         //    10, 7, [5 -> 9], 3
 
+        //    [10 -> 9]
+        //    [5 -> 4], 2
+        //    [5 -> 1], 2
+        //    5, 5, [5 -> 4], 5
+        //    5, 5, 5, [5 -> 4]
+
         auto gt_node = count_map_it->second;
 
         // delete old entry if `orig_count` iterator is same as `curr`
@@ -179,7 +189,7 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
             count_map.erase(old_count);
 
             // find a replacement for orig_count
-            if(std::prev(curr)->count == old_count) {
+            if(curr != count_list.begin() && std::prev(curr)->count == old_count) {
                 count_map.emplace(old_count, std::prev(curr));
             }
         }
@@ -216,7 +226,7 @@ void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id)
                 auto& count_list = facet_field_it->second.counts;
                 auto curr = facet_ids_seq_ids->second.facet_count_it;
                 auto old_count = curr->count;
-                curr->count--;
+                curr->count = ids_t::num_ids(ids);
                 auto new_count = curr->count;
 
                 // move the node lower in the count list
@@ -260,6 +270,7 @@ size_t facet_index_t::get_facet_count(const std::string& field_name) {
 //returns the count of matching seq_ids from result array
 size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
                                 bool has_facet_query, const std::vector<std::vector<std::string>>& fvalue_searched_tokens,
+                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                 const uint32_t* result_ids, size_t result_ids_len,
                                 size_t max_facet_count, std::map<std::string, docid_count_t>& found,
                                 bool is_wildcard_no_filter_query, const std::string& sort_order) {
@@ -288,7 +299,8 @@ size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
             auto facet_str = facet_count_it->facet_value;
             std::vector<std::string> facet_tokens;
             if(facet_field.is_string()) {
-                Tokenizer(facet_str, true, false, facet_field.locale).tokenize(facet_tokens);
+                Tokenizer(facet_str, true, false, facet_field.locale,
+                          symbols_to_index, token_separators).tokenize(facet_tokens);
             } else {
                 facet_tokens.push_back(facet_str);
             }
@@ -306,7 +318,6 @@ size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
                     if(!facet_tokens_found) {
                         found_all_search_tokens = false;
                     }
-
                 }
 
                 if (found_all_search_tokens) {
@@ -484,3 +495,30 @@ bool facet_index_t::facet_value_exists(const std::string& field_name, const std:
     const auto& facet_index = facet_field_map_it->second;
     return facet_index.fvalue_seq_ids.find(fvalue) != facet_index.fvalue_seq_ids.end();
 }
+
+size_t facet_index_t::facet_val_num_ids(const string &field_name, const string &fvalue) {
+    const auto facet_field_map_it = facet_field_map.find(field_name);
+    if(facet_field_map_it == facet_field_map.end()) {
+        return 0;
+    }
+
+    if(facet_field_map_it->second.fvalue_seq_ids.count(fvalue) == 0) {
+        return 0;
+    }
+
+    return ids_t::num_ids(facet_field_map_it->second.fvalue_seq_ids[fvalue].seq_ids);
+}
+
+size_t facet_index_t::facet_node_count(const string &field_name, const string &fvalue) {
+    const auto facet_field_map_it = facet_field_map.find(field_name);
+    if(facet_field_map_it == facet_field_map.end()) {
+        return 0;
+    }
+
+    if(facet_field_map_it->second.fvalue_seq_ids.count(fvalue) == 0) {
+        return 0;
+    }
+
+    return facet_field_map_it->second.fvalue_seq_ids[fvalue].facet_count_it->count;
+}
+

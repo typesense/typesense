@@ -1036,7 +1036,7 @@ void filter_result_iterator_t::init() {
             std::vector<uint32_t> exact_geo_result_ids;
 
             if (f.is_single_geopoint()) {
-                spp::sparse_hash_map<uint32_t, int64_t>* sort_field_index = index->sort_index.at(f.name);
+                auto sort_field_index = index->sort_index.at(f.name);
 
                 for (auto result_id : geo_result_ids) {
                     // no need to check for existence of `result_id` because of indexer based pre-filtering above
@@ -1770,6 +1770,15 @@ void filter_result_iterator_t::compute_result() {
             filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
         }
 
+        // In a complex filter query a sub-expression might not match any document while the full expression does match
+        // at least one document. If the full expression doesn't match any document, we return early in the search.
+        if (filter_result.count == 0) {
+            is_valid = false;
+            is_filter_result_initialized = true;
+            return;
+        }
+
+        result_index = 0;;
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
         approx_filter_ids_length = filter_result.count;

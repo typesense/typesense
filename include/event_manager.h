@@ -21,6 +21,6 @@ public:
     EventManager(EventManager const&) = delete;
     void operator=(EventManager const&) = delete;
 
-    bool add_event(const nlohmann::json& event);
+    Option<bool> add_event(const nlohmann::json& event, const std::string& ip);
 
 };

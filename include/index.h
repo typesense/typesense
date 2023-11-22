@@ -329,6 +329,19 @@ struct group_by_field_it_t {
     posting_list_t::iterator_t it;
 };
 
+struct Hasher32 {
+    // Helps to spread the hash key and is used for sort index.
+    // see: https://github.com/greg7mdp/sparsepp/issues/21#issuecomment-270816275
+    size_t operator()(uint32_t k) const { return (k ^ 2166136261U)  * 16777619UL; }
+};
+
+struct pair_hash {
+    template <class T1, class T2>
+    std::size_t operator() (const std::pair<T1, T2> &pair) const {
+        return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
+    }
+};
+
 class Index {
 private:
     mutable std::shared_mutex mutex;
@@ -355,6 +368,10 @@ private:
     // Only used when the reference field is an array type otherwise sort_index is used.
     spp::sparse_hash_map<std::string, num_tree_t*> reference_index;
 
+    /// field_name => ((doc_id, object_index) => ref_doc_id)
+    /// Used when a field inside an object array has reference.
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::pair<uint32_t, uint32_t>, uint32_t, pair_hash>*> object_array_reference_index;
+
     spp::sparse_hash_map<std::string, NumericTrie*> range_index;
 
     spp::sparse_hash_map<std::string, NumericTrie*> geo_range_index;
@@ -365,9 +382,9 @@ private:
     facet_index_t* facet_index_v4 = nullptr;
   
     // sort_field => (seq_id => value)
-    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*> sort_index;
     typedef spp::sparse_hash_map<std::string, 
-        spp::sparse_hash_map<uint32_t, int64_t>*>::iterator sort_index_iterator;
+        spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*>::iterator sort_index_iterator;
 
     // str_sort_field => adi_tree_t
     spp::sparse_hash_map<std::string, adi_tree_t*> str_sort_index;
@@ -389,13 +406,13 @@ private:
 
     // used as sentinels
 
-    static spp::sparse_hash_map<uint32_t, int64_t> text_match_sentinel_value;
-    static spp::sparse_hash_map<uint32_t, int64_t> seq_id_sentinel_value;
-    static spp::sparse_hash_map<uint32_t, int64_t> eval_sentinel_value;
-    static spp::sparse_hash_map<uint32_t, int64_t> geo_sentinel_value;
-    static spp::sparse_hash_map<uint32_t, int64_t> str_sentinel_value;
-    static spp::sparse_hash_map<uint32_t, int64_t> vector_distance_sentinel_value;
-    static spp::sparse_hash_map<uint32_t, int64_t> vector_query_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> text_match_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> seq_id_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> eval_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> geo_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> str_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> vector_distance_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t, Hasher32> vector_query_sentinel_value;
 
     // Internal utility functions
 
@@ -420,7 +437,7 @@ private:
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
                    const bool group_missing_values,
                    const uint32_t* result_ids, size_t results_size,
-                   int max_facet_count, bool is_wildcard_query, bool no_filters_provided,
+                   int max_facet_count, bool is_wildcard_query,
                    facet_index_type_t facet_index_type) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
@@ -496,7 +513,7 @@ private:
                                        const size_t max_candidates,
                                        int syn_orig_num_tokens,
                                        const int* sort_order,
-                                       std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                       std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                        const std::vector<size_t>& geopoint_indices,
                                        std::set<uint64>& query_hashes,
                                        std::vector<uint32_t>& id_buff, const std::string& collection_name = "") const;
@@ -623,7 +640,7 @@ public:
                        Topster *topster, const std::vector<art_leaf *> &query_suggestion,
                        spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
                        const uint32_t seq_id, const int sort_order[3],
-                       std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                       std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                        const std::vector<size_t>& geopoint_indices,
                        const size_t group_limit,
                        const std::vector<std::string> &group_by_fields,
@@ -645,6 +662,8 @@ public:
     const spp::sparse_hash_map<std::string, array_mapped_infix_t>& _get_infix_index() const;
 
     const spp::sparse_hash_map<std::string, hnsw_index_t*>& _get_vector_index() const;
+
+    facet_index_t* _get_facet_index() const;
 
     static int get_bounded_typo_cost(const size_t max_cost, const size_t token_len,
                                      size_t min_len_1typo, size_t min_len_2typo);
@@ -774,7 +793,7 @@ public:
                                  filter_result_iterator_t* const filter_result_iterator,
                                  const size_t concurrency,
                                  const int* sort_order,
-                                 std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                  const std::vector<size_t>& geopoint_indices,
                                  const std::string& collection_name = "") const;
 
@@ -787,11 +806,11 @@ public:
 
     void populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
                                std::vector<sort_by>& sort_fields_std,
-                               std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
+                               std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
 
     void populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>& geopoint_indices,
                                          std::vector<sort_by>& sort_fields_std,
-                                         std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
+                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
 
     int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
 
@@ -824,7 +843,7 @@ public:
                                  const size_t max_extra_suffix, const std::vector<token_t>& query_tokens, Topster* actual_topster,
                                  filter_result_iterator_t* const filter_result_iterator,
                                  const int sort_order[3],
-                                 std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                  const std::vector<size_t>& geopoint_indices,
                                  const std::vector<uint32_t>& curated_ids_sorted,
                                  const std::unordered_set<uint32_t>& excluded_group_ids,
@@ -860,7 +879,7 @@ public:
                                                  filter_result_iterator_t* const filter_result_iterator,
                                                  std::set<uint64>& query_hashes,
                                                  const int* sort_order,
-                                                 std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                  const std::vector<size_t>& geopoint_indices,
                                                  tsl::htrie_map<char, token_leaf>& qtoken_set,
                                                  const std::string& collection_name = "") const;
@@ -873,7 +892,7 @@ public:
                                   const bool group_missing_values,
                                   Topster* actual_topster,
                                   const int sort_order[3],
-                                  std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                   const std::vector<size_t>& geopoint_indices,
                                   const std::vector<uint32_t>& curated_ids_sorted,
                                   filter_result_iterator_t*& filter_result_iterator,
@@ -916,7 +935,7 @@ public:
                                                    size_t min_len_2typo,
                                                    int syn_orig_num_tokens,
                                                    const int* sort_order,
-                                                   std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                                   std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                    const std::vector<size_t>& geopoint_indices,
                                                    const std::string& collection_name = "") const;
 
@@ -955,7 +974,7 @@ public:
                                       size_t exclude_token_ids_size,
                                       const std::unordered_set<uint32_t>& excluded_group_ids,
                                       const int* sort_order,
-                                      std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
+                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                       const std::vector<size_t>& geopoint_indices,
                                       std::vector<uint32_t>& id_buff,
                                       uint32_t*& all_result_ids, size_t& all_result_ids_len,
@@ -990,7 +1009,7 @@ public:
                                   std::vector<const override_t*>& matched_dynamic_overrides) const;
 
     Option<bool> compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
-                                     std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                                     std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
                                      const std::vector<size_t>& geopoint_indices, uint32_t seq_id,
                                      const std::map<basic_string<char>, reference_filter_result_t>& references,
                                      std::vector<uint32_t>& filter_indexes,
@@ -1017,6 +1036,11 @@ public:
     Option<bool> get_related_ids(const std::string& collection_name,
                                  const std::string& reference_helper_field_name,
                                  const uint32_t& seq_id, std::vector<uint32_t>& result) const;
+
+    Option<bool> get_object_array_related_id(const std::string& collection_name,
+                                             const std::string& reference_helper_field_name,
+                                             const uint32_t& seq_id, const uint32_t& object_index,
+                                             uint32_t& result) const;
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& collection_name,
                                                     const std::string& field_name,
