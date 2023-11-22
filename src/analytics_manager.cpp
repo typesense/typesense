@@ -337,7 +337,7 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
     // lock is held by caller
 
     auto send_http_response = [&](QueryAnalytics* queryAnalyticsPtr,
-            const std::string& import_payload, const std::string& suggestion_coll) {
+            const std::string& import_payload, const std::string& suggestion_coll, const std::string& query_type) {
         // send http request
         std::string leader_url = raft_server->get_leader_url();
         if(!leader_url.empty()) {
@@ -350,7 +350,7 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
                                                          res, res_headers, {}, 10*1000, true);
 
             if(status_code != 200) {
-                LOG(ERROR) << "Error while sending query suggestions events to leader. "
+                LOG(ERROR) << "Error while sending "<< query_type <<" events to leader. "
                            << "Status code: " << status_code << ", response: " << res;
             } else {
                 LOG(INFO) << "Query aggregation for collection: " + suggestion_coll;
@@ -364,7 +364,7 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
                     res_headers.clear();
                     status_code = HttpClient::delete_response(truncate_topk_url, res, res_headers, 10*1000, true);
                     if(status_code != 200) {
-                        LOG(ERROR) << "Error while running top K for query suggestions collection. "
+                        LOG(ERROR) << "Error while running top K for " << query_type <<" suggestions collection. "
                                    << "Status code: " << status_code << ", response: " << res;
                     } else {
                         LOG(INFO) << "Top K aggregation for collection: " + suggestion_coll;
@@ -396,7 +396,7 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
             popularQueries->compact_user_queries(now_ts_us);
 
             popularQueries->serialize_as_docs(import_payload);
-            send_http_response(popularQueries, import_payload, suggestion_coll);
+            send_http_response(popularQueries, import_payload, suggestion_coll, "popular queries");
         }
 
         if(noresults_queries_it != noresults_queries.end()) {
@@ -408,6 +408,7 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
             noresultsQueries->compact_user_queries(now_ts_us);
 
             noresultsQueries->serialize_as_docs(import_payload);
+            send_http_response(noresultsQueries, import_payload, suggestion_coll, "noresults queries");
         }
 
         if(import_payload.empty()) {
