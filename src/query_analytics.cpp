@@ -1,14 +1,14 @@
-#include "popular_queries.h"
+#include "query_analytics.h"
 #include "logger.h"
 #include <algorithm>
 #include <mutex>
 #include "string_utils.h"
 
-PopularQueries::PopularQueries(size_t k) : k(k), max_size(k * 2) {
+QueryAnalytics::QueryAnalytics(size_t k) : k(k), max_size(k * 2) {
 
 }
 
-void PopularQueries::add(const std::string& key, const bool live_query, const std::string& user_id, uint64_t now_ts_us) {
+void QueryAnalytics::add(const std::string& key, const bool live_query, const std::string& user_id, uint64_t now_ts_us) {
     if(live_query) {
         // live query must be aggregated first to their final form as they could be prefix queries
         if(now_ts_us == 0) {
@@ -47,7 +47,7 @@ void PopularQueries::add(const std::string& key, const bool live_query, const st
     }
 }
 
-void PopularQueries::serialize_as_docs(std::string& docs) {
+void QueryAnalytics::serialize_as_docs(std::string& docs) {
     std::shared_lock lk(lmutex);
 
     std::string key_buffer;
@@ -65,16 +65,16 @@ void PopularQueries::serialize_as_docs(std::string& docs) {
     }
 }
 
-void PopularQueries::reset_local_counts() {
+void QueryAnalytics::reset_local_counts() {
     std::unique_lock lk(lmutex);
     local_counts.clear();
 }
 
-size_t PopularQueries::get_k() {
+size_t QueryAnalytics::get_k() {
     return k;
 }
 
-void PopularQueries::compact_user_queries(uint64_t now_ts_us) {
+void QueryAnalytics::compact_user_queries(uint64_t now_ts_us) {
     std::unique_lock lk(umutex);
     std::vector<std::string> keys_to_delete;
 
@@ -107,12 +107,12 @@ void PopularQueries::compact_user_queries(uint64_t now_ts_us) {
     }
 }
 
-std::unordered_map<std::string, std::vector<PopularQueries::QWithTimestamp>> PopularQueries::get_user_prefix_queries() {
+std::unordered_map<std::string, std::vector<QueryAnalytics::QWithTimestamp>> QueryAnalytics::get_user_prefix_queries() {
     std::unique_lock lk(umutex);
     return user_prefix_queries;
 }
 
-tsl::htrie_map<char, uint32_t> PopularQueries::get_local_counts() {
+tsl::htrie_map<char, uint32_t> QueryAnalytics::get_local_counts() {
     std::unique_lock lk(lmutex);
     return local_counts;
 }

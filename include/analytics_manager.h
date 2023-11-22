@@ -1,12 +1,11 @@
 #pragma once
-#include "popular_queries.h"
+#include "query_analytics.h"
 #include "option.h"
 #include "raft_server.h"
 #include <vector>
 #include <string>
 #include <unordered_map>
 #include <shared_mutex>
-#include "noresults_queries.h"
 
 struct ClickEvent {
     std::string query;
@@ -92,10 +91,10 @@ private:
     std::unordered_map<std::string, std::vector<std::string>> query_collection_mapping;
 
     // suggestion collection => popular queries
-    std::unordered_map<std::string, PopularQueries*> popular_queries;
+    std::unordered_map<std::string, QueryAnalytics*> popular_queries;
 
     // suggestion collection => noresults queries
-    std::unordered_map<std::string, NoresultsQueries*> noresults_queries;
+    std::unordered_map<std::string, QueryAnalytics*> noresults_queries;
 
     //query collection => click events
     std::unordered_map<std::string, std::vector<ClickEvent>> query_collection_click_events;
@@ -147,9 +146,9 @@ public:
 
     void dispose();
 
-    void persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_query_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
-    std::unordered_map<std::string, PopularQueries*> get_popular_queries();
+    std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
 
     Option<bool> add_click_event(const std::string& query_collection, const std::string& query, const std::string& user_id,
                             std::string doc_id, uint64_t position, const std::string& client_ip);
@@ -163,9 +162,7 @@ public:
     void add_noresults_query(const std::string& query_collection,
                         const std::string& query, bool live_query, const std::string& user_id);
 
-    void persist_noresults_queries(ReplicationState *raft_server, uint64_t prev_persistence_s);
-
-    std::unordered_map<std::string, NoresultsQueries*> get_noresults_queries();
+    std::unordered_map<std::string, QueryAnalytics*> get_noresults_queries();
 
     void resetRateLimit();
 };

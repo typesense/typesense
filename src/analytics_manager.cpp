@@ -124,10 +124,10 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
     }
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
-        PopularQueries *popularQueries = new PopularQueries(limit);
+        QueryAnalytics *popularQueries = new QueryAnalytics(limit);
         popular_queries.emplace(suggestion_collection, popularQueries);
     } else if(payload["type"] == NORESULTS_QUERIES_TYPE) {
-        NoresultsQueries *noresultsQueries = new NoresultsQueries(limit);
+        QueryAnalytics *noresultsQueries = new QueryAnalytics(limit);
         noresults_queries.emplace(suggestion_collection, noresultsQueries);
     }
 
@@ -322,9 +322,8 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
             continue;
         }
 
-        persist_suggestions(raft_server, prev_persistence_s);
+        persist_query_events(raft_server, prev_persistence_s);
         persist_click_events(raft_server, prev_persistence_s);
-        persist_noresults_queries(raft_server, prev_persistence_s);
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -334,34 +333,11 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
     dispose();
 }
 
-void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // lock is held by caller
-    for(const auto& suggestion_config: suggestion_configs) {
-        const std::string& sink_name = suggestion_config.first;
-        const std::string& suggestion_coll = suggestion_config.second.suggestion_collection;
 
-        auto popular_queries_it = popular_queries.find(suggestion_coll);
-        if(popular_queries_it == popular_queries.end()) {
-            continue;
-        }
-
-        // need to prepare the counts as JSON docs for import into the suggestion collection
-        // {"id": "432432", "q": "foo", "$operations": {"increment": {"count": 100}}}
-
-        PopularQueries* popularQueries = popular_queries_it->second;
-
-        // aggregate prefix queries to their final form
-        auto now = std::chrono::system_clock::now().time_since_epoch();
-        auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
-        popularQueries->compact_user_queries(now_ts_us);
-
-        std::string import_payload;
-        popularQueries->serialize_as_docs(import_payload);
-
-        if(import_payload.empty()) {
-            continue;
-        }
-
+    auto send_http_response = [&](QueryAnalytics* queryAnalyticsPtr,
+            const std::string& import_payload, const std::string& suggestion_coll) {
         // send http request
         std::string leader_url = raft_server->get_leader_url();
         if(!leader_url.empty()) {
@@ -378,11 +354,11 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
                            << "Status code: " << status_code << ", response: " << res;
             } else {
                 LOG(INFO) << "Query aggregation for collection: " + suggestion_coll;
-                popularQueries->reset_local_counts();
+                queryAnalyticsPtr->reset_local_counts();
 
                 if(raft_server->is_leader()) {
                     // try to run top-K compaction of suggestion collection
-                    const std::string top_k_param = "count:" + std::to_string(popularQueries->get_k());
+                    const std::string top_k_param = "count:" + std::to_string(queryAnalyticsPtr->get_k());
                     const std::string& truncate_topk_url = base_url + "/documents?top_k_by=" + top_k_param;
                     res.clear();
                     res_headers.clear();
@@ -395,6 +371,47 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
                     }
                 }
             }
+        }
+    };
+
+
+    for(const auto& suggestion_config: suggestion_configs) {
+        const std::string& sink_name = suggestion_config.first;
+        const std::string& suggestion_coll = suggestion_config.second.suggestion_collection;
+
+        auto popular_queries_it = popular_queries.find(suggestion_coll);
+        auto noresults_queries_it = noresults_queries.find(suggestion_coll);
+
+        // need to prepare the counts as JSON docs for import into the suggestion collection
+        // {"id": "432432", "q": "foo", "$operations": {"increment": {"count": 100}}}
+        std::string import_payload;
+
+        if(popular_queries_it != popular_queries.end()) {
+            import_payload.clear();
+            QueryAnalytics *popularQueries = popular_queries_it->second;
+
+            // aggregate prefix queries to their final form
+            auto now = std::chrono::system_clock::now().time_since_epoch();
+            auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+            popularQueries->compact_user_queries(now_ts_us);
+
+            popularQueries->serialize_as_docs(import_payload);
+            send_http_response(popularQueries, import_payload, suggestion_coll);
+        }
+
+        if(noresults_queries_it != noresults_queries.end()) {
+            import_payload.clear();
+            QueryAnalytics *noresultsQueries = noresults_queries_it->second;
+            // aggregate prefix queries to their final form
+            auto now = std::chrono::system_clock::now().time_since_epoch();
+            auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+            noresultsQueries->compact_user_queries(now_ts_us);
+
+            noresultsQueries->serialize_as_docs(import_payload);
+        }
+
+        if(import_payload.empty()) {
+            continue;
         }
     }
 }
@@ -440,71 +457,6 @@ void AnalyticsManager::persist_click_events(ReplicationState *raft_server, uint6
     }
 }
 
-void AnalyticsManager::persist_noresults_queries(ReplicationState *raft_server, uint64_t prev_persistence_s) {
-    // lock is held by caller
-    for(const auto& suggestion_config: suggestion_configs) {
-        const std::string& sink_name = suggestion_config.first;
-        const std::string& suggestion_coll = suggestion_config.second.suggestion_collection;
-
-        auto noresults_queries_it = noresults_queries.find(suggestion_coll);
-        if(noresults_queries_it == noresults_queries.end()) {
-            continue;
-        }
-
-        // need to prepare the counts as JSON docs for import into the suggestion collection
-        // {"id": "432432", "q": "foo", "$operations": {"increment": {"count": 100}}}
-
-        NoresultsQueries* noresultsQueries = noresults_queries_it->second;
-
-        // aggregate prefix queries to their final form
-        auto now = std::chrono::system_clock::now().time_since_epoch();
-        auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
-        noresultsQueries->compact_user_queries(now_ts_us);
-
-        std::string import_payload;
-        noresultsQueries->serialize_as_docs(import_payload);
-
-        if(import_payload.empty()) {
-            continue;
-        }
-
-        // send http request
-        std::string leader_url = raft_server->get_leader_url();
-        if(!leader_url.empty()) {
-            const std::string& base_url = leader_url + "collections/" + suggestion_coll;
-            std::string res;
-
-            const std::string& update_url = base_url + "/documents/import?action=emplace";
-            std::map<std::string, std::string> res_headers;
-            long status_code = HttpClient::post_response(update_url, import_payload,
-                                                         res, res_headers, {}, 10*1000, true);
-
-            if(status_code != 200) {
-                LOG(ERROR) << "Error while sending query suggestions events to leader. "
-                           << "Status code: " << status_code << ", response: " << res;
-            } else {
-                LOG(INFO) << "Query aggregation for collection: " + suggestion_coll;
-                noresultsQueries->reset_local_counts();
-
-                if(raft_server->is_leader()) {
-                    // try to run top-K compaction of suggestion collection
-                    const std::string top_k_param = "count:" + std::to_string(noresultsQueries->get_k());
-                    const std::string& truncate_topk_url = base_url + "/documents?top_k_by=" + top_k_param;
-                    res.clear();
-                    res_headers.clear();
-                    status_code = HttpClient::delete_response(truncate_topk_url, res, res_headers, 10*1000, true);
-                    if(status_code != 200) {
-                        LOG(ERROR) << "Error while running top K for query suggestions collection. "
-                                   << "Status code: " << status_code << ", response: " << res;
-                    } else {
-                        LOG(INFO) << "Top K aggregation for collection: " + suggestion_coll;
-                    }
-                }
-            }
-        }
-    }
-}
-
 void AnalyticsManager::stop() {
     quit = true;
     cv.notify_all();
@@ -531,12 +483,12 @@ void AnalyticsManager::init(Store* store, Store* analytics_store) {
     this->analytics_store = analytics_store;
 }
 
-std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_queries() {
+std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_popular_queries() {
     std::unique_lock lk(mutex);
     return popular_queries;
 }
 
-std::unordered_map<std::string, NoresultsQueries*> AnalyticsManager::get_noresults_queries() {
+std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_noresults_queries() {
     std::unique_lock lk(mutex);
     return noresults_queries;
 }
