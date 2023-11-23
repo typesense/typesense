@@ -38,7 +38,7 @@ jobs:
         uses: bazelbuild/setup-bazelisk@v2
 
       - name: Download bazel cache
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v2.28.0
         with:
           name: bazel-cache
           search_artifacts: true
