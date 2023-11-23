@@ -93,8 +93,8 @@ private:
     // suggestion collection => popular queries
     std::unordered_map<std::string, QueryAnalytics*> popular_queries;
 
-    // suggestion collection => noresults queries
-    std::unordered_map<std::string, QueryAnalytics*> noresults_queries;
+    // suggestion collection => nohits queries
+    std::unordered_map<std::string, QueryAnalytics*> nohits_queries;
 
     //query collection => click events
     std::unordered_map<std::string, std::vector<ClickEvent>> query_collection_click_events;
@@ -117,7 +117,7 @@ public:
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
     static constexpr const char* CLICK_EVENT = "$CE";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
-    static constexpr const char* NORESULTS_QUERIES_TYPE = "noresults_queries";
+    static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -159,10 +159,10 @@ public:
 
     Option<bool> write_click_event_to_store(nlohmann::json& click_event_json);
 
-    void add_noresults_query(const std::string& query_collection,
-                        const std::string& query, bool live_query, const std::string& user_id);
+    void add_nohits_query(const std::string& query_collection,
+                          const std::string& query, bool live_query, const std::string& user_id);
 
-    std::unordered_map<std::string, QueryAnalytics*> get_noresults_queries();
+    std::unordered_map<std::string, QueryAnalytics*> get_nohits_queries();
 
     void resetRateLimit();
 };

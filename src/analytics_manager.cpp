@@ -41,7 +41,7 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert,
         return Option<bool>(400, "Bad or missing params.");
     }
 
-    if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NORESULTS_QUERIES_TYPE) {
+    if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE) {
         return create_queries_index(payload, upsert, write_to_disk);
     }
 
@@ -92,8 +92,8 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
         if (!upsert && popular_queries.count(suggestion_collection) != 0) {
             return Option<bool>(400, "There's already another configuration for this destination collection.");
         }
-    } else if(payload["type"] == NORESULTS_QUERIES_TYPE) {
-        if (!upsert && noresults_queries.count(suggestion_collection) != 0) {
+    } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
+        if (!upsert && nohits_queries.count(suggestion_collection) != 0) {
             return Option<bool>(400, "There's already another configuration for this destination collection.");
         }
     }
@@ -126,9 +126,9 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
         QueryAnalytics *popularQueries = new QueryAnalytics(limit);
         popular_queries.emplace(suggestion_collection, popularQueries);
-    } else if(payload["type"] == NORESULTS_QUERIES_TYPE) {
+    } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
         QueryAnalytics *noresultsQueries = new QueryAnalytics(limit);
-        noresults_queries.emplace(suggestion_collection, noresultsQueries);
+        nohits_queries.emplace(suggestion_collection, noresultsQueries);
     }
 
     if(write_to_disk) {
@@ -149,7 +149,7 @@ AnalyticsManager::~AnalyticsManager() {
         delete kv.second;
     }
 
-    for(auto& kv: noresults_queries) {
+    for(auto& kv: nohits_queries) {
         delete kv.second;
     }
 }
@@ -212,9 +212,9 @@ Option<bool> AnalyticsManager::remove_queries_index(const std::string &name) {
         popular_queries.erase(suggestion_collection);
     }
 
-    if(noresults_queries.count(suggestion_collection) != 0) {
-        delete noresults_queries[suggestion_collection];
-        noresults_queries.erase(suggestion_collection);
+    if(nohits_queries.count(suggestion_collection) != 0) {
+        delete nohits_queries[suggestion_collection];
+        nohits_queries.erase(suggestion_collection);
     }
 
     suggestion_configs.erase(name);
@@ -283,15 +283,15 @@ Option<bool> AnalyticsManager::add_click_event(const std::string &query_collecti
     return Option<bool>(true);
 }
 
-void AnalyticsManager::add_noresults_query(const std::string &query_collection, const std::string &query,
-                                           bool live_query, const std::string &user_id) {
+void AnalyticsManager::add_nohits_query(const std::string &query_collection, const std::string &query,
+                                        bool live_query, const std::string &user_id) {
     // look up suggestion collections for the query collection
     std::unique_lock lock(mutex);
     const auto& suggestion_collections_it = query_collection_mapping.find(query_collection);
     if(suggestion_collections_it != query_collection_mapping.end()) {
         for(const auto& suggestion_collection: suggestion_collections_it->second) {
-            const auto& noresults_queries_it = noresults_queries.find(suggestion_collection);
-            if(noresults_queries_it != noresults_queries.end()) {
+            const auto& noresults_queries_it = nohits_queries.find(suggestion_collection);
+            if(noresults_queries_it != nohits_queries.end()) {
                 noresults_queries_it->second->add(query, live_query, user_id);
             }
         }
@@ -380,7 +380,7 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
         const std::string& suggestion_coll = suggestion_config.second.suggestion_collection;
 
         auto popular_queries_it = popular_queries.find(suggestion_coll);
-        auto noresults_queries_it = noresults_queries.find(suggestion_coll);
+        auto nohits_queries_it = nohits_queries.find(suggestion_coll);
 
         // need to prepare the counts as JSON docs for import into the suggestion collection
         // {"id": "432432", "q": "foo", "$operations": {"increment": {"count": 100}}}
@@ -399,16 +399,16 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
             send_http_response(popularQueries, import_payload, suggestion_coll, "popular queries");
         }
 
-        if(noresults_queries_it != noresults_queries.end()) {
+        if(nohits_queries_it != nohits_queries.end()) {
             import_payload.clear();
-            QueryAnalytics *noresultsQueries = noresults_queries_it->second;
+            QueryAnalytics *nohitsQueries = nohits_queries_it->second;
             // aggregate prefix queries to their final form
             auto now = std::chrono::system_clock::now().time_since_epoch();
             auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
-            noresultsQueries->compact_user_queries(now_ts_us);
+            nohitsQueries->compact_user_queries(now_ts_us);
 
-            noresultsQueries->serialize_as_docs(import_payload);
-            send_http_response(noresultsQueries, import_payload, suggestion_coll, "noresults queries");
+            nohitsQueries->serialize_as_docs(import_payload);
+            send_http_response(nohitsQueries, import_payload, suggestion_coll, "nohits queries");
         }
 
         if(import_payload.empty()) {
@@ -472,11 +472,11 @@ void AnalyticsManager::dispose() {
 
     popular_queries.clear();
 
-    for(auto& kv: noresults_queries) {
+    for(auto& kv: nohits_queries) {
         delete kv.second;
     }
 
-    noresults_queries.clear();
+    nohits_queries.clear();
 }
 
 void AnalyticsManager::init(Store* store, Store* analytics_store) {
@@ -489,9 +489,9 @@ std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_popular_q
     return popular_queries;
 }
 
-std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_noresults_queries() {
+std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_nohits_queries() {
     std::unique_lock lk(mutex);
-    return noresults_queries;
+    return nohits_queries;
 }
 
 nlohmann::json AnalyticsManager::get_click_events() {

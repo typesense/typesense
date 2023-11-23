@@ -1536,8 +1536,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                             true, req_params["x-typesense-user-id"]);
         } else if(result.contains("found") == 0 && result["found"].get<size_t>() == 0) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
-            AnalyticsManager::get_instance().add_noresults_query(orig_coll_name, analytics_query,
-                                                            true, req_params["x-typesense-user-id"]);
+            AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
+                                                              true, req_params["x-typesense-user-id"]);
         }
     }
 

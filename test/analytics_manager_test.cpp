@@ -411,7 +411,7 @@ TEST_F(AnalyticsManagerTest, NoresultsQueries) {
 
     nlohmann::json analytics_rule = R"({
         "name": "search_queries",
-        "type": "noresults_queries",
+        "type": "nohits_queries",
         "params": {
             "limit": 100,
             "source": {
@@ -427,17 +427,17 @@ TEST_F(AnalyticsManagerTest, NoresultsQueries) {
     ASSERT_TRUE(create_op.ok());
 
     std::string q = "foobar";
-    analyticsManager.add_noresults_query("titles", q, true, "1");
+    analyticsManager.add_nohits_query("titles", q, true, "1");
 
-    auto noresults_queries = analyticsManager.get_noresults_queries();
+    auto noresults_queries = analyticsManager.get_nohits_queries();
     auto userQueries = noresults_queries["top_queries"]->get_user_prefix_queries()["1"];
 
     ASSERT_EQ(1, userQueries.size());
     ASSERT_EQ("foobar", userQueries[0].query);
 
-    //try deleting noresults_queries rule
+    //try deleting nohits_queries rule
     ASSERT_TRUE(analyticsManager.remove_rule("search_queries").ok());
 
-    noresults_queries = analyticsManager.get_noresults_queries();
+    noresults_queries = analyticsManager.get_nohits_queries();
     ASSERT_EQ(0, noresults_queries.size());
 }
