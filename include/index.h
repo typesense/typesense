@@ -269,11 +269,22 @@ class VectorFilterFunctor: public hnswlib::BaseFilterFunctor {
     const uint32_t* filter_ids = nullptr;
     const uint32_t filter_ids_length = 0;
 
+    const uint32_t* excluded_ids = nullptr;
+    const uint32_t excluded_ids_length = 0;
+
 public:
-    explicit VectorFilterFunctor(const uint32_t* filter_ids, const uint32_t filter_ids_length) :
-            filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
+    explicit VectorFilterFunctor(const uint32_t* filter_ids, const uint32_t filter_ids_length, const uint32_t* excluded_ids = nullptr, const uint32_t excluded_ids_length = 0) :
+            filter_ids(filter_ids), filter_ids_length(filter_ids_length), excluded_ids(excluded_ids), excluded_ids_length(excluded_ids_length) {}
 
     bool operator()(hnswlib::labeltype id) override {
+        if(filter_ids_length == 0 && excluded_ids_length == 0) {
+            return true;
+        }
+
+        if(excluded_ids_length > 0 && excluded_ids && std::binary_search(excluded_ids, excluded_ids + excluded_ids_length, id)) {
+            return false;
+        }
+
         if(filter_ids_length == 0) {
             return true;
         }

@@ -2901,7 +2901,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 k++;
             }
 
-            VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count);
+            VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count, excluded_result_ids, excluded_result_ids_size);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
 
             std::vector<std::pair<float, size_t>> dist_labels;
@@ -3206,20 +3206,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 // For hybrid search, we need to give weight to text match and vector search
                 const float VECTOR_SEARCH_WEIGHT = vector_query.alpha;
                 const float TEXT_MATCH_WEIGHT = 1.0 - VECTOR_SEARCH_WEIGHT;
-                
-                bool no_filters_provided = (filter_tree_root == nullptr && filter_result.count == 0);
 
-                // list of all document ids
-                if (no_filters_provided) {
-                    filter_result.count = seq_ids->num_ids();
-                    filter_result.docs = seq_ids->uncompress();
-                }
-
-                curate_filtered_ids(curated_ids, excluded_result_ids,
-                                    excluded_result_ids_size, filter_result.docs, filter_result.count, curated_ids_sorted);
-                collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
-
-                VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count);
+                VectorFilterFunctor filterFunctor(filter_result.docs, filter_result.count, excluded_result_ids, excluded_result_ids_size);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
                 std::vector<std::pair<float, size_t>> dist_labels;
                 // use k as 100 by default for ensuring results stability in pagination
