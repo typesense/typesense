@@ -1,5 +1,5 @@
 #pragma once
-#include "popular_queries.h"
+#include "query_analytics.h"
 #include "option.h"
 #include "raft_server.h"
 #include <vector>
@@ -91,7 +91,10 @@ private:
     std::unordered_map<std::string, std::vector<std::string>> query_collection_mapping;
 
     // suggestion collection => popular queries
-    std::unordered_map<std::string, PopularQueries*> popular_queries;
+    std::unordered_map<std::string, QueryAnalytics*> popular_queries;
+
+    // suggestion collection => nohits queries
+    std::unordered_map<std::string, QueryAnalytics*> nohits_queries;
 
     //query collection => click events
     std::unordered_map<std::string, std::vector<ClickEvent>> query_collection_click_events;
@@ -103,17 +106,18 @@ private:
 
     ~AnalyticsManager();
 
-    Option<bool> remove_popular_queries_index(const std::string& name);
+    Option<bool> remove_queries_index(const std::string& name);
 
-    Option<bool> create_popular_queries_index(nlohmann::json &payload,
+    Option<bool> create_queries_index(nlohmann::json &payload,
                                               bool upsert,
                                               bool write_to_disk);
 
 public:
 
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
-    static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* CLICK_EVENT = "$CE";
+    static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
+    static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -142,9 +146,9 @@ public:
 
     void dispose();
 
-    void persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_query_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
-    std::unordered_map<std::string, PopularQueries*> get_popular_queries();
+    std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
 
     Option<bool> add_click_event(const std::string& query_collection, const std::string& query, const std::string& user_id,
                             std::string doc_id, uint64_t position, const std::string& client_ip);
@@ -154,6 +158,11 @@ public:
     nlohmann::json get_click_events();
 
     Option<bool> write_click_event_to_store(nlohmann::json& click_event_json);
+
+    void add_nohits_query(const std::string& query_collection,
+                          const std::string& query, bool live_query, const std::string& user_id);
+
+    std::unordered_map<std::string, QueryAnalytics*> get_nohits_queries();
 
     void resetRateLimit();
 };
