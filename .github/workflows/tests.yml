@@ -45,6 +45,7 @@ jobs:
           workflow_conclusion: ""
           if_no_artifact_found: warn
           skip_unpack: true
+          branch: main
 
       - name: Uncompress bazel cache
         run: |
