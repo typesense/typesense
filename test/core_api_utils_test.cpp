@@ -1226,7 +1226,7 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
         ]
     })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
@@ -1391,7 +1391,7 @@ TEST_F(CoreAPIUtilsTest, TestConversationModels) {
         "model_name": "openai/gpt-3.5-turbo"
     })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     if (std::getenv("api_key") == nullptr) {
         LOG(INFO) << "Skipping test as api_key is not set.";
