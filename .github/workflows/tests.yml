@@ -44,9 +44,11 @@ jobs:
           search_artifacts: true
           workflow_conclusion: ""
           if_no_artifact_found: warn
+          skip_unpack: true
 
       - name: Uncompress bazel cache
         run: |
+          unzip bazel-cache.zip
           mkdir -p ~/.cache/bazel
           tar_file="bazel-cache.tar.gz" && \
             [ -f "$tar_file" ] && \
