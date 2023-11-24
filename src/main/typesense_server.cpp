@@ -85,6 +85,8 @@ void master_server_routes() {
     server->get("/analytics/click_events", get_click_events);
     server->post("/analytics/click_events", post_create_event);
     server->post("/analytics/click_events/replicate", post_replicate_click_event);
+    server->get("/analytics/query_hits_counts", get_query_hits_counts);
+    server->post("/analytics/query_hits_counts/replicate", post_replicate_query_hits_counts);
 
     // meta
     server->get("/metrics.json", get_metrics_json);

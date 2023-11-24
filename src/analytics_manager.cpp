@@ -273,7 +273,7 @@ Option<bool> AnalyticsManager::add_click_event(const std::string &query_collecti
         auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
-        ClickEvent click_event(query, now_ts_useconds, user_id, doc_id, position);
+        click_event_t click_event(query, now_ts_useconds, user_id, doc_id, position);
         click_events_vec.emplace_back(click_event);
 
         return Option<bool>(true);
@@ -295,6 +295,25 @@ void AnalyticsManager::add_nohits_query(const std::string &query_collection, con
                 noresults_queries_it->second->add(query, live_query, user_id);
             }
         }
+    }
+}
+
+void AnalyticsManager::add_query_hits_count(const std::string &query_collection, const std::string &query,
+                                                  const std::string &user_id, uint64_t hits_count) {
+    std::unique_lock lock(mutex);
+    if(analytics_store) {
+        auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto &query_hits_count_set = query_collection_hits_count[query_collection];
+        query_hits_count_t queryHitsCount(query, now_ts_useconds, user_id, hits_count);
+        auto query_hits_count_set_it = query_hits_count_set.find(queryHitsCount);
+
+        if(query_hits_count_set_it != query_hits_count_set.end()) {
+            query_hits_count_set.erase(query_hits_count_set_it);
+        }
+
+        query_hits_count_set.emplace(queryHitsCount);
     }
 }
 
@@ -324,6 +343,8 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
 
         persist_query_events(raft_server, prev_persistence_s);
         persist_click_events(raft_server, prev_persistence_s);
+        persist_query_hits_counts(raft_server, prev_persistence_s);
+
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -458,6 +479,46 @@ void AnalyticsManager::persist_click_events(ReplicationState *raft_server, uint6
     }
 }
 
+void AnalyticsManager::persist_query_hits_counts(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+    nlohmann::json payload_json = nlohmann::json::array();
+
+    for (const auto &query_collection_hits_count_it: query_collection_hits_count) {
+        auto collection_id = CollectionManager::get_instance().get_collection(
+                query_collection_hits_count_it.first)->get_collection_id();
+        for (const auto &query_hits_count: query_collection_hits_count_it.second) {
+            // send http request
+            nlohmann::json query_hits_count_json;
+            query_hits_count.to_json(query_hits_count_json);
+            query_hits_count_json["collection_id"] = std::to_string(collection_id);
+            payload_json.push_back(query_hits_count_json);
+        }
+    }
+
+    if (payload_json.empty()) {
+        return;
+    }
+
+    const std::string import_payload = payload_json.dump();
+
+    std::string leader_url = raft_server->get_leader_url();
+    if (!leader_url.empty()) {
+        const std::string &base_url = leader_url + "analytics";
+        std::string res;
+
+        const std::string &update_url = base_url + "/query_hits_counts/replicate";
+        std::map<std::string, std::string> res_headers;
+        long status_code = HttpClient::post_response(update_url, import_payload,
+                                                     res, res_headers, {}, 10 * 1000, true);
+
+        if (status_code != 200) {
+            LOG(ERROR) << "Error while sending click events to leader. "
+                       << "Status code: " << status_code << ", response: " << res;
+        } else {
+            query_collection_hits_count.clear();
+        }
+    }
+}
+
 void AnalyticsManager::stop() {
     quit = true;
     cv.notify_all();
@@ -512,6 +573,24 @@ nlohmann::json AnalyticsManager::get_click_events() {
     return result_json;
 }
 
+nlohmann::json AnalyticsManager::get_query_hits_counts() {
+    std::unique_lock lk(mutex);
+    std::vector<std::string> query_hits_counts_jsons;
+    nlohmann::json result_json = nlohmann::json::array();
+
+    if (analytics_store) {
+        analytics_store->scan_fill(std::string(QUERY_HITS_COUNT) + "_", std::string(QUERY_HITS_COUNT) + "`",
+                                   query_hits_counts_jsons);
+
+        for (const auto &query_hits_count_json: query_hits_counts_jsons) {
+            nlohmann::json query_hits_count = nlohmann::json::parse(query_hits_count_json);
+            result_json.push_back(query_hits_count);
+        }
+    }
+
+    return result_json;
+}
+
 Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_event_jsons) {
     for(const auto& click_event_json : click_event_jsons) {
         auto collection_id = click_event_json["collection_id"].get<std::string>();
@@ -522,6 +601,24 @@ Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_
             bool inserted = analytics_store->insert(key, click_event_json.dump());
             if (!inserted) {
                 return Option<bool>(500, "Unable to insert clickevent into store.");
+            }
+        } else {
+            return Option<bool>(500, "Analytics DB not initialized.");
+        }
+    }
+    return Option<bool>(true);
+}
+
+Option<bool> AnalyticsManager::write_query_hits_counts_to_store(nlohmann::json &query_hits_counts_json) {
+    for(const auto& query_hits_count : query_hits_counts_json) {
+        auto collection_id = query_hits_count["collection_id"].get<std::string>();
+        auto timestamp = query_hits_count["timestamp"].get<uint64_t>();
+        const std::string key = std::string(QUERY_HITS_COUNT) + "_" + collection_id + "_" +
+                                std::to_string(timestamp);
+        if(analytics_store) {
+            bool inserted = analytics_store->insert(key, query_hits_count.dump());
+            if (!inserted) {
+                return Option<bool>(500, "Unable to insert query hits count into store.");
             }
         } else {
             return Option<bool>(500, "Analytics DB not initialized.");
