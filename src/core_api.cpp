@@ -256,9 +256,14 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 }
 
 bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    std::string doc_id = req->params["id"];
+    bool compact_store = false;
+
+    if(req->params.count("compact_store") != 0) {
+        compact_store = (req->params["compact_store"] == "true");
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Option<nlohmann::json> drop_op = collectionManager.drop_collection(req->params["collection"], true);
+    Option<nlohmann::json> drop_op = collectionManager.drop_collection(req->params["collection"], true, compact_store);
 
     if(!drop_op.ok()) {
         res->set(drop_op.code(), drop_op.error());
