@@ -31,7 +31,10 @@ void HouseKeeper::run() {
             }
 
             coll->do_housekeeping();
-            LOG(INFO) << "Ran housekeeping.";
+        }
+
+        if(!coll_names.empty()) {
+            LOG(INFO) << "Ran housekeeping for " << coll_names.size() << " collections.";
         }
 
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
