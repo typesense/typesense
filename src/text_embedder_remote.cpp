@@ -106,7 +106,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
         if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
             return Option<bool>(400, "OpenAI API error: " + res);
         }
-        return Option<bool>(400, "OpenAI API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+        return Option<bool>(400, "OpenAI API error: " + json_res["error"]["message"].get<std::string>());
     }
 
     nlohmann::json models_json;
@@ -152,7 +152,7 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
         if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
             return Option<bool>(400, "OpenAI API error: " + embedding_res);
         }
-        return Option<bool>(400, "OpenAI API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+        return Option<bool>(400, "OpenAI API error: " + json_res["error"]["message"].get<std::string>());
     }
     std::vector<float> embedding;
     try {
@@ -337,7 +337,7 @@ Option<bool> GoogleEmbedder::is_model_valid(const nlohmann::json& model_config, 
             return Option<bool>(400, "Google API error: " + res);
         }
         
-        return Option<bool>(400, "Google API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+        return Option<bool>(400, "Google API error: " + json_res["error"]["message"].get<std::string>());
     }
 
     try {
@@ -477,7 +477,7 @@ Option<bool> GCPEmbedder::is_model_valid(const nlohmann::json& model_config, siz
         if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
             return Option<bool>(400, "GCP API error: " + res);
         }
-        return Option<bool>(400, "GCP API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+        return Option<bool>(400, "GCP API error: " + json_res["error"]["message"].get<std::string>());
     }
     nlohmann::json res_json;
     try {
@@ -680,7 +680,7 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
         if(res_code == 408) {
             return Option<std::string>(408, "GCP API timeout.");
         }
-        return Option<std::string>(400, "GCP API error: " + nlohmann::json::parse(res)["error"]["message"].get<std::string>());
+        return Option<std::string>(400, "GCP API error: " + json_res["error"]["message"].get<std::string>());
     }
     nlohmann::json res_json;
     try {
