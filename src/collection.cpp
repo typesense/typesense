@@ -6202,7 +6202,6 @@ Option<bool> Collection::truncate_after_top_k(const string &field_name, size_t k
     return Option<bool>(true);
 }
 
-<<<<<<< HEAD
 void Collection::reference_populate_sort_mapping(int *sort_order, std::vector<size_t> &geopoint_indices,
                                                  std::vector<sort_by> &sort_fields_std,
                                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32> *, 3> &field_values)
