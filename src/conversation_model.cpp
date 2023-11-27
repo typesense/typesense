@@ -1,5 +1,5 @@
 #include "conversation_model.h"
-#include "text_embedder_manager.h"
+#include "embedder_manager.h"
 #include "text_embedder_remote.h"
 #include "conversation_manager.h"
 
@@ -128,7 +128,7 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
     }
     bool found = false;
     // extract model name by removing "openai/" prefix
-    auto model_name_without_namespace = TextEmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+    auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     for (auto& model : models_json["data"]) {
         if (model["id"] == model_name_without_namespace) {
             found = true;
@@ -174,7 +174,7 @@ Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model
 
 Option<std::string> OpenAIConversationModel::get_answer(const std::string& context, const std::string& prompt, 
                                               const std::string& system_prompt, const nlohmann::json& model_config) {
-    const std::string model_name = TextEmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+    const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string api_key = model_config["api_key"].get<std::string>();
 
     std::unordered_map<std::string, std::string> headers;
@@ -256,7 +256,7 @@ Option<nlohmann::json> OpenAIConversationModel::parse_conversation_history(const
 
 Option<std::string> OpenAIConversationModel::get_standalone_question(const nlohmann::json& conversation_history, 
                                                            const std::string& question, const nlohmann::json& model_config) {
-    const std::string model_name = TextEmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
+    const std::string model_name = EmbedderManager::get_model_name_without_namespace(model_config["model_name"].get<std::string>());
     const std::string api_key = model_config["api_key"].get<std::string>();
     std::unordered_map<std::string, std::string> headers;
     std::map<std::string, std::string> res_headers;

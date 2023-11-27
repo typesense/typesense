@@ -53,7 +53,7 @@ class CollectionManager {
 private:
     mutable std::shared_mutex mutex;
 
-    mutable std::mutex coll_create_mutex;
+    mutable std::shared_mutex noop_coll_mutex;
 
     Store *store;
     ThreadPool* thread_pool;
@@ -168,7 +168,9 @@ public:
 
     nlohmann::json get_collection_summaries() const;
 
-    Option<nlohmann::json> drop_collection(const std::string& collection_name, const bool remove_from_store = true);
+    Option<nlohmann::json> drop_collection(const std::string& collection_name,
+                                           const bool remove_from_store = true,
+                                           const bool compact_store = true);
 
     uint32_t get_next_collection_id() const;
 

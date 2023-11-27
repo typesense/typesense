@@ -18,7 +18,7 @@
 #include "logger.h"
 #include "thread_local_vars.h"
 #include "vector_query_ops.h"
-#include "text_embedder_manager.h"
+#include "embedder_manager.h"
 #include "stopwords_manager.h"
 #include "conversation_model.h"
 #include "conversation_manager.h"
@@ -60,8 +60,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 }
 
 Collection::~Collection() {
+    std::unique_lock lifecycle_lock(lifecycle_mutex);
     std::unique_lock lock(mutex);
-    std::unique_lock repair_lock(index_repair_lock);
     delete index;
     delete synonym_index;
 }
@@ -699,7 +699,13 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
         if(index_record.indexed.ok()) {
             if(index_record.is_update) {
                 remove_flat_fields(index_record.new_doc);
+                for(auto& field: fields) {
+                    if(!field.store) {
+                        index_record.new_doc.erase(field.name);
+                    }
+                }
                 const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+
                 bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 
                 if(!write_ok) {
@@ -1198,7 +1204,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 if(sort_field_std.vector_query.query.values.empty() && embedding_fields.find(sort_field_std.vector_query.query.field_name) != embedding_fields.end()) {
                     // generate embeddings for the query
 
-                    TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
+                    EmbedderManager& embedder_manager = EmbedderManager::get_instance();
                     auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
                     if(!embedder_op.ok()) {
                         return Option<bool>(embedder_op.code(), embedder_op.error());
@@ -1762,7 +1768,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     return Option<nlohmann::json>(400, error);
                 }
 
-                // if(TextEmbedderManager::model_dir.empty()) {
+                // if(EmbedderManager::model_dir.empty()) {
                 //     std::string error = "Text embedding is not enabled. Please set `model-dir` at startup.";
                 //     return Option<nlohmann::json>(400, error);
                 // }
@@ -1777,7 +1783,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                     return Option<nlohmann::json>(400, error);
                 }
 
-                TextEmbedderManager& embedder_manager = TextEmbedderManager::get_instance();
+                EmbedderManager& embedder_manager = EmbedderManager::get_instance();
                 auto embedder_op = embedder_manager.get_text_embedder(search_field.embed[fields::model_config]);
                 if(!embedder_op.ok()) {
                     return Option<nlohmann::json>(400, embedder_op.error());
@@ -4586,11 +4592,11 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
         if(f.embed.count(fields::from) != 0) {
             found_embedding_field = true;
-            const auto& text_embedders = TextEmbedderManager::get_instance()._get_text_embedders();
+            const auto& text_embedders = EmbedderManager::get_instance()._get_text_embedders();
             const auto& model_name = f.embed[fields::model_config][fields::model_name].get<std::string>();
             if(text_embedders.count(model_name) == 0) {
                 size_t dummy_num_dim = 0;
-                auto validate_model_res = TextEmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
+                auto validate_model_res = EmbedderManager::get_instance().validate_and_init_model(f.embed[fields::model_config], dummy_num_dim);
                 if(!validate_model_res.ok()) {
                     return Option<bool>(validate_model_res.code(), validate_model_res.error());
                 }
@@ -6256,6 +6262,10 @@ Option<uint32_t> Collection::get_sort_index_value_with_lock(const std::string& f
     return index->get_sort_index_value_with_lock(name, field_name, seq_id);
 }
 
+std::shared_mutex& Collection::get_lifecycle_mutex() {
+    return lifecycle_mutex;
+}
+
 void Collection::remove_embedding_field(const std::string& field_name) {
     if(embedding_fields.find(field_name) == embedding_fields.end()) {
         return;
@@ -6272,6 +6282,5 @@ tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
 }
 
 void Collection::do_housekeeping() {
-    std::unique_lock lock(index_repair_lock);
     index->repair_hnsw_index();
 }
