@@ -198,11 +198,11 @@ public:
     Option<bool> add_click_event(const std::string& query_collection, const std::string& query, const std::string& user_id,
                             std::string doc_id, uint64_t position, const std::string& client_ip);
 
-    void persist_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_query_hits_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     nlohmann::json get_click_events();
 
-    Option<bool> write_click_event_to_store(nlohmann::json& click_event_json);
+    Option<bool> write_events_to_store(nlohmann::json& event_jsons);
 
     void add_nohits_query(const std::string& query_collection,
                           const std::string& query, bool live_query, const std::string& user_id);
@@ -214,9 +214,5 @@ public:
     void add_query_hits_count(const std::string& query_collection, const std::string& query, const std::string& user_id,
                                             uint64_t hits_count);
 
-    void persist_query_hits_counts(ReplicationState *raft_server, uint64_t prev_persistence_s);
-
     nlohmann::json get_query_hits_counts();
-
-    Option<bool> write_query_hits_counts_to_store(nlohmann::json& query_hits_counts_json);
 };

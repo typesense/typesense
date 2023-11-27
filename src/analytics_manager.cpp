@@ -342,8 +342,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         }
 
         persist_query_events(raft_server, prev_persistence_s);
-        persist_click_events(raft_server, prev_persistence_s);
-        persist_query_hits_counts(raft_server, prev_persistence_s);
+        persist_query_hits_click_events(raft_server, prev_persistence_s);
 
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -438,9 +437,35 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
     }
 }
 
-void AnalyticsManager::persist_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+void AnalyticsManager::persist_query_hits_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // lock is held by caller
     nlohmann::json payload_json = nlohmann::json::array();
+
+    auto send_http_response = [&](const std::string& event_type) {
+        if(payload_json.empty()) {
+            return;
+        }
+
+        const std::string import_payload = payload_json.dump();
+
+        std::string leader_url = raft_server->get_leader_url();
+        if (!leader_url.empty()) {
+            const std::string &base_url = leader_url + "analytics";
+            std::string res;
+
+            const std::string &update_url = base_url + "/" + event_type +"/replicate";
+            std::map<std::string, std::string> res_headers;
+            long status_code = HttpClient::post_response(update_url, import_payload,
+                                                         res, res_headers, {}, 10 * 1000, true);
+
+            if (status_code != 200) {
+                LOG(ERROR) << "Error while sending click events to leader. "
+                           << "Status code: " << status_code << ", response: " << res;
+            } else {
+                query_collection_click_events.clear();
+            }
+        }
+    };
 
     for (const auto &click_events_collection_it: query_collection_click_events) {
         auto collection_id = CollectionManager::get_instance().get_collection(
@@ -450,37 +475,13 @@ void AnalyticsManager::persist_click_events(ReplicationState *raft_server, uint6
             nlohmann::json click_event_json;
             click_event.to_json(click_event_json);
             click_event_json["collection_id"] = std::to_string(collection_id);
+            click_event_json["event_type"] = "click_events";
             payload_json.push_back(click_event_json);
         }
     }
 
-    if(payload_json.empty()) {
-        return;
-    }
+    send_http_response("click_events");
 
-    const std::string import_payload = payload_json.dump();
-
-    std::string leader_url = raft_server->get_leader_url();
-    if (!leader_url.empty()) {
-        const std::string &base_url = leader_url + "analytics";
-        std::string res;
-
-        const std::string &update_url = base_url + "/click_events/replicate";
-        std::map<std::string, std::string> res_headers;
-        long status_code = HttpClient::post_response(update_url, import_payload,
-                                                     res, res_headers, {}, 10 * 1000, true);
-
-        if (status_code != 200) {
-            LOG(ERROR) << "Error while sending click events to leader. "
-                       << "Status code: " << status_code << ", response: " << res;
-        } else {
-            query_collection_click_events.clear();
-        }
-    }
-}
-
-void AnalyticsManager::persist_query_hits_counts(ReplicationState *raft_server, uint64_t prev_persistence_s) {
-    nlohmann::json payload_json = nlohmann::json::array();
 
     for (const auto &query_collection_hits_count_it: query_collection_hits_count) {
         auto collection_id = CollectionManager::get_instance().get_collection(
@@ -490,33 +491,11 @@ void AnalyticsManager::persist_query_hits_counts(ReplicationState *raft_server, 
             nlohmann::json query_hits_count_json;
             query_hits_count.to_json(query_hits_count_json);
             query_hits_count_json["collection_id"] = std::to_string(collection_id);
+            query_hits_count_json["event_type"] = "query_hits_counts";
             payload_json.push_back(query_hits_count_json);
         }
     }
-
-    if (payload_json.empty()) {
-        return;
-    }
-
-    const std::string import_payload = payload_json.dump();
-
-    std::string leader_url = raft_server->get_leader_url();
-    if (!leader_url.empty()) {
-        const std::string &base_url = leader_url + "analytics";
-        std::string res;
-
-        const std::string &update_url = base_url + "/query_hits_counts/replicate";
-        std::map<std::string, std::string> res_headers;
-        long status_code = HttpClient::post_response(update_url, import_payload,
-                                                     res, res_headers, {}, 10 * 1000, true);
-
-        if (status_code != 200) {
-            LOG(ERROR) << "Error while sending click events to leader. "
-                       << "Status code: " << status_code << ", response: " << res;
-        } else {
-            query_collection_hits_count.clear();
-        }
-    }
+    send_http_response("query_hits_counts");
 }
 
 void AnalyticsManager::stop() {
@@ -591,34 +570,25 @@ nlohmann::json AnalyticsManager::get_query_hits_counts() {
     return result_json;
 }
 
-Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_event_jsons) {
-    for(const auto& click_event_json : click_event_jsons) {
-        auto collection_id = click_event_json["collection_id"].get<std::string>();
-        auto timestamp = click_event_json["timestamp"].get<uint64_t>();
-        const std::string key = std::string(CLICK_EVENT) + "_" + collection_id + "_" +
-                                std::to_string(timestamp);
-        if(analytics_store) {
-            bool inserted = analytics_store->insert(key, click_event_json.dump());
-            if (!inserted) {
-                return Option<bool>(500, "Unable to insert clickevent into store.");
-            }
-        } else {
-            return Option<bool>(500, "Analytics DB not initialized.");
-        }
-    }
-    return Option<bool>(true);
-}
+Option<bool> AnalyticsManager::write_events_to_store(nlohmann::json &event_jsons) {
+    for(const auto& event_json : event_jsons) {
+        auto collection_id = event_json["collection_id"].get<std::string>();
+        auto timestamp = event_json["timestamp"].get<uint64_t>();
 
-Option<bool> AnalyticsManager::write_query_hits_counts_to_store(nlohmann::json &query_hits_counts_json) {
-    for(const auto& query_hits_count : query_hits_counts_json) {
-        auto collection_id = query_hits_count["collection_id"].get<std::string>();
-        auto timestamp = query_hits_count["timestamp"].get<uint64_t>();
-        const std::string key = std::string(QUERY_HITS_COUNT) + "_" + collection_id + "_" +
-                                std::to_string(timestamp);
+        std::string key = "";
+        if(event_json["event_type"] == "click_events") {
+           key = std::string(CLICK_EVENT) + "_" + collection_id + "_" +
+            std::to_string(timestamp);
+        } else if(event_json["event_type"] == "query_hits_counts") {
+            key = std::string(QUERY_HITS_COUNT) + "_" + collection_id + "_" +
+                  std::to_string(timestamp);
+        }
+
         if(analytics_store) {
-            bool inserted = analytics_store->insert(key, query_hits_count.dump());
+            bool inserted = analytics_store->insert(key, event_json.dump());
             if (!inserted) {
-                return Option<bool>(500, "Unable to insert query hits count into store.");
+                std::string error = "Unable to insert " + std::string(event_json["event_type"]) + " to store";
+                return Option<bool>(500, error);
             }
         } else {
             return Option<bool>(500, "Analytics DB not initialized.");

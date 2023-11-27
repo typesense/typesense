@@ -324,14 +324,17 @@ TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
 
     event1["collection_id"] = "0";
     event1["timestamp"] = 1521512521;
+    event1["event_type"] = "click_events";
     event2["collection_id"] = "0";
     event2["timestamp"] = 1521514354;
+    event2["event_type"] = "click_events";
+
     nlohmann::json click_events = nlohmann::json::array();
     click_events.push_back(event1);
     click_events.push_back(event2);
 
     req->body = click_events.dump();
-    ASSERT_TRUE(post_replicate_click_event(req, res));
+    ASSERT_TRUE(post_replicate_events(req, res));
 
     auto result = analyticsManager.get_click_events();
 
@@ -469,6 +472,8 @@ TEST_F(AnalyticsManagerTest, QueryHitsCount) {
     nlohmann::json obj;
 
     obj["collection_id"] = "0";
+    obj["event_type"] = "query_hits_counts";
+
     obj["query"] = "cool";
     obj["timestamp"] = 1625365612;
     obj["user_id"] = "1";
@@ -482,7 +487,7 @@ TEST_F(AnalyticsManagerTest, QueryHitsCount) {
     query_hits_array.push_back(obj);
 
 
-    auto op = analyticsManager.write_query_hits_counts_to_store(query_hits_array);
+    auto op = analyticsManager.write_events_to_store(query_hits_array);
     ASSERT_TRUE(op.ok());
 
     auto result = analyticsManager.get_query_hits_counts();
