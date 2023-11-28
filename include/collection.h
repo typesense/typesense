@@ -55,7 +55,8 @@ private:
 
     mutable std::shared_mutex mutex;
 
-    mutable std::shared_mutex index_repair_lock;
+    // ensures that a Collection* is not destructed while in use by multiple threads
+    mutable std::shared_mutex lifecycle_mutex;
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
@@ -673,6 +674,8 @@ public:
     static void hide_credential(nlohmann::json& json, const std::string& credential_name);
 
     friend class filter_result_iterator_t;
+
+    std::shared_mutex& get_lifecycle_mutex();
 };
 
 template<class T>

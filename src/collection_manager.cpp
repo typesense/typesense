@@ -83,7 +83,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             size_t num_dim = 0;
             auto& model_config = field_obj[fields::embed][fields::model_config];
 
-            auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+            auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
             if(!res.ok()) {
                 const std::string& model_name = model_config["model_name"].get<std::string>();
                 LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
@@ -419,7 +419,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
                                                          const bool enable_nested_fields) {
-    std::unique_lock lock(coll_create_mutex);
+    std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
@@ -441,9 +441,12 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         return Option<Collection*>(fields_json_op.code(), fields_json_op.error());
     }
 
+    uint32_t new_coll_id = next_collection_id;
+    next_collection_id++;
+
     nlohmann::json collection_meta;
     collection_meta[Collection::COLLECTION_NAME_KEY] = name;
-    collection_meta[Collection::COLLECTION_ID_KEY] = next_collection_id.load();
+    collection_meta[Collection::COLLECTION_ID_KEY] = new_coll_id;
     collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
     collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
     collection_meta[Collection::COLLECTION_CREATED] = created_at;
@@ -452,13 +455,6 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
-
-    Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
-                                                default_sorting_field,
-                                                this->max_memory_ratio, fallback_field_type,
-                                                symbols_to_index, token_separators,
-                                                enable_nested_fields);
-    next_collection_id++;
 
     rocksdb::WriteBatch batch;
     batch.Put(Collection::get_next_seq_id_key(name), StringUtils::serialize_uint32_t(0));
@@ -470,7 +466,17 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         return Option<Collection*>(500, "Could not write to on-disk storage.");
     }
 
+    lock.unlock();
+
+    Collection* new_collection = new Collection(name, new_coll_id, created_at, 0, store, fields,
+                                                default_sorting_field,
+                                                this->max_memory_ratio, fallback_field_type,
+                                                symbols_to_index, token_separators,
+                                                enable_nested_fields);
+
     add_to_collections(new_collection);
+
+    lock.lock();
 
     if (referenced_in_backlog.count(name) > 0) {
         new_collection->add_referenced_ins(referenced_in_backlog.at(name));
@@ -499,7 +505,8 @@ Collection* CollectionManager::get_collection_unsafe(const std::string & collect
 locked_resource_view_t<Collection> CollectionManager::get_collection(const std::string & collection_name) const {
     std::shared_lock lock(mutex);
     Collection* coll = get_collection_unsafe(collection_name);
-    return locked_resource_view_t<Collection>(mutex, coll);
+    return coll != nullptr ? locked_resource_view_t<Collection>(coll->get_lifecycle_mutex(), coll) :
+           locked_resource_view_t<Collection>(noop_coll_mutex, coll);
 }
 
 locked_resource_view_t<Collection> CollectionManager::get_collection_with_id(uint32_t collection_id) const {
@@ -539,7 +546,9 @@ std::vector<std::string> CollectionManager::get_collection_names() const {
     return collection_vec;
 }
 
-Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
+Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name,
+                                                          const bool remove_from_store,
+                                                          const bool compact_store) {
     std::shared_lock s_lock(mutex);
     auto collection = get_collection_unsafe(collection_name);
 
@@ -556,8 +565,11 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         const std::string& del_key_prefix = std::to_string(collection->get_collection_id()) + "_";
         const std::string& del_end_prefix = std::to_string(collection->get_collection_id()) + "`";
         store->delete_range(del_key_prefix, del_end_prefix);
-        store->flush();
-        store->compact_range(del_key_prefix, del_end_prefix);
+
+        if(compact_store) {
+            store->flush();
+            store->compact_range(del_key_prefix, del_end_prefix);
+        }
 
         // delete overrides
         const std::string& del_override_prefix =
@@ -2003,6 +2015,7 @@ void CollectionManager::process_embedding_field_delete(const std::string& model_
 
     if(!found) {
         LOG(INFO) << "Deleting text embedder: " << model_name;
-        TextEmbedderManager::get_instance().delete_text_embedder(model_name);
+        EmbedderManager::get_instance().delete_text_embedder(model_name);
+        EmbedderManager::get_instance().delete_image_embedder(model_name);
     }
 }

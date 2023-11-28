@@ -272,6 +272,9 @@ void BatchedIndexer::run() {
         });
     }
 
+    uint64_t stuck_counter = 0;
+    uint64_t prev_count = 0;
+
     while(!quit) {
         std::this_thread::sleep_for(std::chrono::milliseconds (1000));
 
@@ -283,6 +286,27 @@ void BatchedIndexer::run() {
 
             std::unique_lock lk(mutex);
             LOG(INFO) << "Running GC for aborted requests, req map size: " << req_res_map.size();
+
+            if(req_res_map.size() > 0 && prev_count == req_res_map.size()) {
+                stuck_counter++;
+                if(stuck_counter > 3) {
+                    size_t max_loop = 0;
+                    for(const auto& it : req_res_map) {
+                        max_loop++;
+                        LOG(INFO) << "Stuck req_key: " << it.first;
+                        if(max_loop == 5) {
+                            break;
+                        }
+                    }
+
+                    stuck_counter = 0;
+                }
+
+            } else {
+                stuck_counter = 0;
+            }
+
+            prev_count = req_res_map.size();
 
             // iterate through all map entries and delete ones which are not complete but > GC_PRUNE_MAX_SECONDS
             for (auto it = req_res_map.cbegin(); it != req_res_map.cend();) {

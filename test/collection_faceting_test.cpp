@@ -2855,7 +2855,11 @@ TEST_F(CollectionFacetingTest, FhashInt64MapTest) {
     facet_index_v4.insert("visitors", fvalue_to_seq_ids, seq_id_to_fvalues);
     ASSERT_EQ(3, facet_index_v4.get_fhash_int64_map("visitors").size());
 
-    facet_index_v4.remove("visitors", 0);
+    field visitorsf("visitors", field_types::INT64, true);
+    nlohmann::json doc;
+    doc["visitors"] = 227489798;
+
+    facet_index_v4.remove(doc, visitorsf, 0);
     ASSERT_EQ(2, facet_index_v4.get_fhash_int64_map("visitors").size());
 
     fvalue_to_seq_ids.clear();
