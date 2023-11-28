@@ -1872,8 +1872,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
               << " documents into collection " << collection->get_name();
 
-    collection->_get_index()->log_insert_time = true;
-    collection->_get_index()->_get_facet_index()->log_insert_time = true;
     return Option<bool>(true);
 }
 
