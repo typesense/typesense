@@ -6460,7 +6460,7 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
     }
 
     // remove facets
-    facet_index_v4->remove(field_name, seq_id);
+    facet_index_v4->remove(document, search_field, seq_id);
 
     // remove sort field
     if(sort_index.count(field_name) != 0) {
