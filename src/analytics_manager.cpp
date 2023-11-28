@@ -459,7 +459,7 @@ void AnalyticsManager::persist_query_hits_click_events(ReplicationState *raft_se
                                                          res, res_headers, {}, 10 * 1000, true);
 
             if (status_code != 200) {
-                LOG(ERROR) << "Error while sending click events to leader. "
+                LOG(ERROR) << "Error while sending " << event_type <<" to leader. "
                            << "Status code: " << status_code << ", response: " << res;
             } else {
                 query_collection_click_events.clear();
