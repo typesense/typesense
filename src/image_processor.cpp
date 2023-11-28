@@ -36,8 +36,7 @@ Option<processed_image_t> CLIPImageProcessor::process_image(const std::string& i
     LOG(INFO) << "Running image processor";
     try {
         output_tensors = session_->Run(Ort::RunOptions{nullptr}, input_names.data(), &input_tensor, 1, output_names.data(), output_names.size());
-    } catch (const std::exception& e) {
-        LOG(INFO) << "Error while running image processor: " << e.what();
+    } catch (...) {
         return Option<processed_image_t>(400, "Error while processing image");
     }
 
