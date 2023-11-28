@@ -12,7 +12,6 @@ embedding_res_t CLIPImageEmbedder::embed(const std::string& encoded_image) {
     if (!processed_image_op.ok()) {
         nlohmann::json error_json;
         error_json["error"] = processed_image_op.error();
-        results[i] = embedding_res_t(processed_image_op.code(), error_json);
         return embedding_res_t(processed_image_op.code(), error_json);
     }
 

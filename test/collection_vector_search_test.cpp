@@ -2987,7 +2987,6 @@ TEST_F(CollectionVectorTest, TestImageEmbedding) {
 
     auto coll = collection_create_op.get();
 
-    LOG(INFO) << "Adding image to collection";
 
     auto add_op = coll->add(R"({
         "name": "dog",
@@ -3045,4 +3044,33 @@ TEST_F(CollectionVectorTest, TryAddingMultipleImageFieldToEmbedFrom) {
     ASSERT_FALSE(collection_create_op.ok());
 
     ASSERT_EQ(collection_create_op.error(), "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
+}
+
+TEST_F(CollectionVectorTest, TestInvalidImage) {
+    auto schema_json =
+        R"({
+        "name": "Images",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "image", "type": "image", "store": false},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["image"], "model_config": {"model_name": "ts/clip-vit-b-p32"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "teddy bear",
+        "image": "invalid"
+    })"_json.dump());
+
+    ASSERT_FALSE(add_op.ok());
+
+    ASSERT_EQ(add_op.error(), "Error while processing image");
+
 }
