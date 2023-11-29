@@ -2811,7 +2811,7 @@ bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
-bool post_replicate_click_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool post_replicate_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
 
     try {
@@ -2822,12 +2822,19 @@ bool post_replicate_click_event(const std::shared_ptr<http_req>& req, const std:
         return false;
     }
 
-    auto op = AnalyticsManager::get_instance().write_click_event_to_store(req_json);
+    auto op = AnalyticsManager::get_instance().write_events_to_store(req_json);
     if(!op.ok()) {
         res->set_body(op.code(), op.error());
         return false;
     }
 
-    res->set_200("ClickEvent wrote to DB.");
+    res->set_200("event wrote to DB.");
+    return true;
+}
+
+bool get_query_hits_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto query_hits_counts = AnalyticsManager::get_instance().get_query_hits_counts();
+
+    res->set_200(query_hits_counts.dump());
     return true;
 }

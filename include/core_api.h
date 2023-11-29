@@ -171,7 +171,9 @@ bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared
 
 bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_replicate_click_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool post_replicate_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_query_hits_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Misc helpers
 
