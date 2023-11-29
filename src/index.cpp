@@ -2542,6 +2542,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 k++;
             }
 
+            VectorFilterFunctor filterFunctor(filter_result_iterator, excluded_result_ids, excluded_result_ids_size);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
 
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
@@ -2946,7 +2947,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 const float VECTOR_SEARCH_WEIGHT = vector_query.alpha;
                 const float TEXT_MATCH_WEIGHT = 1.0 - VECTOR_SEARCH_WEIGHT;
 
-                VectorFilterFunctor filterFunctor(filter_result_iterator);
+                VectorFilterFunctor filterFunctor(filter_result_iterator, excluded_result_ids, excluded_result_ids_size);
                 auto& field_vector_index = vector_index.at(vector_query.field_name);
 
                 std::vector<std::pair<float, size_t>> dist_labels;

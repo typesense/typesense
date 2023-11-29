@@ -43,7 +43,7 @@ TEST(FacetIndexTest, FacetValueDeletionOfLongString) {
         longval += "a";
     }
 
-    facet_value_id_t longfval(longval, 1);
+    facet_value_id_t longfval(longval.substr(0, 100), 1);
 
     fvalue_to_seq_ids[longfval] = {0, 1, 2};
     seq_id_to_fvalues[0] = {longfval};
@@ -55,14 +55,14 @@ TEST(FacetIndexTest, FacetValueDeletionOfLongString) {
     doc["brand"] = longval;
 
     findex.insert("brand", fvalue_to_seq_ids, seq_id_to_fvalues, true);
-    ASSERT_EQ(3, findex.facet_val_num_ids("brand", longval));
+    ASSERT_EQ(3, findex.facet_val_num_ids("brand", longval.substr(0, 100)));
 
     findex.remove(doc, brandf, 0);
     findex.remove(doc, brandf, 1);
-    ASSERT_EQ(1, findex.facet_val_num_ids("brand", longval));
+    ASSERT_EQ(1, findex.facet_val_num_ids("brand", longval.substr(0, 100)));
 
     findex.remove(doc, brandf, 2);
-    ASSERT_FALSE(findex.facet_value_exists("brand", longval));
+    ASSERT_FALSE(findex.facet_value_exists("brand", longval.substr(0, 100)));
 }
 
 TEST(FacetIndexTest, FacetValueDeletionFloat) {

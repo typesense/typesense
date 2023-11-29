@@ -10,7 +10,9 @@ embedding_res_t CLIPImageEmbedder::embed(const std::string& encoded_image) {
     auto processed_image_op = image_processor_.process_image(encoded_image);
 
     if (!processed_image_op.ok()) {
-        return embedding_res_t(processed_image_op.code(), processed_image_op.error());
+        nlohmann::json error_json;
+        error_json["error"] = processed_image_op.error();
+        return embedding_res_t(processed_image_op.code(), error_json);
     }
 
     auto processed_image = processed_image_op.get();
@@ -58,13 +60,26 @@ std::vector<embedding_res_t> CLIPImageEmbedder::batch_embed(const std::vector<st
         auto processed_image_op = image_processor_.process_image(input);
 
         if (!processed_image_op.ok()) {
-            results[i] = embedding_res_t(processed_image_op.code(), processed_image_op.error());
+            nlohmann::json error_json;
+            error_json["error"] = processed_image_op.error();
+            results[i] = embedding_res_t(processed_image_op.code(), error_json);
             i++;
             continue;
         }
 
         processed_images.push_back(processed_image_op.get());
         i++;
+    }
+
+
+    // no valid images
+    if (processed_images.empty()) {
+        std::vector<embedding_res_t> result_vector(inputs.size());
+        for (int i = 0; i < inputs.size(); i++) {
+            result_vector[i] = results[i];
+        }
+
+        return result_vector;
     }
 
     // create input tensor
