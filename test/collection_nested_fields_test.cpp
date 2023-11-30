@@ -3056,6 +3056,81 @@ TEST_F(CollectionNestedFieldsTest, HighlightArrayOfObjects) {
     ASSERT_EQ(1, results["hits"][0]["highlight"]["details"][2].size());
 }
 
+TEST_F(CollectionNestedFieldsTest, DeepNestedOptionalArrayValue) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {
+                "facet": false,
+                "index": true,
+                "infix": false,
+                "locale": "",
+                "name": "items.name",
+                "optional": true,
+                "sort": false,
+                "type": "string[]"
+            },
+            {
+                "facet": false,
+                "index": true,
+                "infix": false,
+                "locale": "",
+                "name": "items.description",
+                "optional": true,
+                "sort": false,
+                "type": "string[]"
+            },
+            {
+                "facet": false,
+                "index": true,
+                "infix": false,
+                "locale": "",
+                "name": "items.nested_items.name",
+                "optional": true,
+                "sort": false,
+                "type": "string[]"
+            }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "items": [
+            {
+                "description": "random description.",
+                "name": "foobar",
+                "nested_items": [
+                    {
+                        "isAvailable": true
+                    },
+                    {
+                        "description": "nested description here",
+                        "isAvailable": true,
+                        "name": "naruto"
+                    },
+                    {
+                        "description": "description again",
+                        "isAvailable": true,
+                        "name": "dragon ball"
+                    }
+                ]
+            }
+        ]
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("naruto", {"items.nested_items.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                                 {true}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionNestedFieldsTest, FloatInsideNestedObject) {
     nlohmann::json schema = R"({
         "name": "coll1",

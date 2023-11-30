@@ -1022,9 +1022,11 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
             return flatten_field(doc, it.value(), the_field, path_parts, path_index + 1, has_array, has_obj_array,
                                  is_update, dyn_fields, flattened_fields);
         }
-    } {
+    } else if(!the_field.optional) {
         return Option<bool>(404, "Field `" + the_field.name + "` not found.");
     }
+
+    return Option<bool>(true);
 }
 
 Option<bool> field::flatten_doc(nlohmann::json& document,
