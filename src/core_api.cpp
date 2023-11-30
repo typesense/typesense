@@ -2202,9 +2202,9 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     }
 
     nlohmann::json res_json;
-    res_json["name"] = stopword_name;
+    res_json["id"] = stopword_name;
     for(const auto& stopword : stopwords) {
-        res_json["value"].push_back(stopword);
+        res_json["stopwords"].push_back(stopword);
     }
 
     res->set_200(res_json.dump());
