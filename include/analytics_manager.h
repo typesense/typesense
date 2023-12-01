@@ -215,4 +215,6 @@ public:
                                             uint64_t hits_count);
 
     nlohmann::json get_query_hits_counts();
+
+    void checkEventsExpiry();
 };
