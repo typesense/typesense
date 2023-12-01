@@ -3122,7 +3122,6 @@ TEST_F(CollectionVectorTest, TryAddingMultipleImageFieldToEmbedFrom) {
 
     ASSERT_EQ(collection_create_op.error(), "Only one field can be used in the `embed.from` property of an embed field when embedding from an image field.");
 }
-<<<<<<< Updated upstream
 
 TEST_F(CollectionVectorTest, TestInvalidImage) {
     auto schema_json =
