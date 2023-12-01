@@ -276,12 +276,26 @@ struct index_record {
 class VectorFilterFunctor: public hnswlib::BaseFilterFunctor {
     filter_result_iterator_t* const filter_result_iterator;
 
+    const uint32_t* excluded_ids = nullptr;
+    const uint32_t excluded_ids_length = 0;
+
 public:
-    explicit VectorFilterFunctor(filter_result_iterator_t* const filter_result_iterator) :
-    filter_result_iterator(filter_result_iterator) {}
+
+    explicit VectorFilterFunctor(filter_result_iterator_t* const filter_result_iterator,
+                                 const uint32_t* excluded_ids = nullptr, const uint32_t excluded_ids_length = 0) :
+                                filter_result_iterator(filter_result_iterator),
+                                excluded_ids(excluded_ids), excluded_ids_length(excluded_ids_length) {}
 
     bool operator()(hnswlib::labeltype id) override {
-        if (filter_result_iterator->approx_filter_ids_length == 0) {
+        if (filter_result_iterator->approx_filter_ids_length == 0 && excluded_ids_length == 0) {
+            return true;
+        }
+
+        if(excluded_ids_length > 0 && excluded_ids && std::binary_search(excluded_ids, excluded_ids + excluded_ids_length, id)) {
+            return false;
+        }
+
+        if(filter_result_iterator->approx_filter_ids_length == 0) {
             return true;
         }
 
