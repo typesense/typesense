@@ -1103,3 +1103,7 @@ bool HttpServer::is_leader() const {
 ThreadPool* HttpServer::get_meta_thread_pool() const {
     return meta_thread_pool;
 }
+
+void HttpServer::decr_pending_writes() {
+    return replication_state->decr_pending_writes();
+}

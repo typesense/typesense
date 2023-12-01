@@ -59,9 +59,8 @@ void facet_index_t::insert(const std::string& field_name,std::unordered_map<face
                 fis.facet_id = facet_id;
 
                 if(facet_index.has_value_index) {
-                    auto new_count = seq_ids.size();
                     fis.seq_ids = ids_t::create(seq_ids);
-
+                    auto new_count = ids_t::num_ids(fis.seq_ids);
                     auto& count_map = facet_index.count_map;
                     auto count_map_it = count_map.lower_bound(new_count);
 
@@ -130,13 +129,14 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
         // 5, 4, [4 -> 7]
         // 5, 4, [4 -> 7], 3
         // 5, [4 -> 7]
+        // [4 -> 5]
 
         // delete count map entry if `curr` is the anchor for `old_count`
         if(std::next(curr) == count_list.end() || std::next(curr)->count < old_count) {
             count_map.erase(old_count);
 
             // find a replacement for orig_count
-            if(std::prev(curr)->count == old_count) {
+            if(curr != count_list.begin() && std::prev(curr)->count == old_count) {
                 count_map.emplace(old_count, std::prev(curr));
             }
         }
@@ -148,8 +148,12 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
         // entry for new_count already exists in count map
         // a) 10, 7, [5 -> 7], 3
         //    10, 7, 5, [5 -> 7]
+        //    10, 7, 5, [5 -> 8]
         //    10, 7, [5 -> 7]
         //    10, 7, [5 -> 7], 5
+
+        //    [9 -> 8], 8
+        //    10, [9 -> 8], 8
 
         auto existing_node = count_map_it->second;
 
@@ -158,7 +162,7 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
             count_map.erase(old_count);
 
             // find a replacement for orig_count
-            if(std::prev(curr)->count == old_count) {
+            if(curr != count_list.begin() && std::prev(curr)->count == old_count) {
                 count_map.emplace(old_count, std::prev(curr));
             }
         }
@@ -172,6 +176,12 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
         //    10, [7 -> 9], 7
         //    10, 7, [5 -> 9], 3
 
+        //    [10 -> 9]
+        //    [5 -> 4], 2
+        //    [5 -> 1], 2
+        //    5, 5, [5 -> 4], 5
+        //    5, 5, 5, [5 -> 4]
+
         auto gt_node = count_map_it->second;
 
         // delete old entry if `orig_count` iterator is same as `curr`
@@ -179,7 +189,7 @@ void facet_index_t::update_count_nodes(std::list<facet_count_t>& count_list,
             count_map.erase(old_count);
 
             // find a replacement for orig_count
-            if(std::prev(curr)->count == old_count) {
+            if(curr != count_list.begin() && std::prev(curr)->count == old_count) {
                 count_map.emplace(old_count, std::prev(curr));
             }
         }
@@ -203,48 +213,97 @@ void facet_index_t::erase(const std::string& field_name) {
     facet_field_map.erase(field_name);
 }
 
-void facet_index_t::remove(const std::string& field_name, const uint32_t seq_id) {
-    const auto facet_field_it = facet_field_map.find(field_name);
-    if(facet_field_it != facet_field_map.end()) {
-        auto& facet_index_map = facet_field_it->second.fvalue_seq_ids;
-        std::vector<std::string> dead_fvalues;
+void facet_index_t::get_stringified_value(const nlohmann::json& value, const field& afield,
+                                          std::vector<std::string>& values) {
+    if(afield.is_int32()) {
+        int32_t raw_val = value.get<int32_t>();
+        values.push_back(std::to_string(raw_val));
+    }
+    else if(afield.is_int64()) {
+        int64_t raw_val = value.get<int64_t>();
+        values.push_back(std::to_string(raw_val));
+    }
+    else if(afield.is_string()) {
+        const std::string& raw_val = value.get<std::string>().substr(0, 100);
+        values.push_back(raw_val);
+    }
+    else if(afield.is_float()) {
+        float raw_val = value.get<float>();
+        values.push_back(StringUtils::float_to_str(raw_val));
+    }
+    else if(afield.is_bool()) {
+        bool raw_val = value.get<bool>();
+        auto fhash = (uint32_t)raw_val;
+        auto str_val = (raw_val == 1) ? "true" : "false";
+        values.emplace_back(str_val);
+    }
+}
 
-        for(auto facet_ids_seq_ids = facet_index_map.begin(); facet_ids_seq_ids != facet_index_map.end(); facet_ids_seq_ids++) {
-            void*& ids = facet_ids_seq_ids->second.seq_ids;
-            if(ids && ids_t::contains(ids, seq_id)) {
-                ids_t::erase(ids, seq_id);
-                auto& count_list = facet_field_it->second.counts;
-                auto curr = facet_ids_seq_ids->second.facet_count_it;
-                auto old_count = curr->count;
-                curr->count--;
-                auto new_count = curr->count;
+void facet_index_t::get_stringified_values(const nlohmann::json& document, const field& afield,
+                                           std::vector<std::string>& values) {
+    bool is_array = afield.is_array();
 
-                // move the node lower in the count list
-                auto& count_map = facet_field_it->second.count_map;
-                update_count_nodes(count_list, count_map, old_count, new_count, curr);
+    if(!is_array) {
+        return get_stringified_value(document[afield.name], afield, values);
+    } else {
+        const auto& field_values = document[afield.name];
+        for(size_t i = 0; i < field_values.size(); i++) {
+            get_stringified_value(field_values[i], afield, values);
+        }
+    }
+}
 
-                if(ids_t::num_ids(ids) == 0) {
-                    ids_t::destroy_list(ids);
-                    dead_fvalues.push_back(facet_ids_seq_ids->first);
+void facet_index_t::remove(const nlohmann::json& doc, const field& afield, const uint32_t seq_id) {
+    const auto facet_field_it = facet_field_map.find(afield.name);
+    if(facet_field_it == facet_field_map.end()) {
+        return ;
+    }
 
-                    //remove from int64 lookup map first
-                    auto& fhash_int64_map = facet_field_it->second.fhash_to_int64_map;
-                    uint32_t fhash = facet_ids_seq_ids->second.facet_id;
-                    fhash_int64_map.erase(fhash);
+    auto& facet_index_map = facet_field_it->second.fvalue_seq_ids;
+    std::vector<std::string> dead_fvalues;
+    std::vector<std::string> values;
+    get_stringified_values(doc, afield, values);
 
-                    count_map.erase(new_count);
-                    count_list.erase(curr);
-                }
+    for(const auto& value: values) {
+        auto fvalue_it = facet_index_map.find(value);
+        if(fvalue_it == facet_index_map.end()) {
+            continue;
+        }
+
+        void*& ids = fvalue_it->second.seq_ids;
+        if(ids && ids_t::contains(ids, seq_id)) {
+            ids_t::erase(ids, seq_id);
+            auto& count_list = facet_field_it->second.counts;
+            auto curr = fvalue_it->second.facet_count_it;
+            auto old_count = curr->count;
+            curr->count = ids_t::num_ids(ids);
+            auto new_count = curr->count;
+
+            // move the node lower in the count list
+            auto& count_map = facet_field_it->second.count_map;
+            update_count_nodes(count_list, count_map, old_count, new_count, curr);
+
+            if(ids_t::num_ids(ids) == 0) {
+                ids_t::destroy_list(ids);
+                dead_fvalues.push_back(fvalue_it->first);
+
+                //remove from int64 lookup map first
+                auto& fhash_int64_map = facet_field_it->second.fhash_to_int64_map;
+                uint32_t fhash = fvalue_it->second.facet_id;
+                fhash_int64_map.erase(fhash);
+
+                count_map.erase(new_count);
+                count_list.erase(curr);
             }
         }
-
-        for(auto& dead_fvalue: dead_fvalues) {
-            facet_index_map.erase(dead_fvalue);
-        }
-
-        auto& seq_id_hashes = facet_field_it->second.seq_id_hashes;
-        seq_id_hashes->erase(seq_id);
     }
+
+    for(auto& dead_fvalue: dead_fvalues) {
+        facet_index_map.erase(dead_fvalue);
+    }
+
+    auto& seq_id_hashes = facet_field_it->second.seq_id_hashes;
+    seq_id_hashes->erase(seq_id);
 }
 
 size_t facet_index_t::get_facet_count(const std::string& field_name) {
@@ -260,6 +319,7 @@ size_t facet_index_t::get_facet_count(const std::string& field_name) {
 //returns the count of matching seq_ids from result array
 size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
                                 bool has_facet_query, const std::vector<std::vector<std::string>>& fvalue_searched_tokens,
+                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                 const uint32_t* result_ids, size_t result_ids_len,
                                 size_t max_facet_count, std::map<std::string, docid_count_t>& found,
                                 bool is_wildcard_no_filter_query, const std::string& sort_order) {
@@ -288,7 +348,8 @@ size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
             auto facet_str = facet_count_it->facet_value;
             std::vector<std::string> facet_tokens;
             if(facet_field.is_string()) {
-                Tokenizer(facet_str, true, false, facet_field.locale).tokenize(facet_tokens);
+                Tokenizer(facet_str, true, false, facet_field.locale,
+                          symbols_to_index, token_separators).tokenize(facet_tokens);
             } else {
                 facet_tokens.push_back(facet_str);
             }
@@ -306,7 +367,6 @@ size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
                     if(!facet_tokens_found) {
                         found_all_search_tokens = false;
                     }
-
                 }
 
                 if (found_all_search_tokens) {
@@ -484,3 +544,30 @@ bool facet_index_t::facet_value_exists(const std::string& field_name, const std:
     const auto& facet_index = facet_field_map_it->second;
     return facet_index.fvalue_seq_ids.find(fvalue) != facet_index.fvalue_seq_ids.end();
 }
+
+size_t facet_index_t::facet_val_num_ids(const string &field_name, const string &fvalue) {
+    const auto facet_field_map_it = facet_field_map.find(field_name);
+    if(facet_field_map_it == facet_field_map.end()) {
+        return 0;
+    }
+
+    if(facet_field_map_it->second.fvalue_seq_ids.count(fvalue) == 0) {
+        return 0;
+    }
+
+    return ids_t::num_ids(facet_field_map_it->second.fvalue_seq_ids[fvalue].seq_ids);
+}
+
+size_t facet_index_t::facet_node_count(const string &field_name, const string &fvalue) {
+    const auto facet_field_map_it = facet_field_map.find(field_name);
+    if(facet_field_map_it == facet_field_map.end()) {
+        return 0;
+    }
+
+    if(facet_field_map_it->second.fvalue_seq_ids.count(fvalue) == 0) {
+        return 0;
+    }
+
+    return facet_field_map_it->second.fvalue_seq_ids[fvalue].facet_count_it->count;
+}
+

@@ -7,7 +7,7 @@
 #include <atomic>
 #include <shared_mutex>
 
-class PopularQueries {
+class QueryAnalytics {
 public:
     struct QWithTimestamp {
         std::string query;
@@ -32,7 +32,7 @@ private:
 
 public:
 
-    PopularQueries(size_t k);
+    QueryAnalytics(size_t k);
 
     void add(const std::string& value, const bool live_query, const std::string& user_id,
              uint64_t now_ts_us = 0);

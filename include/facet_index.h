@@ -114,6 +114,12 @@ private:
     // auto incrementing ID that is assigned to each unique facet value string
     std::atomic_uint32_t next_facet_id = 0;
 
+    void get_stringified_value(const nlohmann::json& value, const field& afield,
+                               std::vector<std::string>& values);
+
+    void get_stringified_values(const nlohmann::json& document, const field& afield,
+                                std::vector<std::string>& values);
+
 public:
 
     facet_index_t() = default;
@@ -127,7 +133,7 @@ public:
 
     void erase(const std::string& field_name);
 
-    void remove(const std::string& field_name, const uint32_t seq_id);
+    void remove(const nlohmann::json& doc, const field& afield, const uint32_t seq_id);
 
     bool contains(const std::string& field_name);
 
@@ -135,6 +141,7 @@ public:
 
     size_t intersect(facet& a_facet, const field& facet_field,
                      bool has_facet_query, const std::vector<std::vector<std::string>>& fvalue_searched_tokens,
+                     const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                      const uint32_t* result_ids, size_t result_id_len,
                      size_t max_facet_count, std::map<std::string, docid_count_t>& found,
                      bool is_wildcard_no_filter_query, const std::string& sort_order = "");
@@ -159,7 +166,11 @@ public:
     static void update_count_nodes(std::list<facet_count_t>& count_list,
                             std::map<uint32_t, std::list<facet_count_t>::iterator>& count_map,
                             uint32_t old_count, uint32_t new_count,
-                            std::list<facet_count_t>::iterator& curr) ;
+                            std::list<facet_count_t>::iterator& curr);
 
     bool facet_value_exists(const std::string& field_name, const std::string& fvalue);
+
+    size_t facet_val_num_ids(const std::string& field_name, const std::string& fvalue);
+
+    size_t facet_node_count(const std::string& field_name, const std::string& fvalue);
 };

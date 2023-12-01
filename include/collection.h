@@ -55,7 +55,8 @@ private:
 
     mutable std::shared_mutex mutex;
 
-    mutable std::shared_mutex index_repair_lock;
+    // ensures that a Collection* is not destructed while in use by multiple threads
+    mutable std::shared_mutex lifecycle_mutex;
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
@@ -147,6 +148,10 @@ private:
     /// collection_name -> field_name
     spp::sparse_hash_map<std::string, std::string> referenced_in;
 
+    /// Reference helper fields that are part of an object. The reference doc of these fields will be included in the
+    /// object rather than in the document.
+    tsl::htrie_set<char> object_reference_helper_fields;
+
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
@@ -208,7 +213,9 @@ private:
                                           const std::string& fallback_field_type,
                                           bool is_update,
                                           std::vector<field>& new_fields,
-                                          bool enable_nested_fields);
+                                          bool enable_nested_fields,
+                                          const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                          tsl::htrie_set<char>& object_reference_helper_fields);
 
     static bool facet_count_compare(const facet_count_t& a, const facet_count_t& b) {
         return std::tie(a.count, a.fhash) > std::tie(b.count, b.fhash);
@@ -314,10 +321,12 @@ private:
 
     Option<std::string> get_referenced_in_field(const std::string& collection_name) const;
 
-    Option<bool> get_related_ids(const std::string& ref_collection_name, const uint32_t& seq_id,
+    Option<bool> get_related_ids(const std::string& ref_field_name, const uint32_t& seq_id,
                                  std::vector<uint32_t>& result) const;
 
-    static void hide_credential(nlohmann::json& json, const std::string& credential_name);
+    Option<bool> get_object_array_related_id(const std::string& ref_field_name,
+                                             const uint32_t& seq_id, const uint32_t& object_index,
+                                             uint32_t& result) const;
 
     void remove_embedding_field(const std::string& field_name);
 
@@ -397,9 +406,13 @@ public:
 
     tsl::htrie_map<char, field> get_embedding_fields_unsafe();
 
+    tsl::htrie_set<char> get_object_reference_helper_fields();
+
     std::string get_default_sorting_field();
 
-    Option<bool> add_reference_helper_fields(nlohmann::json& document);
+    static Option<bool> add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
+                                                    const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
+                                                    tsl::htrie_set<char>& object_reference_helper_fields);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
@@ -420,15 +433,15 @@ public:
 
     static void remove_reference_helper_fields(nlohmann::json& document);
 
-    static Option<bool> add_reference_fields(nlohmann::json& doc,
-                                             const std::string& ref_collection_name,
-                                             Collection *const ref_collection,
-                                             const std::string& alias,
-                                             const reference_filter_result_t& references,
-                                             const tsl::htrie_set<char>& ref_include_fields_full,
-                                             const tsl::htrie_set<char>& ref_exclude_fields_full,
-                                             const std::string& error_prefix, const bool& is_reference_array,
-                                             const bool& nest_ref_doc);
+    static Option<bool> include_references(nlohmann::json& doc,
+                                           const std::string& ref_collection_name,
+                                           Collection *const ref_collection,
+                                           const std::string& alias,
+                                           const reference_filter_result_t& references,
+                                           const tsl::htrie_set<char>& ref_include_fields_full,
+                                           const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                           const std::string& error_prefix, const bool& is_reference_array,
+                                           const bool& nest_ref_doc);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
@@ -544,6 +557,9 @@ public:
                                   const std::string& drop_tokens_mode = "right_to_left",
                                   const bool prioritize_num_matching_fields = true,
                                   const bool group_missing_values = true,
+                                  const bool converstaion = false,
+                                  const int conversation_model_id = -1,
+                                  std::string conversation_id = "",
                                   const std::string& override_tags_str = "") const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
@@ -636,7 +652,7 @@ public:
 
     void reference_populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
                                          std::vector<sort_by>& sort_fields_std,
-                                         std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
+                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values) const;
 
     int64_t reference_string_sort_score(const std::string& field_name, const uint32_t& seq_id) const;
 
@@ -655,7 +671,11 @@ public:
 
     Option<uint32_t> get_sort_index_value_with_lock(const std::string& field_name, const uint32_t& seq_id) const;
 
+    static void hide_credential(nlohmann::json& json, const std::string& credential_name);
+
     friend class filter_result_iterator_t;
+
+    std::shared_mutex& get_lifecycle_mutex();
 };
 
 template<class T>

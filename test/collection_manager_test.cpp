@@ -9,7 +9,7 @@
 
 class CollectionManagerTest : public ::testing::Test {
 protected:
-    Store *store;
+    Store *store, *analytics_store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *collection1;
@@ -18,14 +18,16 @@ protected:
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
+        std::string analytics_db_path = "/tmp/typesense_test/analytics_db";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
+        analytics_store = new Store(analytics_db_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        AnalyticsManager::get_instance().init(store);
+        AnalyticsManager::get_instance().init(store, analytics_store);
 
         schema = R"({
             "name": "collection1",
@@ -130,6 +132,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":false,
               "sort":false,
+              "store":true,
               "type":"string"
             },
             {
@@ -141,6 +144,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":false,
               "sort":false,
+              "store":true,
               "type":"string"
             },
             {
@@ -152,6 +156,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"string[]"
             },
             {
@@ -163,6 +168,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":true,
+              "store":true,
               "type":"int32"
             },
             {
@@ -174,6 +180,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":true,
+              "store":true,
               "type":"geopoint"
             },
             {
@@ -185,6 +192,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"string"
             },
             {
@@ -196,6 +204,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":false,
               "sort":true,
+              "store":true,
               "type":"int32"
             },
             {
@@ -208,6 +217,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested_array":2,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"object"
             },
             {
@@ -220,6 +230,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "num_dim":128,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"float[]",
               "vec_dist":"cosine"
             },
@@ -232,6 +243,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":false,
+              "store":true,
               "type":"string",
               "reference":"Products.product_id"
             },
@@ -244,6 +256,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "nested":false,
               "optional":true,
               "sort":true,
+              "store":true,
               "type":"int64"
             }
           ],
@@ -261,6 +274,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
 
     auto actual_json = nlohmann::json::parse(collection_meta_json);
     expected_meta_json["created_at"] = actual_json["created_at"];
+
+
 
     ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
     ASSERT_EQ("1", next_collection_id);

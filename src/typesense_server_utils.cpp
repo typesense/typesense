@@ -18,11 +18,13 @@
 
 #include "core_api.h"
 #include "ratelimit_manager.h"
-#include "text_embedder_manager.h"
+#include "embedder_manager.h"
 #include "typesense_server_utils.h"
 #include "file_utils.h"
 #include "threadpool.h"
 #include "stopwords_manager.h"
+#include "conversation_manager.h"
+#include "conversation_model_manager.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -63,6 +65,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
     options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
     options.add<std::string>("search-only-api-key", 's', "[DEPRECATED: use API key management end-point] API key that allows only searches.", false);
+    options.add<std::string>("analytics-dir", '\0', "Directory where Analytics will be stored.", false);
 
     options.add<std::string>("api-address", '\0', "Address to which Typesense API service binds.", false, "0.0.0.0");
     options.add<uint32_t>("api-port", '\0', "Port on which Typesense API service listens.", false, 8108);
@@ -374,6 +377,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     std::string db_dir = config.get_data_dir() + "/db";
     std::string state_dir = config.get_data_dir() + "/state";
     std::string meta_dir = config.get_data_dir() + "/meta";
+    std::string analytics_dir = config.get_analytics_dir();
 
     size_t thread_pool_size = config.get_thread_pool_size();
 
@@ -395,11 +399,17 @@ int run_server(const Config & config, const std::string & version, void (*master
     // meta DB for storing house keeping things
     Store meta_store(meta_dir, 24*60*60, 1024, false);
 
+    //analytics DB for storing query click events
+    std::unique_ptr<Store> analytics_store = nullptr;
+    if(!analytics_dir.empty()) {
+        analytics_store.reset(new Store(analytics_dir, 24 * 60 * 60, 1024, false));
+    }
+
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
 
-    AnalyticsManager::get_instance().init(&store);
+    AnalyticsManager::get_instance().init(&store, analytics_store.get());
 
     server = new HttpServer(
         version,
@@ -437,11 +447,27 @@ int run_server(const Config & config, const std::string & version, void (*master
     if(!rate_limit_manager_init.ok()) {
         LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
     }
-    TextEmbedderManager::set_model_dir(config.get_data_dir() + "/models");
+    EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
+
+    auto conversations_init = ConversationManager::init(&store);
+
+    if(!conversations_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << conversations_init.get() << "(s) conversations.";
+    }
+
+    auto conversation_models_init = ConversationModelManager::init(&store);
+
+    if(!conversation_models_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation model manager: " << conversation_models_init.error();
+    } else {
+        LOG(INFO) << "Loaded " << conversation_models_init.get() << "(s) conversation models.";
+    }
 
     // first we start the peering service
 
-    ReplicationState replication_state(server, batch_indexer, &store,
+    ReplicationState replication_state(server, batch_indexer, &store, analytics_store.get(),
                                        &replication_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled,
                                        &config,
@@ -459,6 +485,18 @@ int run_server(const Config & config, const std::string & version, void (*master
             AnalyticsManager::get_instance().run(&replication_state);
         });
 
+        std::thread conersation_garbage_collector_thread([]() {
+            LOG(INFO) << "Conversation garbage collector thread started.";
+            int last_clear_time = 0;
+            while(!brpc::IsAskedToQuit()) {
+                if(last_clear_time + 60 < std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) {
+                    last_clear_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                    ConversationManager::clear_expired_conversations();
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+            }
+        });
+          
         HouseKeeper::get_instance().init(config.get_housekeeping_interval());
         std::thread housekeeping_thread([]() {
             HouseKeeper::get_instance().run();
@@ -503,6 +541,10 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Shutting down replication_thread_pool.";
 
         replication_thread_pool.shutdown();
+
+        LOG(INFO) << "Shutting down conversation garbage collector thread.";
+
+        conersation_garbage_collector_thread.join();
 
         server->stop();
     });
