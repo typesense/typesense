@@ -69,7 +69,7 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
         }
         tokens.clear();
     }
-    stopword_configs[stopword_name] = stopword_struct_t{stopwords_set, locale};
+    stopword_configs[stopword_name] = stopword_struct_t{stopword_name, stopwords_set, locale};
     return Option<bool>(true);
 }
 

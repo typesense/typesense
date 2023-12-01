@@ -8,8 +8,24 @@
 #include "store.h"
 
 struct stopword_struct_t {
+    std::string id;
     spp::sparse_hash_set<std::string> stopwords;
     std::string locale;
+
+    nlohmann::json to_json() const {
+        nlohmann::json doc;
+
+        doc["id"] = id;
+        if(!locale.empty()) {
+            doc["locale"] = locale;
+        }
+
+        for(const auto& stopword : stopwords) {
+            doc["stopwords"].push_back(stopword);
+        }
+
+        return doc;
+    }
 };
 
 class StopwordsManager{

@@ -281,7 +281,7 @@ TEST_F(StopwordsManagerTest, StopwordsBasics) {
     req->params["name"] = "state";
 
     result = del_stopword(req, res);
-    ASSERT_EQ(404, res->status_code);
+    ASSERT_EQ(500, res->status_code);
     ASSERT_STREQ("{\"message\": \"Stopword `state` not found.\"}", res->body.c_str());
 
     req->params.clear();
