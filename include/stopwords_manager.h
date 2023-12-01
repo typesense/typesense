@@ -7,9 +7,14 @@
 #include "mutex"
 #include "store.h"
 
+struct stopword_struct_t {
+    spp::sparse_hash_set<std::string> stopwords;
+    std::string locale;
+};
+
 class StopwordsManager{
 private:
-    spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> stopword_configs;
+    spp::sparse_hash_map<std::string, stopword_struct_t> stopword_configs;
 
     static std::string get_stopword_key(const std::string & stopword_name);
 
@@ -32,9 +37,9 @@ public:
 
     void init(Store* store);
 
-    spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> get_stopwords() const;
+    spp::sparse_hash_map<std::string, stopword_struct_t> get_stopwords() const;
 
-    Option<bool> get_stopword(const std::string&, spp::sparse_hash_set<std::string>&) const;
+    Option<bool> get_stopword(const std::string&, stopword_struct_t&) const;
 
     Option<bool> upsert_stopword(const std::string&, const nlohmann::json&, bool write_to_store=false);
 

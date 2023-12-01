@@ -2172,14 +2172,19 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
 bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
-    const spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>>& stopwords = stopwordManager.get_stopwords();
+    const spp::sparse_hash_map<std::string, stopword_struct_t>& stopwords = stopwordManager.get_stopwords();
     nlohmann::json res_json = nlohmann::json::object();
     res_json["stopwords"] = nlohmann::json::array();
 
     for(const auto& stopwords_kv: stopwords) {
         nlohmann::json stopword;
         stopword["id"] = stopwords_kv.first;
-        for(const auto& val : stopwords_kv.second) {
+
+        if(!stopwords_kv.second.locale.empty()) {
+            stopword["locale"] = stopwords_kv.second.locale;
+        }
+
+        for(const auto& val : stopwords_kv.second.stopwords) {
             stopword["stopwords"].push_back(val);
         }
         res_json["stopwords"].push_back(stopword);
@@ -2193,8 +2198,8 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     const std::string & stopword_name = req->params["name"];
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
-    spp::sparse_hash_set<std::string> stopwords;
-    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
+    stopword_struct_t stopwords_struct;
+    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords_struct);
 
     if(!stopword_op.ok()) {
         res->set(stopword_op.code(), stopword_op.error());
@@ -2203,7 +2208,11 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 
     nlohmann::json res_json;
     res_json["id"] = stopword_name;
-    for(const auto& stopword : stopwords) {
+    if(!stopwords_struct.locale.empty()) {
+        res_json["locale"] = stopwords_struct.locale;
+    }
+
+    for(const auto& stopword : stopwords_struct.stopwords) {
         res_json["stopwords"].push_back(stopword);
     }
 
@@ -2231,7 +2240,7 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
         return false;
     }
 
-    req_json["name"] = stopword_name;
+    req_json["id"] = stopword_name;
 
     res->set_200(req_json.dump());
     return true;
@@ -2241,8 +2250,8 @@ bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     const std::string & stopword_name = req->params["name"];
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
-    spp::sparse_hash_set<std::string> stopwords;
-    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
+    stopword_struct_t stopwords_struct;
+    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords_struct);
     if(!stopword_op.ok()) {
         res->set(stopword_op.code(), stopword_op.error());
         return false;
@@ -2257,7 +2266,11 @@ bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 
     nlohmann::json res_json;
     res_json["id"] = stopword_name;
-    for(const auto& stopword : stopwords) {
+    if(!stopwords_struct.locale.empty()) {
+        res_json["locale"] = stopwords_struct.locale;
+    }
+
+    for(const auto& stopword : stopwords_struct.stopwords) {
         res_json["stopwords"].push_back(stopword);
     }
 

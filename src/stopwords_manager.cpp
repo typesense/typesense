@@ -5,17 +5,17 @@ void StopwordsManager::init(Store* _store) {
     store = _store;
 }
 
-spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> StopwordsManager::get_stopwords() const {
+spp::sparse_hash_map<std::string, stopword_struct_t> StopwordsManager::get_stopwords() const {
     std::shared_lock lock(mutex);
     return stopword_configs;
 }
 
-Option<bool> StopwordsManager::get_stopword(const std::string& stopword_name, spp::sparse_hash_set<std::string>& stopwords) const {
+Option<bool> StopwordsManager::get_stopword(const std::string& stopword_name, stopword_struct_t& stopwords_struct) const {
     std::shared_lock lock(mutex);
 
     const auto& it = stopword_configs.find(stopword_name);
     if(it != stopword_configs.end()) {
-        stopwords = it->second;
+        stopwords_struct = it->second;
         return Option<bool>(true);
     }
 
@@ -32,6 +32,10 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
 
     if(stopwords_json.count(STOPWORD_VALUES) == 0){
         return Option<bool>(400, (std::string("Parameter `") + STOPWORD_VALUES + "` is required"));
+    }
+
+    if(stopwords_json[STOPWORD_VALUES].empty()) {
+        return Option<bool>(400, (std::string("Parameter `") + STOPWORD_VALUES + "` is empty"));
     }
 
     if((!stopwords_json[STOPWORD_VALUES].is_array()) || (!stopwords_json[STOPWORD_VALUES][0].is_string())) {
@@ -65,7 +69,7 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
         }
         tokens.clear();
     }
-    stopword_configs[stopword_name] = stopwords_set;
+    stopword_configs[stopword_name] = stopword_struct_t{stopwords_set, locale};
     return Option<bool>(true);
 }
 
