@@ -584,8 +584,7 @@ Option<bool> AnalyticsManager::write_events_to_store(nlohmann::json &event_jsons
     //LOG(INFO) << "writing events to analytics db";
     for(const auto& event_json : event_jsons) {
         auto collection_id = event_json["collection_id"].get<std::string>();
-        auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto timestamp = event_json["timestamp"].get<uint64_t>();
 
         std::string key = "_" + StringUtils::serialize_uint64_t(timestamp) + "_" + collection_id;
         if(event_json["event_type"] == "click_events") {
@@ -632,7 +631,7 @@ void AnalyticsManager::checkEventsExpiry() {
         auto iter = analytics_store->get_iterator();
         iter->Seek(delete_prefix_end);
         if (!iter->Valid()) { //exact key or key greater than not found
-            delete_prefix_end = query_hits_prefix;
+            delete_prefix_end = std::string(CLICK_EVENT) + "`";
         }
 
         analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
