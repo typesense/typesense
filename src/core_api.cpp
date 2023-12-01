@@ -570,7 +570,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(conversation_history) {
             std::string conversation_id = orig_req_params["conversation_id"];
 
-            auto conversation_history = ConversationManager::get_conversation(conversation_id);
+            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id);
 
             if(!conversation_history.ok()) {
                 res->set_400("`conversation_id` is invalid.");
@@ -584,7 +584,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             auto conversation_model_id = std::stoul(orig_req_params["conversation_model_id"]);
             auto conversation_id = orig_req_params["conversation_id"];
             auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
-            auto conversation_history = ConversationManager::get_conversation(conversation_id).get();
+            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id).get();
             auto generate_standalone_q = ConversationModel::get_standalone_question(conversation_history, common_query, conversation_model);
 
             if(!generate_standalone_q.ok()) {
@@ -704,7 +704,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         // We have to pop a document from the search result with max size
         // Until we do not exceed MAX_TOKENS limit
-        while(ConversationManager::get_token_count(result_docs_arr) > ConversationManager::MAX_TOKENS) {
+        while(ConversationManager::get_instance().get_token_count(result_docs_arr) > ConversationManager::get_instance().MAX_TOKENS) {
             // sort the result_docs_arr by size descending
             std::sort(result_docs_arr.begin(), result_docs_arr.end(), [](const auto& a, const auto& b) {
                 return a.size() > b.size();
@@ -760,9 +760,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         if(conversation_history) {
             std::string conversation_id = orig_req_params["conversation_id"];
-            ConversationManager::append_conversation(conversation_id, formatted_question_op.get());
-            ConversationManager::append_conversation(conversation_id, formatted_answer_op.get());
-            auto get_conversation_op = ConversationManager::get_conversation(conversation_id);
+            ConversationManager::get_instance().append_conversation(conversation_id, formatted_question_op.get());
+            ConversationManager::get_instance().append_conversation(conversation_id, formatted_answer_op.get());
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
             if(!get_conversation_op.ok()) {
                 res->set_400(get_conversation_op.error());
                 return false;
@@ -778,13 +778,13 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             conversation_history.push_back(formatted_question_op.get());
             conversation_history.push_back(formatted_answer_op.get());
 
-            auto create_conversation_op = ConversationManager::create_conversation(conversation_history);
+            auto create_conversation_op = ConversationManager::get_instance().create_conversation(conversation_history);
             if(!create_conversation_op.ok()) {
                 res->set_400(create_conversation_op.error());
                 return false;
             }
 
-            auto get_conversation_op = ConversationManager::get_conversation(create_conversation_op.get());
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(create_conversation_op.get());
             if(!get_conversation_op.ok()) {
                 res->set_400(get_conversation_op.error());
                 return false;
@@ -2607,7 +2607,7 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string conversation_id = req->params["id"];
 
-    auto conversation_op = ConversationManager::get_conversation(conversation_id);
+    auto conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
 
     if(!conversation_op.ok()) {
         res->set(conversation_op.code(), conversation_op.error());
@@ -2622,7 +2622,7 @@ bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
 bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string conversation_id = req->params["id"];
 
-    auto conversation_op = ConversationManager::delete_conversation(conversation_id);
+    auto conversation_op = ConversationManager::get_instance().delete_conversation(conversation_id);
 
     if(!conversation_op.ok()) {
         res->set(conversation_op.code(), conversation_op.error());
@@ -2634,7 +2634,7 @@ bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
 }
 
 bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto conversations_op = ConversationManager::get_all_conversations();
+    auto conversations_op = ConversationManager::get_instance().get_all_conversations();
 
     if(!conversations_op.ok()) {
         res->set(conversations_op.code(), conversations_op.error());
@@ -2660,7 +2660,7 @@ bool put_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
 
     req_json["id"] = conversation_id;
 
-    auto conversation_op = ConversationManager::update_conversation(req_json);
+    auto conversation_op = ConversationManager::get_instance().update_conversation(req_json);
 
     if(!conversation_op.ok()) {
         res->set(conversation_op.code(), conversation_op.error());

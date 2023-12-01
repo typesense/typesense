@@ -27,7 +27,7 @@ protected:
         collectionManager.load(8, 1000);
 
         ConversationModelManager::init(store);
-        ConversationManager::init(store);
+        ConversationManager::get_instance().init(store);
     }
 
     virtual void SetUp() {

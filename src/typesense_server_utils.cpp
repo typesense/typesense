@@ -449,7 +449,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
     EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
-    auto conversations_init = ConversationManager::init(&store);
+    auto conversations_init = ConversationManager::get_instance().init(&store);
 
     if(!conversations_init.ok()) {
         LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
@@ -487,14 +487,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
         std::thread conersation_garbage_collector_thread([]() {
             LOG(INFO) << "Conversation garbage collector thread started.";
-            int last_clear_time = 0;
-            while(!brpc::IsAskedToQuit()) {
-                if(last_clear_time + 60 < std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) {
-                    last_clear_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                    ConversationManager::clear_expired_conversations();
-                }
-                std::this_thread::sleep_for(std::chrono::seconds(5));
-            }
+            ConversationManager::get_instance().run();
         });
           
         HouseKeeper::get_instance().init(config.get_housekeeping_interval());
@@ -526,6 +519,12 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Waiting for event sink thread to be done...";
         event_sink_thread.join();
 
+        LOG(INFO) << "Shutting down conversation garbage collector thread...";
+        ConversationManager::get_instance().stop();
+
+        LOG(INFO) << "Waiting for conversation garbage collector thread to be done...";
+        conersation_garbage_collector_thread.join();
+
         LOG(INFO) << "Waiting for housekeeping thread to be done...";
         HouseKeeper::get_instance().stop();
         housekeeping_thread.join();
@@ -539,12 +538,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         app_thread_pool.shutdown();
 
         LOG(INFO) << "Shutting down replication_thread_pool.";
-
         replication_thread_pool.shutdown();
-
-        LOG(INFO) << "Shutting down conversation garbage collector thread.";
-
-        conersation_garbage_collector_thread.join();
 
         server->stop();
     });
