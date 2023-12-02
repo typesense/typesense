@@ -1713,6 +1713,10 @@ uint32_t posting_list_t::iterator_t::id() const {
     return ids[curr_index];
 }
 
+uint32_t posting_list_t::iterator_t::offset() const {
+    return offsets[offset_index[curr_index]];
+}
+
 uint32_t posting_list_t::iterator_t::index() const {
     return curr_index;
 }
