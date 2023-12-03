@@ -27,7 +27,7 @@ protected:
         collectionManager.load(8, 1000);
 
         ConversationModelManager::init(store);
-        ConversationManager::init(store);
+        ConversationManager::get_instance().init(store);
     }
 
     virtual void SetUp() {
@@ -2931,7 +2931,7 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
 
     
     // test getting conversation history
-    auto history_op = ConversationManager::get_conversation(conversation_id);
+    auto history_op = ConversationManager::get_instance().get_conversation(conversation_id);
 
     ASSERT_TRUE(history_op.ok());
 

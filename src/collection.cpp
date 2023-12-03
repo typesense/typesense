@@ -1712,14 +1712,14 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, "Conversation ID provided but conversation is not enabled for this collection.");
         }
 
-        auto conversation_history_op = ConversationManager::get_conversation(conversation_id);
+        auto conversation_history_op = ConversationManager::get_instance().get_conversation(conversation_id);
         if(!conversation_history_op.ok()) {
             return Option<nlohmann::json>(400, conversation_history_op.error());
         }
 
         auto conversation_history = conversation_history_op.get();
 
-        auto truncate_conversation_history = ConversationManager::truncate_conversation(conversation_history_op.get()["conversation"]);
+        auto truncate_conversation_history = ConversationManager::get_instance().truncate_conversation(conversation_history_op.get()["conversation"]);
 
         conversation_history["conversation"] = truncate_conversation_history.get();
        
@@ -2594,7 +2594,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
 
         // remove document with lowest score until total tokens is less than MAX_TOKENS
-        while(ConversationManager::get_token_count(docs_array) > ConversationManager::MAX_TOKENS) {
+        while(ConversationManager::get_instance().get_token_count(docs_array) > ConversationManager::get_instance().MAX_TOKENS) {
             try {
                 docs_array.erase(docs_array.size() - 1);
             } catch(...) {
@@ -2623,9 +2623,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
 
         if(has_conversation_history) {
-            ConversationManager::append_conversation(conversation_id, formatted_question_op.get());
-            ConversationManager::append_conversation(conversation_id, formatted_answer_op.get());
-            auto get_conversation_op = ConversationManager::get_conversation(conversation_id);
+            ConversationManager::get_instance().append_conversation(conversation_id, formatted_question_op.get());
+            ConversationManager::get_instance().append_conversation(conversation_id, formatted_answer_op.get());
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
             if(!get_conversation_op.ok()) {
                 return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
             }
@@ -2640,12 +2640,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             conversation_history.push_back(formatted_question_op.get());
             conversation_history.push_back(formatted_answer_op.get());
 
-            auto create_conversation_op = ConversationManager::create_conversation(conversation_history);
+            auto create_conversation_op = ConversationManager::get_instance().create_conversation(conversation_history);
             if(!create_conversation_op.ok()) {
                 return Option<nlohmann::json>(create_conversation_op.code(), create_conversation_op.error());
             }
 
-            auto get_conversation_op = ConversationManager::get_conversation(create_conversation_op.get());
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(create_conversation_op.get());
             if(!get_conversation_op.ok()) {
                 return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
             }
