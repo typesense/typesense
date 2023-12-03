@@ -1350,6 +1350,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         const bool use_value_index = facet_infos[findex].use_value_index;
 
         auto sort_index_it = sort_index.find(a_facet.field_name);
+        auto facet_sort_index_it = sort_index.find(a_facet.sort_field);
 
         size_t mod_value = 100 / facet_sample_percent;
 
@@ -1394,11 +1395,9 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
 
                 if(should_compute_stats) {
-                    //LOG(INFO) << "Computing facet stas for facet " << a_facet.field_name;
-                    for(size_t i = 0; i < kv.second.count; ++i) {
-                        compute_facet_stats(a_facet, kv.first, facet_field.type);
-                    }
-                } 
+                    //LOG(INFO) << "Computing facet stats for facet value" << kv.first;
+                    compute_facet_stats(a_facet, kv.first, facet_field.type);
+                }
             }
 
             if(should_compute_stats) {
@@ -1425,11 +1424,11 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             const auto& fhash_int64_map = facet_index_v4->get_fhash_int64_map(a_facet.field_name);
 
             const auto facet_field_is_array = facet_field.is_array();
+            const auto facet_field_is_int64 = facet_field.is_int64();
 
             const auto& facet_index = facet_index_v4->get_facet_hash_index(facet_field.name);
             posting_list_t::iterator_t facet_index_it = facet_index->new_iterator();
-            std::vector<uint32_t> facet_hashes;
-            facet_hashes.reserve(1);
+            std::vector<uint32_t> facet_hashes(1);
 
             if (group_limit != 0) {
                 group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
@@ -1476,18 +1475,20 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 std::set<uint32_t> unique_facet_hashes;
 
                 for(size_t j = 0; j < facet_hashes.size(); j++) {
-
                     const auto& fhash = facet_hashes[j];
 
-                    if(unique_facet_hashes.count(fhash) == 0) {
-                        unique_facet_hashes.insert(fhash);
-                    } else {
-                        continue;
+                    // explicitly check for value of facet_hashes to avoid set lookup/insert for non-array faceting
+                    if(facet_hashes.size() > 1) {
+                        if(unique_facet_hashes.count(fhash) != 0) {
+                            continue;
+                        } else {
+                            unique_facet_hashes.insert(fhash);
+                        }
                     }
 
                     if(should_compute_stats) {
                         int64_t val = fhash;
-                        if(facet_field.is_int64()) {
+                        if(facet_field_is_int64) {
                             if(fhash_int64_map.find(fhash) != fhash_int64_map.end()) {
                                 val = fhash_int64_map.at(fhash);
                             } else {
@@ -1526,8 +1527,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                             a_facet.hash_tokens[fhash] = fquery_hashes.at(fhash);
                         }
                         if(!a_facet.sort_field.empty()) {
-                            sort_index_it = sort_index.find(a_facet.sort_field);
-                            facet_count.sort_field_val = get_doc_val_from_sort_index(sort_index_it, doc_seq_id);
+                            facet_count.sort_field_val = get_doc_val_from_sort_index(facet_sort_index_it, doc_seq_id);
                             //LOG(INFO) << "found sort_field val " << facet_count.sort_field;
                         }
                     }
@@ -3157,7 +3157,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && no_filters_provided;
 
     if(!facets.empty()) {
-        const size_t num_threads = 1;
+        const size_t num_threads = 1; //std::min(concurrency, all_result_ids_len);
 
         const size_t window_size = (num_threads == 0) ? 0 :
                                    (all_result_ids_len + num_threads - 1) / num_threads;  // rounds up
@@ -3215,7 +3215,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 search_cutoff = false;
 
                 auto fq = facet_query;
-                std::vector<std::pair<std::string, uint32_t>> found_docs;
                 do_facets(facet_batches[thread_id], fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields, group_missing_values,
                           batch_result_ids, batch_res_len, max_facet_values,
@@ -3234,7 +3233,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
         search_cutoff = parent_search_cutoff;
 
-        for(auto& facet_batch: facet_batches) {
+        // use `num_processed` since < `facet_batches.size()` batches could be processed (uneven splitting of records)
+        for(size_t batch_index = 0; batch_index < num_processed; batch_index++) {
+            auto& facet_batch = facet_batches[batch_index];
             for(size_t fi = 0; fi < facet_batch.size(); fi++) {
                 auto& this_facet = facet_batch[fi];
                 auto& acc_facet = facets[fi];
@@ -3323,7 +3324,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 std::chrono::high_resolution_clock::now() - beginF).count();
         LOG(INFO) << "Time for faceting: " << timeMillisF;*/
     }
-    std::vector<std::pair<std::string, uint32_t>> found_docs;
     std::vector<facet_info_t> facet_infos(facets.size());
     compute_facet_infos(facets, facet_query, facet_query_num_typos,
                         &included_ids_vec[0], included_ids_vec.size(), group_by_fields,
