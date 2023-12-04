@@ -80,16 +80,17 @@ std::string StopwordsManager::get_stopword_key(const std::string& stopword_name)
 Option<bool> StopwordsManager::delete_stopword(const std::string& stopword_name) {
     std::unique_lock lock(mutex);
 
-    bool removed = store->remove(get_stopword_key(stopword_name));
-    if(!removed) {
-        return Option<bool>(500, "Unable to delete from store.");
-    }
-
     if(stopword_configs.find(stopword_name) == stopword_configs.end()) {
         return Option<bool>(404, "Stopword `" + stopword_name + "` not found.");
     }
 
     stopword_configs.erase(stopword_name);
+
+    bool removed = store->remove(get_stopword_key(stopword_name));
+    if(!removed) {
+        return Option<bool>(500, "Unable to delete from store.");
+    }
+
     return Option<bool>(true);
 }
 

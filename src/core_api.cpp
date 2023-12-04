@@ -2238,7 +2238,7 @@ bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     Option<bool> delete_op = stopwordManager.delete_stopword(stopword_name);
 
     if(!delete_op.ok()) {
-        res->set_500(delete_op.error());
+        res->set(delete_op.code(), delete_op.error());
         return false;
     }
 
