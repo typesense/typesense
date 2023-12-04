@@ -1,3 +1,4 @@
+#include <memory>
 #include <queue>
 #include <id_list.h>
 #include <s2/s2point.h>
@@ -192,19 +193,19 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
 }
 
 void filter_result_iterator_t::and_filter_iterators() {
-    while (left_it->is_valid && right_it->is_valid) {
+    while (left_it->validity && right_it->validity) {
         while (left_it->seq_id < right_it->seq_id) {
             left_it->skip_to(right_it->seq_id);
-            if (!left_it->is_valid) {
-                is_valid = false;
+            if (!left_it->validity) {
+                validity = invalid;
                 return;
             }
         }
 
         while (left_it->seq_id > right_it->seq_id) {
             right_it->skip_to(left_it->seq_id);
-            if (!right_it->is_valid) {
-                is_valid = false;
+            if (!right_it->validity) {
+                validity = invalid;
                 return;
             }
         }
@@ -224,11 +225,11 @@ void filter_result_iterator_t::and_filter_iterators() {
         }
     }
 
-    is_valid = false;
+    validity = invalid;
 }
 
 void filter_result_iterator_t::or_filter_iterators() {
-    if (left_it->is_valid && right_it->is_valid) {
+    if (left_it->validity && right_it->validity) {
         if (left_it->seq_id < right_it->seq_id) {
             seq_id = left_it->seq_id;
             reference.clear();
@@ -264,7 +265,7 @@ void filter_result_iterator_t::or_filter_iterators() {
         return;
     }
 
-    if (left_it->is_valid) {
+    if (left_it->validity) {
         seq_id = left_it->seq_id;
         reference.clear();
 
@@ -275,7 +276,7 @@ void filter_result_iterator_t::or_filter_iterators() {
         return;
     }
 
-    if (right_it->is_valid) {
+    if (right_it->validity) {
         seq_id = right_it->seq_id;
         reference.clear();
 
@@ -286,7 +287,7 @@ void filter_result_iterator_t::or_filter_iterators() {
         return;
     }
 
-    is_valid = false;
+    validity = invalid;
 }
 
 void filter_result_iterator_t::advance_string_filter_token_iterators() {
@@ -407,18 +408,22 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
         seq_id = lowest_id;
     }
 
-    is_valid = one_is_valid;
+    validity = one_is_valid ? valid : invalid;
 }
 
 void filter_result_iterator_t::next() {
-    if (!is_valid) {
+    if (validity != valid) {
+        return;
+    }
+
+    if (timeout_info != nullptr && is_timed_out()) {
         return;
     }
 
     // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
     if (is_filter_result_initialized) {
         if (++result_index >= filter_result.count) {
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -457,7 +462,7 @@ void filter_result_iterator_t::next() {
     const filter a_filter = filter_node->filter_exp;
 
     if (!index->field_is_indexed(a_filter.field_name)) {
-        is_valid = false;
+        validity = invalid;
         return;
     }
 
@@ -474,15 +479,15 @@ void filter_result_iterator_t::next() {
                 previous_match = seq_id;
                 advance_string_filter_token_iterators();
                 get_string_filter_next_match(f.is_array());
-            } while (is_valid && previous_match + 1 == seq_id);
+            } while (validity && previous_match + 1 == seq_id);
 
-            if (!is_valid) {
+            if (!validity) {
                 // We've reached the end of the index, no possible matches pending.
                 if (previous_match >= index->seq_ids->last_id()) {
                     return;
                 }
 
-                is_valid = true;
+                validity = valid;
                 result_index = index->seq_ids->last_id() + 1;
                 seq_id = previous_match + 1;
                 return;
@@ -540,8 +545,8 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
 
     if (filter_node->filter_exp.apply_not_equals) {
         // filter didn't match any id. So by applying not equals, every id in the index is a match.
-        if (!is_valid) {
-            is_valid = true;
+        if (!validity) {
+            validity = valid;
             seq_id = 0;
             result_index = index->seq_ids->last_id() + 1;
             return;
@@ -560,15 +565,15 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
             previous_match = seq_id;
             advance_string_filter_token_iterators();
             get_string_filter_next_match(field_is_array);
-        } while (is_valid && previous_match + 1 == seq_id);
+        } while (validity && previous_match + 1 == seq_id);
 
-        if (!is_valid) {
+        if (!validity) {
             // filter matched all the ids in the index. So for not equals, there's no match.
             if (previous_match >= index->seq_ids->last_id()) {
                 return;
             }
 
-            is_valid = true;
+            validity = valid;
             result_index = index->seq_ids->last_id() + 1;
             seq_id = previous_match + 1;
             return;
@@ -611,7 +616,7 @@ void filter_result_iterator_t::init() {
         auto ref_collection = cm.get_collection(ref_collection_name);
         if (ref_collection == nullptr) {
             status = Option<bool>(400, "Referenced collection `" + ref_collection_name + "` not found.");
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -620,7 +625,7 @@ void filter_result_iterator_t::init() {
                 has_reference = ref_collection->is_referenced_in(collection_name);
         if (!is_referenced && !has_reference) {
             status = Option<bool>(400, "Failed to join on `" + ref_collection_name + "`: No reference field found.");
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -632,7 +637,7 @@ void filter_result_iterator_t::init() {
             if (!reference_filter_op.ok()) {
                 status = Option<bool>(400, "Failed to join on `" + a_filter.referenced_collection_name
                                            + "` collection: " + reference_filter_op.error());
-                is_valid = false;
+                validity = invalid;
                 return;
             }
         } else if (has_reference) {
@@ -643,14 +648,14 @@ void filter_result_iterator_t::init() {
             if (!reference_filter_op.ok()) {
                 status = Option<bool>(400, "Failed to join on `" + a_filter.referenced_collection_name
                                            + "` collection: " + reference_filter_op.error());
-                is_valid = false;
+                validity = invalid;
                 return;
             }
 
             auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection_name);
             if (!get_reference_field_op.ok()) {
                 status = Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
-                is_valid = false;
+                validity = invalid;
                 return;
             }
 
@@ -669,7 +674,7 @@ void filter_result_iterator_t::init() {
             auto filter_init_op = fit.init_status();
             if (!filter_init_op.ok()) {
                 status = Option<bool>(filter_init_op.code(), filter_init_op.error());
-                is_valid = false;
+                validity = invalid;
                 return;
             }
 
@@ -677,7 +682,7 @@ void filter_result_iterator_t::init() {
         }
 
         if (filter_result.count == 0) {
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -711,7 +716,7 @@ void filter_result_iterator_t::init() {
         }
 
         if (filter_result.count == 0) {
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -723,7 +728,7 @@ void filter_result_iterator_t::init() {
 
     if (!index->field_is_indexed(a_filter.field_name)) {
         status = Option<bool>(400, "Cannot filter on non-indexed field `" + a_filter.field_name + "`.");
-        is_valid = false;
+        validity = invalid;
         return;
     }
 
@@ -794,7 +799,7 @@ void filter_result_iterator_t::init() {
         }
 
         if (filter_result.count == 0) {
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -869,7 +874,7 @@ void filter_result_iterator_t::init() {
         }
 
         if (filter_result.count == 0) {
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -930,7 +935,7 @@ void filter_result_iterator_t::init() {
         }
 
         if (filter_result.count == 0) {
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -979,7 +984,7 @@ void filter_result_iterator_t::init() {
                     status = Option<bool>(400, "Polygon" + (a_filter.values.size() > 1 ?
                                                                 " at position " + std::to_string(fi + 1) : "")
                                                                 + " is invalid: " + error.text());
-                    is_valid = false;
+                    validity = invalid;
                     return;
                 } else {
                     query_region = loop;
@@ -1081,7 +1086,7 @@ void filter_result_iterator_t::init() {
         }
 
         if (filter_result.count == 0) {
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -1142,8 +1147,8 @@ void filter_result_iterator_t::init() {
     }
 }
 
-void filter_result_iterator_t::skip_to(uint32_t id) {
-    if (!is_valid) {
+void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout) {
+    if (validity == invalid || (!override_timeout && timeout_info != nullptr && is_timed_out())) {
         return;
     }
 
@@ -1152,7 +1157,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
         ArrayUtils::skip_index_to_id(result_index, filter_result.docs, filter_result.count, id);
 
         if (result_index >= filter_result.count) {
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -1183,7 +1188,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     const filter a_filter = filter_node->filter_exp;
 
     if (!index->field_is_indexed(a_filter.field_name)) {
-        is_valid = false;
+        validity = invalid;
         return;
     }
 
@@ -1209,16 +1214,16 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
                     previous_match = seq_id;
                     advance_string_filter_token_iterators();
                     get_string_filter_next_match(f.is_array());
-                } while (is_valid && previous_match + 1 == seq_id);
-            } while (is_valid && seq_id <= id);
+                } while (validity && previous_match + 1 == seq_id);
+            } while (validity && seq_id <= id);
 
-            if (!is_valid) {
+            if (!validity) {
                 // filter matched all the ids in the index. So for not equals, there's no match.
                 if (previous_match >= index->seq_ids->last_id()) {
                     return;
                 }
 
-                is_valid = true;
+                validity = valid;
                 seq_id = previous_match + 1;
                 result_index = index->seq_ids->last_id() + 1;
 
@@ -1257,33 +1262,38 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
     }
 }
 
-int filter_result_iterator_t::valid(uint32_t id) {
-    if (!is_valid) {
+int filter_result_iterator_t::is_valid(uint32_t id) {
+    if (validity != valid) {
         return -1;
     }
 
     // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
     if (is_filter_result_initialized) {
         skip_to(id);
-        return is_valid ? (seq_id == id ? 1 : 0) : -1;
+        return validity ? (seq_id == id ? 1 : 0) : -1;
+    }
+
+    if (timeout_info != nullptr && is_timed_out()) {
+        return -1;
     }
 
     if (filter_node->isOperator) {
-        auto left_valid = left_it->valid(id), right_valid = right_it->valid(id);
+        // We only need to consider only valid/invalid state since child nodes can never time out.
+        auto left_validity = left_it->is_valid(id), right_validity = right_it->is_valid(id);
 
         if (filter_node->filter_operator == AND) {
-            is_valid = left_it->is_valid && right_it->is_valid;
+            validity = (left_it->validity == valid && right_it->validity == valid) ? valid : invalid;
 
-            if (left_valid < 1 || right_valid < 1) {
-                if (left_valid == -1 || right_valid == -1) {
+            if (left_validity < 1 || right_validity < 1) {
+                if (left_validity == -1 || right_validity == -1) {
                     return -1;
                 }
 
                 // id did not match the filter but both of the sub-iterators are still valid.
                 // Updating seq_id to the next potential match.
-                if (left_valid == 0 && right_valid == 0) {
+                if (left_validity == 0 && right_validity == 0) {
                     seq_id = std::max(left_it->seq_id, right_it->seq_id);
-                } else if (left_valid == 0) {
+                } else if (left_validity == 0) {
                     seq_id = left_it->seq_id;
                 } else {
                     seq_id = right_it->seq_id;
@@ -1295,18 +1305,18 @@ int filter_result_iterator_t::valid(uint32_t id) {
             seq_id = id;
             return 1;
         } else {
-            is_valid = left_it->is_valid || right_it->is_valid;
+            validity = (left_it->validity == valid || right_it->validity == valid) ? valid : invalid;
 
-            if (left_valid < 1 && right_valid < 1) {
-                if (left_valid == -1 && right_valid == -1) {
+            if (left_validity < 1 && right_validity < 1) {
+                if (left_validity == -1 && right_validity == -1) {
                     return -1;
                 }
 
                 // id did not match the filter; both of the sub-iterators or one of them might be valid.
                 // Updating seq_id to the next match.
-                if (left_valid == 0 && right_valid == 0) {
+                if (left_validity == 0 && right_validity == 0) {
                     seq_id = std::min(left_it->seq_id, right_it->seq_id);
-                } else if (left_valid == 0) {
+                } else if (left_validity == 0) {
                     seq_id = left_it->seq_id;
                 } else {
                     seq_id = right_it->seq_id;
@@ -1321,7 +1331,7 @@ int filter_result_iterator_t::valid(uint32_t id) {
     }
 
     skip_to(id);
-    return is_valid ? (seq_id == id ? 1 : 0) : -1;
+    return validity ? (seq_id == id ? 1 : 0) : -1;
 }
 
 Option<bool> filter_result_iterator_t::init_status() {
@@ -1339,7 +1349,7 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
         compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
 
         size_t i = 0;
-        while(i < list->length && is_valid) {
+        while(i < list->length && validity == valid) {
             size_t num_existing_offsets = list->id_offsets[i];
             size_t existing_id = list->id_offsets[i + num_existing_offsets + 1];
 
@@ -1358,7 +1368,7 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
         auto list = (posting_list_t*)(obj);
         posting_list_t::iterator_t it = list->new_iterator();
 
-        while(it.valid() && is_valid) {
+        while(it.valid() && validity == valid) {
             uint32_t id = it.id();
 
             if(id == seq_id) {
@@ -1376,15 +1386,19 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
     return false;
 }
 
-void filter_result_iterator_t::reset() {
+void filter_result_iterator_t::reset(const bool& override_timeout) {
     if (filter_node == nullptr) {
+        return;
+    }
+
+    if (!override_timeout && timeout_info != nullptr && is_timed_out()) {
         return;
     }
 
     // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
     if (is_filter_result_initialized) {
         if (filter_result.count == 0) {
-            is_valid = false;
+            validity = invalid;
             return;
         }
 
@@ -1397,7 +1411,7 @@ void filter_result_iterator_t::reset() {
             reference.insert(ref.begin(), ref.end());
         }
 
-        is_valid = true;
+        validity = valid;
         return;
     }
 
@@ -1405,7 +1419,7 @@ void filter_result_iterator_t::reset() {
         // Reset the subtrees then apply operators to arrive at the first valid doc.
         left_it->reset();
         right_it->reset();
-        is_valid = true;
+        validity = valid;
 
         if (filter_node->filter_operator == AND) {
             and_filter_iterators();
@@ -1440,7 +1454,7 @@ void filter_result_iterator_t::reset() {
 }
 
 uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
-    if (!is_valid) {
+    if (validity != valid) {
         return 0;
     }
 
@@ -1454,7 +1468,7 @@ uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
     do {
         filter_ids.push_back(seq_id);
         next();
-    } while (is_valid);
+    } while (validity == valid);
 
     filter_array = new uint32_t[filter_ids.size()];
     std::copy(filter_ids.begin(), filter_ids.end(), filter_array);
@@ -1463,7 +1477,7 @@ uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
 }
 
 uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results) {
-    if (!is_valid) {
+    if (validity != valid) {
         return 0;
     }
 
@@ -1473,7 +1487,7 @@ uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t&
 
     std::vector<uint32_t> filter_ids;
     for (uint32_t i = 0; i < lenA; i++) {
-        auto result = valid(A[i]);
+        auto result = is_valid(A[i]);
 
         if (result == -1) {
             break;
@@ -1495,7 +1509,7 @@ uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t&
 }
 
 void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& lenA, filter_result_t& result) {
-    if (!is_valid) {
+    if (validity != valid) {
         return;
     }
 
@@ -1507,7 +1521,7 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
 
         std::vector<uint32_t> filter_ids;
         for (uint32_t i = 0; i < lenA; i++) {
-            auto _result = valid(A[i]);
+            auto _result = is_valid(A[i]);
 
             if (_result == -1) {
                 break;
@@ -1534,7 +1548,7 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
 
     std::vector<uint32_t> match_indexes;
     for (uint32_t i = 0; i < lenA; i++) {
-        auto _result = valid(A[i]);
+        auto _result = is_valid(A[i]);
 
         if (_result == -1) {
             break;
@@ -1559,14 +1573,20 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
     }
 }
 
-filter_result_iterator_t::filter_result_iterator_t(const std::string collection_name, const Index *const index,
-                                                   const filter_node_t *const filter_node)  :
+filter_result_iterator_t::filter_result_iterator_t(const std::string& collection_name, const Index *const index,
+                                                   const filter_node_t *const filter_node,
+                                                   uint64_t search_begin, uint64_t search_stop)  :
         collection_name(collection_name),
         index(index),
         filter_node(filter_node) {
     if (filter_node == nullptr) {
-        is_valid = false;
+        validity = invalid;
         return;
+    }
+
+    // Only initialize timeout_info in the root node. We won't pass search_begin/search_stop parameters to the sub-nodes.
+    if (search_stop != UINT64_MAX) {
+        timeout_info = std::make_unique<filter_result_iterator_timeout_info>(search_begin, search_stop);
     }
 
     // Generate the iterator tree and then initialize each node.
@@ -1577,7 +1597,7 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string collection_
 
     init();
 
-    if (!is_valid) {
+    if (!validity) {
         this->approx_filter_ids_length = 0;
     }
 }
@@ -1625,7 +1645,7 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     posting_list_iterators = std::move(obj.posting_list_iterators);
     expanded_plists = std::move(obj.expanded_plists);
 
-    is_valid = obj.is_valid;
+    validity = obj.validity;
 
     seq_id = obj.seq_id;
     reference = std::move(obj.reference);
@@ -1637,9 +1657,23 @@ filter_result_iterator_t& filter_result_iterator_t::operator=(filter_result_iter
     return *this;
 }
 
-void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result) {
+void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout) {
     if (!is_filter_result_initialized) {
         return;
+    }
+
+    if (override_timeout) {
+        result_index = 0;
+    } else if (timeout_info != nullptr) {
+        // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
+        // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
+        // function call.
+        if (n > function_call_modulo) {
+            timeout_info->function_call_counter = function_call_modulo - 1;
+        }
+        if (is_timed_out()) {
+            return;
+        }
     }
 
     auto result_length = result->count = std::min(n, filter_result.count - result_index);
@@ -1661,21 +1695,37 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
         result_reference = std::move(filter_result.coll_to_references[result_index]);
     }
 
-    is_valid = result_index < filter_result.count;
+    if (!override_timeout) {
+        validity = result_index < filter_result.count ? valid : invalid;
+    }
 }
 
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
                                          uint32_t& excluded_result_index,
                                          uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                                         filter_result_t*& result) {
+                                         filter_result_t*& result, const bool& override_timeout) {
     if (excluded_result_ids == nullptr || excluded_result_ids_size == 0 ||
         excluded_result_index >= excluded_result_ids_size) {
-        return get_n_ids(n, result);
+        return get_n_ids(n, result, override_timeout);
     }
 
     // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_result.
     if (!is_filter_result_initialized) {
         return;
+    }
+
+    if (override_timeout) {
+        result_index = 0;
+    } else if (timeout_info != nullptr) {
+        // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
+        // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
+        // function call.
+        if (n > function_call_modulo) {
+            timeout_info->function_call_counter = function_call_modulo - 1;
+        }
+        if (is_timed_out()) {
+            return;
+        }
     }
 
     std::vector<uint32_t> match_indexes;
@@ -1708,7 +1758,9 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         result_reference = std::move(filter_result.coll_to_references[match_index]);
     }
 
-    is_valid = result_index < filter_result.count;
+    if (!override_timeout) {
+        validity = result_index < filter_result.count ? valid : invalid;
+    }
 }
 
 filter_result_iterator_t::filter_result_iterator_t(uint32_t approx_filter_ids_length) :
@@ -1717,29 +1769,34 @@ filter_result_iterator_t::filter_result_iterator_t(uint32_t approx_filter_ids_le
     delete_filter_node = true;
 }
 
-filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count) {
+filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count,
+                                                   uint64_t search_begin, uint64_t search_stop) {
     filter_result.count = approx_filter_ids_length = ids_count;
     filter_result.docs = ids;
-    is_valid = ids_count > 0;
+    validity = ids_count > 0 ? valid : invalid;
 
-    if (is_valid) {
+    if (validity) {
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
         filter_node = new filter_node_t({"dummy", {}, {}});
         delete_filter_node = true;
+
+        if (search_stop != UINT64_MAX) {
+            timeout_info = std::make_unique<filter_result_iterator_timeout_info>(search_begin, search_stop);
+        }
     }
 }
 
-void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
+void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
                                               uint32_t* phrase_result_ids, const uint32_t& phrase_result_count) {
-    auto root_iterator = new filter_result_iterator_t(std::min(phrase_result_count, filter_result_iterator->approx_filter_ids_length));
+    auto root_iterator = new filter_result_iterator_t(std::min(phrase_result_count, fit->approx_filter_ids_length));
     root_iterator->left_it = new filter_result_iterator_t(phrase_result_ids, phrase_result_count);
-    root_iterator->right_it = filter_result_iterator;
+    root_iterator->right_it = fit;
 
     auto& left_it = root_iterator->left_it;
     auto& right_it = root_iterator->right_it;
 
-    while (left_it->is_valid && right_it->is_valid && left_it->seq_id != right_it->seq_id) {
+    while (left_it->validity && right_it->validity && left_it->seq_id != right_it->seq_id) {
         if (left_it->seq_id < right_it->seq_id) {
             left_it->skip_to(right_it->seq_id);
         } else {
@@ -1747,16 +1804,22 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& filter_
         }
     }
 
-    root_iterator->is_valid = left_it->is_valid && right_it->is_valid;
+    root_iterator->timeout_info = std::move(fit->timeout_info);
+    root_iterator->validity = (left_it->validity == timed_out || right_it->validity == timed_out) ? timed_out :
+                               (left_it->validity == invalid || right_it->validity == invalid) ? invalid : valid;
     root_iterator->seq_id = left_it->seq_id;
-    filter_result_iterator = root_iterator;
+    fit = root_iterator;
 }
 
 void filter_result_iterator_t::compute_result() {
     if (filter_node == nullptr) {
-        is_valid = false;
+        validity = invalid;
         is_filter_result_initialized = false;
         LOG(ERROR) << "filter_node is null";
+        return;
+    }
+
+    if (timeout_info != nullptr && is_timed_out()) {
         return;
     }
 
@@ -1773,7 +1836,7 @@ void filter_result_iterator_t::compute_result() {
         // In a complex filter query a sub-expression might not match any document while the full expression does match
         // at least one document. If the full expression doesn't match any document, we return early in the search.
         if (filter_result.count == 0) {
-            is_valid = false;
+            validity = invalid;
             is_filter_result_initialized = true;
             return;
         }
@@ -1882,7 +1945,7 @@ void filter_result_iterator_t::compute_result() {
     }
 
     if (filter_result.count == 0) {
-        is_valid = false;
+        validity = invalid;
         return;
     }
 
@@ -1891,3 +1954,18 @@ void filter_result_iterator_t::compute_result() {
     is_filter_result_initialized = true;
     approx_filter_ids_length = filter_result.count;
 }
+
+bool filter_result_iterator_t::is_timed_out() {
+    if (validity == timed_out ||
+        (++(timeout_info->function_call_counter) % function_call_modulo == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() - timeout_info->search_begin_us) > timeout_info->search_stop_us)) {
+        validity = timed_out;
+        return true;
+    }
+    return false;
+}
+
+filter_result_iterator_timeout_info::filter_result_iterator_timeout_info(uint64_t search_begin,
+                                                                         uint64_t search_stop) :
+                                                                         search_begin_us(search_begin),
+                                                                         search_stop_us(search_stop) {}

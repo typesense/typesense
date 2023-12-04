@@ -1017,7 +1017,8 @@ bool validate_and_add_leaf(art_leaf* leaf,
     }
 
     if(prev_token.empty() || !prev_leaf) {
-        if (filter_result_iterator->is_valid && !filter_result_iterator->contains_atleast_one(leaf->values)) {
+        if (filter_result_iterator->validity == filter_result_iterator_t::valid &&
+                !filter_result_iterator->contains_atleast_one(leaf->values)) {
             return false;
         }
     } else {
@@ -1177,8 +1178,9 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                                   exclude_leaves, results);
             filter_result_iterator->reset();
 
-            if (++num_processed % 1024 == 0 && (microseconds(
-                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+            if (filter_result_iterator->validity == filter_result_iterator_t::timed_out ||
+                (++num_processed % 1024 == 0 && (microseconds(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us)) {
                 search_cutoff = true;
                 break;
             }

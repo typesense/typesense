@@ -1635,6 +1635,7 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
 
         query_hashes.insert(qhash);
         filter_result_iterator->reset();
+        search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
     }
 
     return Option<bool>(true);
@@ -1784,7 +1785,8 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
                                            const std::string& collection_name) const {
     std::shared_lock lock(mutex);
 
-    auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root);
+    auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root,
+                                                           search_begin_us, search_stop_us);
     auto filter_init_op = filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
         return filter_init_op;
@@ -1801,7 +1803,8 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
                                                      const std::string& reference_helper_field_name) const {
     std::shared_lock lock(mutex);
 
-    auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root);
+    auto filter_result_iterator = filter_result_iterator_t(collection_name, this, filter_tree_root,
+                                                           search_begin_us, search_stop_us);
     auto filter_init_op = filter_result_iterator.init_status();
     if (!filter_init_op.ok()) {
         return filter_init_op;
@@ -2400,7 +2403,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    ) const {
     std::shared_lock lock(mutex);
 
-    auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root);
+    auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
+                                                               search_begin_us, search_stop_us);
     std::unique_ptr<filter_result_iterator_t> filter_iterator_guard(filter_result_iterator);
 
     auto filter_init_op = filter_result_iterator->init_status();
@@ -2408,7 +2412,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return filter_init_op;
     }
 
-    if (filter_tree_root != nullptr && !filter_result_iterator->is_valid) {
+    if (filter_tree_root != nullptr && filter_result_iterator->validity != filter_result_iterator_t::valid) {
         return Option(true);
     }
 
@@ -2424,6 +2428,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         filter_result_iterator, curated_ids, included_ids_map,
                         included_ids_vec, excluded_group_ids);
     filter_result_iterator->reset();
+    search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
     std::vector<uint32_t> curated_ids_sorted(curated_ids.begin(), curated_ids.end());
     std::sort(curated_ids_sorted.begin(), curated_ids_sorted.end());
@@ -2456,7 +2461,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     // phrase queries are handled as a filtering query
     bool is_wildcard_non_phrase_query = is_wildcard_query && field_query_tokens[0].q_phrases.empty();
     
-    bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator->is_valid);
+    bool no_filters_provided = (filter_tree_root == nullptr && !filter_result_iterator->validity == filter_result_iterator_t::valid);
 
     // handle phrase searches
     if (!field_query_tokens[0].q_phrases.empty()) {
@@ -2549,7 +2554,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             uint32_t filter_id_count = 0;
             while (!no_filters_provided &&
-                    filter_id_count < vector_query.flat_search_cutoff && filter_result_iterator->is_valid) {
+                    filter_id_count < vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid) {
                 auto& seq_id = filter_result_iterator->seq_id;
                 auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
                 filter_result_iterator->next();
@@ -2577,9 +2582,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 filter_id_count++;
             }
             filter_result_iterator->reset();
+            search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
             if(no_filters_provided ||
-                (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->is_valid)) {
+                (filter_id_count >= vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid)) {
                 dist_results.clear();
 
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
@@ -2599,15 +2605,20 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 filter_result_iterator->reset();
 
-                if (filter_result_iterator->is_valid && !filter_result_iterator->reference.empty()) {
+                if (!filter_result_iterator->reference.empty()) {
                     // We'll have to get the references of each document.
                     for (auto pair: pairs) {
+                        if (filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
+                            // Overriding timeout since we need to get the references of matched docs.
+                            filter_result_iterator->reset(true);
+                            search_cutoff = true;
+                        }
+
                         // The doc_id must be valid otherwise it would've been filtered out upstream.
-                        filter_result_iterator->skip_to(pair.second);
+                        filter_result_iterator->skip_to(pair.second, search_cutoff);
                         auto filter_result = single_filter_result_t(pair.second,
                                                                     std::move(filter_result_iterator->reference));
                         dist_results.emplace_back(pair.first, filter_result);
-                        filter_result_iterator->reset();
                     }
                 } else {
                     for (const auto &pair: pairs) {
@@ -2682,7 +2693,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         } else {
             // if filters were not provided, use the seq_ids index to generate the list of all document ids
             if (no_filters_provided) {
-                filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids());
+                filter_result_iterator = new filter_result_iterator_t(seq_ids->uncompress(), seq_ids->num_ids(),
+                                                                      search_begin_us, search_stop_us);
                 filter_iterator_guard.reset(filter_result_iterator);
             }
 
@@ -2697,8 +2709,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             if (!search_wildcard_op.ok()) {
                 return search_wildcard_op;
             }
-
-            filter_result_iterator->reset();
         }
 
         uint32_t _all_result_ids_len = all_result_ids_len;
@@ -2825,6 +2835,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
 
         filter_result_iterator->reset();
+        search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
         // gather up both original query and synonym queries and do drop tokens
 
@@ -2931,6 +2942,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
 
         filter_result_iterator->reset();
+        search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
         if(!vector_query.field_name.empty()) {
             // check at least one of sort fields is text match
@@ -2963,6 +2975,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, &filterFunctor);
                 }
                 filter_result_iterator->reset();
+                search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
                 std::vector<std::pair<uint32_t,float>> vec_results;
                 for (const auto& dist_label : dist_labels) {
@@ -3017,14 +3030,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
                 }
 
-                for(size_t res_index = 0; res_index < vec_results.size(); res_index++) {
+                for(size_t res_index = 0; res_index < vec_results.size() &&
+                                filter_result_iterator->validity != filter_result_iterator_t::timed_out; res_index++) {
                     auto& vec_result = vec_results[res_index];
                     auto seq_id = vec_result.first;
 
                     filter_result_iterator->skip_to(seq_id);
                     auto references = std::move(filter_result_iterator->reference);
                     filter_result_iterator->reset();
-                    
+
                     KV* found_kv = nullptr;
                     if(group_limit != 0) {
                         for(auto& kv : kvs) {
@@ -3108,6 +3122,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         }
                     }
                 }
+                search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
                 if(!vec_search_ids.empty()) {
                     uint32_t* new_all_result_ids = nullptr;
@@ -3357,9 +3372,9 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
     // if `filter_curated_hits` is enabled, we will remove curated hits that don't match filter condition
     std::set<uint32_t> included_ids_set;
 
-    if(filter_result_iterator->is_valid && filter_curated_hits) {
+    if(filter_result_iterator->validity == filter_result_iterator_t::valid && filter_curated_hits) {
         for (const auto &included_id: included_ids_vec) {
-            auto result = filter_result_iterator->valid(included_id);
+            auto result = filter_result_iterator->is_valid(included_id);
 
             if (result == -1) {
                 break;
@@ -3575,6 +3590,10 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                      costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
                                      last_token, prev_token, filter_result_iterator, field_leaves, unique_tokens);
                     filter_result_iterator->reset();
+                    if (filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
+                        search_cutoff = true;
+                        return Option<bool>(true);
+                    }
 
                     /*auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::high_resolution_clock::now() - begin).count();
@@ -3606,6 +3625,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                        the_fields, num_search_fields, filter_result_iterator, exclude_token_ids,
                                        exclude_token_ids_size, prev_token_doc_ids, popular_field_ids);
                     filter_result_iterator->reset();
+                    search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
                     for(size_t field_id: query_field_ids) {
                         auto& the_field = the_fields[field_id];
@@ -3629,6 +3649,10 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                          costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
                                          false, "", filter_result_iterator, field_leaves, unique_tokens);
                         filter_result_iterator->reset();
+                        if (filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
+                            search_cutoff = true;
+                            return Option<bool>(true);
+                        }
 
                         if(field_leaves.empty()) {
                             // look at the next field
@@ -4880,7 +4904,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
     collate_included_ids({}, included_ids_map, curated_topster, searched_queries);
 
     // AND phrase id matches with filter ids
-    if(filter_result_iterator->is_valid) {
+    if(filter_result_iterator->validity) {
         filter_result_iterator_t::add_phrase_ids(filter_result_iterator, phrase_result_ids, phrase_result_count);
     } else {
         delete filter_result_iterator;
@@ -4903,7 +4927,8 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
     }
     // populate topster
-    for(size_t i = 0; i < std::min<size_t>(10000, all_result_ids_len); i++) {
+    for(size_t i = 0; i < std::min<size_t>(10000, all_result_ids_len) &&
+                                            filter_result_iterator->validity == filter_result_iterator_t::valid; i++) {
         auto seq_id = filter_result_iterator->seq_id;
         auto references = std::move(filter_result_iterator->reference);
         filter_result_iterator->next();
@@ -4943,6 +4968,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         }
     }
     filter_result_iterator->reset();
+    search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
     searched_queries.push_back({});
     return Option<bool>(true);
@@ -5054,7 +5080,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                     raw_infix_ids_length = infix_ids.size();
                 }
 
-                if(filter_result_iterator->is_valid) {
+                if(filter_result_iterator->validity == filter_result_iterator_t::valid) {
                     filter_result_t result;
                     filter_result_iterator->and_scalar(raw_infix_ids, raw_infix_ids_length, result);
                     if(raw_infix_ids != &infix_ids[0]) {
@@ -5426,11 +5452,15 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     uint32_t excluded_result_index = 0;
     Option<bool>* compute_sort_score_statuses[num_threads];
 
-    for(size_t thread_id = 0; thread_id < num_threads && filter_result_iterator->is_valid; thread_id++) {
+    for(size_t thread_id = 0; thread_id < num_threads &&
+                                    filter_result_iterator->validity == filter_result_iterator_t::valid; thread_id++) {
         auto batch_result = new filter_result_t();
         filter_result_iterator->get_n_ids(window_size, excluded_result_index, exclude_token_ids,
                                           exclude_token_ids_size, batch_result);
-
+        if (batch_result->count == 0) {
+            delete batch_result;
+            break;
+        }
         num_queued++;
 
         searched_queries.push_back({});
@@ -5516,7 +5546,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     std::unique_lock<std::mutex> lock_process(m_process);
     cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
 
-    search_cutoff = parent_search_cutoff;
+    search_cutoff = parent_search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
     for(size_t thread_id = 0; thread_id < num_processed; thread_id++) {
         if (compute_sort_score_statuses[thread_id] != nullptr) {
@@ -5544,8 +5574,20 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
             std::chrono::high_resolution_clock::now() - beginF).count();
     LOG(INFO) << "Time for raw scoring: " << timeMillisF;*/
 
-    filter_result_iterator->reset();
-    all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
+    if (filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
+        auto partial_result = new filter_result_t();
+        std::unique_ptr<filter_result_t> partial_result_guard(partial_result);
+
+        filter_result_iterator->get_n_ids(window_size * num_processed,
+                                          excluded_result_index, nullptr, 0, partial_result, true);
+        all_result_ids_len = partial_result->count;
+        all_result_ids = partial_result->docs;
+        partial_result->docs = nullptr;
+    } else {
+        filter_result_iterator->reset();
+        all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
+        search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
+    }
 
     return Option<bool>(true);
 }
@@ -5593,7 +5635,8 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             auto& eval_exp = sort_fields_std[i].eval;
             auto count = sort_fields_std[i].eval_expressions.size();
             for (uint32_t j = 0; j < count; j++) {
-                auto filter_result_iterator = filter_result_iterator_t("", this, &eval_exp.filter_trees[j]);
+                auto filter_result_iterator = filter_result_iterator_t("", this, &eval_exp.filter_trees[j],
+                                                                       search_begin_us, search_stop_us);
                 auto filter_init_op = filter_result_iterator.init_status();
                 if (!filter_init_op.ok()) {
                     return;

@@ -1875,7 +1875,7 @@ bool result_iter_state_t::is_filter_valid() const {
     }
 
     if (fit != nullptr) {
-        return fit->is_valid;
+        return fit->validity == filter_result_iterator_t::valid;
     }
 
     return false;
@@ -1886,7 +1886,7 @@ uint32_t result_iter_state_t::get_filter_id() const {
         return filter_ids[filter_ids_index];
     }
 
-    if (fit != nullptr && fit->is_valid) {
+    if (fit != nullptr && fit->validity == filter_result_iterator_t::valid) {
         return fit->seq_id;
     }
 
