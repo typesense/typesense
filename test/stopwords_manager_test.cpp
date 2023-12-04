@@ -56,21 +56,21 @@ TEST_F(StopwordsManagerTest, UpsertGetStopwords) {
     ASSERT_TRUE(stopword_config.find("articles") != stopword_config.end());
     ASSERT_TRUE(stopword_config.find("continents") != stopword_config.end());
 
-    ASSERT_EQ(3, stopword_config["articles"].size());
-    ASSERT_TRUE(stopword_config["articles"].find("a") != stopword_config["articles"].end());
-    ASSERT_TRUE(stopword_config["articles"].find("an") != stopword_config["articles"].end());
-    ASSERT_TRUE(stopword_config["articles"].find("the") != stopword_config["articles"].end());
+    ASSERT_EQ(3, stopword_config["articles"].stopwords.size());
+    ASSERT_TRUE(stopword_config["articles"].stopwords.find("a") != stopword_config["articles"].stopwords.end());
+    ASSERT_TRUE(stopword_config["articles"].stopwords.find("an") != stopword_config["articles"].stopwords.end());
+    ASSERT_TRUE(stopword_config["articles"].stopwords.find("the") != stopword_config["articles"].stopwords.end());
 
-    ASSERT_EQ(2, stopword_config["continents"].size());
-    ASSERT_TRUE(stopword_config["continents"].find("america") != stopword_config["continents"].end());
-    ASSERT_TRUE(stopword_config["continents"].find("europe") != stopword_config["continents"].end());
+    ASSERT_EQ(2, stopword_config["continents"].stopwords.size());
+    ASSERT_TRUE(stopword_config["continents"].stopwords.find("america") != stopword_config["continents"].stopwords.end());
+    ASSERT_TRUE(stopword_config["continents"].stopwords.find("europe") != stopword_config["continents"].stopwords.end());
 
-    ASSERT_EQ(5, stopword_config["countries"].size()); //with tokenization United States will be splited into two
-    ASSERT_TRUE(stopword_config["countries"].find("india") != stopword_config["countries"].end());
-    ASSERT_TRUE(stopword_config["countries"].find("united") != stopword_config["countries"].end());
-    ASSERT_TRUE(stopword_config["countries"].find("states") != stopword_config["countries"].end());
-    ASSERT_TRUE(stopword_config["countries"].find("china") != stopword_config["countries"].end());
-    ASSERT_TRUE(stopword_config["countries"].find("japan") != stopword_config["countries"].end());
+    ASSERT_EQ(5, stopword_config["countries"].stopwords.size()); //with tokenization United States will be splited into two
+    ASSERT_TRUE(stopword_config["countries"].stopwords.find("india") != stopword_config["countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["countries"].stopwords.find("united") != stopword_config["countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["countries"].stopwords.find("states") != stopword_config["countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["countries"].stopwords.find("china") != stopword_config["countries"].stopwords.end());
+    ASSERT_TRUE(stopword_config["countries"].stopwords.find("japan") != stopword_config["countries"].stopwords.end());
 }
 
 TEST_F(StopwordsManagerTest, GetStopword) {
@@ -79,16 +79,14 @@ TEST_F(StopwordsManagerTest, GetStopword) {
     auto upsert_op = stopwordsManager.upsert_stopword("articles", stopwords);
     ASSERT_TRUE(upsert_op.ok());
 
-    spp::sparse_hash_set<std::string> stopwords_set;
+    stopword_struct_t stopwordStruct;
 
-    auto get_op = stopwordsManager.get_stopword("articles", stopwords_set);
+    auto get_op = stopwordsManager.get_stopword("articles", stopwordStruct);
     ASSERT_TRUE(get_op.ok());
-    ASSERT_EQ(3, stopwords_set.size());
-
-    stopwords_set.clear();
+    ASSERT_EQ(3, stopwordStruct.stopwords.size());
 
     //try to fetch non-existing stopword
-    get_op = stopwordsManager.get_stopword("country", stopwords_set);
+    get_op = stopwordsManager.get_stopword("country", stopwordStruct);
     ASSERT_FALSE(get_op.ok());
     ASSERT_EQ(404, get_op.code());
     ASSERT_EQ("Stopword `country` not found.", get_op.error());
@@ -99,9 +97,9 @@ TEST_F(StopwordsManagerTest, GetStopword) {
     upsert_op = stopwordsManager.upsert_stopword("country", stopwords);
     ASSERT_TRUE(upsert_op.ok());
 
-    get_op = stopwordsManager.get_stopword("country", stopwords_set);
+    get_op = stopwordsManager.get_stopword("country", stopwordStruct);
     ASSERT_TRUE(get_op.ok());
-    ASSERT_EQ(4, stopwords_set.size()); //as United States will be tokenized and counted 2 stopwords
+    ASSERT_EQ(4, stopwordStruct.stopwords.size()); //as United States will be tokenized and counted 2 stopwords
 }
 
 TEST_F(StopwordsManagerTest, DeleteStopword) {
@@ -119,13 +117,13 @@ TEST_F(StopwordsManagerTest, DeleteStopword) {
     upsert_op = stopwordsManager.upsert_stopword("articles", stopwords2);
     ASSERT_TRUE(upsert_op.ok());
 
-    spp::sparse_hash_set<std::string> stopwords_set;
+    stopword_struct_t stopwordStruct;
 
     //delete a stopword
     auto del_op = stopwordsManager.delete_stopword("articles");
     ASSERT_TRUE(del_op.ok());
 
-    auto get_op = stopwordsManager.get_stopword("articles", stopwords_set);
+    auto get_op = stopwordsManager.get_stopword("articles", stopwordStruct);
     ASSERT_FALSE(get_op.ok());
     ASSERT_EQ(404, get_op.code());
     ASSERT_EQ("Stopword `articles` not found.", get_op.error());
@@ -147,9 +145,9 @@ TEST_F(StopwordsManagerTest, UpdateStopword) {
 
     auto stopword_config = stopwordsManager.get_stopwords();
 
-    ASSERT_EQ(2, stopword_config["continents"].size());
-    ASSERT_TRUE(stopword_config["continents"].find("america") != stopword_config["continents"].end());
-    ASSERT_TRUE(stopword_config["continents"].find("europe") != stopword_config["continents"].end());
+    ASSERT_EQ(2, stopword_config["continents"].stopwords.size());
+    ASSERT_TRUE(stopword_config["continents"].stopwords.find("america") != stopword_config["continents"].stopwords.end());
+    ASSERT_TRUE(stopword_config["continents"].stopwords.find("europe") != stopword_config["continents"].stopwords.end());
 
     //adding new words with same name should replace the stopwords set
     stopwords_json = R"(
@@ -160,10 +158,10 @@ TEST_F(StopwordsManagerTest, UpdateStopword) {
 
     stopword_config = stopwordsManager.get_stopwords();
 
-    ASSERT_EQ(3, stopword_config["continents"].size());
-    ASSERT_TRUE(stopword_config["continents"].find("china") != stopword_config["continents"].end());
-    ASSERT_TRUE(stopword_config["continents"].find("india") != stopword_config["continents"].end());
-    ASSERT_TRUE(stopword_config["continents"].find("japan") != stopword_config["continents"].end());
+    ASSERT_EQ(3, stopword_config["continents"].stopwords.size());
+    ASSERT_TRUE(stopword_config["continents"].stopwords.find("china") != stopword_config["continents"].stopwords.end());
+    ASSERT_TRUE(stopword_config["continents"].stopwords.find("india") != stopword_config["continents"].stopwords.end());
+    ASSERT_TRUE(stopword_config["continents"].stopwords.find("japan") != stopword_config["continents"].stopwords.end());
 }
 
 TEST_F(StopwordsManagerTest, StopwordsBasics) {
@@ -401,12 +399,12 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
     auto stopword_config = stopwordsManager.get_stopwords();
     ASSERT_TRUE(stopword_config.find("genre") != stopword_config.end());
 
-    ASSERT_EQ(5, stopword_config["genre"].size());
-    ASSERT_TRUE(stopword_config["genre"].find("pop") != stopword_config["genre"].end());
-    ASSERT_TRUE(stopword_config["genre"].find("indie") != stopword_config["genre"].end());
-    ASSERT_TRUE(stopword_config["genre"].find("rock") != stopword_config["genre"].end());
-    ASSERT_TRUE(stopword_config["genre"].find("metal") != stopword_config["genre"].end());
-    ASSERT_TRUE(stopword_config["genre"].find("folk") != stopword_config["genre"].end());
+    ASSERT_EQ(5, stopword_config["genre"].stopwords.size());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("pop") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("indie") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("rock") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("metal") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("folk") != stopword_config["genre"].stopwords.end());
 
     //dispose collection manager and reload all stopwords
     collectionManager.dispose();
@@ -424,10 +422,10 @@ TEST_F(StopwordsManagerTest, ReloadStopwordsOnRestart) {
     stopword_config = stopwordsManager.get_stopwords();
     ASSERT_TRUE(stopword_config.find("genre") != stopword_config.end());
 
-    ASSERT_EQ(5, stopword_config["genre"].size());
-    ASSERT_TRUE(stopword_config["genre"].find("pop") != stopword_config["genre"].end());
-    ASSERT_TRUE(stopword_config["genre"].find("indie") != stopword_config["genre"].end());
-    ASSERT_TRUE(stopword_config["genre"].find("rock") != stopword_config["genre"].end());
-    ASSERT_TRUE(stopword_config["genre"].find("metal") != stopword_config["genre"].end());
-    ASSERT_TRUE(stopword_config["genre"].find("folk") != stopword_config["genre"].end());
+    ASSERT_EQ(5, stopword_config["genre"].stopwords.size());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("pop") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("indie") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("rock") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("metal") != stopword_config["genre"].stopwords.end());
+    ASSERT_TRUE(stopword_config["genre"].stopwords.find("folk") != stopword_config["genre"].stopwords.end());
 }

@@ -3202,9 +3202,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         q_include_tokens = {query};
     } else {
         std::vector<std::string> tokens;
-        spp::sparse_hash_set<std::string> stopwords_list;
+        stopword_struct_t stopwordStruct;
         if(!stopwords_set.empty()) {
-            const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwords_list);
+            const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
             if (!stopword_op.ok()) {
                 LOG(ERROR) << stopword_op.error();
                 LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
@@ -3221,7 +3221,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             Tokenizer(query, true, false, locale, custom_symbols, token_separators).tokenize(tokens);
         }
 
-        for (const auto val: stopwords_list) {
+        for (const auto val: stopwordStruct.stopwords) {
             tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
         }
 
