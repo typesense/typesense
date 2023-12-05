@@ -552,9 +552,9 @@ TEST_F(AnalyticsManagerTest, EventsExpiry) {
     ASSERT_EQ(13, resp[1]["user_id"]);
 
     LOG(INFO) << "waiting for TTL to pass";
-    sleep(35);//wait till ttl passes which is set to 30 seconds
+    sleep(1);//wait till ttl passes
 
-    analyticsManager.checkEventsExpiry();
+    analyticsManager.checkEventsExpiry(1000000); //1 second
 
     resp = analyticsManager.get_click_events();
     ASSERT_EQ(0, resp.size());
@@ -580,7 +580,7 @@ TEST_F(AnalyticsManagerTest, EventsExpiry) {
     ASSERT_EQ(124, resp[0]["hits_count"]);
 
     //now old click events will be deleted on checking expiry but query hits events will be remaining
-    analyticsManager.checkEventsExpiry();
+    analyticsManager.checkEventsExpiry(1000000); //1 second
 
     resp = analyticsManager.get_click_events();
     ASSERT_EQ(0, resp.size());

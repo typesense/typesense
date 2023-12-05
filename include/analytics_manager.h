@@ -216,5 +216,5 @@ public:
 
     nlohmann::json get_query_hits_counts();
 
-    void checkEventsExpiry();
+    void checkEventsExpiry(uint64_t events_ttl_interval=2592000000000); //30days default
 };

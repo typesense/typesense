@@ -10,11 +10,6 @@
 LRU::Cache<std::string, event_cache_t> events_cache;
 #define CLICK_EVENTS_RATE_LIMIT_SEC 60
 #define CLICK_EVENTS_RATE_LIMIT_COUNT 5
-#ifdef TEST_BUILD
-#define EVENTS_TTL_INTERVAL_US 30000000 //30sec
-#else
-#define EVENTS_TTL_INTERVAL_US 2592000000000 //30days
-#endif
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*
@@ -614,7 +609,7 @@ void AnalyticsManager::resetRateLimit() {
     events_cache.clear();
 }
 
-void AnalyticsManager::checkEventsExpiry() {
+void AnalyticsManager::checkEventsExpiry(uint64_t events_ttl_interval) {
     if (analytics_store) {
         //LOG(INFO) << "checking for events expiry";
 
@@ -622,7 +617,7 @@ void AnalyticsManager::checkEventsExpiry() {
         auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
-        auto ts_ttl_useconds = now_ts_useconds - EVENTS_TTL_INTERVAL_US;
+        auto ts_ttl_useconds = now_ts_useconds - events_ttl_interval;
 
         const std::string click_events_prefix = std::string(CLICK_EVENT) + "_";
         const std::string query_hits_prefix = std::string(QUERY_HITS_COUNT) + "_";
