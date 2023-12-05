@@ -300,7 +300,7 @@ public:
         }
 
         filter_result_iterator->reset();
-        return filter_result_iterator->valid(id) == 1;
+        return filter_result_iterator->is_valid(id) == 1;
     }
 };
 
