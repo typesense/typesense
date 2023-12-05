@@ -10,7 +10,11 @@
 LRU::Cache<std::string, event_cache_t> events_cache;
 #define CLICK_EVENTS_RATE_LIMIT_SEC 60
 #define CLICK_EVENTS_RATE_LIMIT_COUNT 5
+#ifdef TEST_BUILD
+#define EVENTS_TTL_INTERVAL_US 30000000 //30sec
+#else
 #define EVENTS_TTL_INTERVAL_US 2592000000000 //30days
+#endif
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*
