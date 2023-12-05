@@ -579,7 +579,8 @@ private:
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                               Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries) const;
 
-    static void compute_facet_stats(facet &a_facet, const std::string& raw_value, const std::string & field_type);
+    static void compute_facet_stats(facet &a_facet, const std::string& raw_value,
+                                    const std::string & field_type, const size_t count);
 
     static void compute_facet_stats(facet &a_facet, const int64_t raw_value, const std::string & field_type);
 
@@ -1064,6 +1065,8 @@ public:
     friend class filter_result_iterator_t;
 
     void repair_hnsw_index();
+
+    void aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const;
 };
 
 template<class T>

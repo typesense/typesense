@@ -1225,7 +1225,8 @@ void Index::initialize_facet_indexes(const field& facet_field) {
     facet_index_v4->initialize(facet_field.name);
 }
 
-void Index::compute_facet_stats(facet &a_facet, const std::string& raw_value, const std::string & field_type) {
+void Index::compute_facet_stats(facet &a_facet, const std::string& raw_value, const std::string & field_type,
+                                const size_t count) {
     if(field_type == field_types::INT32 || field_type == field_types::INT32_ARRAY) {
         int32_t val = std::stoi(raw_value);
         if (val < a_facet.stats.fvmin) {
@@ -1234,8 +1235,8 @@ void Index::compute_facet_stats(facet &a_facet, const std::string& raw_value, co
         if (val > a_facet.stats.fvmax) {
             a_facet.stats.fvmax = val;
         }
-        a_facet.stats.fvsum += val;
-        a_facet.stats.fvcount++;
+        a_facet.stats.fvsum += (count * val);
+        a_facet.stats.fvcount += count;
     } else if(field_type == field_types::INT64 || field_type == field_types::INT64_ARRAY) {
         int64_t val = std::stoll(raw_value);
         if(val < a_facet.stats.fvmin) {
@@ -1244,8 +1245,8 @@ void Index::compute_facet_stats(facet &a_facet, const std::string& raw_value, co
         if(val > a_facet.stats.fvmax) {
             a_facet.stats.fvmax = val;
         }
-        a_facet.stats.fvsum += val;
-        a_facet.stats.fvcount++;
+        a_facet.stats.fvsum += (count * val);
+        a_facet.stats.fvcount += count;
     } else if(field_type == field_types::FLOAT || field_type == field_types::FLOAT_ARRAY) {
         float val = std::stof(raw_value);
         if(val < a_facet.stats.fvmin) {
@@ -1254,8 +1255,8 @@ void Index::compute_facet_stats(facet &a_facet, const std::string& raw_value, co
         if(val > a_facet.stats.fvmax) {
             a_facet.stats.fvmax = val;
         }
-        a_facet.stats.fvsum += val;
-        a_facet.stats.fvcount++;
+        a_facet.stats.fvsum += (count * val);
+        a_facet.stats.fvcount += count;
     }
 }
 
@@ -1396,7 +1397,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
                 if(should_compute_stats) {
                     //LOG(INFO) << "Computing facet stats for facet value" << kv.first;
-                    compute_facet_stats(a_facet, kv.first, facet_field.type);
+                    compute_facet_stats(a_facet, kv.first, facet_field.type, kv.second.count);
                 }
             }
 
@@ -3157,7 +3158,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && no_filters_provided;
 
     if(!facets.empty()) {
-        const size_t num_threads = 1; //std::min(concurrency, all_result_ids_len);
+        const size_t num_threads = std::min(concurrency, all_result_ids_len);
 
         const size_t window_size = (num_threads == 0) ? 0 :
                                    (all_result_ids_len + num_threads - 1) / num_threads;  // rounds up
@@ -3177,11 +3178,26 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             max_candidates, facet_infos, facet_index_type);
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
-        for(size_t i = 0; i < num_threads; i++) {
-            for(const auto& this_facet: facets) {
-                facet_batches[i].emplace_back(facet(this_facet.field_name, this_facet.facet_range_map, 
-                    this_facet.is_range_query, this_facet.is_sort_by_alpha, this_facet.sort_order,
-                    this_facet.sort_field));
+        std::vector<facet> value_facets;
+
+        for(size_t i = 0; i < facets.size(); i++) {
+            const auto& this_facet = facets[i];
+#ifdef TEST_BUILD
+            if(facet_index_type == VALUE) {
+#else
+            if(facet_infos[i].use_value_index) {
+#endif
+                // value based faceting on a single thread
+                value_facets.emplace_back(this_facet.field_name, this_facet.facet_range_map,
+                                          this_facet.is_range_query, this_facet.is_sort_by_alpha,
+                                          this_facet.sort_order, this_facet.sort_field, i);
+                continue;
+            }
+
+            for(size_t j = 0; j < num_threads; j++) {
+                facet_batches[j].emplace_back(this_facet.field_name, this_facet.facet_range_map,
+                                              this_facet.is_range_query, this_facet.is_sort_by_alpha,
+                                              this_facet.sort_order, this_facet.sort_field, i);
             }
         }
 
@@ -3199,6 +3215,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             if(result_index + window_size > all_result_ids_len) {
                 batch_res_len = all_result_ids_len - result_index;
+            }
+
+            if(facet_batches[thread_id].empty()) {
+                continue;
             }
 
             uint32_t* batch_result_ids = all_result_ids + result_index;
@@ -3236,66 +3256,21 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         // use `num_processed` since < `facet_batches.size()` batches could be processed (uneven splitting of records)
         for(size_t batch_index = 0; batch_index < num_processed; batch_index++) {
             auto& facet_batch = facet_batches[batch_index];
-            for(size_t fi = 0; fi < facet_batch.size(); fi++) {
-                auto& this_facet = facet_batch[fi];
-                auto& acc_facet = facets[fi];
-
-                acc_facet.is_intersected = this_facet.is_intersected;
-                acc_facet.is_sort_by_alpha = this_facet.is_sort_by_alpha;
-                acc_facet.sort_order = this_facet.sort_order;
-                acc_facet.sort_field = this_facet.sort_field;
-
-                for(auto & facet_kv: this_facet.result_map) {
-                    uint32_t fhash = 0;
-                    if(group_limit) {
-                        fhash = facet_kv.first;
-                        // we have to add all group sets
-                        acc_facet.hash_groups[fhash].insert(
-                            this_facet.hash_groups[fhash].begin(),
-                            this_facet.hash_groups[fhash].end()
-                        );
-                    } else {
-                        size_t count = 0;
-                        if (acc_facet.result_map.count(facet_kv.first) == 0) {
-                            // not found, so set it
-                            count = facet_kv.second.count;
-                        } else {
-                            count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
-                        }
-                        acc_facet.result_map[facet_kv.first].count = count;
-                    }
-
-                    acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
-                    acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
-                    acc_facet.result_map[facet_kv.first].sort_field_val = facet_kv.second.sort_field_val;
-
-                    acc_facet.hash_tokens[facet_kv.first] = this_facet.hash_tokens[facet_kv.first];
-                }
-
-                for(auto& facet_kv: this_facet.value_result_map) {
-                    size_t count = 0;
-                    if(acc_facet.value_result_map.count(facet_kv.first) == 0) {
-                        // not found, so set it
-                        count = facet_kv.second.count;
-                    } else {
-                        count = acc_facet.value_result_map[facet_kv.first].count + facet_kv.second.count;
-                    }
-
-                    acc_facet.value_result_map[facet_kv.first].count = count;
-
-                    acc_facet.value_result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
-                    acc_facet.value_result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
-
-                    acc_facet.fvalue_tokens[facet_kv.first] = this_facet.fvalue_tokens[facet_kv.first];
-                }
-
-                if(this_facet.stats.fvcount != 0) {
-                    acc_facet.stats.fvcount += this_facet.stats.fvcount;
-                    acc_facet.stats.fvsum += this_facet.stats.fvsum;
-                    acc_facet.stats.fvmax = std::max(acc_facet.stats.fvmax, this_facet.stats.fvmax);
-                    acc_facet.stats.fvmin = std::min(acc_facet.stats.fvmin, this_facet.stats.fvmin);
-                }
+            for(auto& this_facet : facet_batch) {
+                auto& acc_facet = facets[this_facet.orig_index];
+                aggregate_facet(group_limit, this_facet, acc_facet);
             }
+        }
+
+        // do value based faceting which must be single thread on the entire resultset (without batching)
+        do_facets(value_facets, facet_query, estimate_facets, facet_sample_percent,
+                  facet_infos, group_limit, group_by_fields, group_missing_values,
+                  all_result_ids, all_result_ids_len, max_facet_values,
+                  is_wildcard_no_filter_query, facet_index_type);
+
+        for(auto& this_facet : value_facets) {
+            auto& acc_facet = facets[this_facet.orig_index];
+            aggregate_facet(group_limit, this_facet, acc_facet);
         }
 
         for(auto & acc_facet: facets) {
@@ -3324,6 +3299,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 std::chrono::high_resolution_clock::now() - beginF).count();
         LOG(INFO) << "Time for faceting: " << timeMillisF;*/
     }
+
     std::vector<facet_info_t> facet_infos(facets.size());
     compute_facet_infos(facets, facet_query, facet_query_num_typos,
                         &included_ids_vec[0], included_ids_vec.size(), group_by_fields,
@@ -3343,6 +3319,64 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     //LOG(INFO) << "Time taken for result calc: " << timeMillis << "ms";
 
     return Option(true);
+}
+
+void Index::aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const {
+    acc_facet.is_intersected = this_facet.is_intersected;
+    acc_facet.is_sort_by_alpha = this_facet.is_sort_by_alpha;
+    acc_facet.sort_order = this_facet.sort_order;
+    acc_facet.sort_field = this_facet.sort_field;
+
+    for(auto & facet_kv: this_facet.result_map) {
+        uint32_t fhash = 0;
+        if(group_limit) {
+            fhash = facet_kv.first;
+            // we have to add all group sets
+            acc_facet.hash_groups[fhash].insert(
+                this_facet.hash_groups[fhash].begin(),
+                this_facet.hash_groups[fhash].end()
+            );
+        } else {
+            size_t count = 0;
+            if (acc_facet.result_map.count(facet_kv.first) == 0) {
+                // not found, so set it
+                count = facet_kv.second.count;
+            } else {
+                count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
+            }
+            acc_facet.result_map[facet_kv.first].count = count;
+        }
+
+        acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
+        acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
+        acc_facet.result_map[facet_kv.first].sort_field_val = facet_kv.second.sort_field_val;
+
+        acc_facet.hash_tokens[facet_kv.first] = this_facet.hash_tokens[facet_kv.first];
+    }
+
+    for(auto& facet_kv: this_facet.value_result_map) {
+        size_t count = 0;
+        if(acc_facet.value_result_map.count(facet_kv.first) == 0) {
+            // not found, so set it
+            count = facet_kv.second.count;
+        } else {
+            count = acc_facet.value_result_map[facet_kv.first].count + facet_kv.second.count;
+        }
+
+        acc_facet.value_result_map[facet_kv.first].count = count;
+
+        acc_facet.value_result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
+        acc_facet.value_result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
+
+        acc_facet.fvalue_tokens[facet_kv.first] = this_facet.fvalue_tokens[facet_kv.first];
+    }
+
+    if(this_facet.stats.fvcount != 0) {
+        acc_facet.stats.fvcount += this_facet.stats.fvcount;
+        acc_facet.stats.fvsum += this_facet.stats.fvsum;
+        acc_facet.stats.fvmax = std::max(acc_facet.stats.fvmax, this_facet.stats.fvmax);
+        acc_facet.stats.fvmin = std::min(acc_facet.stats.fvmin, this_facet.stats.fvmin);
+    }
 }
 
 void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,

@@ -654,6 +654,56 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCountsFloatPrecision) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOptimizedFacetingTest, FacetFloatStats) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::FLOAT, true)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "Ford Mustang";
+    doc["points"] = 50.4;
+    coll1->add(doc.dump());
+
+    doc["id"] = "200";
+    doc["title"] = "Ford Mustang";
+    doc["points"] = 50.4;
+    coll1->add(doc.dump());
+
+    std::vector<std::string> facets = {"points"};
+
+    nlohmann::json results = coll1->search("*", {"title"}, "", facets, sort_fields, {0}, 10, 1,
+                                           token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10,"",  30UL, 4UL,
+                                           "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {},
+                                           4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                           7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                           "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_STREQ("points", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    ASSERT_EQ(5, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(50.40, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(50.40, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(100.80, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(50.40, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(1, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOptimizedFacetingTest, FacetDeleteRepeatingValuesInArray) {
     Collection *coll1;
 
