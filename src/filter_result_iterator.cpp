@@ -189,6 +189,7 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
         ref.insert(result.coll_to_references[i].begin(), result.coll_to_references[i].end());
     }
 
+    delete[] result.coll_to_references;
     result.coll_to_references = out_references;
 }
 
