@@ -502,12 +502,9 @@ TEST_F(AnalyticsManagerTest, QueryHitsCount) {
     ASSERT_EQ(1625365616, result[1]["timestamp"]);
 }
 
-TEST_F(AnalyticsManagerTest, EventsExpiry) {
-    //delete the analytic store db and reinit
-    delete analytics_store;
-    std::string analytics_db_path = "/tmp/typesense_test/analytics_db2";
-    analytics_store = new Store(analytics_db_path);
-    analyticsManager.init(store, analytics_store);
+TEST_F(AnalyticsManagerTest, EventsExpiryBasic) {
+    //flush all events from analytics store
+    analyticsManager.resetAnalyticsStore();
 
     nlohmann::json titles_schema = R"({
             "name": "titles",
@@ -520,6 +517,7 @@ TEST_F(AnalyticsManagerTest, EventsExpiry) {
 
     nlohmann::json events = nlohmann::json::array();
 
+    auto ts = 1701851341000000;
     nlohmann::json event;
     event["event_type"] = "click_events";
     event["q"] = "technology";
@@ -527,14 +525,12 @@ TEST_F(AnalyticsManagerTest, EventsExpiry) {
     event["doc_id"] = "21";
     event["position"] = 2;
     event["user_id"] = 13;
-    event["timestamp"] = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+    event["timestamp"] = ts;
     events.push_back(event);
 
     event["doc_id"] = "12";
     event["position"] = 3;
-    event["timestamp"] = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+    event["timestamp"] = ts+1000000; //1 sec later
     events.push_back(event);
 
     ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
@@ -551,10 +547,7 @@ TEST_F(AnalyticsManagerTest, EventsExpiry) {
     ASSERT_EQ(3, resp[1]["position"]);
     ASSERT_EQ(13, resp[1]["user_id"]);
 
-    LOG(INFO) << "waiting for TTL to pass";
-    sleep(1);//wait till ttl passes
-
-    analyticsManager.checkEventsExpiry(1000000); //1 second
+    analyticsManager.checkEventsExpiry();
 
     resp = analyticsManager.get_click_events();
     ASSERT_EQ(0, resp.size());
@@ -566,8 +559,7 @@ TEST_F(AnalyticsManagerTest, EventsExpiry) {
     event2["collection_id"] = "0";
     event2["user_id"] = 13;
     event2["hits_count"] = 124;
-    event2["timestamp"] = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+    event2["timestamp"] = ts + 10000000; //after 10s
 
     events.push_back(event2);
 
@@ -580,7 +572,8 @@ TEST_F(AnalyticsManagerTest, EventsExpiry) {
     ASSERT_EQ(124, resp[0]["hits_count"]);
 
     //now old click events will be deleted on checking expiry but query hits events will be remaining
-    analyticsManager.checkEventsExpiry(1000000); //1 second
+    // assumming ttl is ts + 5 sec
+    analyticsManager.checkEventsExpiry();
 
     resp = analyticsManager.get_click_events();
     ASSERT_EQ(0, resp.size());
@@ -590,4 +583,76 @@ TEST_F(AnalyticsManagerTest, EventsExpiry) {
     ASSERT_EQ("technology", resp[0]["q"]);
     ASSERT_EQ(13, resp[0]["user_id"]);
     ASSERT_EQ(124, resp[0]["hits_count"]);
+}
+
+TEST_F(AnalyticsManagerTest, EventsExpiryAll) {
+    //flush all events from analytics store
+    analyticsManager.resetAnalyticsStore();
+
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json events = nlohmann::json::array();
+
+    auto ts = 1701851341000000;
+    nlohmann::json event;
+    event["event_type"] = "click_events";
+    event["q"] = "technology";
+    event["collection_id"] = "0";
+    event["doc_id"] = "21";
+    event["position"] = 2;
+    event["user_id"] = 13;
+    event["timestamp"] = ts;
+    events.push_back(event);
+
+    event["doc_id"] = "12";
+    event["position"] = 3;
+    event["timestamp"] = ts + 1000000; //after 1s
+    events.push_back(event);
+
+    nlohmann::json event2;
+    event2["event_type"] = "query_hits_counts";
+    event2["q"] = "technology";
+    event2["collection_id"] = "0";
+    event2["user_id"] = 13;
+    event2["hits_count"] = 124;
+    event2["timestamp"] = ts + 2000000; //after 2s
+
+    events.push_back(event2);
+
+    ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
+
+    nlohmann::json resp = analyticsManager.get_click_events();
+    ASSERT_EQ(2, resp.size());
+    ASSERT_EQ("technology", resp[0]["q"]);
+    ASSERT_EQ("21", resp[0]["doc_id"]);
+    ASSERT_EQ(2, resp[0]["position"]);
+    ASSERT_EQ(13, resp[0]["user_id"]);
+
+    ASSERT_EQ("technology", resp[1]["q"]);
+    ASSERT_EQ("12", resp[1]["doc_id"]);
+    ASSERT_EQ(3, resp[1]["position"]);
+    ASSERT_EQ(13, resp[1]["user_id"]);
+
+    resp = analyticsManager.get_query_hits_counts();
+    ASSERT_EQ(1, resp.size());
+    ASSERT_EQ("technology", resp[0]["q"]);
+    ASSERT_EQ(13, resp[0]["user_id"]);
+    ASSERT_EQ(124, resp[0]["hits_count"]);
+
+    //check for events expiry
+    // assuming ttl is ts + 5 sec
+    analyticsManager.checkEventsExpiry();
+
+    resp = analyticsManager.get_click_events();
+    ASSERT_EQ(0, resp.size());
+
+    resp = analyticsManager.get_query_hits_counts();
+    ASSERT_EQ(0, resp.size());
 }

@@ -10,6 +10,7 @@
 LRU::Cache<std::string, event_cache_t> events_cache;
 #define CLICK_EVENTS_RATE_LIMIT_SEC 60
 #define CLICK_EVENTS_RATE_LIMIT_COUNT 5
+#define EVENTS_TTL_INTERVAL_US 2592000000000 //30days
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*
@@ -609,21 +610,49 @@ void AnalyticsManager::resetRateLimit() {
     events_cache.clear();
 }
 
-void AnalyticsManager::checkEventsExpiry(uint64_t events_ttl_interval) {
+void AnalyticsManager::resetAnalyticsStore() {
+    const std::string click_events_prefix = std::string(CLICK_EVENT) + "_";
+    const std::string query_hits_prefix = std::string(QUERY_HITS_COUNT) + "_";
+
+    //delete click events
+    auto delete_prefix_begin = click_events_prefix;
+    auto delete_prefix_end = click_events_prefix + "`";
+
+    analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+
+    //delete query hits counts
+    delete_prefix_begin = query_hits_prefix;
+    delete_prefix_end = query_hits_prefix + "`";
+
+    analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+}
+
+#ifdef TEST_BUILD
+uint64_t AnalyticsManager::get_current_time_us() {
+    uint64_t now_ts_useconds = 1701851345000000 + EVENTS_TTL_INTERVAL_US;
+
+    return now_ts_useconds;
+}
+#else
+uint64_t AnalyticsManager::get_current_time_us() {
+    uint64_t now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    return now_ts_useconds;
+}
+#endif
+
+void AnalyticsManager::checkEventsExpiry() {
     if (analytics_store) {
         //LOG(INFO) << "checking for events expiry";
 
         //we check for 30days events validity, events older than 30 days will be removed from db
-        auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-
-        auto ts_ttl_useconds = now_ts_useconds - events_ttl_interval;
+        auto ts_ttl_useconds = get_current_time_us() - EVENTS_TTL_INTERVAL_US;
 
         const std::string click_events_prefix = std::string(CLICK_EVENT) + "_";
         const std::string query_hits_prefix = std::string(QUERY_HITS_COUNT) + "_";
 
         //first remove click events
-
         auto delete_prefix_begin = click_events_prefix;
         auto delete_prefix_end = delete_prefix_begin + StringUtils::serialize_uint64_t(ts_ttl_useconds);
 
