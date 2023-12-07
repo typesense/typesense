@@ -7070,7 +7070,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                                const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
     for(const auto& field : embedding_fields) {
         std::vector<std::pair<index_record*, std::string>> values_to_embed;
-        bool is_image_embedding;
+        bool is_image_embedding = false;
         auto indexing_prefix = EmbedderManager::get_instance().get_indexing_prefix(field.embed[fields::model_config]);
         for(auto& record : records) {
             if(!record->indexed.ok()) {
@@ -7123,9 +7123,6 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         }
 
         std::vector<embedding_res_t> embeddings;
-
-
-
 
         // sort texts by length
         if(!is_image_embedding) {
