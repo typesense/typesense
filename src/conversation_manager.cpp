@@ -238,6 +238,7 @@ void ConversationManager::run() {
             return;
         }
 
+        lock.unlock();
         clear_expired_conversations();
     }
 }
