@@ -5,10 +5,12 @@
 #include "http_client.h"
 #include "collection_manager.h"
 #include "lru/lru.hpp"
+#include "string_utils.h"
 
 LRU::Cache<std::string, event_cache_t> events_cache;
 #define CLICK_EVENTS_RATE_LIMIT_SEC 60
 #define CLICK_EVENTS_RATE_LIMIT_COUNT 5
+#define EVENTS_TTL_INTERVAL_US 2592000000000 //30days
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*
@@ -341,6 +343,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
             continue;
         }
 
+        checkEventsExpiry();
         persist_query_events(raft_server, prev_persistence_s);
         persist_query_hits_click_events(raft_server, prev_persistence_s);
 
@@ -441,9 +444,9 @@ void AnalyticsManager::persist_query_hits_click_events(ReplicationState *raft_se
     // lock is held by caller
     nlohmann::json payload_json = nlohmann::json::array();
 
-    auto send_http_response = [&](const std::string& event_type) {
+    auto send_http_response = [&](const std::string& event_type)->bool {
         if(payload_json.empty()) {
-            return;
+            return false;
         }
 
         const std::string import_payload = payload_json.dump();
@@ -461,10 +464,11 @@ void AnalyticsManager::persist_query_hits_click_events(ReplicationState *raft_se
             if (status_code != 200) {
                 LOG(ERROR) << "Error while sending " << event_type <<" to leader. "
                            << "Status code: " << status_code << ", response: " << res;
-            } else {
-                query_collection_click_events.clear();
+                return false;
             }
+            return true;
         }
+        return false;
     };
 
     for (const auto &click_events_collection_it: query_collection_click_events) {
@@ -480,8 +484,12 @@ void AnalyticsManager::persist_query_hits_click_events(ReplicationState *raft_se
         }
     }
 
-    send_http_response("click_events");
+    if(send_http_response("click_events")) {
+        query_collection_click_events.clear();
+    }
 
+
+    payload_json.clear();
 
     for (const auto &query_collection_hits_count_it: query_collection_hits_count) {
         auto collection_id = CollectionManager::get_instance().get_collection(
@@ -495,7 +503,9 @@ void AnalyticsManager::persist_query_hits_click_events(ReplicationState *raft_se
             payload_json.push_back(query_hits_count_json);
         }
     }
-    send_http_response("query_hits_counts");
+    if(send_http_response("query_hits_counts")) {
+        query_collection_hits_count.clear();
+    }
 }
 
 void AnalyticsManager::stop() {
@@ -571,17 +581,16 @@ nlohmann::json AnalyticsManager::get_query_hits_counts() {
 }
 
 Option<bool> AnalyticsManager::write_events_to_store(nlohmann::json &event_jsons) {
+    //LOG(INFO) << "writing events to analytics db";
     for(const auto& event_json : event_jsons) {
         auto collection_id = event_json["collection_id"].get<std::string>();
         auto timestamp = event_json["timestamp"].get<uint64_t>();
 
-        std::string key = "";
+        std::string key = "_" + StringUtils::serialize_uint64_t(timestamp) + "_" + collection_id;
         if(event_json["event_type"] == "click_events") {
-           key = std::string(CLICK_EVENT) + "_" + collection_id + "_" +
-            std::to_string(timestamp);
+           key = std::string(CLICK_EVENT) + key;
         } else if(event_json["event_type"] == "query_hits_counts") {
-            key = std::string(QUERY_HITS_COUNT) + "_" + collection_id + "_" +
-                  std::to_string(timestamp);
+            key = std::string(QUERY_HITS_COUNT) + key;
         }
 
         if(analytics_store) {
@@ -599,4 +608,70 @@ Option<bool> AnalyticsManager::write_events_to_store(nlohmann::json &event_jsons
 
 void AnalyticsManager::resetRateLimit() {
     events_cache.clear();
+}
+
+void AnalyticsManager::resetAnalyticsStore() {
+    const std::string click_events_prefix = std::string(CLICK_EVENT) + "_";
+    const std::string query_hits_prefix = std::string(QUERY_HITS_COUNT) + "_";
+
+    //delete click events
+    auto delete_prefix_begin = click_events_prefix;
+    auto delete_prefix_end = click_events_prefix + "`";
+
+    analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+
+    //delete query hits counts
+    delete_prefix_begin = query_hits_prefix;
+    delete_prefix_end = query_hits_prefix + "`";
+
+    analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+}
+
+#ifdef TEST_BUILD
+uint64_t AnalyticsManager::get_current_time_us() {
+    uint64_t now_ts_useconds = 1701851345000000 + EVENTS_TTL_INTERVAL_US;
+
+    return now_ts_useconds;
+}
+#else
+uint64_t AnalyticsManager::get_current_time_us() {
+    uint64_t now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    return now_ts_useconds;
+}
+#endif
+
+void AnalyticsManager::checkEventsExpiry() {
+    if (analytics_store) {
+        //LOG(INFO) << "checking for events expiry";
+
+        //we check for 30days events validity, events older than 30 days will be removed from db
+        auto ts_ttl_useconds = get_current_time_us() - EVENTS_TTL_INTERVAL_US;
+
+        const std::string click_events_prefix = std::string(CLICK_EVENT) + "_";
+        const std::string query_hits_prefix = std::string(QUERY_HITS_COUNT) + "_";
+
+        //first remove click events
+        auto delete_prefix_begin = click_events_prefix;
+        auto delete_prefix_end = delete_prefix_begin + StringUtils::serialize_uint64_t(ts_ttl_useconds);
+
+        auto iter = analytics_store->get_iterator();
+        iter->Seek(delete_prefix_end);
+        if (!iter->Valid()) { //exact key or key greater than not found
+            delete_prefix_end = std::string(CLICK_EVENT) + "`";
+        }
+
+        analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+
+        //now remove query hits counts
+        delete_prefix_begin = query_hits_prefix;
+        delete_prefix_end = std::string(QUERY_HITS_COUNT) + "_" +
+                StringUtils::serialize_uint64_t(ts_ttl_useconds);
+
+        iter->SeekToFirst();
+        iter->Seek(delete_prefix_end);
+
+        analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+    }
 }
