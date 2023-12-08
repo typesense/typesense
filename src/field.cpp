@@ -866,6 +866,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
 
         std::string detected_type;
         bool found_dynamic_field = false;
+        field dyn_field(the_field.name, field_types::STRING, false);
 
         for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
             auto& dynamic_field = dyn_field_it->second;
@@ -877,6 +878,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
             if(std::regex_match(flat_name, std::regex(dynamic_field.name))) {
                 detected_type = dynamic_field.type;
                 found_dynamic_field = true;
+                dyn_field = dynamic_field;
                 break;
             }
         }
@@ -898,7 +900,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
             doc[flat_name] = value;
         }
 
-        field flattened_field = the_field;
+        field flattened_field = found_dynamic_field ? dyn_field : the_field;
         flattened_field.name = flat_name;
         flattened_field.type = detected_type;
         flattened_field.optional = true;
