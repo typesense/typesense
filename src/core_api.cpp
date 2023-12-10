@@ -1046,7 +1046,7 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
         return false;
     }
 
-    res->set_201(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+    res->set_200(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
