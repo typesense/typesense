@@ -2302,13 +2302,14 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
     return false;
 }
 
-void Index::search_infix(const std::string& query, const std::string& field_name,
-                         std::vector<uint32_t>& ids, const size_t max_extra_prefix, const size_t max_extra_suffix) const {
+Option<bool> Index::search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
+                                 const size_t max_extra_prefix, const size_t max_extra_suffix) const {
 
     auto infix_maps_it = infix_index.find(field_name);
 
     if(infix_maps_it == infix_index.end()) {
-        return ;
+        return Option<bool>(400, "Could not find `" + field_name + "` in the infix index. Make sure to enable infix "
+                                                                   "search by specifying `\"infix\": true` in the schema.");
     }
 
     auto infix_sets = infix_maps_it->second;
@@ -2377,6 +2378,8 @@ void Index::search_infix(const std::string& query, const std::string& field_name
     for(auto leaf: leaves) {
         posting_t::merge({leaf->values}, ids);
     }
+
+    return Option<bool>(true);
 }
 
 Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
@@ -5102,7 +5105,11 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
         if(field_infix == always || (field_infix == fallback && all_result_ids_len == 0)) {
             std::vector<uint32_t> infix_ids;
             filter_result_t filtered_infix_ids;
-            search_infix(query_tokens[0].value, field_name, infix_ids, max_extra_prefix, max_extra_suffix);
+            auto search_infix_op = search_infix(query_tokens[0].value, field_name, infix_ids,
+                                                max_extra_prefix, max_extra_suffix);
+            if (!search_infix_op.ok()) {
+                return search_infix_op;
+            }
 
             if(!infix_ids.empty()) {
                 gfx::timsort(infix_ids.begin(), infix_ids.end());

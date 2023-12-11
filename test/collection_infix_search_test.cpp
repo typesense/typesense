@@ -37,7 +37,8 @@ protected:
 
 TEST_F(CollectionInfixSearchTest, InfixBasics) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
-                                 field("points", field_types::INT32, false),};
+                                 field("points", field_types::INT32, false),
+                                 field("non_infix", field_types::STRING, true)};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
 
@@ -45,7 +46,18 @@ TEST_F(CollectionInfixSearchTest, InfixBasics) {
     doc["id"] = "0";
     doc["title"] = "GH100037IN8900X";
     doc["points"] = 100;
+    doc["non_infix"] = "foobar";
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto response = coll1->search("bar",
+                                 {"non_infix"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {always});
+    ASSERT_FALSE(response.ok());
+    ASSERT_EQ("Could not find `non_infix` in the infix index."
+              " Make sure to enable infix search by specifying `\"infix\": true` in the schema.", response.error());
 
     auto results = coll1->search("100037",
                                  {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
