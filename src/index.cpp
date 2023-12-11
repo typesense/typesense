@@ -2130,7 +2130,8 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                                      std::vector<std::string>& query_tokens,
                                      token_ordering token_order,
                                      filter_node_t*& filter_tree_root,
-                                     std::vector<const override_t*>& matched_dynamic_overrides) const {
+                                     std::vector<const override_t*>& matched_dynamic_overrides,
+                                     nlohmann::json& override_metadata) const {
     std::shared_lock lock(mutex);
 
     for (auto& override : filter_overrides) {
@@ -2140,6 +2141,9 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
             bool resolved_override = static_filter_query_eval(override, query_tokens, filter_tree_root);
 
             if (resolved_override) {
+                if(override_metadata.empty()) {
+                    override_metadata = override->metadata;
+                }
                 if (override->remove_matched_tokens) {
                     std::vector<std::string> rule_tokens;
                     Tokenizer(override->rule.query, true).tokenize(rule_tokens);
@@ -2166,6 +2170,10 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                                                       token_order, absorbed_tokens, filter_by_clause);
 
             if (resolved_override) {
+                if(override_metadata.empty()) {
+                    override_metadata = override->metadata;
+                }
+
                 filter_node_t* new_filter_tree_root = nullptr;
                 Option<bool> filter_op = filter::parse_filter_query(filter_by_clause, search_schema,
                                                                     store, "", new_filter_tree_root);

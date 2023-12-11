@@ -178,6 +178,13 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         override.replace_query = override_json["replace_query"].get<std::string>();
     }
 
+    if (override_json.count("metadata") != 0) {
+        if(!override_json["metadata"].is_object()) {
+            return Option<bool>(400, "The `metadata` must be a JSON object.");
+        }
+        override.metadata = override_json["metadata"];
+    }
+
     if(override_json.count("remove_matched_tokens") != 0) {
         override.remove_matched_tokens = override_json["remove_matched_tokens"].get<bool>();
     } else {

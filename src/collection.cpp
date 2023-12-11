@@ -821,7 +821,8 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
                                      std::vector<uint32_t>& excluded_ids,
                                      std::vector<const override_t*>& filter_overrides,
                                      bool& filter_curated_hits,
-                                     std::string& curated_sort_by) const {
+                                     std::string& curated_sort_by,
+                                     nlohmann::json& override_metadata) const {
 
     auto now_epoch = int64_t(std::time(0));
     if(override.effective_from_ts != -1 && now_epoch < override.effective_from_ts) {
@@ -888,6 +889,9 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
 
     filter_curated_hits = override.filter_curated_hits;
     curated_sort_by = override.sort_by;
+    if(override_metadata.empty()) {
+        override_metadata = override.metadata;
+    }
     return true;
 }
 
@@ -900,7 +904,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                 std::vector<uint32_t>& excluded_ids,
                                 std::vector<const override_t*>& filter_overrides,
                                 bool& filter_curated_hits,
-                                std::string& curated_sort_by) const {
+                                std::string& curated_sort_by,
+                                nlohmann::json& override_metadata) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -951,7 +956,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                                                    filter_query, already_segmented, tags,
                                                                    pinned_hits, hidden_hits, included_ids,
                                                                    excluded_ids, filter_overrides, filter_curated_hits,
-                                                                   curated_sort_by);
+                                                                   curated_sort_by, override_metadata);
 
                             if(match_found) {
                                 all_tags_found = true;
@@ -998,7 +1003,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                                                filter_query, already_segmented, tags,
                                                                pinned_hits, hidden_hits, included_ids,
                                                                excluded_ids, filter_overrides, filter_curated_hits,
-                                                               curated_sort_by);
+                                                               curated_sort_by, override_metadata);
 
                         if(match_found) {
                             found_overrides.insert(id);
@@ -1014,7 +1019,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                 const auto& override = override_kv.second;
                 bool match_found = does_override_match(override, query, excluded_set, actual_query, filter_query,
                                                        already_segmented, tags, pinned_hits, hidden_hits, included_ids,
-                                                       excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
+                                                       excluded_ids, filter_overrides, filter_curated_hits,
+                                                       curated_sort_by, override_metadata);
                 if(match_found && override.stop_processing) {
                     break;
                 }
@@ -2042,6 +2048,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<std::string> hidden_hits;
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
 
+    nlohmann::json override_metadata;
     std::vector<const override_t*> filter_overrides;
     bool filter_curated_hits = false;
     std::string curated_sort_by;
@@ -2055,7 +2062,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_overrides, filter_curated_hits,
-                   curated_sort_by);
+                   curated_sort_by, override_metadata);
 
     if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
         // When query param has explicit value set, override level configuration takes lower precedence.
@@ -2152,7 +2159,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         // included_ids, excluded_ids
         process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
-                                 included_ids, excluded_ids);
+                                 included_ids, excluded_ids, override_metadata);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -2888,6 +2895,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["request_params"]["per_page"] = per_page;
     result["request_params"]["q"] = raw_query;
 
+    if(!override_metadata.empty()) {
+        result["metadata"] = override_metadata;
+    }
+
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
@@ -3161,11 +3172,12 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
                                           token_ordering token_order,
                                           filter_node_t*& filter_tree_root,
                                           std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
-                                          std::vector<uint32_t>& excluded_ids) const {
+                                          std::vector<uint32_t>& excluded_ids,
+                                          nlohmann::json& override_metadata) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
     index->process_filter_overrides(filter_overrides, q_include_tokens, token_order,
-                                    filter_tree_root, matched_dynamic_overrides);
+                                    filter_tree_root, matched_dynamic_overrides, override_metadata);
 
     // we will check the dynamic overrides to see if they also have include/exclude
     std::set<uint32_t> excluded_set;

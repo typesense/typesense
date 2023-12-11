@@ -121,6 +121,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
 
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(3, results["found"].get<uint32_t>());
+    ASSERT_FALSE(results.contains("metadata"));
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("3", results["hits"][1]["document"]["id"].get<std::string>().c_str());
@@ -308,7 +309,8 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                            {"query", "not-found"},
                            {"match", override_t::MATCH_EXACT}
                    }
-            }
+            },
+            {"metadata", {{"foo", "bar"}}},
     };
 
     override_json_include["includes"] = nlohmann::json::array();
@@ -338,6 +340,7 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                                            spp::sparse_hash_set<std::string>(), 10, "starring: will").get();
 
     ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("bar", results["metadata"]["foo"].get<std::string>());
 
     // disable filter curation option
     override_json_include["filter_curated_hits"] = false;
@@ -2757,7 +2760,8 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultipleRuleMatch) {
             },
             {"remove_matched_tokens", true},
             {"stop_processing", false},
-            {"filter_by", "tags: twitter"}
+            {"filter_by", "tags: twitter"},
+            {"metadata", {{"foo", "bar"}}},
     };
 
     override_t override_filter1;
@@ -2790,6 +2794,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultipleRuleMatch) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("bar", results["metadata"]["foo"].get<std::string>());
 
     // when stop_processing is enabled (default is true)
     override_filter1_json.erase("stop_processing");
@@ -3577,7 +3582,8 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsWithoutStopProcessing) {
         },
         "stop_processing": false,
         "remove_matched_tokens": false,
-        "filter_by": "category: kitchen"
+        "filter_by": "category: kitchen",
+        "metadata": {"foo": "bar"}
     })"_json;
 
     override_t override2;
@@ -3614,6 +3620,60 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsWithoutStopProcessing) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("bar", results["metadata"]["foo"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, MetadataValidation) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING_ARRAY, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "queryA";
+    doc1["category"] = {"kids"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC")};
+
+    nlohmann::json override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+            "query": "queryA",
+            "match": "exact"
+        },
+        "filter_by": "category: kids",
+        "metadata": "foo"
+    })"_json;
+
+    override_t override1;
+    auto op = override_t::parse(override_json1, "ov-1", override1);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `metadata` must be a JSON object.", op.error());
+
+    override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+            "query": "queryA",
+            "match": "exact"
+        },
+        "filter_by": "category: kids",
+        "metadata": {"foo": "bar"}
+    })"_json;
+
+    op = override_t::parse(override_json1, "ov-1", override1);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override1);
 
     collectionManager.drop_collection("coll1");
 }

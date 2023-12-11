@@ -1022,7 +1022,8 @@ public:
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
                                   filter_node_t*& filter_tree_root,
-                                  std::vector<const override_t*>& matched_dynamic_overrides) const;
+                                  std::vector<const override_t*>& matched_dynamic_overrides,
+                                  nlohmann::json& override_metadata) const;
 
     Option<bool> compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,

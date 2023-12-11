@@ -194,7 +194,8 @@ private:
                              std::vector<uint32_t>& excluded_ids,
                              std::vector<const override_t*>& filter_overrides,
                              bool& filter_curated_hits,
-                             std::string& curated_sort_by) const;
+                             std::string& curated_sort_by,
+                             nlohmann::json& override_metadata) const;
 
     void curate_results(string& actual_query, const string& filter_query, bool enable_overrides, bool already_segmented,
                         const std::set<std::string>& tags,
@@ -203,7 +204,7 @@ private:
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                         std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
                         bool& filter_curated_hits,
-                        std::string& curated_sort_by) const;
+                        std::string& curated_sort_by, nlohmann::json& override_metadata) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
@@ -274,7 +275,8 @@ private:
                                   token_ordering token_order,
                                   filter_node_t*& filter_tree_root,
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
-                                  std::vector<uint32_t>& excluded_ids) const;
+                                  std::vector<uint32_t>& excluded_ids,
+                                  nlohmann::json& override_metadata) const;
 
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type) const;
 
