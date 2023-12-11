@@ -813,8 +813,8 @@ public:
                                  const std::vector<size_t>& geopoint_indices,
                                  const std::string& collection_name = "") const;
 
-    void search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
-                      size_t max_extra_prefix, size_t max_extra_suffix) const;
+    Option<bool> search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
+                              size_t max_extra_prefix, size_t max_extra_suffix) const;
 
     void curate_filtered_ids(const std::set<uint32_t>& curated_ids,
                              const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
