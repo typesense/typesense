@@ -190,6 +190,86 @@ TEST_F(CollectionInfixSearchTest, InfixWithFiltering) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    auto schema_json =
+            R"({
+                "name": "Foods",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "summary", "type": "string"},
+                    {"name": "rating", "type": "int32"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "Spicy Chicken Tacos",
+                "summary": "These are tacos made with spicy chicken fillings.",
+                "rating": 2
+            })"_json,
+             R"({
+                "title": "Salad With Taco Toppings",
+                "summary": "Healthy salad with taco seasoning topping.",
+                "rating": 3
+            })"_json,
+             R"({
+                "title": "Beef Street Tacos",
+                "summary": "Just like eating in Mexico!",
+                "rating": 1
+            })"_json,
+             R"({
+                "title": "Bean Burritos",
+                "summary": "Home made beans wrapped in a tortilla.",
+                "rating": 3
+            })"_json,
+             R"({
+                "title": "Cheese Enchiladas",
+                "summary": "Fresh cheese tortilla wrapped and baked.",
+                "rating": 2
+            })"_json,
+             R"({
+                "title": "Green Sauce Tacoquitos",
+                "summary": "Deep fried tacos covered in green sauce.",
+                "rating": 5
+            })"_json,
+             R"({
+                "title": "Susan's SuperTacosSupereme",
+                "summary": "The famous chef Susan Pancakey's taco supreme.",
+                "rating": 1
+            })"_json,
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Foods"},
+            {"q", "taco"},
+            {"query_by", "title,summary"},
+            {"infix", "always,always"},
+            {"filter_by", "rating:>=2 && rating:<=4"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    nlohmann::json result = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(2, result["found"].get<size_t>());
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("1", result["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(3, result["hits"][0]["document"]["rating"].get<std::int32_t>());
+    ASSERT_EQ("Salad With Taco Toppings", result["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("0", result["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, result["hits"][1]["document"]["rating"].get<std::int32_t>());
+    ASSERT_EQ("Spicy Chicken Tacos", result["hits"][1]["document"]["title"].get<std::string>());
+
     collectionManager.drop_collection("coll1");
 }
 

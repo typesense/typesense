@@ -5128,6 +5128,7 @@ Option<bool> Index::do_infix_search(const size_t num_search_fields, const std::v
                     }
 
                     filtered_infix_ids = std::move(result);
+                    filter_result_iterator->reset();
                 }
 
                 bool field_is_array = search_schema.at(the_fields[field_id].name).is_array();
