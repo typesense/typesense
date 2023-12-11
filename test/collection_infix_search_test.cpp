@@ -194,8 +194,8 @@ TEST_F(CollectionInfixSearchTest, InfixWithFiltering) {
             R"({
                 "name": "Foods",
                 "fields": [
-                    {"name": "title", "type": "string"},
-                    {"name": "summary", "type": "string"},
+                    {"name": "title", "type": "string", "infix": true},
+                    {"name": "summary", "type": "string", "infix": true},
                     {"name": "rating", "type": "int32"}
                 ]
             })"_json;
