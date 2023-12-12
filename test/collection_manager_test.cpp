@@ -1425,6 +1425,15 @@ TEST_F(CollectionManagerTest, GetReferenceCollectionNames) {
         ASSERT_EQ(1, reference_collection_names.count(item));
     }
     reference_collection_names.clear();
+
+    filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
+    result = {"product_variants", "inventory", "retailers"};
+    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+    ASSERT_EQ(3, reference_collection_names.size());
+    for (const auto &item: result) {
+        ASSERT_EQ(1, reference_collection_names.count(item));
+    }
+    reference_collection_names.clear();
 }
 
 TEST_F(CollectionManagerTest, ReferencedInBacklog) {

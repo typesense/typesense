@@ -951,6 +951,10 @@ void CollectionManager::_get_reference_collection_names(const std::string& filte
                     reference_collection_names.clear();
                     return;
                 }
+
+                // Need to process the filter expression inside parenthesis in case of nested join.
+                auto sub_filter_query = filter_query.substr(open_paren_pos + 1, i - open_paren_pos - 2);
+                _get_reference_collection_names(sub_filter_query, reference_collection_names);
             } else {
                 while (i + 1 < size && filter_query[++i] != ':');
                 if (i >= size) {
