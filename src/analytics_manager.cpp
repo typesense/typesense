@@ -543,10 +543,6 @@ void AnalyticsManager::persist_query_hits_click_events(ReplicationState *raft_se
 
 void AnalyticsManager::persist_popular_clicks(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     auto send_http_response = [&](const std::string& import_payload, const std::string& collection) {
-        if (import_payload.empty()) {
-            return;
-        }
-
         std::string leader_url = raft_server->get_leader_url();
         if (!leader_url.empty()) {
             const std::string &base_url = leader_url + "collections/" + collection;
@@ -571,7 +567,7 @@ void AnalyticsManager::persist_popular_clicks(ReplicationState *raft_server, uin
         for(const auto& popular_click : popular_clicks_it.second.docid_counts) {
             doc["id"] = popular_click.first;
             doc[counter_field] = popular_click.second;
-            send_http_response(doc, coll);
+            send_http_response(doc.dump(), coll);
         }
     }
 }
