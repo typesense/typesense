@@ -5,10 +5,12 @@
 #include "http_client.h"
 #include "collection_manager.h"
 #include "lru/lru.hpp"
+#include "string_utils.h"
 
 LRU::Cache<std::string, event_cache_t> events_cache;
 #define CLICK_EVENTS_RATE_LIMIT_SEC 60
 #define CLICK_EVENTS_RATE_LIMIT_COUNT 5
+#define EVENTS_TTL_INTERVAL_US 2592000000000 //30days
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*
@@ -41,14 +43,14 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert,
         return Option<bool>(400, "Bad or missing params.");
     }
 
-    if(payload["type"] == POPULAR_QUERIES_TYPE) {
-        return create_popular_queries_index(payload, upsert, write_to_disk);
+    if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE) {
+        return create_queries_index(payload, upsert, write_to_disk);
     }
 
     return Option<bool>(400, "Invalid type.");
 }
 
-Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payload, bool upsert, bool write_to_disk) {
+Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, bool upsert, bool write_to_disk) {
     // params and name are validated upstream
     const std::string& suggestion_config_name = payload["name"].get<std::string>();
     bool already_exists = suggestion_configs.find(suggestion_config_name) != suggestion_configs.end();
@@ -88,8 +90,14 @@ Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payl
     suggestion_config.suggestion_collection = suggestion_collection;
     suggestion_config.limit = limit;
 
-    if(!upsert && popular_queries.count(suggestion_collection) != 0) {
-        return Option<bool>(400, "There's already another configuration for this destination collection.");
+    if(payload["type"] == POPULAR_QUERIES_TYPE) {
+        if (!upsert && popular_queries.count(suggestion_collection) != 0) {
+            return Option<bool>(400, "There's already another configuration for this destination collection.");
+        }
+    } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
+        if (!upsert && nohits_queries.count(suggestion_collection) != 0) {
+            return Option<bool>(400, "There's already another configuration for this destination collection.");
+        }
     }
 
     for(const auto& coll: params["source"]["collections"]) {
@@ -105,7 +113,7 @@ Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payl
 
     if(already_exists) {
         // remove the previous configuration with same name (upsert)
-        Option<bool> remove_op = remove_popular_queries_index(suggestion_config_name);
+        Option<bool> remove_op = remove_queries_index(suggestion_config_name);
         if(!remove_op.ok()) {
             return Option<bool>(500, "Error erasing the existing configuration.");;
         }
@@ -117,8 +125,13 @@ Option<bool> AnalyticsManager::create_popular_queries_index(nlohmann::json &payl
         query_collection_mapping[query_coll].push_back(suggestion_collection);
     }
 
-    PopularQueries* popularQueries = new PopularQueries(limit);
-    popular_queries.emplace(suggestion_collection, popularQueries);
+    if(payload["type"] == POPULAR_QUERIES_TYPE) {
+        QueryAnalytics *popularQueries = new QueryAnalytics(limit);
+        popular_queries.emplace(suggestion_collection, popularQueries);
+    } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
+        QueryAnalytics *noresultsQueries = new QueryAnalytics(limit);
+        nohits_queries.emplace(suggestion_collection, noresultsQueries);
+    }
 
     if(write_to_disk) {
         auto suggestion_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + suggestion_config_name;
@@ -135,6 +148,10 @@ AnalyticsManager::~AnalyticsManager() {
     std::unique_lock lock(mutex);
 
     for(auto& kv: popular_queries) {
+        delete kv.second;
+    }
+
+    for(auto& kv: nohits_queries) {
         delete kv.second;
     }
 }
@@ -154,7 +171,7 @@ Option<nlohmann::json> AnalyticsManager::list_rules() {
     return Option<nlohmann::json>(rules);
 }
 
-Option<nlohmann::json> AnalyticsManager::get_rule(const string& name) {
+Option<nlohmann::json> AnalyticsManager::get_rule(const std::string& name) {
     nlohmann::json rule;
     std::unique_lock lock(mutex);
 
@@ -167,18 +184,18 @@ Option<nlohmann::json> AnalyticsManager::get_rule(const string& name) {
     return Option<nlohmann::json>(rule);
 }
 
-Option<bool> AnalyticsManager::remove_rule(const string &name) {
+Option<bool> AnalyticsManager::remove_rule(const std::string &name) {
     std::unique_lock lock(mutex);
 
     auto suggestion_configs_it = suggestion_configs.find(name);
     if(suggestion_configs_it != suggestion_configs.end()) {
-        return remove_popular_queries_index(name);
+        return remove_queries_index(name);
     }
 
     return Option<bool>(404, "Rule not found.");
 }
 
-Option<bool> AnalyticsManager::remove_popular_queries_index(const std::string &name) {
+Option<bool> AnalyticsManager::remove_queries_index(const std::string &name) {
     // lock is held by caller
     auto suggestion_configs_it = suggestion_configs.find(name);
 
@@ -195,6 +212,11 @@ Option<bool> AnalyticsManager::remove_popular_queries_index(const std::string &n
     if(popular_queries.count(suggestion_collection) != 0) {
         delete popular_queries[suggestion_collection];
         popular_queries.erase(suggestion_collection);
+    }
+
+    if(nohits_queries.count(suggestion_collection) != 0) {
+        delete nohits_queries[suggestion_collection];
+        nohits_queries.erase(suggestion_collection);
     }
 
     suggestion_configs.erase(name);
@@ -253,7 +275,7 @@ Option<bool> AnalyticsManager::add_click_event(const std::string &query_collecti
         auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
-        ClickEvent click_event(query, now_ts_useconds, user_id, doc_id, position);
+        click_event_t click_event(query, now_ts_useconds, user_id, doc_id, position);
         click_events_vec.emplace_back(click_event);
 
         return Option<bool>(true);
@@ -261,6 +283,40 @@ Option<bool> AnalyticsManager::add_click_event(const std::string &query_collecti
 
     LOG(ERROR) << "Analytics Directory not provided.";
     return Option<bool>(true);
+}
+
+void AnalyticsManager::add_nohits_query(const std::string &query_collection, const std::string &query,
+                                        bool live_query, const std::string &user_id) {
+    // look up suggestion collections for the query collection
+    std::unique_lock lock(mutex);
+    const auto& suggestion_collections_it = query_collection_mapping.find(query_collection);
+    if(suggestion_collections_it != query_collection_mapping.end()) {
+        for(const auto& suggestion_collection: suggestion_collections_it->second) {
+            const auto& noresults_queries_it = nohits_queries.find(suggestion_collection);
+            if(noresults_queries_it != nohits_queries.end()) {
+                noresults_queries_it->second->add(query, live_query, user_id);
+            }
+        }
+    }
+}
+
+void AnalyticsManager::add_query_hits_count(const std::string &query_collection, const std::string &query,
+                                                  const std::string &user_id, uint64_t hits_count) {
+    std::unique_lock lock(mutex);
+    if(analytics_store) {
+        auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto &query_hits_count_set = query_collection_hits_count[query_collection];
+        query_hits_count_t queryHitsCount(query, now_ts_useconds, user_id, hits_count);
+        auto query_hits_count_set_it = query_hits_count_set.find(queryHitsCount);
+
+        if(query_hits_count_set_it != query_hits_count_set.end()) {
+            query_hits_count_set.erase(query_hits_count_set_it);
+        }
+
+        query_hits_count_set.emplace(queryHitsCount);
+    }
 }
 
 void AnalyticsManager::run(ReplicationState* raft_server) {
@@ -287,8 +343,10 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
             continue;
         }
 
-        persist_suggestions(raft_server, prev_persistence_s);
-        persist_click_events(raft_server, prev_persistence_s);
+        checkEventsExpiry();
+        persist_query_events(raft_server, prev_persistence_s);
+        persist_query_hits_click_events(raft_server, prev_persistence_s);
+
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -298,34 +356,11 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
     dispose();
 }
 
-void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // lock is held by caller
-    for(const auto& suggestion_config: suggestion_configs) {
-        const std::string& sink_name = suggestion_config.first;
-        const std::string& suggestion_coll = suggestion_config.second.suggestion_collection;
 
-        auto popular_queries_it = popular_queries.find(suggestion_coll);
-        if(popular_queries_it == popular_queries.end()) {
-            continue;
-        }
-
-        // need to prepare the counts as JSON docs for import into the suggestion collection
-        // {"id": "432432", "q": "foo", "$operations": {"increment": {"count": 100}}}
-
-        PopularQueries* popularQueries = popular_queries_it->second;
-
-        // aggregate prefix queries to their final form
-        auto now = std::chrono::system_clock::now().time_since_epoch();
-        auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
-        popularQueries->compact_user_queries(now_ts_us);
-
-        std::string import_payload;
-        popularQueries->serialize_as_docs(import_payload);
-
-        if(import_payload.empty()) {
-            continue;
-        }
-
+    auto send_http_response = [&](QueryAnalytics* queryAnalyticsPtr,
+            const std::string& import_payload, const std::string& suggestion_coll, const std::string& query_type) {
         // send http request
         std::string leader_url = raft_server->get_leader_url();
         if(!leader_url.empty()) {
@@ -338,21 +373,21 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
                                                          res, res_headers, {}, 10*1000, true);
 
             if(status_code != 200) {
-                LOG(ERROR) << "Error while sending query suggestions events to leader. "
+                LOG(ERROR) << "Error while sending "<< query_type <<" events to leader. "
                            << "Status code: " << status_code << ", response: " << res;
             } else {
                 LOG(INFO) << "Query aggregation for collection: " + suggestion_coll;
-                popularQueries->reset_local_counts();
+                queryAnalyticsPtr->reset_local_counts();
 
                 if(raft_server->is_leader()) {
                     // try to run top-K compaction of suggestion collection
-                    const std::string top_k_param = "count:" + std::to_string(popularQueries->get_k());
+                    const std::string top_k_param = "count:" + std::to_string(queryAnalyticsPtr->get_k());
                     const std::string& truncate_topk_url = base_url + "/documents?top_k_by=" + top_k_param;
                     res.clear();
                     res_headers.clear();
                     status_code = HttpClient::delete_response(truncate_topk_url, res, res_headers, 10*1000, true);
                     if(status_code != 200) {
-                        LOG(ERROR) << "Error while running top K for query suggestions collection. "
+                        LOG(ERROR) << "Error while running top K for " << query_type <<" suggestions collection. "
                                    << "Status code: " << status_code << ", response: " << res;
                     } else {
                         LOG(INFO) << "Top K aggregation for collection: " + suggestion_coll;
@@ -360,12 +395,81 @@ void AnalyticsManager::persist_suggestions(ReplicationState *raft_server, uint64
                 }
             }
         }
+    };
+
+
+    for(const auto& suggestion_config: suggestion_configs) {
+        const std::string& sink_name = suggestion_config.first;
+        const std::string& suggestion_coll = suggestion_config.second.suggestion_collection;
+
+        auto popular_queries_it = popular_queries.find(suggestion_coll);
+        auto nohits_queries_it = nohits_queries.find(suggestion_coll);
+
+        // need to prepare the counts as JSON docs for import into the suggestion collection
+        // {"id": "432432", "q": "foo", "$operations": {"increment": {"count": 100}}}
+        std::string import_payload;
+
+        if(popular_queries_it != popular_queries.end()) {
+            import_payload.clear();
+            QueryAnalytics *popularQueries = popular_queries_it->second;
+
+            // aggregate prefix queries to their final form
+            auto now = std::chrono::system_clock::now().time_since_epoch();
+            auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+            popularQueries->compact_user_queries(now_ts_us);
+
+            popularQueries->serialize_as_docs(import_payload);
+            send_http_response(popularQueries, import_payload, suggestion_coll, "popular queries");
+        }
+
+        if(nohits_queries_it != nohits_queries.end()) {
+            import_payload.clear();
+            QueryAnalytics *nohitsQueries = nohits_queries_it->second;
+            // aggregate prefix queries to their final form
+            auto now = std::chrono::system_clock::now().time_since_epoch();
+            auto now_ts_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+            nohitsQueries->compact_user_queries(now_ts_us);
+
+            nohitsQueries->serialize_as_docs(import_payload);
+            send_http_response(nohitsQueries, import_payload, suggestion_coll, "nohits queries");
+        }
+
+        if(import_payload.empty()) {
+            continue;
+        }
     }
 }
 
-void AnalyticsManager::persist_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+void AnalyticsManager::persist_query_hits_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // lock is held by caller
     nlohmann::json payload_json = nlohmann::json::array();
+
+    auto send_http_response = [&](const std::string& event_type)->bool {
+        if(payload_json.empty()) {
+            return false;
+        }
+
+        const std::string import_payload = payload_json.dump();
+
+        std::string leader_url = raft_server->get_leader_url();
+        if (!leader_url.empty()) {
+            const std::string &base_url = leader_url + "analytics";
+            std::string res;
+
+            const std::string &update_url = base_url + "/" + event_type +"/replicate";
+            std::map<std::string, std::string> res_headers;
+            long status_code = HttpClient::post_response(update_url, import_payload,
+                                                         res, res_headers, {}, 10 * 1000, true);
+
+            if (status_code != 200) {
+                LOG(ERROR) << "Error while sending " << event_type <<" to leader. "
+                           << "Status code: " << status_code << ", response: " << res;
+                return false;
+            }
+            return true;
+        }
+        return false;
+    };
 
     for (const auto &click_events_collection_it: query_collection_click_events) {
         auto collection_id = CollectionManager::get_instance().get_collection(
@@ -375,32 +479,32 @@ void AnalyticsManager::persist_click_events(ReplicationState *raft_server, uint6
             nlohmann::json click_event_json;
             click_event.to_json(click_event_json);
             click_event_json["collection_id"] = std::to_string(collection_id);
+            click_event_json["event_type"] = "click_events";
             payload_json.push_back(click_event_json);
         }
     }
 
-    if(payload_json.empty()) {
-        return;
+    if(send_http_response("click_events")) {
+        query_collection_click_events.clear();
     }
 
-    const std::string import_payload = payload_json.dump();
 
-    std::string leader_url = raft_server->get_leader_url();
-    if (!leader_url.empty()) {
-        const std::string &base_url = leader_url + "analytics";
-        std::string res;
+    payload_json.clear();
 
-        const std::string &update_url = base_url + "/click_events/replicate";
-        std::map<std::string, std::string> res_headers;
-        long status_code = HttpClient::post_response(update_url, import_payload,
-                                                     res, res_headers, {}, 10 * 1000, true);
-
-        if (status_code != 200) {
-            LOG(ERROR) << "Error while sending click events to leader. "
-                       << "Status code: " << status_code << ", response: " << res;
-        } else {
-            query_collection_click_events.clear();
+    for (const auto &query_collection_hits_count_it: query_collection_hits_count) {
+        auto collection_id = CollectionManager::get_instance().get_collection(
+                query_collection_hits_count_it.first)->get_collection_id();
+        for (const auto &query_hits_count: query_collection_hits_count_it.second) {
+            // send http request
+            nlohmann::json query_hits_count_json;
+            query_hits_count.to_json(query_hits_count_json);
+            query_hits_count_json["collection_id"] = std::to_string(collection_id);
+            query_hits_count_json["event_type"] = "query_hits_counts";
+            payload_json.push_back(query_hits_count_json);
         }
+    }
+    if(send_http_response("query_hits_counts")) {
+        query_collection_hits_count.clear();
     }
 }
 
@@ -417,6 +521,12 @@ void AnalyticsManager::dispose() {
     }
 
     popular_queries.clear();
+
+    for(auto& kv: nohits_queries) {
+        delete kv.second;
+    }
+
+    nohits_queries.clear();
 }
 
 void AnalyticsManager::init(Store* store, Store* analytics_store) {
@@ -424,9 +534,14 @@ void AnalyticsManager::init(Store* store, Store* analytics_store) {
     this->analytics_store = analytics_store;
 }
 
-std::unordered_map<std::string, PopularQueries*> AnalyticsManager::get_popular_queries() {
+std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_popular_queries() {
     std::unique_lock lk(mutex);
     return popular_queries;
+}
+
+std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_nohits_queries() {
+    std::unique_lock lk(mutex);
+    return nohits_queries;
 }
 
 nlohmann::json AnalyticsManager::get_click_events() {
@@ -447,16 +562,42 @@ nlohmann::json AnalyticsManager::get_click_events() {
     return result_json;
 }
 
-Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_event_jsons) {
-    for(const auto& click_event_json : click_event_jsons) {
-        auto collection_id = click_event_json["collection_id"].get<std::string>();
-        auto timestamp = click_event_json["timestamp"].get<uint64_t>();
-        const std::string key = std::string(CLICK_EVENT) + "_" + collection_id + "_" +
-                                std::to_string(timestamp);
+nlohmann::json AnalyticsManager::get_query_hits_counts() {
+    std::unique_lock lk(mutex);
+    std::vector<std::string> query_hits_counts_jsons;
+    nlohmann::json result_json = nlohmann::json::array();
+
+    if (analytics_store) {
+        analytics_store->scan_fill(std::string(QUERY_HITS_COUNT) + "_", std::string(QUERY_HITS_COUNT) + "`",
+                                   query_hits_counts_jsons);
+
+        for (const auto &query_hits_count_json: query_hits_counts_jsons) {
+            nlohmann::json query_hits_count = nlohmann::json::parse(query_hits_count_json);
+            result_json.push_back(query_hits_count);
+        }
+    }
+
+    return result_json;
+}
+
+Option<bool> AnalyticsManager::write_events_to_store(nlohmann::json &event_jsons) {
+    //LOG(INFO) << "writing events to analytics db";
+    for(const auto& event_json : event_jsons) {
+        auto collection_id = event_json["collection_id"].get<std::string>();
+        auto timestamp = event_json["timestamp"].get<uint64_t>();
+
+        std::string key = "_" + StringUtils::serialize_uint64_t(timestamp) + "_" + collection_id;
+        if(event_json["event_type"] == "click_events") {
+           key = std::string(CLICK_EVENT) + key;
+        } else if(event_json["event_type"] == "query_hits_counts") {
+            key = std::string(QUERY_HITS_COUNT) + key;
+        }
+
         if(analytics_store) {
-            bool inserted = analytics_store->insert(key, click_event_json.dump());
+            bool inserted = analytics_store->insert(key, event_json.dump());
             if (!inserted) {
-                return Option<bool>(500, "Unable to insert clickevent into store.");
+                std::string error = "Unable to insert " + std::string(event_json["event_type"]) + " to store";
+                return Option<bool>(500, error);
             }
         } else {
             return Option<bool>(500, "Analytics DB not initialized.");
@@ -467,4 +608,70 @@ Option<bool> AnalyticsManager::write_click_event_to_store(nlohmann::json &click_
 
 void AnalyticsManager::resetRateLimit() {
     events_cache.clear();
+}
+
+void AnalyticsManager::resetAnalyticsStore() {
+    const std::string click_events_prefix = std::string(CLICK_EVENT) + "_";
+    const std::string query_hits_prefix = std::string(QUERY_HITS_COUNT) + "_";
+
+    //delete click events
+    auto delete_prefix_begin = click_events_prefix;
+    auto delete_prefix_end = click_events_prefix + "`";
+
+    analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+
+    //delete query hits counts
+    delete_prefix_begin = query_hits_prefix;
+    delete_prefix_end = query_hits_prefix + "`";
+
+    analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+}
+
+#ifdef TEST_BUILD
+uint64_t AnalyticsManager::get_current_time_us() {
+    uint64_t now_ts_useconds = 1701851345000000 + EVENTS_TTL_INTERVAL_US;
+
+    return now_ts_useconds;
+}
+#else
+uint64_t AnalyticsManager::get_current_time_us() {
+    uint64_t now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    return now_ts_useconds;
+}
+#endif
+
+void AnalyticsManager::checkEventsExpiry() {
+    if (analytics_store) {
+        //LOG(INFO) << "checking for events expiry";
+
+        //we check for 30days events validity, events older than 30 days will be removed from db
+        auto ts_ttl_useconds = get_current_time_us() - EVENTS_TTL_INTERVAL_US;
+
+        const std::string click_events_prefix = std::string(CLICK_EVENT) + "_";
+        const std::string query_hits_prefix = std::string(QUERY_HITS_COUNT) + "_";
+
+        //first remove click events
+        auto delete_prefix_begin = click_events_prefix;
+        auto delete_prefix_end = delete_prefix_begin + StringUtils::serialize_uint64_t(ts_ttl_useconds);
+
+        auto iter = analytics_store->get_iterator();
+        iter->Seek(delete_prefix_end);
+        if (!iter->Valid()) { //exact key or key greater than not found
+            delete_prefix_end = std::string(CLICK_EVENT) + "`";
+        }
+
+        analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+
+        //now remove query hits counts
+        delete_prefix_begin = query_hits_prefix;
+        delete_prefix_end = std::string(QUERY_HITS_COUNT) + "_" +
+                StringUtils::serialize_uint64_t(ts_ttl_useconds);
+
+        iter->SeekToFirst();
+        iter->Seek(delete_prefix_end);
+
+        analytics_store->delete_range(delete_prefix_begin, delete_prefix_end);
+    }
 }

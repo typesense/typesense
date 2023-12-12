@@ -121,6 +121,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
 
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(3, results["found"].get<uint32_t>());
+    ASSERT_FALSE(results.contains("metadata"));
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("3", results["hits"][1]["document"]["id"].get<std::string>().c_str());
@@ -308,7 +309,8 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                            {"query", "not-found"},
                            {"match", override_t::MATCH_EXACT}
                    }
-            }
+            },
+            {"metadata", {{"foo", "bar"}}},
     };
 
     override_json_include["includes"] = nlohmann::json::array();
@@ -338,6 +340,7 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                                            spp::sparse_hash_set<std::string>(), 10, "starring: will").get();
 
     ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("bar", results["metadata"]["foo"].get<std::string>());
 
     // disable filter curation option
     override_json_include["filter_curated_hits"] = false;
@@ -2757,7 +2760,8 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultipleRuleMatch) {
             },
             {"remove_matched_tokens", true},
             {"stop_processing", false},
-            {"filter_by", "tags: twitter"}
+            {"filter_by", "tags: twitter"},
+            {"metadata", {{"foo", "bar"}}},
     };
 
     override_t override_filter1;
@@ -2765,6 +2769,8 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultipleRuleMatch) {
     ASSERT_TRUE(op.ok());
 
     coll1->add_override(override_filter1);
+
+    ASSERT_EQ("bar", override_filter1.to_json()["metadata"]["foo"].get<std::string>());
 
     nlohmann::json override_filter2_json = {
             {"id",   "dynamic-filter-2"},
@@ -2790,6 +2796,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultipleRuleMatch) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("bar", results["metadata"]["foo"].get<std::string>());
 
     // when stop_processing is enabled (default is true)
     override_filter1_json.erase("stop_processing");
@@ -3350,7 +3357,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
     ASSERT_TRUE(op.ok());
     coll1->add_override(override1);
 
-    //
+    // single tag
     nlohmann::json override_json2 = R"({
        "id": "ov-2",
        "rule": {
@@ -3366,7 +3373,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
     ASSERT_TRUE(op.ok());
     coll1->add_override(override2);
 
-    //
+    // no tag
     nlohmann::json override_json3 = R"({
        "id": "ov-3",
        "rule": {
@@ -3435,6 +3442,20 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // query with no tags should only trigger override with no tags
+    results = coll1->search("queryA", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, -1, "", "").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -3577,7 +3598,8 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsWithoutStopProcessing) {
         },
         "stop_processing": false,
         "remove_matched_tokens": false,
-        "filter_by": "category: kitchen"
+        "filter_by": "category: kitchen",
+        "metadata": {"foo": "bar"}
     })"_json;
 
     override_t override2;
@@ -3614,6 +3636,274 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsWithoutStopProcessing) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("bar", results["metadata"]["foo"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, WildcardTagRuleThatMatchesAllQueries) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "queryA";
+    doc1["category"] = "kids";
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "queryA";
+    doc2["category"] = "kitchen";
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Clay Toy";
+    doc3["category"] = "home";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC")};
+
+    nlohmann::json override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+
+        },
+        "filter_by": "category: kids"
+    })"_json;
+
+    override_t override1;
+    auto op = override_t::parse(override_json1, "ov-1", override1);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `rule` definition must contain either a `tags` or a `query` and `match`.", op.error());
+
+    override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+            "tags": ["*"]
+        },
+        "filter_by": "category: kids"
+    })"_json;
+
+    op = override_t::parse(override_json1, "ov-1", override1);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override1);
+
+    // should match all search queries, even without passing any tags
+    std::string override_tags = "";
+    auto results = coll1->search("queryB", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                 0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                                 true, true, false, -1, "", override_tags).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("queryA", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, -1, "", override_tags).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // includes instead of filter_by
+    coll1->remove_override("ov-1");
+    override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+            "tags": ["*"]
+        },
+        "includes": [
+            {"id": "1", "position": 1}
+        ]
+    })"_json;
+
+    op = override_t::parse(override_json1, "ov-1", override1);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override1);
+
+    results = coll1->search("foobar", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, -1, "", override_tags).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, TagsOnlyRule) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING_ARRAY, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "queryA";
+    doc1["category"] = {"kids"};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "queryA";
+    doc2["category"] = {"kitchen"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC")};
+    override_t override1;
+    auto override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+            "tags": ["listing"]
+        },
+        "filter_by": "category: kids"
+    })"_json;
+
+    auto op = override_t::parse(override_json1, "ov-1", override1);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override1);
+
+    auto results = coll1->search("queryA", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                 0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                                 true, true, false, -1, "", "listing").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // with include rule
+    override_t override2;
+    auto override_json2 = R"({
+       "id": "ov-2",
+       "rule": {
+            "tags": ["listing2"]
+        },
+        "includes": [
+            {"id": "1", "position": 1}
+        ]
+    })"_json;
+
+    op = override_t::parse(override_json2, "ov-2", override2);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override2);
+
+    results = coll1->search("foobar", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, -1, "", "listing2").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // no override tag passed: rule should not match
+    std::string override_tag = "";
+    results = coll1->search("foobar", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, -1, "", override_tag).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, MetadataValidation) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING_ARRAY, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "queryA";
+    doc1["category"] = {"kids"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC")};
+
+    nlohmann::json override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+            "query": "queryA",
+            "match": "exact"
+        },
+        "filter_by": "category: kids",
+        "metadata": "foo"
+    })"_json;
+
+    override_t override1;
+    auto op = override_t::parse(override_json1, "ov-1", override1);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `metadata` must be a JSON object.", op.error());
+
+    override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+            "query": "queryA",
+            "match": "exact"
+        },
+        "filter_by": "category: kids",
+        "metadata": {"foo": "bar"}
+    })"_json;
+
+    op = override_t::parse(override_json1, "ov-1", override1);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override1);
 
     collectionManager.drop_collection("coll1");
 }

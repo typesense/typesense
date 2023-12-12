@@ -40,6 +40,8 @@ struct override_t {
     std::string sort_by;
     std::string replace_query;
 
+    nlohmann::json metadata;
+
     // epoch seconds
     int64_t effective_from_ts = -1;
     int64_t effective_to_ts = -1;

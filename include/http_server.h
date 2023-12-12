@@ -292,4 +292,6 @@ public:
     void persist_applying_index();
 
     int64_t get_num_queued_writes();
+
+    void decr_pending_writes();
 };

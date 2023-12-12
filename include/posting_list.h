@@ -104,6 +104,7 @@ public:
         void skip_to_rev(uint32_t id);
         void set_index(uint32_t index);
         [[nodiscard]] uint32_t id() const;
+        [[nodiscard]] uint32_t offset() const;
         [[nodiscard]] uint32_t last_block_id() const;
         [[nodiscard]] uint32_t first_block_id() const;
         [[nodiscard]] inline uint32_t index() const;

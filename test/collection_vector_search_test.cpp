@@ -3026,6 +3026,83 @@ TEST_F(CollectionVectorTest, TestImageEmbedding) {
     ASSERT_EQ(results2["hits"][1]["document"]["id"], "0");
 }
 
+TEST_F(CollectionVectorTest, TestHybridSearchHiddenHits) {
+    nlohmann::json schema = R"({
+                "name": "test",
+                "fields": [
+                    {
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "name": "embedding",
+                        "type": "float[]",
+                        "embed": {
+                            "from": [
+                                "name"
+                            ],
+                            "model_config": {
+                                "model_name": "ts/e5-small"
+                            }
+                        }
+                    }
+                ]
+                })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+            "name": "soccer",
+            "id": "0"
+        })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+            "name": "guitar",
+            "id": "1"
+        })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+            "name": "typesense",
+            "id": "2"
+        })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+            "name": "potato",
+            "id": "3"
+        })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll->search("sports", {"name", "embedding"},
+                                "", {}, {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+
+    // do hybrid search with hidden_hits
+    auto hybrid_results = coll->search("sports", {"name", "embedding"},
+                                       "", {}, {}, {2}, 10,
+                                       1, FREQUENCY, {true},
+                                       0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, "", "0").get();
+
+    ASSERT_EQ(3, hybrid_results["hits"].size());
+    ASSERT_FALSE(hybrid_results["hits"][0]["document"]["id"] == 0);
+}
+
 TEST_F(CollectionVectorTest, TryAddingMultipleImageFieldToEmbedFrom) {
     auto schema_json =
         R"({

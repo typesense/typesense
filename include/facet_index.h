@@ -114,6 +114,12 @@ private:
     // auto incrementing ID that is assigned to each unique facet value string
     std::atomic_uint32_t next_facet_id = 0;
 
+    void get_stringified_value(const nlohmann::json& value, const field& afield,
+                               std::vector<std::string>& values);
+
+    void get_stringified_values(const nlohmann::json& document, const field& afield,
+                                std::vector<std::string>& values);
+
 public:
 
     facet_index_t() = default;
@@ -127,7 +133,7 @@ public:
 
     void erase(const std::string& field_name);
 
-    void remove(const std::string& field_name, const uint32_t seq_id);
+    void remove(const nlohmann::json& doc, const field& afield, const uint32_t seq_id);
 
     bool contains(const std::string& field_name);
 
