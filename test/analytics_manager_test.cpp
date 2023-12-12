@@ -894,3 +894,51 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(1, results["hits"][1]["document"]["popularity"]);
     ASSERT_EQ("Funky trousers", results["hits"][1]["document"]["title"]);
 }
+
+TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
+    nlohmann::json products_schema = R"({
+            "name": "books",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "popularity", "type": "int32"}
+            ]
+        })"_json;
+
+    Collection* products_coll = collectionManager.create_collection(products_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "popular_clicks",
+        "params": {
+            "source": {
+                "collections": ["books"]
+            },
+            "destination": {
+                "collection": "popular_books",
+                "counter_field": "popularity"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Collection `popular_books` not found.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "popular_clicks",
+        "params": {
+            "source": {
+                "collections": ["books"]
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity_score"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("counter_field `popularity_score` not found in destination collection.", create_op.error());
+}

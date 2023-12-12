@@ -113,9 +113,13 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
             return Option<bool>(400, "There's already another configuration for this destination collection.");
         }
 
-        auto coll_schema = CollectionManager::get_instance().get_collection(suggestion_collection)->get_schema();
-        if(coll_schema.find(counter_field) == coll_schema.end()) {
-            return Option<bool>(404, "counter_field not found in destination collection.");
+        auto coll = CollectionManager::get_instance().get_collection(suggestion_collection).get();
+        if(coll != nullptr) {
+            if (!coll->contains_field(counter_field)) {
+                return Option<bool>(404, "counter_field `" + counter_field + "` not found in destination collection.");
+            }
+        } else {
+            return Option<bool>(404, "Collection `" + suggestion_collection + "` not found.");
         }
     }
 
