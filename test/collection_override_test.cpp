@@ -3627,6 +3627,89 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsWithoutStopProcessing) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, TagsOnlyRule) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING_ARRAY, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "queryA";
+    doc1["category"] = {"kids"};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "queryA";
+    doc2["category"] = {"kitchen"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC")};
+    override_t override1;
+    auto override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+            "tags": ["listing"]
+        },
+        "filter_by": "category: kids"
+    })"_json;
+
+    auto op = override_t::parse(override_json1, "ov-1", override1);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override1);
+
+    auto results = coll1->search("queryA", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                                 0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                                 true, true, false, -1, "", "listing").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // with include rule
+    override_t override2;
+    auto override_json2 = R"({
+       "id": "ov-2",
+       "rule": {
+            "tags": ["listing2"]
+        },
+        "includes": [
+            {"id": "1", "position": 1}
+        ]
+    })"_json;
+
+    op = override_t::parse(override_json2, "ov-2", override2);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override2);
+
+    results = coll1->search("foobar", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, -1, "", "listing2").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, MetadataValidation) {
     Collection* coll1;
 

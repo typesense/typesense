@@ -814,7 +814,7 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
                                      std::set<uint32_t>& excluded_set,
                                      string& actual_query, const string& filter_query,
                                      bool already_segmented,
-                                     const std::set<std::string>& tags,
+                                     const bool tags_matched,
                                      const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                      const std::vector<std::string>& hidden_hits,
                                      std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
@@ -838,19 +838,23 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
         filter_overrides.push_back(&override);
     }
 
-    bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
-                            !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
+    if(tags_matched && override.rule.query.empty() && override.rule.filter_by.empty()) {
+        // allowed
+    } else {
+        bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
+                                !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
 
-    bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.normalized_query == query) ||
-                       (override.rule.match == override_t::MATCH_CONTAINS &&
-                        StringUtils::contains_word(query, override.rule.normalized_query));
+        bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.normalized_query == query) ||
+                           (override.rule.match == override_t::MATCH_CONTAINS &&
+                            StringUtils::contains_word(query, override.rule.normalized_query));
 
-    if(!filter_by_match && !query_match) {
-        return false;
-    }
+        if(!filter_by_match && !query_match) {
+            return false;
+        }
 
-    if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
-        return false;
+        if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
+            return false;
+        }
     }
 
     // have to ensure that dropped hits take precedence over added hits
@@ -953,7 +957,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
                         if(override.rule.tags == tags) {
                             bool match_found = does_override_match(override, query, excluded_set, actual_query,
-                                                                   filter_query, already_segmented, tags,
+                                                                   filter_query, already_segmented, true,
                                                                    pinned_hits, hidden_hits, included_ids,
                                                                    excluded_ids, filter_overrides, filter_curated_hits,
                                                                    curated_sort_by, override_metadata);
@@ -1000,7 +1004,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                         }
 
                         bool match_found = does_override_match(override, query, excluded_set, actual_query,
-                                                               filter_query, already_segmented, tags,
+                                                               filter_query, already_segmented, true,
                                                                pinned_hits, hidden_hits, included_ids,
                                                                excluded_ids, filter_overrides, filter_curated_hits,
                                                                curated_sort_by, override_metadata);
@@ -1018,7 +1022,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
             for(const auto& override_kv: overrides) {
                 const auto& override = override_kv.second;
                 bool match_found = does_override_match(override, query, excluded_set, actual_query, filter_query,
-                                                       already_segmented, tags, pinned_hits, hidden_hits, included_ids,
+                                                       already_segmented, false, pinned_hits, hidden_hits, included_ids,
                                                        excluded_ids, filter_overrides, filter_curated_hits,
                                                        curated_sort_by, override_metadata);
                 if(match_found && override.stop_processing) {

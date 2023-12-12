@@ -2010,8 +2010,11 @@ bool Index::static_filter_query_eval(const override_t* override,
                                      std::vector<std::string>& tokens,
                                      filter_node_t*& filter_tree_root) const {
     std::string query = StringUtils::join(tokens, " ");
+    bool tag_matched = (!override->rule.tags.empty() && override->rule.filter_by.empty() &&
+                         override->rule.query.empty());
 
-    if ((override->rule.match == override_t::MATCH_EXACT && override->rule.normalized_query == query) ||
+    if (tag_matched ||
+        (override->rule.match == override_t::MATCH_EXACT && override->rule.normalized_query == query) ||
         (override->rule.match == override_t::MATCH_CONTAINS &&
          StringUtils::contains_word(query, override->rule.normalized_query))) {
         filter_node_t* new_filter_tree_root = nullptr;
