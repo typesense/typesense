@@ -815,6 +815,7 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
                                      string& actual_query, const string& filter_query,
                                      bool already_segmented,
                                      const bool tags_matched,
+                                     const bool wildcard_tag_matched,
                                      const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                      const std::vector<std::string>& hidden_hits,
                                      std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
@@ -824,7 +825,7 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
                                      std::string& curated_sort_by,
                                      nlohmann::json& override_metadata) const {
 
-    if(!tags_matched && !override.rule.tags.empty()) {
+    if(!wildcard_tag_matched && !tags_matched && !override.rule.tags.empty()) {
         // only untagged overrides must be considered when no tags are given in the query
         return false;
     }
@@ -843,7 +844,7 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
         filter_overrides.push_back(&override);
     }
 
-    if(tags_matched && override.rule.query.empty() && override.rule.filter_by.empty()) {
+    if((wildcard_tag_matched || tags_matched) && override.rule.query.empty() && override.rule.filter_by.empty()) {
         // allowed
     } else {
         bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
@@ -962,7 +963,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
                         if(override.rule.tags == tags) {
                             bool match_found = does_override_match(override, query, excluded_set, actual_query,
-                                                                   filter_query, already_segmented, true,
+                                                                   filter_query, already_segmented, true, false,
                                                                    pinned_hits, hidden_hits, included_ids,
                                                                    excluded_ids, filter_overrides, filter_curated_hits,
                                                                    curated_sort_by, override_metadata);
@@ -1009,7 +1010,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                         }
 
                         bool match_found = does_override_match(override, query, excluded_set, actual_query,
-                                                               filter_query, already_segmented, true,
+                                                               filter_query, already_segmented, true, false,
                                                                pinned_hits, hidden_hits, included_ids,
                                                                excluded_ids, filter_overrides, filter_curated_hits,
                                                                curated_sort_by, override_metadata);
@@ -1027,8 +1028,10 @@ void Collection::curate_results(string& actual_query, const string& filter_query
             // no override tags given
             for(const auto& override_kv: overrides) {
                 const auto& override = override_kv.second;
+                bool wildcard_tag = override.rule.tags.size() == 1 && *override.rule.tags.begin() == "*";
                 bool match_found = does_override_match(override, query, excluded_set, actual_query, filter_query,
-                                                       already_segmented, false, pinned_hits, hidden_hits, included_ids,
+                                                       already_segmented, false, wildcard_tag,
+                                                       pinned_hits, hidden_hits, included_ids,
                                                        excluded_ids, filter_overrides, filter_curated_hits,
                                                        curated_sort_by, override_metadata);
                 if(match_found && override.stop_processing) {

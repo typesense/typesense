@@ -188,6 +188,7 @@ private:
                              string& actual_query, const string& filter_query,
                              bool already_segmented,
                              const bool tags_matched,
+                             const bool wildcard_tag_matched,
                              const std::map<size_t, std::vector<std::string>>& pinned_hits,
                              const std::vector<std::string>& hidden_hits,
                              std::vector<std::pair<uint32_t, uint32_t>>& included_ids,

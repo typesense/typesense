@@ -2013,7 +2013,9 @@ bool Index::static_filter_query_eval(const override_t* override,
     bool tag_matched = (!override->rule.tags.empty() && override->rule.filter_by.empty() &&
                          override->rule.query.empty());
 
-    if (tag_matched ||
+    bool wildcard_tag_matched = (override->rule.tags.size() == 1 && *override->rule.tags.begin() == "*");
+
+    if (tag_matched || wildcard_tag_matched ||
         (override->rule.match == override_t::MATCH_EXACT && override->rule.normalized_query == query) ||
         (override->rule.match == override_t::MATCH_CONTAINS &&
          StringUtils::contains_word(query, override->rule.normalized_query))) {

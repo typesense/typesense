@@ -17,7 +17,7 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
 
     if (override_json["rule"].count("filter_by") == 0 && override_json["rule"].count("tags") == 0 &&
         (override_json["rule"].count("query") == 0 || override_json["rule"].count("match") == 0)) {
-        return Option<bool>(400, "The `rule` definition must contain a `query` and `match`.");
+        return Option<bool>(400, "The `rule` definition must contain either a `tags` or a `query` and `match`.");
     }
 
     if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
