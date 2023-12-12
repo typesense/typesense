@@ -62,7 +62,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     }
 
     std::string abs_path = EmbedderManager::get_absolute_model_path(
-            EmbedderManager::get_model_name_without_namespace(model_name));
+    EmbedderManager::get_model_name_without_namespace(model_name));
 
     if(!std::filesystem::exists(abs_path)) {
         LOG(ERROR) << "Model file not found: " << abs_path;

@@ -46,7 +46,7 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
     else if(tokenizer_type == TokenizerType::xlm_roberta) {
         tokenizer_ = std::make_unique<XLMRobertaTokenizer>(vocab_path);
     } else if(tokenizer_type == TokenizerType::clip) {
-        tokenizer_ = std::make_unique<CLIPTokenizer>(EmbedderManager::get_model_subdir(model_name));
+        tokenizer_ = std::make_unique<CLIPTokenizerWrapper>(vocab_path);
         output_tensor_name = "text_embeds";
         num_dim = 512;
         return;

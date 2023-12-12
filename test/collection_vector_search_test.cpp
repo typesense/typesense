@@ -3074,3 +3074,72 @@ TEST_F(CollectionVectorTest, TestInvalidImage) {
     ASSERT_EQ(add_op.error(), "Error while processing image");
 
 }
+
+
+TEST_F(CollectionVectorTest, TestCLIPTokenizerUnicode) {
+    auto schema_json =
+        R"({
+        "name": "Images",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "image", "type": "image", "store": false},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["image"], "model_config": {"model_name": "ts/clip-vit-b-p32"}}}
+        ]
+    })"_json;
+
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    // test english
+    auto results = coll->search("dog", {"embedding"},
+                                "", {}, {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>()).get();
+    
+    // test chinese
+    results = coll->search("狗", {"embedding"},
+                                "", {}, {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>()).get();
+    
+    // test japanese
+    results = coll->search("犬", {"embedding"},
+                                "", {}, {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>()).get();
+
+    // test korean
+    results = coll->search("개", {"embedding"},
+                                "", {}, {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>()).get();
+    
+    // test russian
+    results = coll->search("собака", {"embedding"},
+                                "", {}, {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>()).get();
+    
+    // test arabic
+    results = coll->search("كلب", {"embedding"},
+                                "", {}, {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>()).get();
+    
+    // test turkish
+    results = coll->search("kö", {"embedding"},
+                                "", {}, {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>()).get();
+
+    results = coll->search("öğ", {"embedding"},
+                                "", {}, {}, {2}, 10,
+                                1, FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>()).get();
+    
+}
