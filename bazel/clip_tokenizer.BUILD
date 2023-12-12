@@ -5,7 +5,5 @@ cc_library(
     includes=["."],
     deps=["@icu"],
     visibility=["//visibility:public"],
-    linkstatic=1,
-    ## compile with -g
-    copts=["-g"]
+    linkstatic=1
 )
