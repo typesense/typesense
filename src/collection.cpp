@@ -824,6 +824,11 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
                                      std::string& curated_sort_by,
                                      nlohmann::json& override_metadata) const {
 
+    if(!tags_matched && !override.rule.tags.empty()) {
+        // only untagged overrides must be considered when no tags are given in the query
+        return false;
+    }
+
     auto now_epoch = int64_t(std::time(0));
     if(override.effective_from_ts != -1 && now_epoch < override.effective_from_ts) {
         return false;
@@ -1019,6 +1024,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                 }
             }
         } else {
+            // no override tags given
             for(const auto& override_kv: overrides) {
                 const auto& override = override_kv.second;
                 bool match_found = does_override_match(override, query, excluded_set, actual_query, filter_query,

@@ -3357,7 +3357,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
     ASSERT_TRUE(op.ok());
     coll1->add_override(override1);
 
-    //
+    // single tag
     nlohmann::json override_json2 = R"({
        "id": "ov-2",
        "rule": {
@@ -3373,7 +3373,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
     ASSERT_TRUE(op.ok());
     coll1->add_override(override2);
 
-    //
+    // no tag
     nlohmann::json override_json3 = R"({
        "id": "ov-3",
        "rule": {
@@ -3442,6 +3442,20 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // query with no tags should only trigger override with no tags
+    results = coll1->search("queryA", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, -1, "", "").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -3706,6 +3720,20 @@ TEST_F(CollectionOverrideTest, TagsOnlyRule) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // no override tag passed: rule should not match
+    std::string override_tag = "";
+    results = coll1->search("foobar", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
+                            0, HASH, 30000, 2, "", {}, {}, "right_to_left",
+                            true, true, false, -1, "", override_tag).get();
+
+    ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll1");
 }
