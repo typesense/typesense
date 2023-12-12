@@ -768,3 +768,129 @@ TEST_F(AnalyticsManagerTest, EventsExpiryPartial) {
     ASSERT_EQ(13, resp[0]["user_id"]);
     ASSERT_EQ(834, resp[0]["hits_count"]);
 }
+
+TEST_F(AnalyticsManagerTest, PopularityScore) {
+    //reset click event rate limit
+    analyticsManager.resetRateLimit();
+
+    nlohmann::json products_schema = R"({
+            "name": "products",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "popularity", "type": "int32"}
+            ]
+        })"_json;
+
+    Collection* products_coll = collectionManager.create_collection(products_schema).get();
+
+    nlohmann::json doc;
+    doc["popularity"] = 0;
+
+    doc["id"] = "0";
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(products_coll->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "Funky trousers";
+    ASSERT_TRUE(products_coll->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["title"] = "Casual shorts";
+    ASSERT_TRUE(products_coll->add(doc.dump()).ok());
+
+    doc["id"] = "3";
+    doc["title"] = "Trendy shorts";
+    ASSERT_TRUE(products_coll->add(doc.dump()).ok());
+
+    doc["id"] = "4";
+    doc["title"] = "Formal pants";
+    ASSERT_TRUE(products_coll->add(doc.dump()).ok());
+
+    nlohmann::json analytics_rule = R"({
+        "name": "product_popularity",
+        "type": "popular_clicks",
+        "params": {
+            "source": {
+                "collections": ["products"]
+            },
+            "destination": {
+                "collection": "products",
+                "counter_field": "popularity"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json event1 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "trousers",
+            "collection": "products",
+            "doc_id": "1",
+            "position": 2,
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event1.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event2 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "shorts",
+            "collection": "products",
+            "doc_id": "3",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event2.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    ASSERT_TRUE(post_create_event(req, res));
+
+    auto popular_clicks = analyticsManager.get_popular_clicks();
+    ASSERT_EQ(1, popular_clicks.size());
+    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
+    ASSERT_EQ(2, popular_clicks["products"].docid_counts.size());
+    ASSERT_EQ(1, popular_clicks["products"].docid_counts["1"]);
+    ASSERT_EQ(2, popular_clicks["products"].docid_counts["3"]);
+
+    //trigger persistance event
+    for(const auto& popular_clicks_it : popular_clicks) {
+        auto coll = popular_clicks_it.first;
+        nlohmann::json doc;
+        auto counter_field = popular_clicks_it.second.counter_field;
+        req->params["collection"] = "products";
+        req->params["action"] = "update";
+        for(const auto& popular_click : popular_clicks_it.second.docid_counts) {
+            doc["id"] = popular_click.first;
+            doc[counter_field] = popular_click.second;
+            req->body = doc.dump();
+            post_import_documents(req, res);
+        }
+    }
+
+    sort_fields = {sort_by("popularity", "DESC")};
+    auto results = products_coll->search("*", {}, "", {},
+                              sort_fields, {0}, 10, 1, FREQUENCY,{false},
+                              Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
+                              spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ(2, results["hits"][0]["document"]["popularity"]);
+    ASSERT_EQ("Trendy shorts", results["hits"][0]["document"]["title"]);
+
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ(1, results["hits"][1]["document"]["popularity"]);
+    ASSERT_EQ("Funky trousers", results["hits"][1]["document"]["title"]);
+}
