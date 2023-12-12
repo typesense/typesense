@@ -2770,6 +2770,8 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultipleRuleMatch) {
 
     coll1->add_override(override_filter1);
 
+    ASSERT_EQ("bar", override_filter1.to_json()["metadata"]["foo"].get<std::string>());
+
     nlohmann::json override_filter2_json = {
             {"id",   "dynamic-filter-2"},
             {

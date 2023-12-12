@@ -289,5 +289,9 @@ nlohmann::json override_t::to_json() const {
     override["filter_curated_hits"] = filter_curated_hits;
     override["stop_processing"] = stop_processing;
 
+    if(!metadata.empty()) {
+        override["metadata"] = metadata;
+    }
+
     return override;
 }
