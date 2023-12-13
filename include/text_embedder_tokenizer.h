@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <sentencepiece_processor.h>
 #include <tokenizer/bert_tokenizer.hpp>
+#include <clip_tokenizer.h>
 #include <core/session/onnxruntime_cxx_api.h>
 #include <mutex>
 
@@ -74,13 +75,12 @@ class XLMRobertaTokenizer : public TextEmbeddingTokenizer {
         }
 };
 
-class CLIPTokenizer : public TextEmbeddingTokenizer {
+class CLIPTokenizerWrapper : public TextEmbeddingTokenizer {
     private:
-        std::unique_ptr<Ort::Session> session_;
-        Ort::Env env_;
+        std::unique_ptr<CLIPTokenizer> clip_tokenizer_;
         std::mutex mutex_;
     public:
-        CLIPTokenizer(const std::string& model_path);
+        CLIPTokenizerWrapper(const std::string& vocab_path);
         encoded_input_t Encode(const std::string& text) override;
         virtual TokenizerType get_tokenizer_type() override {
             return TokenizerType::clip;
