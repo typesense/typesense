@@ -2155,6 +2155,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                            false, stopwords_set);
+
+        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
+                                 included_ids, excluded_ids, override_metadata);
+
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
             field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
