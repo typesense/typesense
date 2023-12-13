@@ -448,14 +448,6 @@ text_embedding_model::text_embedding_model(const nlohmann::json& json) {
 
 
 Option<nlohmann::json> EmbedderManager::get_public_model_config(const std::string& model_name) {
-    // check cache first
-    if(std::filesystem::exists(get_absolute_config_path(model_name))) {
-        std::ifstream config_file(get_absolute_config_path(model_name));
-        nlohmann::json config;
-        config_file >> config;
-        config_file.close();
-        return Option<nlohmann::json>(config);
-    }
 
     auto actual_model_name = get_model_name_without_namespace(model_name);
     HttpClient& httpClient = HttpClient::get_instance();
@@ -473,6 +465,15 @@ Option<nlohmann::json> EmbedderManager::get_public_model_config(const std::strin
         config_file.close();
 
         return Option<nlohmann::json>(nlohmann::json::parse(response_body));
+    }
+
+    // check cache if network fails
+    if(std::filesystem::exists(get_absolute_config_path(model_name))) {
+        std::ifstream config_file(get_absolute_config_path(model_name));
+        nlohmann::json config;
+        config_file >> config;
+        config_file.close();
+        return Option<nlohmann::json>(config);
     }
 
     return Option<nlohmann::json>(404, "Model not found");
