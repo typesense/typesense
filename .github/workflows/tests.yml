@@ -45,7 +45,7 @@ jobs:
           workflow_conclusion: ""
           if_no_artifact_found: warn
           skip_unpack: true
-          branch: main
+          branch: ${{ github.head_ref || github.ref_name }}
 
       - name: Uncompress bazel cache
         run: |
