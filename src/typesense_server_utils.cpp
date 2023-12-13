@@ -485,7 +485,7 @@ int run_server(const Config & config, const std::string & version, void (*master
             AnalyticsManager::get_instance().run(&replication_state);
         });
 
-        std::thread conersation_garbage_collector_thread([]() {
+        std::thread conversation_garbage_collector_thread([]() {
             LOG(INFO) << "Conversation garbage collector thread started.";
             ConversationManager::get_instance().run();
         });
@@ -523,7 +523,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         ConversationManager::get_instance().stop();
 
         LOG(INFO) << "Waiting for conversation garbage collector thread to be done...";
-        conersation_garbage_collector_thread.join();
+        conversation_garbage_collector_thread.join();
 
         LOG(INFO) << "Waiting for housekeeping thread to be done...";
         HouseKeeper::get_instance().stop();

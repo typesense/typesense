@@ -256,9 +256,14 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
 }
 
 bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    std::string doc_id = req->params["id"];
+    bool compact_store = false;
+
+    if(req->params.count("compact_store") != 0) {
+        compact_store = (req->params["compact_store"] == "true");
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Option<nlohmann::json> drop_op = collectionManager.drop_collection(req->params["collection"], true);
+    Option<nlohmann::json> drop_op = collectionManager.drop_collection(req->params["collection"], true, compact_store);
 
     if(!drop_op.ok()) {
         res->set(drop_op.code(), drop_op.error());
@@ -1278,7 +1283,7 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
         return false;
     }
 
-    res->set_201(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+    res->set_200(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
@@ -2167,16 +2172,12 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
 bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
-    const spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>>& stopwords = stopwordManager.get_stopwords();
+    const spp::sparse_hash_map<std::string, stopword_struct_t>& stopwords = stopwordManager.get_stopwords();
     nlohmann::json res_json = nlohmann::json::object();
     res_json["stopwords"] = nlohmann::json::array();
 
     for(const auto& stopwords_kv: stopwords) {
-        nlohmann::json stopword;
-        stopword["id"] = stopwords_kv.first;
-        for(const auto& val : stopwords_kv.second) {
-            stopword["stopwords"].push_back(val);
-        }
+        auto stopword = stopwords_kv.second.to_json();
         res_json["stopwords"].push_back(stopword);
     }
 
@@ -2188,8 +2189,8 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     const std::string & stopword_name = req->params["name"];
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
-    spp::sparse_hash_set<std::string> stopwords;
-    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
+    stopword_struct_t stopwordStruct;
+    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwordStruct);
 
     if(!stopword_op.ok()) {
         res->set(stopword_op.code(), stopword_op.error());
@@ -2197,10 +2198,8 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     }
 
     nlohmann::json res_json;
-    res_json["name"] = stopword_name;
-    for(const auto& stopword : stopwords) {
-        res_json["value"].push_back(stopword);
-    }
+
+    res_json["stopwords"] = stopwordStruct.to_json();
 
     res->set_200(res_json.dump());
     return true;
@@ -2226,7 +2225,7 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
         return false;
     }
 
-    req_json["name"] = stopword_name;
+    req_json["id"] = stopword_name;
 
     res->set_200(req_json.dump());
     return true;
@@ -2236,25 +2235,15 @@ bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     const std::string & stopword_name = req->params["name"];
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
-    spp::sparse_hash_set<std::string> stopwords;
-    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
-    if(!stopword_op.ok()) {
-        res->set(stopword_op.code(), stopword_op.error());
-        return false;
-    }
-
     Option<bool> delete_op = stopwordManager.delete_stopword(stopword_name);
 
     if(!delete_op.ok()) {
-        res->set_500(delete_op.error());
+        res->set(delete_op.code(), delete_op.error());
         return false;
     }
 
     nlohmann::json res_json;
     res_json["id"] = stopword_name;
-    for(const auto& stopword : stopwords) {
-        res_json["stopwords"].push_back(stopword);
-    }
 
     res->set_200(res_json.dump());
     return true;
@@ -2806,7 +2795,7 @@ bool get_click_events(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
-bool post_replicate_click_event(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+bool post_replicate_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
 
     try {
@@ -2817,12 +2806,19 @@ bool post_replicate_click_event(const std::shared_ptr<http_req>& req, const std:
         return false;
     }
 
-    auto op = AnalyticsManager::get_instance().write_click_event_to_store(req_json);
+    auto op = AnalyticsManager::get_instance().write_events_to_store(req_json);
     if(!op.ok()) {
         res->set_body(op.code(), op.error());
         return false;
     }
 
-    res->set_200("ClickEvent wrote to DB.");
+    res->set_200("event wrote to DB.");
+    return true;
+}
+
+bool get_query_hits_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto query_hits_counts = AnalyticsManager::get_instance().get_query_hits_counts();
+
+    res->set_200(query_hits_counts.dump());
     return true;
 }

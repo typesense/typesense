@@ -378,18 +378,17 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
                     response->content_type_header = res_headers["content-type"];
                     response->set_500("");
                 } else {
-                    pending_writes--;
                     return ;
                 }
             } else {
                 std::string api_res;
-                long status = HttpClient::post_response(url, request->body, api_res, res_headers, {}, 10*1000, true);
+                long status = HttpClient::post_response(url, request->body, api_res, res_headers, {}, 0, true);
                 response->content_type_header = res_headers["content-type"];
                 response->set_body(status, api_res);
             }
         } else if(request->http_method == "PUT") {
             std::string api_res;
-            long status = HttpClient::put_response(url, request->body, api_res, res_headers, 10*1000, true);
+            long status = HttpClient::put_response(url, request->body, api_res, res_headers, 0, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else if(request->http_method == "DELETE") {
@@ -402,13 +401,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             std::string api_res;
             route_path* rpath = nullptr;
             bool route_found = server->get_route(request->route_hash, &rpath);
-
-            long timeout_ms = 10 * 1000;
-            if(route_found && rpath->handler == patch_update_collection) {
-                timeout_ms = 0;  // patching a collection can take a long time
-            }
-
-            long status = HttpClient::patch_response(url, request->body, api_res, res_headers, timeout_ms, true);
+            long status = HttpClient::patch_response(url, request->body, api_res, res_headers, 0, true);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
         } else {
@@ -678,13 +671,14 @@ void ReplicationState::refresh_nodes(const std::string & nodes, const size_t raf
     node->get_status(&nodeStatus);
 
     LOG(INFO) << "Term: " << nodeStatus.term
-             << ", last_index index: " << nodeStatus.last_index
-             << ", committed_index: " << nodeStatus.committed_index
-             << ", known_applied_index: " << nodeStatus.known_applied_index
-             << ", applying_index: " << nodeStatus.applying_index
-             << ", queued_writes: " << batched_indexer->get_queued_writes()
-             << ", pending_queue_size: " << nodeStatus.pending_queue_size
-             << ", local_sequence: " << store->get_latest_seq_number();
+              << ", pending_queue: " << nodeStatus.pending_queue_size
+              << ", last_index: " << nodeStatus.last_index
+              << ", committed: " << nodeStatus.committed_index
+              << ", known_applied: " << nodeStatus.known_applied_index
+              << ", applying: " << nodeStatus.applying_index
+              << ", pending_writes: " << pending_writes
+              << ", queued_writes: " << batched_indexer->get_queued_writes()
+              << ", local_sequence: " << store->get_latest_seq_number();
 
     if(node->is_leader()) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
@@ -1100,6 +1094,10 @@ std::string ReplicationState::get_leader_url() const {
 
     const std::string protocol = api_uses_ssl ? "https" : "http";
     return get_node_url_path(leader_addr, "/", protocol);
+}
+
+void ReplicationState::decr_pending_writes() {
+    pending_writes--;
 }
 
 void TimedSnapshotClosure::Run() {

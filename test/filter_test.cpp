@@ -5,6 +5,7 @@
 #include <collection_manager.h>
 #include <filter.h>
 #include <posting.h>
+#include <chrono>
 #include "collection.h"
 
 class FilterTest : public ::testing::Test {
@@ -65,7 +66,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_null_filter_tree_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
 
     ASSERT_TRUE(iter_null_filter_tree_test.init_status().ok());
-    ASSERT_FALSE(iter_null_filter_tree_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_null_filter_tree_test.validity);
 
     Option<bool> filter_op = filter::parse_filter_query("name: foo", coll->get_schema(), store, doc_id_prefix,
                                                         filter_tree_root);
@@ -74,7 +75,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_no_match_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
 
     ASSERT_TRUE(iter_no_match_test.init_status().ok());
-    ASSERT_FALSE(iter_no_match_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_no_match_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -85,7 +86,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_no_match_multi_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
 
     ASSERT_TRUE(iter_no_match_multi_test.init_status().ok());
-    ASSERT_FALSE(iter_no_match_multi_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_no_match_multi_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -97,11 +98,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(iter_contains_test.init_status().ok());
 
     for (uint32_t i = 0; i < 5; i++) {
-        ASSERT_TRUE(iter_contains_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_contains_test.validity);
         ASSERT_EQ(i, iter_contains_test.seq_id);
         iter_contains_test.next();
     }
-    ASSERT_FALSE(iter_contains_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_contains_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -113,11 +114,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(iter_contains_multi_test.init_status().ok());
 
     for (uint32_t i = 0; i < 5; i++) {
-        ASSERT_TRUE(iter_contains_multi_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_contains_multi_test.validity);
         ASSERT_EQ(i, iter_contains_multi_test.seq_id);
         iter_contains_multi_test.next();
     }
-    ASSERT_FALSE(iter_contains_multi_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_contains_multi_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -129,11 +130,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(iter_exact_match_1_test.init_status().ok());
 
     for (uint32_t i = 0; i < 5; i++) {
-        ASSERT_TRUE(iter_exact_match_1_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_exact_match_1_test.validity);
         ASSERT_EQ(i, iter_exact_match_1_test.seq_id);
         iter_exact_match_1_test.next();
     }
-    ASSERT_FALSE(iter_exact_match_1_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_exact_match_1_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -143,7 +144,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     auto iter_exact_match_2_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_exact_match_2_test.init_status().ok());
-    ASSERT_FALSE(iter_exact_match_2_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_exact_match_2_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -156,11 +157,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     std::vector<int> expected = {0, 2, 3, 4};
     for (auto const& i : expected) {
-        ASSERT_TRUE(iter_exact_match_multi_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_exact_match_multi_test.validity);
         ASSERT_EQ(i, iter_exact_match_multi_test.seq_id);
         iter_exact_match_multi_test.next();
     }
-    ASSERT_FALSE(iter_exact_match_multi_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_exact_match_multi_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -173,12 +174,12 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     expected = {1, 3};
     for (auto const& i : expected) {
-        ASSERT_TRUE(iter_not_equals_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test.validity);
         ASSERT_EQ(i, iter_not_equals_test.seq_id);
         iter_not_equals_test.next();
     }
 
-    ASSERT_FALSE(iter_not_equals_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -189,13 +190,13 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_skip_test1 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_skip_test1.init_status().ok());
 
-    ASSERT_TRUE(iter_skip_test1.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test1.validity);
     iter_skip_test1.skip_to(3);
-    ASSERT_TRUE(iter_skip_test1.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test1.validity);
     ASSERT_EQ(4, iter_skip_test1.seq_id);
     iter_skip_test1.next();
 
-    ASSERT_FALSE(iter_skip_test1.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_skip_test1.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -206,9 +207,9 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_skip_test2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_skip_test2.init_status().ok());
 
-    ASSERT_TRUE(iter_skip_test2.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test2.validity);
     iter_skip_test2.skip_to(3);
-    ASSERT_FALSE(iter_skip_test2.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_skip_test2.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -219,11 +220,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_and_test.init_status().ok());
 
-    ASSERT_TRUE(iter_and_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_and_test.validity);
     ASSERT_EQ(1, iter_and_test.seq_id);
     iter_and_test.next();
 
-    ASSERT_FALSE(iter_and_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_and_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -247,12 +248,12 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     expected = {2, 4, 5};
     for (auto const& i : expected) {
-        ASSERT_TRUE(iter_or_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_or_test.validity);
         ASSERT_EQ(i, iter_or_test.seq_id);
         iter_or_test.next();
     }
 
-    ASSERT_FALSE(iter_or_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_or_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -263,17 +264,17 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_skip_complex_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_skip_complex_filter_test.init_status().ok());
 
-    ASSERT_TRUE(iter_skip_complex_filter_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_complex_filter_test.validity);
     iter_skip_complex_filter_test.skip_to(4);
 
     expected = {4, 5};
     for (auto const& i : expected) {
-        ASSERT_TRUE(iter_skip_complex_filter_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_complex_filter_test.validity);
         ASSERT_EQ(i, iter_skip_complex_filter_test.seq_id);
         iter_skip_complex_filter_test.next();
     }
 
-    ASSERT_FALSE(iter_skip_complex_filter_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_skip_complex_filter_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -287,7 +288,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     std::vector<int> validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {0, 2, 2, 4, 4, 5, 5};
     expected = {1, 0, 1, 0, 1, 1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(expected[i], iter_validate_ids_test1.valid(validate_ids[i]));
+        ASSERT_EQ(expected[i], iter_validate_ids_test1.is_valid(validate_ids[i]));
         ASSERT_EQ(seq_ids[i], iter_validate_ids_test1.seq_id);
     }
 
@@ -303,7 +304,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {1, 1, 5, 5, 5, 5, 5};
     expected = {0, 1, 0, 0, 0, 1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(expected[i], iter_validate_ids_test2.valid(validate_ids[i]));
+        ASSERT_EQ(expected[i], iter_validate_ids_test2.is_valid(validate_ids[i]));
         ASSERT_EQ(seq_ids[i], iter_validate_ids_test2.seq_id);
     }
 
@@ -319,7 +320,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     validate_ids = {0, 1, 2, 3, 4, 5, 6}, seq_ids = {0, 3, 3, 4, 4, 4, 4};
     expected = {1, 0, 0, 0, 1, -1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(expected[i], iter_validate_ids_test3.valid(validate_ids[i]));
+        ASSERT_EQ(expected[i], iter_validate_ids_test3.is_valid(validate_ids[i]));
         ASSERT_EQ(seq_ids[i], iter_validate_ids_test3.seq_id);
     }
 
@@ -337,7 +338,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     seq_ids = {1, 1, 3, 3, 5, 5, 5};
     expected = {0, 1, 0, 1, 0, 1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(expected[i], iter_validate_ids_not_equals_filter_test.valid(validate_ids[i]));
+        ASSERT_EQ(expected[i], iter_validate_ids_not_equals_filter_test.is_valid(validate_ids[i]));
         ASSERT_EQ(seq_ids[i], iter_validate_ids_not_equals_filter_test.seq_id);
     }
 
@@ -406,20 +407,20 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     expected = {0, 2, 3, 4};
     for (auto const& i : expected) {
-        ASSERT_TRUE(iter_reset_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_reset_test.validity);
         ASSERT_EQ(i, iter_reset_test.seq_id);
         iter_reset_test.next();
     }
-    ASSERT_FALSE(iter_reset_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_reset_test.validity);
 
     iter_reset_test.reset();
 
     for (auto const& i : expected) {
-        ASSERT_TRUE(iter_reset_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_reset_test.validity);
         ASSERT_EQ(i, iter_reset_test.seq_id);
         iter_reset_test.next();
     }
-    ASSERT_FALSE(iter_reset_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_reset_test.validity);
 
     auto iter_move_assignment_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
 
@@ -428,11 +429,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     expected = {0, 2, 3, 4};
     for (auto const& i : expected) {
-        ASSERT_TRUE(iter_move_assignment_test.is_valid);
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_move_assignment_test.validity);
         ASSERT_EQ(i, iter_move_assignment_test.seq_id);
         iter_move_assignment_test.next();
     }
-    ASSERT_FALSE(iter_move_assignment_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_move_assignment_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
@@ -453,7 +454,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     for (uint32_t i = 0; i < filter_ids_length; i++) {
         ASSERT_EQ(expected[i], filter_ids[i]);
     }
-    ASSERT_FALSE(iter_to_array_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_to_array_test.validity);
 
     delete[] filter_ids;
 
@@ -470,7 +471,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     for (uint32_t i = 0; i < and_result_length; i++) {
         ASSERT_EQ(expected[i], and_result[i]);
     }
-    ASSERT_FALSE(iter_and_scalar_test.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_and_scalar_test.validity);
 
     delete[] and_result;
     delete filter_tree_root;
@@ -493,11 +494,11 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_skip_test3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_skip_test3.init_status().ok());
 
-    ASSERT_TRUE(iter_skip_test3.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test3.validity);
     iter_skip_test3.skip_to(4);
     ASSERT_EQ(4, iter_skip_test3.seq_id);
 
-    ASSERT_TRUE(iter_skip_test3.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test3.validity);
 
     delete filter_tree_root;
 
@@ -509,10 +510,10 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_skip_test4 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_skip_test4.init_status().ok());
 
-    ASSERT_TRUE(iter_skip_test4.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test4.validity);
     iter_skip_test4.skip_to(6);
     ASSERT_EQ(6, iter_skip_test4.seq_id);
-    ASSERT_TRUE(iter_skip_test4.is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test4.validity);
 
     auto iter_add_phrase_ids_test = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     std::unique_ptr<filter_result_iterator_t> filter_iter_guard(iter_add_phrase_ids_test);
@@ -526,8 +527,56 @@ TEST_F(FilterTest, FilterTreeIterator) {
     filter_iter_guard.release();
     filter_iter_guard.reset(iter_add_phrase_ids_test);
 
-    ASSERT_TRUE(iter_add_phrase_ids_test->is_valid);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_add_phrase_ids_test->validity);
     ASSERT_EQ(6, iter_add_phrase_ids_test->seq_id);
 
     delete filter_tree_root;
+}
+
+TEST_F(FilterTest, FilterTreeIteratorTimeout) {
+    auto count = 20;
+    auto filter_ids = new uint32_t[count];
+    for (auto i = 0; i < count; i++) {
+        filter_ids[i] = i;
+    }
+    auto filter_iterator = new filter_result_iterator_t(filter_ids, count,
+                                                        std::chrono::duration_cast<std::chrono::microseconds>(
+                                                        std::chrono::system_clock::now().time_since_epoch()).count(),
+                                                        10000000); // Timeout after 10 seconds
+    std::unique_ptr<filter_result_iterator_t> filter_iter_guard(filter_iterator);
+
+    ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator->validity);
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
+    for (auto i = 0; i < 20; i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator->validity);
+        filter_iterator->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, filter_iterator->validity); // End of iterator reached.
+
+    filter_iterator->reset();
+    ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator->validity);
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
+    for (auto i = 0; i < 9; i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, filter_iterator->validity);
+        filter_iterator->next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::timed_out, filter_iterator->validity);
+
+    filter_iterator->reset();
+    ASSERT_EQ(filter_result_iterator_t::timed_out, filter_iterator->validity); // Resetting won't help with timeout.
+
+    uint32_t excluded_result_index = 0;
+    auto result = new filter_result_t();
+    filter_iterator->get_n_ids(count, excluded_result_index, nullptr, 0, result);
+
+    ASSERT_EQ(0, result->count); // Shouldn't return results
+    delete result;
+
+    result = new filter_result_t();
+    filter_iterator->get_n_ids(count, excluded_result_index, nullptr, 0, result, true);
+
+    ASSERT_EQ(count, result->count); // With `override_timeout` true, we should get result.
+    delete result;
 }

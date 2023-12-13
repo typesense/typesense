@@ -15,9 +15,9 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         return Option<bool>(400, "Missing `rule` definition.");
     }
 
-    if (override_json["rule"].count("filter_by") == 0 &&
+    if (override_json["rule"].count("filter_by") == 0 && override_json["rule"].count("tags") == 0 &&
         (override_json["rule"].count("query") == 0 || override_json["rule"].count("match") == 0)) {
-        return Option<bool>(400, "The `rule` definition must contain a `query` and `match`.");
+        return Option<bool>(400, "The `rule` definition must contain either a `tags` or a `query` and `match`.");
     }
 
     if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
@@ -178,6 +178,13 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         override.replace_query = override_json["replace_query"].get<std::string>();
     }
 
+    if (override_json.count("metadata") != 0) {
+        if(!override_json["metadata"].is_object()) {
+            return Option<bool>(400, "The `metadata` must be a JSON object.");
+        }
+        override.metadata = override_json["metadata"];
+    }
+
     if(override_json.count("remove_matched_tokens") != 0) {
         override.remove_matched_tokens = override_json["remove_matched_tokens"].get<bool>();
     } else {
@@ -281,6 +288,10 @@ nlohmann::json override_t::to_json() const {
     override["remove_matched_tokens"] = remove_matched_tokens;
     override["filter_curated_hits"] = filter_curated_hits;
     override["stop_processing"] = stop_processing;
+
+    if(!metadata.empty()) {
+        override["metadata"] = metadata;
+    }
 
     return override;
 }

@@ -243,6 +243,8 @@ public:
 
     static Option<bool> handle_gzip(const std::shared_ptr<http_req>& request);
 
+    void decr_pending_writes();
+
 private:
 
     friend class ReplicationClosure;

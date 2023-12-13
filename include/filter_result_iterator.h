@@ -4,6 +4,7 @@
 #include <map>
 #include <utility>
 #include <vector>
+#include <memory>
 #include "option.h"
 #include "posting_list.h"
 
@@ -144,6 +145,20 @@ struct filter_result_t {
     static void copy_references(const filter_result_t& from, filter_result_t& to);
 };
 
+#ifdef TEST_BUILD
+    constexpr uint16_t function_call_modulo = 10;
+#else
+    constexpr uint16_t function_call_modulo = 16384;
+#endif
+
+struct filter_result_iterator_timeout_info {
+    filter_result_iterator_timeout_info(uint64_t search_begin_us, uint64_t search_stop_us);
+
+    uint16_t function_call_counter = 0;
+    uint64_t search_begin_us = 0;
+    uint64_t search_stop_us = UINT64_MAX;
+};
+
 class filter_result_iterator_t {
 private:
     std::string collection_name;
@@ -170,6 +185,8 @@ private:
 
     bool delete_filter_node = false;
 
+    std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
+
     /// Initializes the state of iterator node after it's creation.
     void init();
 
@@ -192,15 +209,18 @@ private:
 
     /// Collects n doc ids while advancing the iterator. The iterator may become invalid during this operation.
     /// **The references are moved from filter_result_iterator_t.
-    void get_n_ids(const uint32_t& n, filter_result_t*& result);
+    void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout = false);
+
+    /// Updates `validity` of the iterator to `timed_out` if condition is met. Assumes `timeout_info` is not null.
+    inline bool is_timed_out();
 
 public:
     uint32_t seq_id = 0;
     /// Collection name -> references
     std::map<std::string, reference_filter_result_t> reference;
 
-    /// Set to false when this iterator or it's subtree becomes invalid.
-    bool is_valid = true;
+    /// In case of a complex filter query, validity of a node is dependent on it's sub-nodes.
+    enum {timed_out = -1, invalid, valid} validity = valid;
 
     /// Initialization status of the iterator.
     Option<bool> status = Option(true);
@@ -212,10 +232,12 @@ public:
 
     filter_result_iterator_t() = default;
 
-    explicit filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count);
+    explicit filter_result_iterator_t(uint32_t* ids, const uint32_t& ids_count,
+                                      uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX);
 
-    explicit filter_result_iterator_t(const std::string collection_name,
-                                      Index const* const index, filter_node_t const* const filter_node);
+    explicit filter_result_iterator_t(const std::string& collection_name,
+                                      Index const* const index, filter_node_t const* const filter_node,
+                                      uint64_t search_begin_us = 0, uint64_t search_stop_us = UINT64_MAX);
 
     ~filter_result_iterator_t();
 
@@ -230,10 +252,10 @@ public:
     /// Returns a tri-state:
     ///     0: id is not valid
     ///     1: id is valid
-    ///    -1: end of iterator
+    ///    -1: end of iterator / timed out
     ///
     ///  Handles moving the individual iterators internally.
-    [[nodiscard]] int valid(uint32_t id);
+    [[nodiscard]] int is_valid(uint32_t id);
 
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.
@@ -244,17 +266,17 @@ public:
     void get_n_ids(const uint32_t& n,
                    uint32_t& excluded_result_index,
                    uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
-                   filter_result_t*& result);
+                   filter_result_t*& result, const bool& override_timeout = false);
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
-    void skip_to(uint32_t id);
+    void skip_to(uint32_t id, const bool& override_timeout = false);
 
     /// Returns true if at least one id from the posting list object matches the filter.
     bool contains_atleast_one(const void* obj);
 
     /// Returns to the initial state of the iterator.
-    void reset();
+    void reset(const bool& override_timeout = false);
 
     /// Iterates and collects all the filter ids into filter_array.
     /// \return size of the filter array

@@ -94,6 +94,7 @@ public:
         options.max_write_buffer_number = 2;
         options.merge_operator.reset(new UInt64AddOperator);
         options.compression = rocksdb::CompressionType::kSnappyCompression;
+        options.periodic_compaction_seconds = 604800;
 
         options.max_log_file_size = 4*1048576;
         options.keep_log_file_num = 5;

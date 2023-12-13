@@ -60,8 +60,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 }
 
 Collection::~Collection() {
+    std::unique_lock lifecycle_lock(lifecycle_mutex);
     std::unique_lock lock(mutex);
-    std::unique_lock repair_lock(index_repair_lock);
     delete index;
     delete synonym_index;
 }
@@ -814,14 +814,21 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
                                      std::set<uint32_t>& excluded_set,
                                      string& actual_query, const string& filter_query,
                                      bool already_segmented,
-                                     const std::set<std::string>& tags,
+                                     const bool tags_matched,
+                                     const bool wildcard_tag_matched,
                                      const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                      const std::vector<std::string>& hidden_hits,
                                      std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                      std::vector<uint32_t>& excluded_ids,
                                      std::vector<const override_t*>& filter_overrides,
                                      bool& filter_curated_hits,
-                                     std::string& curated_sort_by) const {
+                                     std::string& curated_sort_by,
+                                     nlohmann::json& override_metadata) const {
+
+    if(!wildcard_tag_matched && !tags_matched && !override.rule.tags.empty()) {
+        // only untagged overrides must be considered when no tags are given in the query
+        return false;
+    }
 
     auto now_epoch = int64_t(std::time(0));
     if(override.effective_from_ts != -1 && now_epoch < override.effective_from_ts) {
@@ -837,19 +844,23 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
         filter_overrides.push_back(&override);
     }
 
-    bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
-                            !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
+    if((wildcard_tag_matched || tags_matched) && override.rule.query.empty() && override.rule.filter_by.empty()) {
+        // allowed
+    } else {
+        bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
+                                !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
 
-    bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.normalized_query == query) ||
-                       (override.rule.match == override_t::MATCH_CONTAINS &&
-                        StringUtils::contains_word(query, override.rule.normalized_query));
+        bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.normalized_query == query) ||
+                           (override.rule.match == override_t::MATCH_CONTAINS &&
+                            StringUtils::contains_word(query, override.rule.normalized_query));
 
-    if(!filter_by_match && !query_match) {
-        return false;
-    }
+        if(!filter_by_match && !query_match) {
+            return false;
+        }
 
-    if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
-        return false;
+        if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
+            return false;
+        }
     }
 
     // have to ensure that dropped hits take precedence over added hits
@@ -888,6 +899,9 @@ bool Collection::does_override_match(const override_t& override, std::string& qu
 
     filter_curated_hits = override.filter_curated_hits;
     curated_sort_by = override.sort_by;
+    if(override_metadata.empty()) {
+        override_metadata = override.metadata;
+    }
     return true;
 }
 
@@ -900,7 +914,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                 std::vector<uint32_t>& excluded_ids,
                                 std::vector<const override_t*>& filter_overrides,
                                 bool& filter_curated_hits,
-                                std::string& curated_sort_by) const {
+                                std::string& curated_sort_by,
+                                nlohmann::json& override_metadata) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -948,10 +963,10 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 
                         if(override.rule.tags == tags) {
                             bool match_found = does_override_match(override, query, excluded_set, actual_query,
-                                                                   filter_query, already_segmented, tags,
+                                                                   filter_query, already_segmented, true, false,
                                                                    pinned_hits, hidden_hits, included_ids,
                                                                    excluded_ids, filter_overrides, filter_curated_hits,
-                                                                   curated_sort_by);
+                                                                   curated_sort_by, override_metadata);
 
                             if(match_found) {
                                 all_tags_found = true;
@@ -995,10 +1010,10 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                         }
 
                         bool match_found = does_override_match(override, query, excluded_set, actual_query,
-                                                               filter_query, already_segmented, tags,
+                                                               filter_query, already_segmented, true, false,
                                                                pinned_hits, hidden_hits, included_ids,
                                                                excluded_ids, filter_overrides, filter_curated_hits,
-                                                               curated_sort_by);
+                                                               curated_sort_by, override_metadata);
 
                         if(match_found) {
                             found_overrides.insert(id);
@@ -1010,11 +1025,15 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                 }
             }
         } else {
+            // no override tags given
             for(const auto& override_kv: overrides) {
                 const auto& override = override_kv.second;
+                bool wildcard_tag = override.rule.tags.size() == 1 && *override.rule.tags.begin() == "*";
                 bool match_found = does_override_match(override, query, excluded_set, actual_query, filter_query,
-                                                       already_segmented, tags, pinned_hits, hidden_hits, included_ids,
-                                                       excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
+                                                       already_segmented, false, wildcard_tag,
+                                                       pinned_hits, hidden_hits, included_ids,
+                                                       excluded_ids, filter_overrides, filter_curated_hits,
+                                                       curated_sort_by, override_metadata);
                 if(match_found && override.stop_processing) {
                     break;
                 }
@@ -2042,6 +2061,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<std::string> hidden_hits;
     StringUtils::split(hidden_hits_str, hidden_hits, ",");
 
+    nlohmann::json override_metadata;
     std::vector<const override_t*> filter_overrides;
     bool filter_curated_hits = false;
     std::string curated_sort_by;
@@ -2055,7 +2075,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_overrides, filter_curated_hits,
-                   curated_sort_by);
+                   curated_sort_by, override_metadata);
 
     if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
         // When query param has explicit value set, override level configuration takes lower precedence.
@@ -2152,7 +2172,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         // included_ids, excluded_ids
         process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
-                                 included_ids, excluded_ids);
+                                 included_ids, excluded_ids, override_metadata);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -2888,6 +2908,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["request_params"]["per_page"] = per_page;
     result["request_params"]["q"] = raw_query;
 
+    if(!override_metadata.empty()) {
+        result["metadata"] = override_metadata;
+    }
+
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
@@ -3161,11 +3185,12 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
                                           token_ordering token_order,
                                           filter_node_t*& filter_tree_root,
                                           std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
-                                          std::vector<uint32_t>& excluded_ids) const {
+                                          std::vector<uint32_t>& excluded_ids,
+                                          nlohmann::json& override_metadata) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
     index->process_filter_overrides(filter_overrides, q_include_tokens, token_order,
-                                    filter_tree_root, matched_dynamic_overrides);
+                                    filter_tree_root, matched_dynamic_overrides, override_metadata);
 
     // we will check the dynamic overrides to see if they also have include/exclude
     std::set<uint32_t> excluded_set;
@@ -3202,9 +3227,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         q_include_tokens = {query};
     } else {
         std::vector<std::string> tokens;
-        spp::sparse_hash_set<std::string> stopwords_list;
+        stopword_struct_t stopwordStruct;
         if(!stopwords_set.empty()) {
-            const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwords_list);
+            const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
             if (!stopword_op.ok()) {
                 LOG(ERROR) << stopword_op.error();
                 LOG(ERROR) << "Error fetching stopword_list for stopword " << stopwords_set;
@@ -3221,7 +3246,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             Tokenizer(query, true, false, locale, custom_symbols, token_separators).tokenize(tokens);
         }
 
-        for (const auto val: stopwords_list) {
+        for (const auto val: stopwordStruct.stopwords) {
             tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
         }
 
@@ -6262,6 +6287,10 @@ Option<uint32_t> Collection::get_sort_index_value_with_lock(const std::string& f
     return index->get_sort_index_value_with_lock(name, field_name, seq_id);
 }
 
+std::shared_mutex& Collection::get_lifecycle_mutex() {
+    return lifecycle_mutex;
+}
+
 void Collection::remove_embedding_field(const std::string& field_name) {
     if(embedding_fields.find(field_name) == embedding_fields.end()) {
         return;
@@ -6278,6 +6307,5 @@ tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
 }
 
 void Collection::do_housekeeping() {
-    std::unique_lock lock(index_repair_lock);
     index->repair_hnsw_index();
 }

@@ -689,6 +689,8 @@ struct facet {
 
     std::string sort_field="";
 
+    uint32_t orig_index;
+
     bool get_range(int64_t key, std::pair<int64_t, std::string>& range_pair) {
         if(facet_range_map.empty()) {
             LOG (ERROR) << "Facet range is not defined!!!";
@@ -707,10 +709,10 @@ struct facet {
 
     explicit facet(const std::string& field_name, std::map<int64_t, std::string> facet_range = {},
                    bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
-                   const std::string& sort_by_field="")
+                   const std::string& sort_by_field="", uint32_t orig_index = 0)
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
-                   sort_field(sort_by_field) {
+                   sort_field(sort_by_field), orig_index(orig_index) {
     }
 };
 
