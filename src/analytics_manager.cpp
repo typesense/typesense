@@ -43,7 +43,8 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert,
         return Option<bool>(400, "Bad or missing params.");
     }
 
-    if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE) {
+    if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE
+            || payload["type"] == POPULAR_CLICKS_TYPE) {
         return create_queries_index(payload, upsert, write_to_disk);
     }
 
@@ -84,6 +85,15 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
         return Option<bool>(400, "Must contain a valid destination collection.");
     }
 
+    std::string counter_field;
+
+    if(params["destination"].contains("counter_field")) {
+        if (!params["destination"]["counter_field"].is_string()) {
+            return Option<bool>(400, "Must contain a valid counter_field.");
+        }
+        counter_field = params["destination"]["counter_field"].get<std::string>();
+    }
+
     const std::string& suggestion_collection = params["destination"]["collection"].get<std::string>();
     suggestion_config_t suggestion_config;
     suggestion_config.name = suggestion_config_name;
@@ -97,6 +107,19 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
     } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
         if (!upsert && nohits_queries.count(suggestion_collection) != 0) {
             return Option<bool>(400, "There's already another configuration for this destination collection.");
+        }
+    } else if(payload["type"] == POPULAR_CLICKS_TYPE) {
+        if (!upsert && popular_clicks.count(suggestion_collection) != 0) {
+            return Option<bool>(400, "There's already another configuration for this destination collection.");
+        }
+
+        auto coll = CollectionManager::get_instance().get_collection(suggestion_collection).get();
+        if(coll != nullptr) {
+            if (!coll->contains_field(counter_field)) {
+                return Option<bool>(404, "counter_field `" + counter_field + "` not found in destination collection.");
+            }
+        } else {
+            return Option<bool>(404, "Collection `" + suggestion_collection + "` not found.");
         }
     }
 
@@ -131,6 +154,8 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
     } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
         QueryAnalytics *noresultsQueries = new QueryAnalytics(limit);
         nohits_queries.emplace(suggestion_collection, noresultsQueries);
+    } else if(payload["type"] == POPULAR_CLICKS_TYPE) {
+        popular_clicks.emplace(suggestion_collection, popular_clicks_t{counter_field, {}});
     }
 
     if(write_to_disk) {
@@ -278,6 +303,13 @@ Option<bool> AnalyticsManager::add_click_event(const std::string &query_collecti
         click_event_t click_event(query, now_ts_useconds, user_id, doc_id, position);
         click_events_vec.emplace_back(click_event);
 
+        auto popular_clicks_it = popular_clicks.find(query_collection);
+        if(popular_clicks_it != popular_clicks.end()) {
+            popular_clicks_it->second.docid_counts[doc_id]++;
+        } else {
+            LOG(ERROR) << "collection " << query_collection << " not found in analytics rule.";
+        }
+
         return Option<bool>(true);
     }
 
@@ -346,6 +378,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         checkEventsExpiry();
         persist_query_events(raft_server, prev_persistence_s);
         persist_query_hits_click_events(raft_server, prev_persistence_s);
+        persist_popular_clicks(raft_server, prev_persistence_s);
 
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -508,6 +541,37 @@ void AnalyticsManager::persist_query_hits_click_events(ReplicationState *raft_se
     }
 }
 
+void AnalyticsManager::persist_popular_clicks(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+    auto send_http_response = [&](const std::string& import_payload, const std::string& collection) {
+        std::string leader_url = raft_server->get_leader_url();
+        if (!leader_url.empty()) {
+            const std::string &base_url = leader_url + "collections/" + collection;
+            std::string res;
+
+            const std::string &update_url = base_url + "/documents/import?action=update";
+            std::map<std::string, std::string> res_headers;
+            long status_code = HttpClient::post_response(update_url, import_payload,
+                                                         res, res_headers, {}, 10 * 1000, true);
+
+            if (status_code != 200) {
+                LOG(ERROR) << "Error while sending popular_clicks events to leader. "
+                           << "Status code: " << status_code << ", response: " << res;
+            }
+        }
+    };
+
+    for(const auto& popular_clicks_it : popular_clicks) {
+        auto coll = popular_clicks_it.first;
+        nlohmann::json doc;
+        auto counter_field = popular_clicks_it.second.counter_field;
+        for(const auto& popular_click : popular_clicks_it.second.docid_counts) {
+            doc["id"] = popular_click.first;
+            doc[counter_field] = popular_click.second;
+            send_http_response(doc.dump(), coll);
+        }
+    }
+}
+
 void AnalyticsManager::stop() {
     quit = true;
     cv.notify_all();
@@ -542,6 +606,11 @@ std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_popular_q
 std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_nohits_queries() {
     std::unique_lock lk(mutex);
     return nohits_queries;
+}
+
+std::unordered_map<std::string, popular_clicks_t> AnalyticsManager::get_popular_clicks() {
+    std::unique_lock lk(mutex);
+    return popular_clicks;
 }
 
 nlohmann::json AnalyticsManager::get_click_events() {

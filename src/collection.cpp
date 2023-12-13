@@ -4361,6 +4361,11 @@ std::vector<field> Collection::get_fields() {
     return fields;
 }
 
+bool Collection::contains_field(const std::string &field) {
+    std::shared_lock lock(mutex);
+    return search_schema.find(field) != search_schema.end();
+}
+
 std::unordered_map<std::string, field> Collection::get_dynamic_fields() {
     std::shared_lock lock(mutex);
     return dynamic_fields;
