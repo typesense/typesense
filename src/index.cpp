@@ -786,8 +786,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     }
                     else if(afield.type == field_types::FLOAT) {
                         float raw_val = document[afield.name].get<float>();
-                        auto fhash = reinterpret_cast<uint32_t&>(raw_val);
-                        facet_value_id_t facet_value_id(StringUtils::float_to_str(raw_val), fhash);
+                        const std::string& float_str_val = StringUtils::float_to_str(raw_val);
+                        float normalized_raw_val = std::stof(float_str_val);
+                        auto fhash = reinterpret_cast<uint32_t&>(normalized_raw_val);
+                        facet_value_id_t facet_value_id(float_str_val, fhash);
                         fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
                         seq_id_to_fvalues[seq_id].push_back(facet_value_id);
                     }
