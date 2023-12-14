@@ -15,7 +15,13 @@ Option<bool> EmbedderManager::validate_and_init_model(const nlohmann::json& mode
         return validate_and_init_remote_model(model_config, num_dims);
     } else {
         LOG(INFO) << "Validating and initializing local model: " << model_name;
-        return validate_and_init_local_model(model_config, num_dims);
+        auto op = validate_and_init_local_model(model_config, num_dims);
+        if(op.ok()) {
+            LOG(INFO) << "Finished initializing local model: " << model_name;
+        } else {
+            LOG(ERROR) << "Failed to initialize local model " << model_name << ", error: " << op.error();
+        }
+        return op;
     }
 }
 
