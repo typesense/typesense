@@ -200,6 +200,8 @@ public:
 
     void dispose();
 
+    Store* get_analytics_store();
+
     void persist_query_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
