@@ -3220,3 +3220,36 @@ TEST_F(CollectionVectorTest, TestCLIPTokenizerUnicode) {
                                 0, spp::sparse_hash_set<std::string>()).get();
     
 }
+ 
+TEST_F(CollectionVectorTest, Test0VectorDistance) {
+    auto schema_json =
+        R"({
+        "name": "colors",
+        "fields": [
+            {"name": "rgb", "type":"float[]", "num_dim": 3}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "rgb": [0.9, 0.9, 0.9]
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "rgb:([0.5, 0.5, 0.5])").get();
+    
+    ASSERT_EQ(results["hits"].size(), 1);
+    ASSERT_EQ(results["hits"][0].count("vector_distance"), 1);
+    ASSERT_EQ(results["hits"][0]["vector_distance"], 0);
+}
