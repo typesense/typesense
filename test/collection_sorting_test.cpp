@@ -2134,6 +2134,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     results = nlohmann::json::parse(json_res);
 
     ASSERT_EQ(4, results["hits"].size()); // 3 Adidas 1 Puma documents
+    // Because of `_eval`, Puma document will be on top even when having a lower text match score than Adidas documents.
     expected_ids = {"5", "4", "2", "1"};
     for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
