@@ -56,6 +56,10 @@ jobs:
             rm bazel-cache.tar.gz
           exit 0
 
+      - name: Bazel clean
+        run: |
+          bazel clean --expunge
+
       - name: Build protobuf deps
         run: |
           bazel build @com_google_protobuf//:protobuf_headers
