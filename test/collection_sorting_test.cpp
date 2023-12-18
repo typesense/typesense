@@ -1988,7 +1988,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
             "name": "coll1",
             "fields": [
               {"name": "title", "type": "string" },
-              {"name": "brand", "type": "string" },
+              {"name": "brand", "type": "string", "infix": true },
               {"name": "points", "type": "int32" }
             ]
         }
@@ -2120,6 +2120,24 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("The eval expression in sort_by is empty.", search_op.error());
+
+    req_params = {
+            {"collection", "coll1"},
+            {"q", "a"},
+            {"query_by", "brand"},
+            {"sort_by", "_eval(brand:puma):desc, _text_match:desc"},
+            {"infix", "always"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(4, results["hits"].size()); // 3 Adidas 1 Puma documents
+    expected_ids = {"5", "4", "2", "1"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
 
     // more bad syntax!
     sort_fields = {
