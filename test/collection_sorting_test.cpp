@@ -2082,6 +2082,20 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
+    // Score associated with the first match is assigned to the document.
+    sort_fields = {
+            sort_by({"brand:nike", "brand:adidas", "points: 1"}, {3, 2, 5}, "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, results["hits"].size());
+
+    expected_ids = {"3", "0", "4", "2", "1", "5"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
     // bad syntax for eval query
     sort_fields = {
         sort_by({"brandnike || points:0"}, {1}, "DESC"),
