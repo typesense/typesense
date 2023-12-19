@@ -7,27 +7,33 @@
 #include "raft_server.h"
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
+#include <analytics_manager.h>
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
-    Store *store;
+    Store *store, *analytics_store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
 
+    AnalyticsManager& analyticsManager = AnalyticsManager::get_instance();
+
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/core_api_utils";
+        std::string analytics_db_path = "/tmp/typesense_test/analytics_db2";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
+        analytics_store = new Store(analytics_db_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
         ConversationModelManager::init(store);
         ConversationManager::init(store);
+        analyticsManager.init(store, analytics_store);
     }
 
     virtual void SetUp() {
@@ -37,6 +43,7 @@ protected:
     virtual void TearDown() {
         collectionManager.dispose();
         delete store;
+        delete analytics_store;
     }
 };
 
@@ -1495,4 +1502,119 @@ TEST_F(CoreAPIUtilsTest, TestInvalidConversationModels) {
 
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Property `model_name` is not provided or not a string.", nlohmann::json::parse(resp->body)["message"]);
+}
+
+TEST_F(CoreAPIUtilsTest, GetClickEvents) {
+    //reset analytics store
+    analyticsManager.resetRateLimit();
+    analyticsManager.resetAnalyticsStore();
+
+    nlohmann::json schema = R"({
+        "name": "titles",
+        "fields": [
+          {"name": "name", "type": "string" },
+          {"name": "points", "type": "int32" }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* titles = op.get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    // no events in db
+    get_click_events(req, res);
+    ASSERT_EQ("{\"message\": \"Not Found\"}", res->body);
+
+    //add some events
+    nlohmann::json event1 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 2,
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event1.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event2 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "12",
+            "position": 1,
+            "user_id": "13"
+        }
+    })"_json;
+    req->body = event2.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event3 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "52",
+            "position": 5,
+            "user_id": "13"
+        }
+    })"_json;
+    req->body = event3.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    event1["collection_id"] = "0";
+    event1["timestamp"] = 1521512521;
+    event1["event_type"] = "click_events";
+    event2["collection_id"] = "0";
+    event2["timestamp"] = 1521514354;
+    event2["event_type"] = "click_events";
+    event3["collection_id"] = "0";
+    event3["timestamp"] = 1521515382;
+    event3["event_type"] = "click_events";
+
+
+    nlohmann::json click_events = nlohmann::json::array();
+    click_events.push_back(event1);
+    click_events.push_back(event2);
+    click_events.push_back(event3);
+
+    req->body = click_events.dump();
+    ASSERT_TRUE(post_replicate_events(req, res));
+
+    //get click events
+    req->data = nullptr;
+    get_click_events(req, res);
+
+    std::vector<std::string> res_strs;
+    StringUtils::split(res->body, res_strs, "\n");
+
+    auto result = nlohmann::json::array();
+    result.push_back(nlohmann::json::parse(res_strs[0]));
+    result.push_back(nlohmann::json::parse(res_strs[1]));
+    result.push_back(nlohmann::json::parse(res_strs[2]));
+
+    ASSERT_EQ("0", result[0]["collection_id"]);
+    ASSERT_EQ("13", result[0]["data"]["user_id"]);
+    ASSERT_EQ("21", result[0]["data"]["doc_id"]);
+    ASSERT_EQ(2, result[0]["data"]["position"]);
+    ASSERT_EQ("technology", result[0]["data"]["q"]);
+
+    ASSERT_EQ("0", result[1]["collection_id"]);
+    ASSERT_EQ("13", result[1]["data"]["user_id"]);
+    ASSERT_EQ("12", result[1]["data"]["doc_id"]);
+    ASSERT_EQ(1, result[1]["data"]["position"]);
+    ASSERT_EQ("technology", result[1]["data"]["q"]);
+
+    ASSERT_EQ("0", result[2]["collection_id"]);
+    ASSERT_EQ("13", result[2]["data"]["user_id"]);
+    ASSERT_EQ("52", result[2]["data"]["doc_id"]);
+    ASSERT_EQ(5, result[2]["data"]["position"]);
+    ASSERT_EQ("technology", result[2]["data"]["q"]);
 }
