@@ -45,7 +45,7 @@ class TextEmbedder {
         std::unique_ptr<TextEmbeddingTokenizer> tokenizer_;
         std::unique_ptr<RemoteEmbedder> remote_embedder_;
         std::string vocab_file_name;
-        static std::vector<float> mean_pooling(const std::vector<std::vector<float>>& input);
+        static std::vector<float> mean_pooling(const std::vector<std::vector<float>>& input, const std::vector<int64_t>& attention_mask);
         std::string output_tensor_name;
         size_t num_dim;
         std::mutex mutex_;
