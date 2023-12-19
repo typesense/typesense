@@ -105,6 +105,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<int>("cache-num-entries", '\0', "Number of entries to cache.", false, 1000);
     options.add<uint32_t>("analytics-flush-interval", '\0', "Frequency of persisting analytics data to disk (in seconds).", false, 3600);
     options.add<uint32_t>("housekeeping-interval", '\0', "Frequency of housekeeping background job (in seconds).", false, 1800);
+    options.add<uint32_t>("db-compaction-interval", '\0', "Frequency of RocksDB compaction (in seconds).", false, 604800);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -389,10 +390,16 @@ int run_server(const Config & config, const std::string & version, void (*master
     ThreadPool replication_thread_pool(num_threads);
 
     // primary DB used for storing the documents: we will not use WAL since Raft provides that
-    Store store(db_dir);
+    Store store(db_dir, 24*60*60, 1024, true, config.get_db_compaction_interval());
 
     // meta DB for storing house keeping things
     Store meta_store(meta_dir, 24*60*60, 1024, false);
+
+    //analytics DB for storing query click events
+    std::unique_ptr<Store> analytics_store = nullptr;
+    if(!analytics_dir.empty()) {
+        analytics_store.reset(new Store(analytics_dir, 24 * 60 * 60, 1024, true, config.get_db_compaction_interval()));
+    }
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
