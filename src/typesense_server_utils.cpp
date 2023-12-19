@@ -395,12 +395,6 @@ int run_server(const Config & config, const std::string & version, void (*master
     // meta DB for storing house keeping things
     Store meta_store(meta_dir, 24*60*60, 1024, false);
 
-    //analytics DB for storing query click events
-    std::unique_ptr<Store> analytics_store = nullptr;
-    if(!analytics_dir.empty()) {
-        analytics_store.reset(new Store(analytics_dir, 24 * 60 * 60, 1024, true, config.get_db_compaction_interval()));
-    }
-
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
