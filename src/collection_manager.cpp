@@ -910,7 +910,11 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
 }
 
 void CollectionManager::_get_reference_collection_names(const std::string& filter_query,
-                                                        std::set<std::string>& reference_collection_names) {
+                                                        ref_include_collection_names_t*& ref_include) {
+    if (ref_include == nullptr) {
+        ref_include = new ref_include_collection_names_t();
+    }
+
     auto size = filter_query.size();
     for (uint32_t i = 0; i < size;) {
         auto c = filter_query[i];
@@ -918,7 +922,7 @@ void CollectionManager::_get_reference_collection_names(const std::string& filte
             i++;
         } else if (c == '&' || c == '|') {
             if (i + 1 >= size || (c == '&' && filter_query[i+1] != '&') || (c == '|' && filter_query[i+1] != '|')) {
-                reference_collection_names.clear();
+                ref_include->collection_names.clear();
                 return;
             }
             i += 2;
@@ -927,14 +931,14 @@ void CollectionManager::_get_reference_collection_names(const std::string& filte
             if (c == '$') {
                 auto open_paren_pos = filter_query.find('(', ++i);
                 if (open_paren_pos == std::string::npos) {
-                    reference_collection_names.clear();
+                    ref_include->collection_names.clear();
                     return;
                 }
 
                 auto reference_collection_name = filter_query.substr(i, open_paren_pos - i);
                 StringUtils::trim(reference_collection_name);
                 if (!reference_collection_name.empty()) {
-                    reference_collection_names.insert(reference_collection_name);
+                    ref_include->collection_names.insert(reference_collection_name);
                 }
 
                 i = open_paren_pos;
@@ -948,17 +952,19 @@ void CollectionManager::_get_reference_collection_names(const std::string& filte
                 }
 
                 if (parenthesis_count != 0) {
-                    reference_collection_names.clear();
+                    ref_include->collection_names.clear();
                     return;
                 }
 
                 // Need to process the filter expression inside parenthesis in case of nested join.
                 auto sub_filter_query = filter_query.substr(open_paren_pos + 1, i - open_paren_pos - 2);
-                _get_reference_collection_names(sub_filter_query, reference_collection_names);
+                if (sub_filter_query.find('$') != std::string::npos) {
+                    _get_reference_collection_names(sub_filter_query, ref_include->nested_include);
+                }
             } else {
                 while (i + 1 < size && filter_query[++i] != ':');
                 if (i >= size) {
-                    reference_collection_names.clear();
+                    ref_include->collection_names.clear();
                     return;
                 }
 
@@ -976,11 +982,99 @@ void CollectionManager::_get_reference_collection_names(const std::string& filte
     }
 }
 
-// Separate out the reference includes into `ref_include_fields_vec`.
-void initialize_ref_include_fields_vec(const std::string& filter_query, std::vector<std::string>& include_fields_vec,
-                                       std::vector<ref_include_fields>& ref_include_fields_vec) {
-    std::set<std::string> reference_collection_names;
-    CollectionManager::_get_reference_collection_names(filter_query, reference_collection_names);
+Option<bool> parse_nested_include(const std::string& include_field_exp,
+                                  CollectionManager::ref_include_collection_names_t* const ref_include_coll_names,
+                                  std::vector<ref_include_fields>& ref_include_fields_vec) {
+    // Format: $ref_collection_name(field_1, field_2, $nested_ref_coll(nested_field_1: nested_include_strategy) as nested_ref_alias: include_strategy) as ref_alias
+    size_t index = 0;
+    while (index < include_field_exp.size()) {
+        auto parenthesis_index = include_field_exp.find('(');
+        auto ref_collection_name = include_field_exp.substr(index + 1, parenthesis_index - index - 1);
+        bool nest_ref_doc = true;
+        std::string ref_fields, ref_alias;
+
+        index = parenthesis_index + 1;
+        auto nested_include_pos = include_field_exp.find('$', parenthesis_index);
+        auto closing_parenthesis_pos = include_field_exp.find(')', parenthesis_index);
+        auto colon_pos = include_field_exp.find(':', index);
+        size_t comma_pos;
+        std::vector<ref_include_fields> nested_ref_include_fields_vec;
+        if (nested_include_pos < closing_parenthesis_pos) {
+            // Nested reference include.
+            // "... $product_variants(title, $inventory(qty:merge) as inventory :nest) as variants ..."
+            do {
+                ref_fields += include_field_exp.substr(index, nested_include_pos - index);
+                StringUtils::trim(ref_fields);
+                index = nested_include_pos;
+                std::string nested_include_field_exp;
+                auto split_op = StringUtils::split_reference_include_fields(include_field_exp, index,
+                                                                            nested_include_field_exp);
+                if (!split_op.ok()) {
+                    return split_op;
+                }
+
+                auto parse_op = parse_nested_include(nested_include_field_exp,
+                                                     ref_include_coll_names == nullptr ? nullptr : ref_include_coll_names->nested_include,
+                                                     nested_ref_include_fields_vec);
+                if (!parse_op.ok()) {
+                    return parse_op;
+                }
+
+                nested_include_pos = include_field_exp.find('$', index);
+                closing_parenthesis_pos = include_field_exp.find(')', index);
+                colon_pos = include_field_exp.find(':', index);
+                comma_pos = include_field_exp.find(',', index);
+                index = std::min(std::min(closing_parenthesis_pos, colon_pos), comma_pos) + 1;
+            } while(index < include_field_exp.size() && nested_include_pos < closing_parenthesis_pos);
+        }
+
+        // ... $inventory(qty:merge) as inventory ...
+        if (colon_pos < closing_parenthesis_pos) { // Merge strategy is specified.
+            auto include_strategy = include_field_exp.substr(colon_pos + 1, closing_parenthesis_pos - colon_pos - 1);
+            StringUtils::trim(include_strategy);
+            nest_ref_doc = include_strategy == ref_include::nest;
+
+            if (index < colon_pos) {
+                ref_fields += include_field_exp.substr(index, colon_pos - index);
+            }
+        } else if (index < closing_parenthesis_pos) {
+            ref_fields += include_field_exp.substr(index, closing_parenthesis_pos - index);
+        }
+        StringUtils::trim(ref_fields);
+
+        auto as_pos = include_field_exp.find(" as ", index);
+        comma_pos = include_field_exp.find(',', index);
+        if (as_pos != std::string::npos && as_pos < comma_pos) {
+            ref_alias = include_field_exp.substr(as_pos + 4, comma_pos - as_pos - 4);
+        }
+
+        // For an alias `foo`,
+        // In case of "merge" reference doc, we need append `foo.` to all the top level keys of reference doc.
+        // In case of "nest" reference doc, `foo` becomes the key with reference doc as value.
+        ref_alias = !ref_alias.empty() ? (StringUtils::trim(ref_alias) + (nest_ref_doc ? "" : ".")) : "";
+
+        ref_include_fields_vec.emplace_back(ref_include_fields{ref_collection_name, ref_fields, ref_alias, nest_ref_doc});
+        ref_include_fields_vec.back().nested_join_includes = std::move(nested_ref_include_fields_vec);
+
+        // Referenced collection in filter_by is already mentioned in ref_include_fields.
+        if (ref_include_coll_names != nullptr) {
+            ref_include_coll_names->collection_names.erase(ref_collection_name);
+        }
+        if (comma_pos == std::string::npos) {
+            break;
+        }
+        index = comma_pos + 1;
+    }
+
+    return Option<bool>(true);
+}
+
+void CollectionManager::_initialize_ref_include_fields_vec(const std::string& filter_query,
+                                                           std::vector<std::string>& include_fields_vec,
+                                                           std::vector<ref_include_fields>& ref_include_fields_vec) {
+    ref_include_collection_names_t* ref_include_coll_names = nullptr;
+    CollectionManager::_get_reference_collection_names(filter_query, ref_include_coll_names);
+    std::unique_ptr<CollectionManager::ref_include_collection_names_t> guard(ref_include_coll_names);
 
     std::vector<std::string> result_include_fields_vec;
     auto wildcard_include_all = true;
@@ -992,6 +1086,12 @@ void initialize_ref_include_fields_vec(const std::string& filter_query, std::vec
 
             wildcard_include_all = false;
             result_include_fields_vec.emplace_back(include_field_exp);
+            continue;
+        }
+
+        // Nested reference include.
+        if (include_field_exp.find('$', 1) != std::string::npos) {
+            auto parse_op = parse_nested_include(include_field_exp, ref_include_coll_names, ref_include_fields_vec);
             continue;
         }
 
@@ -1031,13 +1131,24 @@ void initialize_ref_include_fields_vec(const std::string& filter_query, std::vec
             continue;
         }
 
-        // Referenced collection in filter_query is already mentioned in ref_include_fields.
-        reference_collection_names.erase(reference_collection_name);
+        // Referenced collection in filter_by is already mentioned in ref_include_fields.
+        if (ref_include_coll_names != nullptr) {
+            ref_include_coll_names->collection_names.erase(reference_collection_name);
+        }
     }
 
     // Get all the fields of the referenced collection in the filter but not mentioned in include_fields.
-    for (const auto &reference_collection_name: reference_collection_names) {
-        ref_include_fields_vec.emplace_back(ref_include_fields{reference_collection_name, "", "", true});
+    auto ref_includes = std::ref(ref_include_fields_vec);
+    while (ref_include_coll_names != nullptr) {
+        for (const auto &reference_collection_name: ref_include_coll_names->collection_names) {
+            ref_includes.get().emplace_back(ref_include_fields{reference_collection_name, "", "", true});
+        }
+
+        ref_include_coll_names = ref_include_coll_names->nested_include;
+        if (ref_includes.get().empty()) {
+            break;
+        }
+        ref_includes = std::ref(ref_includes.get().front().nested_join_includes);
     }
 
     // Since no field of the collection is mentioned in include_fields, get all the fields.
@@ -1431,7 +1542,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
-    initialize_ref_include_fields_vec(filter_query, include_fields_vec, ref_include_fields_vec);
+    _initialize_ref_include_fields_vec(filter_query, include_fields_vec, ref_include_fields_vec);
 
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
     exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());

@@ -337,4 +337,8 @@ struct StringUtils {
     static Option<bool> split_include_fields(const std::string& include_fields, std::vector<std::string>& tokens);
 
     static size_t get_occurence_count(const std::string& str, char symbol);
+
+    static Option<bool> split_reference_include_fields(const std::string& include_fields,
+                                                       size_t& index,
+                                                       std::string& token);
 };

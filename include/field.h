@@ -518,7 +518,10 @@ struct ref_include_fields {
     std::string collection_name;
     std::string fields;
     std::string alias;
-    bool nest_ref_doc = false;
+    bool nest_ref_doc = true;
+
+    // In case we have nested join.
+    std::vector<ref_include_fields> nested_join_includes;
 };
 
 struct hnsw_index_t;
