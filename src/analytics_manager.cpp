@@ -598,6 +598,10 @@ void AnalyticsManager::init(Store* store, Store* analytics_store) {
     this->analytics_store = analytics_store;
 }
 
+Store* AnalyticsManager::get_analytics_store() {
+    return this->analytics_store;
+}
+
 std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_popular_queries() {
     std::unique_lock lk(mutex);
     return popular_queries;
