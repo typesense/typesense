@@ -2057,27 +2057,27 @@ TEST_F(CollectionFacetingTest, FloatValueTruncation) {
 
     nlohmann::json doc;
     doc["movie"] = "The Shawshank Redemption";
-    doc["rating"] = 9.37;
+    doc["rating"] = 93.7;
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     doc["movie"] = "The Godfather";
-    doc["rating"] = 9.20;
+    doc["rating"] = 92.0;
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     doc["movie"] = "The Dark Knight";
-    doc["rating"] = 9.0;
+    doc["rating"] = 90;
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     doc["movie"] = "Inception";
-    doc["rating"] = 8.87;
+    doc["rating"] = 88.7;
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     doc["movie"] = "Pulp Fiction";
-    doc["rating"] = 8.92;
+    doc["rating"] = 89.2;
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     doc["movie"] = "Good Will Hunting";
-    doc["rating"] = 8.33;
+    doc["rating"] = 83.3;
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     auto results = coll1->search("The", {"movie"}, "", {"rating"}, sort_fields, {0}, 10, 1,
@@ -2086,25 +2086,25 @@ TEST_F(CollectionFacetingTest, FloatValueTruncation) {
 
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("9", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
-    ASSERT_EQ("9.2", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
-    ASSERT_EQ("9.37", results["facet_counts"][0]["counts"][2]["value"].get<std::string>());
+    ASSERT_EQ("90", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("92", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ("93.7", results["facet_counts"][0]["counts"][2]["value"].get<std::string>());
 
     //with filter
-    results = coll1->search("*", {}, "rating: >8.5", {"rating"}, sort_fields, {0}, 10, 1,
+    results = coll1->search("*", {}, "rating: >85", {"rating"}, sort_fields, {0}, 10, 1,
                                  FREQUENCY, {false}, 10, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>()).get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("9", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
-    ASSERT_EQ("9.2", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
-    ASSERT_EQ("8.92", results["facet_counts"][0]["counts"][2]["value"].get<std::string>());
-    ASSERT_EQ("8.87", results["facet_counts"][0]["counts"][3]["value"].get<std::string>());
-    ASSERT_EQ("9.37", results["facet_counts"][0]["counts"][4]["value"].get<std::string>());
+    ASSERT_EQ("90", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("92", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ("88.7", results["facet_counts"][0]["counts"][2]["value"].get<std::string>());
+    ASSERT_EQ("89.2", results["facet_counts"][0]["counts"][3]["value"].get<std::string>());
+    ASSERT_EQ("93.7", results["facet_counts"][0]["counts"][4]["value"].get<std::string>());
 
     //with filter and group
-    results = coll1->search("*", {}, "rating: >9", {"rating"}, sort_fields, {0}, 10, 1,
+    results = coll1->search("*", {}, "rating: >90", {"rating"}, sort_fields, {0}, 10, 1,
                             FREQUENCY, {false}, 10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "",
                             30, 4, "", 10, {},
@@ -2112,6 +2112,6 @@ TEST_F(CollectionFacetingTest, FloatValueTruncation) {
 
     ASSERT_EQ(2, results["grouped_hits"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ("9.2", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
-    ASSERT_EQ("9.37", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ("92", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("93.7", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
 }
