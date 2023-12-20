@@ -619,6 +619,31 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 continue;
             }
 
+
+
+            if(conversation && search_item.key() == "q") {
+                // q is common for all searches
+                res->set_400("`q` parameter cannot be used in POST body if `conversation` is enabled. Please set `q` as a query parameter in the request, instead of inside the POST body");
+                return false;
+            }
+
+            if(conversation && search_item.key() == "conversation_model_id") {
+                // conversation_model_id is common for all searches
+                res->set_400("`conversation_model_id` cannot be used in POST body. Please set `conversation_model_id` as a query parameter in the request, instead of inside the POST body");
+                return false;
+            }
+
+            if(conversation && search_item.key() == "conversation_id") {
+                // conversation_id is common for all searches
+                res->set_400("`conversation_id` cannot be used in POST body. Please set `conversation_id` as a query parameter in the request, instead of inside the POST body");
+                return false;
+            }
+
+            if(search_item.key() == "conversation") {
+                res->set_400("`conversation` cannot be used in POST body. Please set `conversation` as a query parameter in the request, instead of inside the POST body");
+                return false;
+            }
+
             // overwrite = false since req params will contain embedded params and so has higher priority
             bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
             if(!populated) {
