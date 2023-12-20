@@ -109,6 +109,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<int>("cache-num-entries", '\0', "Number of entries to cache.", false, 1000);
     options.add<uint32_t>("analytics-flush-interval", '\0', "Frequency of persisting analytics data to disk (in seconds).", false, 3600);
     options.add<uint32_t>("housekeeping-interval", '\0', "Frequency of housekeeping background job (in seconds).", false, 1800);
+    options.add<uint32_t>("db-compaction-interval", '\0', "Frequency of RocksDB compaction (in seconds).", false, 604800);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -394,7 +395,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     ThreadPool replication_thread_pool(num_threads);
 
     // primary DB used for storing the documents: we will not use WAL since Raft provides that
-    Store store(db_dir);
+    Store store(db_dir, 24*60*60, 1024, true, config.get_db_compaction_interval());
 
     // meta DB for storing house keeping things
     Store meta_store(meta_dir, 24*60*60, 1024, false);
@@ -402,7 +403,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     //analytics DB for storing query click events
     std::unique_ptr<Store> analytics_store = nullptr;
     if(!analytics_dir.empty()) {
-        analytics_store.reset(new Store(analytics_dir, 24 * 60 * 60, 1024, false));
+        analytics_store.reset(new Store(analytics_dir, 24 * 60 * 60, 1024, true, config.get_db_compaction_interval()));
     }
 
     curl_global_init(CURL_GLOBAL_SSL);
@@ -449,7 +450,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
     EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
-    auto conversations_init = ConversationManager::init(&store);
+    auto conversations_init = ConversationManager::get_instance().init(&store);
 
     if(!conversations_init.ok()) {
         LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
@@ -485,16 +486,9 @@ int run_server(const Config & config, const std::string & version, void (*master
             AnalyticsManager::get_instance().run(&replication_state);
         });
 
-        std::thread conersation_garbage_collector_thread([]() {
+        std::thread conversation_garbage_collector_thread([]() {
             LOG(INFO) << "Conversation garbage collector thread started.";
-            int last_clear_time = 0;
-            while(!brpc::IsAskedToQuit()) {
-                if(last_clear_time + 60 < std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()) {
-                    last_clear_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                    ConversationManager::clear_expired_conversations();
-                }
-                std::this_thread::sleep_for(std::chrono::seconds(5));
-            }
+            ConversationManager::get_instance().run();
         });
           
         HouseKeeper::get_instance().init(config.get_housekeeping_interval());
@@ -526,6 +520,12 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Waiting for event sink thread to be done...";
         event_sink_thread.join();
 
+        LOG(INFO) << "Shutting down conversation garbage collector thread...";
+        ConversationManager::get_instance().stop();
+
+        LOG(INFO) << "Waiting for conversation garbage collector thread to be done...";
+        conversation_garbage_collector_thread.join();
+
         LOG(INFO) << "Waiting for housekeeping thread to be done...";
         HouseKeeper::get_instance().stop();
         housekeeping_thread.join();
@@ -539,12 +539,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         app_thread_pool.shutdown();
 
         LOG(INFO) << "Shutting down replication_thread_pool.";
-
         replication_thread_pool.shutdown();
-
-        LOG(INFO) << "Shutting down conversation garbage collector thread.";
-
-        conersation_garbage_collector_thread.join();
 
         server->stop();
     });

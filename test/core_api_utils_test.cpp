@@ -32,7 +32,7 @@ protected:
         collectionManager.load(8, 1000);
 
         ConversationModelManager::init(store);
-        ConversationManager::init(store);
+        ConversationManager::get_instance().init(store);
         analyticsManager.init(store, analytics_store);
     }
 

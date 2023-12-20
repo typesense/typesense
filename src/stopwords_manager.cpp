@@ -5,17 +5,17 @@ void StopwordsManager::init(Store* _store) {
     store = _store;
 }
 
-spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>> StopwordsManager::get_stopwords() const {
+spp::sparse_hash_map<std::string, stopword_struct_t> StopwordsManager::get_stopwords() const {
     std::shared_lock lock(mutex);
     return stopword_configs;
 }
 
-Option<bool> StopwordsManager::get_stopword(const std::string& stopword_name, spp::sparse_hash_set<std::string>& stopwords) const {
+Option<bool> StopwordsManager::get_stopword(const std::string& stopword_name, stopword_struct_t& stopwords_struct) const {
     std::shared_lock lock(mutex);
 
     const auto& it = stopword_configs.find(stopword_name);
     if(it != stopword_configs.end()) {
-        stopwords = it->second;
+        stopwords_struct = it->second;
         return Option<bool>(true);
     }
 
@@ -32,6 +32,10 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
 
     if(stopwords_json.count(STOPWORD_VALUES) == 0){
         return Option<bool>(400, (std::string("Parameter `") + STOPWORD_VALUES + "` is required"));
+    }
+
+    if(stopwords_json[STOPWORD_VALUES].empty()) {
+        return Option<bool>(400, (std::string("Parameter `") + STOPWORD_VALUES + "` is empty"));
     }
 
     if((!stopwords_json[STOPWORD_VALUES].is_array()) || (!stopwords_json[STOPWORD_VALUES][0].is_string())) {
@@ -65,7 +69,7 @@ Option<bool> StopwordsManager::upsert_stopword(const std::string& stopword_name,
         }
         tokens.clear();
     }
-    stopword_configs[stopword_name] = stopwords_set;
+    stopword_configs[stopword_name] = stopword_struct_t{stopword_name, stopwords_set, locale};
     return Option<bool>(true);
 }
 
@@ -76,16 +80,17 @@ std::string StopwordsManager::get_stopword_key(const std::string& stopword_name)
 Option<bool> StopwordsManager::delete_stopword(const std::string& stopword_name) {
     std::unique_lock lock(mutex);
 
-    bool removed = store->remove(get_stopword_key(stopword_name));
-    if(!removed) {
-        return Option<bool>(500, "Unable to delete from store.");
-    }
-
     if(stopword_configs.find(stopword_name) == stopword_configs.end()) {
         return Option<bool>(404, "Stopword `" + stopword_name + "` not found.");
     }
 
     stopword_configs.erase(stopword_name);
+
+    bool removed = store->remove(get_stopword_key(stopword_name));
+    if(!removed) {
+        return Option<bool>(500, "Unable to delete from store.");
+    }
+
     return Option<bool>(true);
 }
 

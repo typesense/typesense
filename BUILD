@@ -54,6 +54,7 @@ cc_library(
         "@rocksdb",
         "@s2geometry",
         "@hnsw",
+        "@clip_tokenizer//:clip"
         # "@zip",
     ],
 )

@@ -15,7 +15,13 @@ Option<bool> EmbedderManager::validate_and_init_model(const nlohmann::json& mode
         return validate_and_init_remote_model(model_config, num_dims);
     } else {
         LOG(INFO) << "Validating and initializing local model: " << model_name;
-        return validate_and_init_local_model(model_config, num_dims);
+        auto op = validate_and_init_local_model(model_config, num_dims);
+        if(op.ok()) {
+            LOG(INFO) << "Finished initializing local model: " << model_name;
+        } else {
+            LOG(ERROR) << "Failed to initialize local model " << model_name << ", error: " << op.error();
+        }
+        return op;
     }
 }
 
@@ -62,7 +68,7 @@ Option<bool> EmbedderManager::validate_and_init_local_model(const nlohmann::json
     }
 
     std::string abs_path = EmbedderManager::get_absolute_model_path(
-            EmbedderManager::get_model_name_without_namespace(model_name));
+    EmbedderManager::get_model_name_without_namespace(model_name));
 
     if(!std::filesystem::exists(abs_path)) {
         LOG(ERROR) << "Model file not found: " << abs_path;
@@ -448,14 +454,6 @@ text_embedding_model::text_embedding_model(const nlohmann::json& json) {
 
 
 Option<nlohmann::json> EmbedderManager::get_public_model_config(const std::string& model_name) {
-    // check cache first
-    if(std::filesystem::exists(get_absolute_config_path(model_name))) {
-        std::ifstream config_file(get_absolute_config_path(model_name));
-        nlohmann::json config;
-        config_file >> config;
-        config_file.close();
-        return Option<nlohmann::json>(config);
-    }
 
     auto actual_model_name = get_model_name_without_namespace(model_name);
     HttpClient& httpClient = HttpClient::get_instance();
@@ -473,6 +471,15 @@ Option<nlohmann::json> EmbedderManager::get_public_model_config(const std::strin
         config_file.close();
 
         return Option<nlohmann::json>(nlohmann::json::parse(response_body));
+    }
+
+    // check cache if network fails
+    if(std::filesystem::exists(get_absolute_config_path(model_name))) {
+        std::ifstream config_file(get_absolute_config_path(model_name));
+        nlohmann::json config;
+        config_file >> config;
+        config_file.close();
+        return Option<nlohmann::json>(config);
     }
 
     return Option<nlohmann::json>(404, "Model not found");

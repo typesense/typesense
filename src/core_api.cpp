@@ -575,7 +575,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(conversation_history) {
             std::string conversation_id = orig_req_params["conversation_id"];
 
-            auto conversation_history = ConversationManager::get_conversation(conversation_id);
+            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id);
 
             if(!conversation_history.ok()) {
                 res->set_400("`conversation_id` is invalid.");
@@ -589,7 +589,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             auto conversation_model_id = std::stoul(orig_req_params["conversation_model_id"]);
             auto conversation_id = orig_req_params["conversation_id"];
             auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
-            auto conversation_history = ConversationManager::get_conversation(conversation_id).get();
+            auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id).get();
             auto generate_standalone_q = ConversationModel::get_standalone_question(conversation_history, common_query, conversation_model);
 
             if(!generate_standalone_q.ok()) {
@@ -709,7 +709,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         // We have to pop a document from the search result with max size
         // Until we do not exceed MAX_TOKENS limit
-        while(ConversationManager::get_token_count(result_docs_arr) > ConversationManager::MAX_TOKENS) {
+        while(ConversationManager::get_instance().get_token_count(result_docs_arr) > ConversationManager::get_instance().MAX_TOKENS) {
             // sort the result_docs_arr by size descending
             std::sort(result_docs_arr.begin(), result_docs_arr.end(), [](const auto& a, const auto& b) {
                 return a.size() > b.size();
@@ -765,9 +765,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         if(conversation_history) {
             std::string conversation_id = orig_req_params["conversation_id"];
-            ConversationManager::append_conversation(conversation_id, formatted_question_op.get());
-            ConversationManager::append_conversation(conversation_id, formatted_answer_op.get());
-            auto get_conversation_op = ConversationManager::get_conversation(conversation_id);
+            ConversationManager::get_instance().append_conversation(conversation_id, formatted_question_op.get());
+            ConversationManager::get_instance().append_conversation(conversation_id, formatted_answer_op.get());
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
             if(!get_conversation_op.ok()) {
                 res->set_400(get_conversation_op.error());
                 return false;
@@ -783,13 +783,13 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             conversation_history.push_back(formatted_question_op.get());
             conversation_history.push_back(formatted_answer_op.get());
 
-            auto create_conversation_op = ConversationManager::create_conversation(conversation_history);
+            auto create_conversation_op = ConversationManager::get_instance().create_conversation(conversation_history);
             if(!create_conversation_op.ok()) {
                 res->set_400(create_conversation_op.error());
                 return false;
             }
 
-            auto get_conversation_op = ConversationManager::get_conversation(create_conversation_op.get());
+            auto get_conversation_op = ConversationManager::get_instance().get_conversation(create_conversation_op.get());
             if(!get_conversation_op.ok()) {
                 res->set_400(get_conversation_op.error());
                 return false;
@@ -1283,7 +1283,7 @@ bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shar
         return false;
     }
 
-    res->set_201(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+    res->set_200(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
@@ -2172,16 +2172,12 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
 bool get_stopwords(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
-    const spp::sparse_hash_map<std::string, spp::sparse_hash_set<std::string>>& stopwords = stopwordManager.get_stopwords();
+    const spp::sparse_hash_map<std::string, stopword_struct_t>& stopwords = stopwordManager.get_stopwords();
     nlohmann::json res_json = nlohmann::json::object();
     res_json["stopwords"] = nlohmann::json::array();
 
     for(const auto& stopwords_kv: stopwords) {
-        nlohmann::json stopword;
-        stopword["id"] = stopwords_kv.first;
-        for(const auto& val : stopwords_kv.second) {
-            stopword["stopwords"].push_back(val);
-        }
+        auto stopword = stopwords_kv.second.to_json();
         res_json["stopwords"].push_back(stopword);
     }
 
@@ -2193,8 +2189,8 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     const std::string & stopword_name = req->params["name"];
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
-    spp::sparse_hash_set<std::string> stopwords;
-    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
+    stopword_struct_t stopwordStruct;
+    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwordStruct);
 
     if(!stopword_op.ok()) {
         res->set(stopword_op.code(), stopword_op.error());
@@ -2202,10 +2198,8 @@ bool get_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     }
 
     nlohmann::json res_json;
-    res_json["id"] = stopword_name;
-    for(const auto& stopword : stopwords) {
-        res_json["stopwords"].push_back(stopword);
-    }
+
+    res_json["stopwords"] = stopwordStruct.to_json();
 
     res->set_200(res_json.dump());
     return true;
@@ -2231,7 +2225,7 @@ bool put_upsert_stopword(const std::shared_ptr<http_req>& req, const std::shared
         return false;
     }
 
-    req_json["name"] = stopword_name;
+    req_json["id"] = stopword_name;
 
     res->set_200(req_json.dump());
     return true;
@@ -2241,25 +2235,15 @@ bool del_stopword(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
     const std::string & stopword_name = req->params["name"];
     StopwordsManager& stopwordManager = StopwordsManager::get_instance();
 
-    spp::sparse_hash_set<std::string> stopwords;
-    Option<bool> stopword_op = stopwordManager.get_stopword(stopword_name, stopwords);
-    if(!stopword_op.ok()) {
-        res->set(stopword_op.code(), stopword_op.error());
-        return false;
-    }
-
     Option<bool> delete_op = stopwordManager.delete_stopword(stopword_name);
 
     if(!delete_op.ok()) {
-        res->set_500(delete_op.error());
+        res->set(delete_op.code(), delete_op.error());
         return false;
     }
 
     nlohmann::json res_json;
     res_json["id"] = stopword_name;
-    for(const auto& stopword : stopwords) {
-        res_json["stopwords"].push_back(stopword);
-    }
 
     res->set_200(res_json.dump());
     return true;
@@ -2612,7 +2596,7 @@ bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string conversation_id = req->params["id"];
 
-    auto conversation_op = ConversationManager::get_conversation(conversation_id);
+    auto conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
 
     if(!conversation_op.ok()) {
         res->set(conversation_op.code(), conversation_op.error());
@@ -2627,7 +2611,7 @@ bool get_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
 bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string conversation_id = req->params["id"];
 
-    auto conversation_op = ConversationManager::delete_conversation(conversation_id);
+    auto conversation_op = ConversationManager::get_instance().delete_conversation(conversation_id);
 
     if(!conversation_op.ok()) {
         res->set(conversation_op.code(), conversation_op.error());
@@ -2639,7 +2623,7 @@ bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
 }
 
 bool get_conversations(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto conversations_op = ConversationManager::get_all_conversations();
+    auto conversations_op = ConversationManager::get_instance().get_all_conversations();
 
     if(!conversations_op.ok()) {
         res->set(conversations_op.code(), conversations_op.error());
@@ -2665,7 +2649,7 @@ bool put_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
 
     req_json["id"] = conversation_id;
 
-    auto conversation_op = ConversationManager::update_conversation(req_json);
+    auto conversation_op = ConversationManager::get_instance().update_conversation(req_json);
 
     if(!conversation_op.ok()) {
         res->set(conversation_op.code(), conversation_op.error());

@@ -26,7 +26,7 @@ Option<std::string> ConversationManager::create_conversation(const nlohmann::jso
 }
 
 Option<nlohmann::json> ConversationManager::get_conversation(const std::string& conversation_id) {
-    std::shared_lock lock(conversations_mutex);
+    std::unique_lock lock(conversations_mutex);
     auto conversation = conversations.find(conversation_id);
     if (conversation == conversations.end()) {
         return Option<nlohmann::json>(404, "Conversation not found");
@@ -117,7 +117,7 @@ Option<nlohmann::json> ConversationManager::delete_conversation(const std::strin
 } 
 
 Option<nlohmann::json> ConversationManager::get_all_conversations() {
-    std::shared_lock lock(conversations_mutex);
+    std::unique_lock lock(conversations_mutex);
     nlohmann::json all_conversations = nlohmann::json::array();
     for(auto& conversation : conversations) {
         all_conversations.push_back(conversation.second);
@@ -227,4 +227,23 @@ Option<nlohmann::json> ConversationManager::update_conversation(nlohmann::json c
     conversations[conversation_id] = actual_conversation;
 
     return Option<nlohmann::json>(actual_conversation);
+}
+
+void ConversationManager::run() {
+    while(!quit) {
+        std::unique_lock lock(conversations_mutex);
+        cv.wait_for(lock, std::chrono::seconds(60), [&] { return quit.load(); });
+
+        if(quit) {
+            return;
+        }
+
+        lock.unlock();
+        clear_expired_conversations();
+    }
+}
+
+void ConversationManager::stop() {
+    quit = true;
+    cv.notify_all();
 }

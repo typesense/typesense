@@ -300,7 +300,7 @@ public:
         }
 
         filter_result_iterator->reset();
-        return filter_result_iterator->valid(id) == 1;
+        return filter_result_iterator->is_valid(id) == 1;
     }
 };
 
@@ -341,6 +341,7 @@ struct hnsw_index_t {
 struct group_by_field_it_t {
     std::string field_name;
     posting_list_t::iterator_t it;
+    bool is_array;
 };
 
 struct Hasher32 {
@@ -578,7 +579,8 @@ private:
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                               Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries) const;
 
-    static void compute_facet_stats(facet &a_facet, const std::string& raw_value, const std::string & field_type);
+    static void compute_facet_stats(facet &a_facet, const std::string& raw_value,
+                                    const std::string & field_type, const size_t count);
 
     static void compute_facet_stats(facet &a_facet, const int64_t raw_value, const std::string & field_type);
 
@@ -686,9 +688,9 @@ public:
 
     static float int64_t_to_float(int64_t n);
 
-    void get_distinct_id(const std::string& field_name, posting_list_t::iterator_t& facet_index_it,
-                                const uint32_t seq_id,  const bool group_missing_values, uint64_t& distinct_id,
-                                bool is_reverse=false) const;
+    void get_distinct_id(posting_list_t::iterator_t& facet_index_it, const uint32_t seq_id,
+                         const bool is_array, const bool group_missing_values, uint64_t& distinct_id,
+                         bool is_reverse=false) const;
 
     static void compute_token_offsets_facets(index_record& record,
                                              const tsl::htrie_map<char, field>& search_schema,
@@ -811,8 +813,8 @@ public:
                                  const std::vector<size_t>& geopoint_indices,
                                  const std::string& collection_name = "") const;
 
-    void search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
-                      size_t max_extra_prefix, size_t max_extra_suffix) const;
+    Option<bool> search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
+                              size_t max_extra_prefix, size_t max_extra_suffix) const;
 
     void curate_filtered_ids(const std::set<uint32_t>& curated_ids,
                              const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
@@ -1020,7 +1022,8 @@ public:
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
                                   filter_node_t*& filter_tree_root,
-                                  std::vector<const override_t*>& matched_dynamic_overrides) const;
+                                  std::vector<const override_t*>& matched_dynamic_overrides,
+                                  nlohmann::json& override_metadata) const;
 
     Option<bool> compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
@@ -1063,6 +1066,8 @@ public:
     friend class filter_result_iterator_t;
 
     void repair_hnsw_index();
+
+    void aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const;
 };
 
 template<class T>

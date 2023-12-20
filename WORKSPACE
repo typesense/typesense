@@ -52,6 +52,13 @@ new_git_repository(
 )
 
 new_git_repository(
+    name="clip_tokenizer",
+    branch="master",
+    remote="https://github.com/ozanarmagan/clip_tokenizer_cpp",
+    build_file = "//bazel:clip_tokenizer.BUILD",
+)
+
+new_git_repository(
     name = "onnx_runtime_extensions",
     build_file = "//bazel:onnxruntime_extensions.BUILD",
     remote = "https://github.com/microsoft/onnxruntime-extensions",

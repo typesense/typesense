@@ -2503,6 +2503,34 @@ TEST_F(CollectionNestedFieldsTest, NestedSchemaAutoAndFacet) {
     ASSERT_TRUE(coll1->get_schema()["schools.name"].optional);
 }
 
+TEST_F(CollectionNestedFieldsTest, NestedObjectOfObjectEnableFacet) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "variants", "type": "object"},
+          {"name": "variants\\..*\\.price", "type": "int64", "facet": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "variants": {
+            "store_1": {"price": 100},
+            "store_2": {"price": 200}
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_TRUE(coll1->get_schema()["variants.store_1.price"].facet);
+    ASSERT_TRUE(coll1->get_schema()["variants.store_2.price"].facet);
+}
+
 TEST_F(CollectionNestedFieldsTest, ArrayOfObjectsFaceting) {
     nlohmann::json schema = R"({
         "name": "coll1",

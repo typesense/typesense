@@ -84,7 +84,8 @@ public:
 
     Store(const std::string & state_dir_path,
           const size_t wal_ttl_secs = 24*60*60,
-          const size_t wal_size_mb = 1024, bool disable_wal = true): state_dir_path(state_dir_path) {
+          const size_t wal_size_mb = 1024, bool disable_wal = true,
+          const size_t db_compaction_interval = 604800): state_dir_path(state_dir_path) {
         // Optimize RocksDB
         options.IncreaseParallelism();
         options.OptimizeLevelStyleCompaction();
@@ -94,6 +95,7 @@ public:
         options.max_write_buffer_number = 2;
         options.merge_operator.reset(new UInt64AddOperator);
         options.compression = rocksdb::CompressionType::kSnappyCompression;
+        options.periodic_compaction_seconds = db_compaction_interval;
 
         options.max_log_file_size = 4*1048576;
         options.keep_log_file_num = 5;

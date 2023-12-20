@@ -12,31 +12,45 @@
 
 class ConversationManager {
     public:
-        ConversationManager() = delete;
-        static Option<std::string> create_conversation(const nlohmann::json& conversation);
-        static Option<nlohmann::json> get_conversation(const std::string& conversation_id);
-        static Option<bool> append_conversation(const std::string& conversation_id, const nlohmann::json& message);
-        static Option<nlohmann::json> truncate_conversation(nlohmann::json conversation);
-        static Option<nlohmann::json> update_conversation(nlohmann::json conversation);
+        
+        ConversationManager(const ConversationManager&) = delete;
+        ConversationManager(ConversationManager&&) = delete;
+        ConversationManager& operator=(const ConversationManager&) = delete;
+        ConversationManager& operator=(ConversationManager&&) = delete;
+        static ConversationManager& get_instance() {
+            static ConversationManager instance;
+            return instance;
+        }
+        Option<std::string> create_conversation(const nlohmann::json& conversation);
+        Option<nlohmann::json> get_conversation(const std::string& conversation_id);
+        Option<bool> append_conversation(const std::string& conversation_id, const nlohmann::json& message);
+        Option<nlohmann::json> truncate_conversation(nlohmann::json conversation);
+        Option<nlohmann::json> update_conversation(nlohmann::json conversation);
         static size_t get_token_count(const nlohmann::json& message);
-        static Option<nlohmann::json> delete_conversation(const std::string& conversation_id);
-        static Option<nlohmann::json> get_all_conversations();
+        Option<nlohmann::json> delete_conversation(const std::string& conversation_id);
+        Option<nlohmann::json> get_all_conversations();
         static constexpr size_t MAX_TOKENS = 3000;
-        static Option<int> init(Store* store);
-        static void clear_expired_conversations();
-        static void _set_ttl_offset(size_t offset) {
+        Option<int> init(Store* store);
+        void clear_expired_conversations();
+        void run();
+        void stop();
+        void _set_ttl_offset(size_t offset) {
             TTL_OFFSET = offset;
         }
     private:
-        static inline std::unordered_map<std::string, nlohmann::json> conversations;
-        static inline std::shared_mutex conversations_mutex;
+        ConversationManager() {}
+        std::unordered_map<std::string, nlohmann::json> conversations;
+        std::mutex conversations_mutex;
 
         static constexpr char* CONVERSATION_RPEFIX = "$CNVP";
         
-        static inline Store* store;
+        Store* store;
 
         static const std::string get_conversation_key(const std::string& conversation_id);
 
         static constexpr size_t CONVERSATION_TTL = 60 * 60 * 24;
-        static inline size_t TTL_OFFSET = 0;
+        size_t TTL_OFFSET = 0;
+
+        std::atomic<bool> quit = false;
+        std::condition_variable cv;
 };
