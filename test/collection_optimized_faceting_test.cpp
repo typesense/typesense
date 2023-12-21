@@ -2648,3 +2648,50 @@ TEST_F(CollectionOptimizedFacetingTest, StringFacetsCountListRemoveTest) {
     ASSERT_EQ("The Shawshank Redemption", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"]);
 }
+
+TEST_F(CollectionOptimizedFacetingTest, RangeFacetAlphanumericLabels) {
+    std::vector<field> fields = {field("monuments", field_types::STRING, false),
+                                 field("year", field_types::INT32, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "",
+            {},{}).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["monuments"] = "Statue Of Unity";
+    doc["year"] = 2018;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["monuments"] = "Taj Mahal";
+    doc["year"] = 1653;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["monuments"] = "Mysore Palace";
+    doc["year"] = 1897;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "3";
+    doc["monuments"] = "Chennakesava Temple";
+    doc["year"] = 1117;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"year(10thAD:[1000,1500], 15thAD:[1500,2000], 20thAD:[2000, ])"},
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true, 6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                 2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
+
+    ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("15thAD", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("20thAD", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ("10thAD", results["facet_counts"][0]["counts"][2]["value"]);
+}
