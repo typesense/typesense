@@ -619,8 +619,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 continue;
             }
 
-
-
             if(conversation && search_item.key() == "q") {
                 // q is common for all searches
                 res->set_400("`q` parameter cannot be used in POST body if `conversation` is enabled. Please set `q` as a query parameter in the request, instead of inside the POST body");

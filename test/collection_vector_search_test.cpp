@@ -3296,7 +3296,6 @@ TEST_F(CollectionVectorTest, TestEmbeddingValues) {
     }
 }
 
-
 TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     auto schema_json =
         R"({
@@ -3327,8 +3326,6 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     ASSERT_TRUE(model_add_op.ok());
 
     auto model_id = model_add_op.get()["id"];
-
-
     auto collection_create_op = collectionManager.create_collection(schema_json);
 
     ASSERT_TRUE(collection_create_op.ok());
@@ -3370,7 +3367,6 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     ASSERT_EQ(res->status_code, 400);
     ASSERT_EQ(res_json["message"], "`conversation_model_id` cannot be used in POST body. Please set `conversation_model_id` as a query parameter in the request, instead of inside the POST body");
 
-
     search_body["searches"][0].erase("conversation_model_id");
     search_body["searches"][0]["conversation_id"] = "123";
 
@@ -3383,7 +3379,6 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
 
     ASSERT_EQ(res_json["message"], "`conversation_id` cannot be used in POST body. Please set `conversation_id` as a query parameter in the request, instead of inside the POST body");
 
-
     search_body["searches"][0].erase("conversation_id");
     search_body["searches"][0]["conversation"] = true;
 
@@ -3394,6 +3389,5 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     res_json = nlohmann::json::parse(res->body);
     ASSERT_EQ(res->status_code, 400);
 
-    
     ASSERT_EQ(res_json["message"], "`conversation` cannot be used in POST body. Please set `conversation` as a query parameter in the request, instead of inside the POST body");
 }
