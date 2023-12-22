@@ -3257,7 +3257,6 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         bool exclude_operator_prior = false;
         bool phrase_search_op_prior = false;
         std::vector<std::string> phrase;
-        bool is_open_quotes = StringUtils::get_occurence_count(query, '"') & 1;
 
         auto symbols_to_index_has_minus =
                 std::find(symbols_to_index.begin(), symbols_to_index.end(), '-') != symbols_to_index.end();
@@ -3272,7 +3271,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 token = token.substr(1);
             }
 
-            if(!is_open_quotes && token[0] == '"' && token.size() > 1) {
+            if(token[0] == '"' && token.size() > 1) {
                 phrase_search_op_prior = true;
                 token = token.substr(1);
             }
@@ -3333,7 +3332,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             if(exclude_operator_prior) {
                 q_exclude_tokens.push_back(phrase);
             } else {
-                q_phrases.push_back(phrase);
+                q_include_tokens.insert(q_include_tokens.end(), phrase.begin(), phrase.end());
             }
         }
 
