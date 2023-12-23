@@ -3332,7 +3332,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             if(exclude_operator_prior) {
                 q_exclude_tokens.push_back(phrase);
             } else {
-                q_phrases.push_back(phrase);
+                q_include_tokens.insert(q_include_tokens.end(), phrase.begin(), phrase.end());
             }
         }
 

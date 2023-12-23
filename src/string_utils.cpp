@@ -594,3 +594,7 @@ size_t StringUtils::split_facet(const std::string &s, std::vector<std::string> &
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();
 }*/
+
+size_t StringUtils::get_occurence_count(const std::string &str, char symbol) {
+    return std::count(str.begin(), str.end(), symbol);
+}
