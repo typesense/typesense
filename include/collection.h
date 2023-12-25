@@ -561,7 +561,7 @@ public:
                                   const bool prioritize_num_matching_fields = true,
                                   const bool group_missing_values = true,
                                   const bool converstaion = false,
-                                  const int conversation_model_id = -1,
+                                  const std::string& conversation_model_id = "",
                                   std::string conversation_id = "",
                                   const std::string& override_tags_str = "") const;
 

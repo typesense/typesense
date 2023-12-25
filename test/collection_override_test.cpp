@@ -3397,7 +3397,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", "foo").get();
+                            true, true, false, "", "", "foo").get();
 
     ASSERT_EQ(2, results["hits"].size());
 
@@ -3410,7 +3410,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", "alpha").get();
+                            true, true, false, "", "", "alpha").get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3424,7 +3424,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", "beta").get();
+                            true, true, false, "", "", "beta").get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3438,7 +3438,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", "alpha,beta").get();
+                            true, true, false, "", "", "alpha,beta").get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3452,7 +3452,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTags) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", "").get();
+                            true, true, false, "", "", "").get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3532,7 +3532,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsPartialMatch) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", "alpha,zeta").get();
+                            true, true, false, "", "", "alpha,zeta").get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3632,7 +3632,7 @@ TEST_F(CollectionOverrideTest, OverrideWithTagsWithoutStopProcessing) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", "alpha").get();
+                            true, true, false, "", "", "alpha").get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3708,7 +3708,7 @@ TEST_F(CollectionOverrideTest, WildcardTagRuleThatMatchesAllQueries) {
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                                  4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                                  0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                                 true, true, false, -1, "", override_tags).get();
+                                 true, true, false, "", "", override_tags).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3721,7 +3721,7 @@ TEST_F(CollectionOverrideTest, WildcardTagRuleThatMatchesAllQueries) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", override_tags).get();
+                            true, true, false, "", "", override_tags).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3750,7 +3750,7 @@ TEST_F(CollectionOverrideTest, WildcardTagRuleThatMatchesAllQueries) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", override_tags).get();
+                            true, true, false, "", "", override_tags).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3804,7 +3804,7 @@ TEST_F(CollectionOverrideTest, TagsOnlyRule) {
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                                  4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                                  0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                                 true, true, false, -1, "", "listing").get();
+                                 true, true, false, "", "", "listing").get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3833,7 +3833,7 @@ TEST_F(CollectionOverrideTest, TagsOnlyRule) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", "listing2").get();
+                            true, true, false, "", "", "listing2").get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3848,7 +3848,7 @@ TEST_F(CollectionOverrideTest, TagsOnlyRule) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", override_tag).get();
+                            true, true, false, "", "", override_tag).get();
 
     ASSERT_EQ(0, results["hits"].size());
 
