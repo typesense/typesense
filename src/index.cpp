@@ -786,8 +786,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     }
                     else if(afield.type == field_types::FLOAT) {
                         float raw_val = document[afield.name].get<float>();
-                        auto fhash = reinterpret_cast<uint32_t&>(raw_val);
-                        facet_value_id_t facet_value_id(StringUtils::float_to_str(raw_val), fhash);
+                        const std::string& float_str_val = StringUtils::float_to_str(raw_val);
+                        float normalized_raw_val = std::stof(float_str_val);
+                        auto fhash = reinterpret_cast<uint32_t&>(normalized_raw_val);
+                        facet_value_id_t facet_value_id(float_str_val, fhash);
                         fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
                         seq_id_to_fvalues[seq_id].push_back(facet_value_id);
                     }
@@ -1387,7 +1389,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     if(a_facet.get_range(std::stoll(doc_val), range_pair)) {
                         const auto& range_id = range_pair.first;
                         facet_count_t& facet_count = a_facet.result_map[range_id];
-                        facet_count.count = kv.second.count;
+                        facet_count.count += kv.second.count;
                     }
                 } else { 
                     facet_count_t& facet_count = a_facet.value_result_map[kv.first];

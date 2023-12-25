@@ -46,6 +46,11 @@ struct click_event_t {
     }
 };
 
+struct popular_clicks_t {
+    std::string counter_field;
+    std::map<std::string, uint64_t> docid_counts;
+};
+
 struct query_hits_count_t {
     std::string query;
     uint64_t timestamp;
@@ -137,6 +142,9 @@ private:
     // suggestion collection => nohits queries
     std::unordered_map<std::string, QueryAnalytics*> nohits_queries;
 
+    // collection => popular clicks
+    std::unordered_map<std::string, popular_clicks_t> popular_clicks;
+
     //query collection => click events
     std::unordered_map<std::string, std::vector<click_event_t>> query_collection_click_events;
 
@@ -163,6 +171,7 @@ public:
     static constexpr const char* QUERY_HITS_COUNT = "$QH";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
+    static constexpr const char* POPULAR_CLICKS_TYPE = "popular_clicks";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -191,6 +200,8 @@ public:
 
     void dispose();
 
+    Store* get_analytics_store();
+
     void persist_query_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
@@ -200,7 +211,11 @@ public:
 
     void persist_query_hits_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
+    void persist_popular_clicks(ReplicationState *raft_server, uint64_t prev_persistence_s);
+
     nlohmann::json get_click_events();
+
+    std::unordered_map<std::string, popular_clicks_t> get_popular_clicks();
 
     Option<bool> write_events_to_store(nlohmann::json& event_jsons);
 

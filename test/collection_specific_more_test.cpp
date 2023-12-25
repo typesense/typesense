@@ -2179,6 +2179,10 @@ TEST_F(CollectionSpecificMoreTest, PhraseMatchAcrossArrayElements) {
 
     auto res = coll1->search(R"("state of the art)", {"texts"}, "", {}, {}, {0}, 10, 1,
                              FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    res = coll1->search(R"("state of the art")", {"texts"}, "", {}, {}, {0}, 10, 1,
+                        FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>()).get();
     ASSERT_EQ(0, res["hits"].size());
 }
 

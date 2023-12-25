@@ -72,6 +72,8 @@ private:
 
     uint32_t housekeeping_interval;
 
+    uint32_t db_compaction_interval;
+
 protected:
 
     Config() {
@@ -100,6 +102,7 @@ protected:
         this->enable_search_analytics = false;
         this->analytics_flush_interval = 3600;  // in seconds
         this->housekeeping_interval = 1800;     // in seconds
+        this->db_compaction_interval = 604800;     // in seconds
     }
 
     Config(Config const&) {
@@ -309,6 +312,10 @@ public:
         return this->housekeeping_interval;
     }
 
+    size_t get_db_compaction_interval() const {
+        return this->db_compaction_interval;
+    }
+
     size_t get_thread_pool_size() const {
         return this->thread_pool_size;
     }
@@ -447,6 +454,10 @@ public:
 
         if(!get_env("TYPESENSE_HOUSEKEEPING_INTERVAL").empty()) {
             this->housekeeping_interval = std::stoi(get_env("TYPESENSE_HOUSEKEEPING_INTERVAL"));
+        }
+
+        if(!get_env("TYPESENSE_DB_COMPACTION_INTERVAL").empty()) {
+            this->db_compaction_interval = std::stoi(get_env("TYPESENSE_DB_COMPACTION_INTERVAL"));
         }
 
         if(!get_env("TYPESENSE_THREAD_POOL_SIZE").empty()) {
@@ -620,6 +631,10 @@ public:
             this->housekeeping_interval = (int) reader.GetInteger("server", "housekeeping-interval", 1800);
         }
 
+        if(reader.Exists("server", "db-compaction-interval")) {
+            this->db_compaction_interval = (int) reader.GetInteger("server", "db-compaction-interval", 1800);
+        }
+
         if(reader.Exists("server", "thread-pool-size")) {
             this->thread_pool_size = (int) reader.GetInteger("server", "thread-pool-size", 0);
         }
@@ -780,6 +795,10 @@ public:
 
         if(options.exist("housekeeping-interval")) {
             this->housekeeping_interval = options.get<uint32_t>("housekeeping-interval");
+        }
+
+        if(options.exist("db-compaction-interval")) {
+            this->db_compaction_interval = options.get<uint32_t>("db-compaction-interval");
         }
 
         if(options.exist("thread-pool-size")) {

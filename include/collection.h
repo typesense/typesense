@@ -399,6 +399,8 @@ public:
 
     std::vector<field> get_fields();
 
+    bool contains_field(const std::string&);
+
     std::unordered_map<std::string, field> get_dynamic_fields();
 
     tsl::htrie_map<char, field> get_schema();

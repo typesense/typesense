@@ -2155,6 +2155,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                            false, stopwords_set);
+
+        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
+                                 included_ids, excluded_ids, override_metadata);
+
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
             field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
@@ -3328,7 +3332,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             if(exclude_operator_prior) {
                 q_exclude_tokens.push_back(phrase);
             } else {
-                q_phrases.push_back(phrase);
+                q_include_tokens.insert(q_include_tokens.end(), phrase.begin(), phrase.end());
             }
         }
 
@@ -4359,6 +4363,11 @@ std::vector<field> Collection::get_sort_fields() {
 std::vector<field> Collection::get_fields() {
     std::shared_lock lock(mutex);
     return fields;
+}
+
+bool Collection::contains_field(const std::string &field) {
+    std::shared_lock lock(mutex);
+    return search_schema.find(field) != search_schema.end();
 }
 
 std::unordered_map<std::string, field> Collection::get_dynamic_fields() {
@@ -5841,7 +5850,7 @@ bool Collection::get_enable_nested_fields() {
 
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
     const std::regex base_pattern(".+\\(.*\\)");
-    const std::regex range_pattern("[[a-z A-Z]+:\\[([+-]?([0-9]*[.])?[0-9]*)\\,\\s*([+-]?([0-9]*[.])?[0-9]*)\\]");
+    const std::regex range_pattern("[[0-9]*[a-z A-Z]+[0-9]*:\\[([+-]?([0-9]*[.])?[0-9]*)\\,\\s*([+-]?([0-9]*[.])?[0-9]*)\\]");
     const std::string _alpha = "_alpha";
 
    if ((facet_field.find(":") != std::string::npos)

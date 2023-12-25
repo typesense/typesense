@@ -1591,7 +1591,7 @@ TEST_F(CollectionAllFieldsTest, FieldNameMatchingRegexpShouldNotBeIndexedInNonAu
 }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromFieldJSONInvalidField) {
-    EmbedderManager::set_model_dir("/tmp/typensense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
