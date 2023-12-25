@@ -3964,7 +3964,7 @@ TEST_F(CollectionOverrideTest, WildcardSearchOverride) {
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                                  4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                                  0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                                 true, true, false, -1, "", override_tags).get();
+                                 true, true, false, "", "", override_tags).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -3996,7 +3996,7 @@ TEST_F(CollectionOverrideTest, WildcardSearchOverride) {
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                             4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
                             0, HASH, 30000, 2, "", {}, {}, "right_to_left",
-                            true, true, false, -1, "", override_tags).get();
+                            true, true, false, "", "", override_tags).get();
 
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
