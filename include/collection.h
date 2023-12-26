@@ -446,7 +446,7 @@ public:
                                            const tsl::htrie_set<char>& ref_include_fields_full,
                                            const tsl::htrie_set<char>& ref_exclude_fields_full,
                                            const std::string& error_prefix, const bool& is_reference_array,
-                                           const bool& nest_ref_doc);
+                                           const ref_include::strategy_enum& strategy);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",

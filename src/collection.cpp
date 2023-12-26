@@ -4870,9 +4870,9 @@ Option<bool> Collection::include_references(nlohmann::json& doc,
                                             const tsl::htrie_set<char>& ref_include_fields_full,
                                             const tsl::htrie_set<char>& ref_exclude_fields_full,
                                             const std::string& error_prefix, const bool& is_reference_array,
-                                            const bool& nest_ref_doc) {
+                                            const ref_include::strategy_enum& strategy) {
     // One-to-one relation.
-    if (!is_reference_array && references.count == 1) {
+    if (strategy != ref_include::nest_array && !is_reference_array && references.count == 1) {
         auto ref_doc_seq_id = references.docs[0];
 
         nlohmann::json ref_doc;
@@ -4893,7 +4893,7 @@ Option<bool> Collection::include_references(nlohmann::json& doc,
             return Option<bool>(true);
         }
 
-        if (nest_ref_doc) {
+        if (strategy == ref_include::nest) {
             auto key = alias.empty() ? ref_collection_name : alias;
             doc[key] = ref_doc;
         } else {
@@ -4931,7 +4931,7 @@ Option<bool> Collection::include_references(nlohmann::json& doc,
             continue;
         }
 
-        if (nest_ref_doc) {
+        if (strategy == ref_include::nest || strategy == ref_include::nest_array) {
             auto key = alias.empty() ? ref_collection_name : alias;
             if (doc.contains(key) && !doc[key].is_array()) {
                 return Option<bool>(400, "Could not include the reference document of `" + ref_collection_name +
@@ -5116,7 +5116,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                                        reference_filter_results.at(ref_collection_name),
                                                        ref_include_fields_full, ref_exclude_fields_full, error_prefix,
                                                        ref_collection->get_schema().at(field_name).is_array(),
-                                                       ref_include.nest_ref_doc);
+                                                       ref_include.strategy);
         } else if (doc_has_reference) {
             auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection->name);
             if (!get_reference_field_op.ok()) {
@@ -5151,7 +5151,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                         include_references_op = include_references(doc[keys[0]][i], ref_include.collection_name,
                                                                    ref_collection.get(), ref_include.alias, result,
                                                                    ref_include_fields_full, ref_exclude_fields_full, error_prefix,
-                                                                   false, ref_include.nest_ref_doc);
+                                                                   false, ref_include.strategy);
                         if (!include_references_op.ok()) {
                             return include_references_op;
                         }
@@ -5167,7 +5167,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                                                ref_collection.get(), ref_include.alias, result,
                                                                ref_include_fields_full, ref_exclude_fields_full, error_prefix,
                                                                collection->search_schema.at(field_name).is_array(),
-                                                               ref_include.nest_ref_doc);
+                                                               ref_include.strategy);
                     result.docs = nullptr;
                 }
             } else {
@@ -5181,7 +5181,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                                            ref_collection.get(), ref_include.alias, result,
                                                            ref_include_fields_full, ref_exclude_fields_full, error_prefix,
                                                            collection->search_schema.at(field_name).is_array(),
-                                                           ref_include.nest_ref_doc);
+                                                           ref_include.strategy);
                 result.docs = nullptr;
             }
         } else if (joined_coll_has_reference) {
@@ -5217,7 +5217,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                                        ref_collection.get(), ref_include.alias, result,
                                                        ref_include_fields_full, ref_exclude_fields_full, error_prefix,
                                                        joined_collection->get_schema().at(reference_field_name).is_array(),
-                                                       ref_include.nest_ref_doc);
+                                                       ref_include.strategy);
             result.docs = nullptr;
         }
 

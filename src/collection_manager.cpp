@@ -1029,10 +1029,17 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         }
 
         // ... $inventory(qty:merge) as inventory ...
+        auto include_strategy = ref_include::nest_string;
+        auto strategy_enum = ref_include::nest;
         if (colon_pos < closing_parenthesis_pos) { // Merge strategy is specified.
-            auto include_strategy = include_field_exp.substr(colon_pos + 1, closing_parenthesis_pos - colon_pos - 1);
+            include_strategy = include_field_exp.substr(colon_pos + 1, closing_parenthesis_pos - colon_pos - 1);
             StringUtils::trim(include_strategy);
-            nest_ref_doc = include_strategy == ref_include::nest;
+
+            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
+            if (!string_to_enum_op.ok()) {
+                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
+            }
+            strategy_enum = string_to_enum_op.get();
 
             if (index < colon_pos) {
                 ref_fields += include_field_exp.substr(index, colon_pos - index);
@@ -1051,9 +1058,11 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         // For an alias `foo`,
         // In case of "merge" reference doc, we need append `foo.` to all the top level keys of reference doc.
         // In case of "nest" reference doc, `foo` becomes the key with reference doc as value.
+        nest_ref_doc = strategy_enum == ref_include::nest || strategy_enum == ref_include::nest_array;
         ref_alias = !ref_alias.empty() ? (StringUtils::trim(ref_alias) + (nest_ref_doc ? "" : ".")) : "";
 
-        ref_include_fields_vec.emplace_back(ref_include_fields{ref_collection_name, ref_fields, ref_alias, nest_ref_doc});
+        ref_include_fields_vec.emplace_back(ref_include_fields{ref_collection_name, ref_fields, ref_alias,
+                                                               strategy_enum});
         ref_include_fields_vec.back().nested_join_includes = std::move(nested_ref_include_fields_vec);
 
         // Referenced collection in filter_by is already mentioned in ref_include_fields.
@@ -1069,16 +1078,16 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
     return Option<bool>(true);
 }
 
-void CollectionManager::_initialize_ref_include_fields_vec(const std::string& filter_query,
-                                                           std::vector<std::string>& include_fields_vec,
-                                                           std::vector<ref_include_fields>& ref_include_fields_vec) {
+Option<bool> CollectionManager::_initialize_ref_include_fields_vec(const std::string& filter_query,
+                                                                   std::vector<std::string>& include_fields_vec,
+                                                                   std::vector<ref_include_fields>& ref_include_fields_vec) {
     ref_include_collection_names_t* ref_include_coll_names = nullptr;
     CollectionManager::_get_reference_collection_names(filter_query, ref_include_coll_names);
     std::unique_ptr<CollectionManager::ref_include_collection_names_t> guard(ref_include_coll_names);
 
     std::vector<std::string> result_include_fields_vec;
     auto wildcard_include_all = true;
-    for (auto include_field_exp: include_fields_vec) {
+    for (auto const& include_field_exp: include_fields_vec) {
         if (include_field_exp[0] != '$') {
             if (include_field_exp == "*") {
                 continue;
@@ -1092,6 +1101,9 @@ void CollectionManager::_initialize_ref_include_fields_vec(const std::string& fi
         // Nested reference include.
         if (include_field_exp.find('$', 1) != std::string::npos) {
             auto parse_op = parse_nested_include(include_field_exp, ref_include_coll_names, ref_include_fields_vec);
+            if (!parse_op.ok()) {
+                return parse_op;
+            }
             continue;
         }
 
@@ -1105,20 +1117,29 @@ void CollectionManager::_initialize_ref_include_fields_vec(const std::string& fi
         auto ref_collection_name = ref_include.substr(1, parenthesis_index - 1);
         auto ref_fields = ref_include.substr(parenthesis_index + 1, ref_include.size() - parenthesis_index - 2);
 
-        auto nest_ref_doc = true;
+        auto include_strategy = ref_include::nest_string;
+        auto strategy_enum = ref_include::nest;
         auto colon_pos = ref_fields.find(':');
         if (colon_pos != std::string::npos) {
-            auto include_strategy = ref_fields.substr(colon_pos + 1, ref_fields.size() - colon_pos - 1);
+            include_strategy = ref_fields.substr(colon_pos + 1, ref_fields.size() - colon_pos - 1);
             StringUtils::trim(include_strategy);
-            nest_ref_doc = include_strategy == ref_include::nest;
+
+            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
+            if (!string_to_enum_op.ok()) {
+                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
+            }
+            strategy_enum = string_to_enum_op.get();
+
             ref_fields = ref_fields.substr(0, colon_pos);
         }
 
         // For an alias `foo`,
         // In case of "merge" reference doc, we need append `foo.` to all the top level keys of reference doc.
         // In case of "nest" reference doc, `foo` becomes the key with reference doc as value.
+        auto const& nest_ref_doc = strategy_enum == ref_include::nest || strategy_enum == ref_include::nest_array;
         auto ref_alias = !alias.empty() ? (StringUtils::trim(alias) + (nest_ref_doc ? "" : ".")) : "";
-        ref_include_fields_vec.emplace_back(ref_include_fields{ref_collection_name, ref_fields, ref_alias, nest_ref_doc});
+        ref_include_fields_vec.emplace_back(ref_include_fields{ref_collection_name, ref_fields, ref_alias,
+                                                               strategy_enum});
 
         auto open_paren_pos = include_field_exp.find('(');
         if (open_paren_pos == std::string::npos) {
@@ -1141,7 +1162,7 @@ void CollectionManager::_initialize_ref_include_fields_vec(const std::string& fi
     auto ref_includes = std::ref(ref_include_fields_vec);
     while (ref_include_coll_names != nullptr) {
         for (const auto &reference_collection_name: ref_include_coll_names->collection_names) {
-            ref_includes.get().emplace_back(ref_include_fields{reference_collection_name, "", "", true});
+            ref_includes.get().emplace_back(ref_include_fields{reference_collection_name, "", "", ref_include::nest});
         }
 
         ref_include_coll_names = ref_include_coll_names->nested_include;
@@ -1157,6 +1178,8 @@ void CollectionManager::_initialize_ref_include_fields_vec(const std::string& fi
     }
 
     include_fields_vec = std::move(result_include_fields_vec);
+
+    return Option<bool>(true);
 }
 
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
@@ -1542,7 +1565,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         per_page = 0;
     }
 
-    _initialize_ref_include_fields_vec(filter_query, include_fields_vec, ref_include_fields_vec);
+    auto initialize_op = _initialize_ref_include_fields_vec(filter_query, include_fields_vec, ref_include_fields_vec);
+    if (!initialize_op.ok()) {
+        return initialize_op;
+    }
 
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
     exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());

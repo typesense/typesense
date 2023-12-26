@@ -1970,6 +1970,34 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
             {"q", "*"},
             {"query_by", "product_name"},
             {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
+            {"include_fields", "*, $Customers(*:nest_array) as Customers"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    // No fields are mentioned in `include_fields`, should include all fields of Products and Customers by default.
+    ASSERT_EQ(7, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_description"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("embedding"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("rating"));
+    // In nest_array strategy we return the referenced docs in an array.
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("customer_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("customer_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("product_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("product_price"));
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
             {"include_fields", "*, $Customers(*:merge) as Customers"}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
