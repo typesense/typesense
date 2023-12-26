@@ -365,10 +365,13 @@ Option<bool> CFConversationModel::validate_model(const nlohmann::json& model_con
         } catch (const std::exception& e) {
             return Option<bool>(400, "Cloudflare API error: " + chat_res);
         }
-        if(json_res.count("errors") == 0 || json_res["errors"].size() == 0 || json_res["errors"][0].count("message") == 0) {
+
+        if(json_res.count("errors") == 0 || json_res["errors"].size() == 0) {
             return Option<bool>(400, "Cloudflare API error: " + chat_res);
         }
-        return Option<bool>(400, "Cloudflare API error: " + nlohmann::json::parse(res)["errors"][0]["message"].get<std::string>());
+
+        json_res = json_res["errors"][0];
+        return Option<bool>(400, "Cloudflare API error: " + json_res["message"].get<std::string>());
     }
 
     return Option<bool>(true);
@@ -419,10 +422,12 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
             throw Option<std::string>(400, "Cloudflare API error: " + res);
         }
 
-        if(json_res.count("errors") == 0 || json_res["errors"].size() == 0 || json_res["errors"][0].count("message") == 0) {
-            return Option<std::string>(400, "Cloudflare API error: " + res);
+        if(json_res.count("errors") == 0 || json_res["errors"].size() == 0) {
+            return Option<std::string>(400, "Cloudflare API error: " + json_res.dump(0));
         }
-        return Option<std::string>(400, "Cloudflare API error: " + nlohmann::json::parse(res)["error"][0]["message"].get<std::string>());
+
+        json_res = json_res["errors"][0];
+        return Option<std::string>(400, "Cloudflare API error: " + json_res["message"].get<std::string>());
     }
     try {
         auto json_res = nlohmann::json::parse(res);
@@ -502,10 +507,12 @@ Option<std::string> CFConversationModel::get_standalone_question(const nlohmann:
         } catch (const std::exception& e) {
             return Option<std::string>(400, "Cloudflare API error: " + res);
         }
-        if(json_res.count("errors") == 0 || json_res["errors"].size() == 0 || json_res["errors"][0].count("message") == 0) {
-            return Option<std::string>(400, "Cloudflare API error: " + res);
+        if(json_res.count("errors") == 0 || json_res["errors"].size() == 0) {
+            return Option<std::string>(400, "Cloudflare API error: " + json_res.dump(0));
         }
-        return Option<std::string>(400, "Cloudflare API error: " + nlohmann::json::parse(res)["errors"][0]["message"].get<std::string>());
+
+        json_res = json_res["errors"][0];
+        return Option<std::string>(400, "Cloudflare API error: " + json_res["message"].get<std::string>());
     }
     
     try {
