@@ -2996,3 +2996,59 @@ TEST_F(CollectionSpecificTest, DontHighlightPunctuation) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, ExactMatchWithoutClosingSymbol) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::vector<std::string>> records = {
+            {"Hampi"},
+            {"Mahabalipuram"},
+            {"Taj Mahal"},
+            {"Mysore Palace"}
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "\"Hamp"},
+            {"query_by", "title"},
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+
+    nlohmann::json result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, result["hits"].size());
+    ASSERT_EQ("0", result["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Hampi", result["hits"][0]["document"]["title"]);
+
+    req_params = {
+            {"collection", "coll1"},
+            {"q", "\"Mah"},
+            {"query_by", "title"},
+    };
+    now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+
+    result = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, result["hits"].size());
+    ASSERT_EQ("2", result["hits"][0]["document"]["id"]);
+    ASSERT_EQ("Taj Mahal", result["hits"][0]["document"]["title"]);
+    ASSERT_EQ("1", result["hits"][1]["document"]["id"]);
+    ASSERT_EQ("Mahabalipuram", result["hits"][1]["document"]["title"]);
+}

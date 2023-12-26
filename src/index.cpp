@@ -1389,7 +1389,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     if(a_facet.get_range(std::stoll(doc_val), range_pair)) {
                         const auto& range_id = range_pair.first;
                         facet_count_t& facet_count = a_facet.result_map[range_id];
-                        facet_count.count = kv.second.count;
+                        facet_count.count += kv.second.count;
                     }
                 } else { 
                     facet_count_t& facet_count = a_facet.value_result_map[kv.first];

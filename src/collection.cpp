@@ -1616,7 +1616,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const bool prioritize_num_matching_fields,
                                   const bool group_missing_values,
                                   const bool conversation,
-                                  const int conversation_model_id,
+                                  const std::string& conversation_model_id,
                                   std::string conversation_id,
                                   const std::string& override_tags_str) const {
     std::shared_lock lock(mutex);
@@ -1715,7 +1715,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::string query = raw_query;
 
     if(conversation) {
-        if(conversation_model_id == -1) {
+        if(conversation_model_id.empty()) {
             return Option<nlohmann::json>(400, "Conversation is enabled but no conversation model ID is provided.");
         }
 
@@ -3332,7 +3332,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             if(exclude_operator_prior) {
                 q_exclude_tokens.push_back(phrase);
             } else {
-                q_phrases.push_back(phrase);
+                q_include_tokens.insert(q_include_tokens.end(), phrase.begin(), phrase.end());
             }
         }
 
@@ -5850,7 +5850,7 @@ bool Collection::get_enable_nested_fields() {
 
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
     const std::regex base_pattern(".+\\(.*\\)");
-    const std::regex range_pattern("[[a-z A-Z]+:\\[([+-]?([0-9]*[.])?[0-9]*)\\,\\s*([+-]?([0-9]*[.])?[0-9]*)\\]");
+    const std::regex range_pattern("[[0-9]*[a-z A-Z]+[0-9]*:\\[([+-]?([0-9]*[.])?[0-9]*)\\,\\s*([+-]?([0-9]*[.])?[0-9]*)\\]");
     const std::string _alpha = "_alpha";
 
    if ((facet_field.find(":") != std::string::npos)
