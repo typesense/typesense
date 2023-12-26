@@ -1323,16 +1323,12 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
     ASSERT_TRUE(res_json.is_object());
     ASSERT_TRUE(res_json["conversation"].is_array());
     ASSERT_EQ(2, res_json["conversation"].size());
-
-
     ASSERT_EQ("how many products are there for clothing category?", res_json["conversation"][0]["user"].get<std::string>());
 
     del_conversation(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
 
     get_conversations(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
 
     res_json = nlohmann::json::parse(resp->body);
@@ -1340,8 +1336,6 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
     ASSERT_EQ(0, res_json.size());
 
     auto del_res = ConversationModelManager::delete_model(model_id);
-
-    LOG(INFO) << "Delete model response: " << del_res.ok();
 }
 
 TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
@@ -1417,33 +1411,24 @@ TEST_F(CoreAPIUtilsTest, TestConversationModels) {
     auto resp = std::make_shared<http_res>(nullptr);
 
     req->body = model_config.dump();
-
     post_conversation_model(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
 
     auto id = nlohmann::json::parse(resp->body)["id"].get<std::string>();
-
     req->params["id"] = id;
-
     get_conversation_model(req, resp);
 
     ASSERT_EQ(200, resp->status_code);
     ASSERT_EQ(id, nlohmann::json::parse(resp->body)["id"].get<std::string>());
 
     get_conversation_models(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
-
-    LOG(INFO) << resp->body;
     ASSERT_EQ(1, nlohmann::json::parse(resp->body).size());
 
     del_conversation_model(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
 
     get_conversation_models(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
     ASSERT_EQ(0, nlohmann::json::parse(resp->body).size());
 }
