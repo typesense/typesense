@@ -119,10 +119,11 @@ private:
         std::string suggestion_collection;
         std::vector<std::string> query_collections;
         size_t limit;
+        std::string rule_type;
 
         void to_json(nlohmann::json& obj) const {
             obj["name"] = name;
-            obj["type"] = POPULAR_QUERIES_TYPE;
+            obj["type"] = rule_type;
             obj["params"] = nlohmann::json::object();
             obj["params"]["limit"] = limit;
             obj["params"]["source"]["collections"] = query_collections;
