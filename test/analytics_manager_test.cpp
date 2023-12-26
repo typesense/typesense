@@ -942,3 +942,69 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_FALSE(create_op.ok());
     ASSERT_EQ("counter_field `popularity_score` not found in destination collection.", create_op.error());
 }
+
+TEST_F(AnalyticsManagerTest, SuggestionConfigRule) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+
+    // create a collection to store suggestions
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    //add popular quries rule
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    //add nohits rule
+    analytics_rule = R"({
+        "name": "search_queries",
+        "type": "nohits_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    auto rules = analyticsManager.list_rules().get()["rules"];
+    ASSERT_EQ(2, rules.size());
+    ASSERT_EQ("search_queries", rules[0]["name"]);
+    ASSERT_EQ("nohits_queries", rules[0]["type"]);
+    ASSERT_EQ("top_search_queries", rules[1]["name"]);
+    ASSERT_EQ("popular_queries", rules[1]["type"]);
+}

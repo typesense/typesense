@@ -99,6 +99,7 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
     suggestion_config.name = suggestion_config_name;
     suggestion_config.suggestion_collection = suggestion_collection;
     suggestion_config.limit = limit;
+    suggestion_config.rule_type = payload["type"];
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
         if (!upsert && popular_queries.count(suggestion_collection) != 0) {
