@@ -22,10 +22,20 @@ http_proxy_res_t HttpProxy::call(const std::string& url, const std::string& meth
         res.status_code = client.put_response(url, req_body, res.body, res.headers, timeout_ms);
     } else if(method == "DELETE") {
         res.status_code = client.delete_response(url, res.body, res.headers, timeout_ms);
+    } else if(method == "POST_STREAM") {
+        async_stream_response_t stream_res;
+        res.status_code = client.post_response_stream(url, req_body, stream_res, res.headers, req_headers, timeout_ms);
+        std::unique_lock lock(stream_res.mutex);
+        stream_res.cv.wait(lock, [&](){
+            return stream_res.ready;
+        });
+        nlohmann::json j;
+        j["response"] = stream_res.response_chunks;
+        res.body = j.dump();
     } else {
         res.status_code = 400;
         nlohmann::json j;
-        j["message"] = "Parameter `method` must be one of GET, POST, PUT, DELETE.";
+        j["message"] = "Parameter `method` must be one of GET, POST, POST_STREAM, PUT, DELETE.";
         res.body =  j.dump();
     }
     return res;
