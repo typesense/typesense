@@ -2919,7 +2919,7 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
                                  0, spp::sparse_hash_set<std::string>(), {},
                                  10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
                                  true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
-                                 true, 0, max_score, 100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true, true, true, 0);
+                                 true, 0, max_score, 100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_add_op.get()["id"]);
     
     ASSERT_TRUE(results_op.ok());
 
@@ -3344,7 +3344,7 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
     req->params["conversation"] = "true";
-    req->params["conversation_model_id"] = to_string(model_id);
+    req->params["conversation_model_id"] = model_id;
     req->params["q"] = "cat";
 
     req->body = search_body.dump();

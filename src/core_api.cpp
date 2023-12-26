@@ -559,15 +559,10 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             return false;
         }
 
-        if(StringUtils::is_uint32_t(orig_req_params["conversation_model_id"])) {
-            uint32_t conversation_model_id = std::stoul(orig_req_params["conversation_model_id"]);
-            auto conversation_model = ConversationModelManager::get_model(conversation_model_id);
+        const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
+        auto conversation_model = ConversationModelManager::get_model(conversation_model_id);
 
-            if(!conversation_model.ok()) {
-                res->set_400("`conversation_model_id` is invalid.");
-                return false;
-            }
-        } else {
+        if(!conversation_model.ok()) {
             res->set_400("`conversation_model_id` is invalid.");
             return false;
         }
@@ -586,7 +581,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         common_query = orig_req_params["q"];
 
         if(conversation_history) {
-            auto conversation_model_id = std::stoul(orig_req_params["conversation_model_id"]);
+            const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
             auto conversation_id = orig_req_params["conversation_id"];
             auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
             auto conversation_history = ConversationManager::get_instance().get_conversation(conversation_id).get();
@@ -600,8 +595,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             orig_req_params["q"] = generate_standalone_q.get();
         }
     }
-
-
 
     for(size_t i = 0; i < searches.size(); i++) {
         auto& search_params = searches[i];
@@ -753,7 +746,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
         }
 
-        auto conversation_model_id = std::stoul(orig_req_params["conversation_model_id"]);
+        const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
 
         auto prompt = req->params["q"];
@@ -2714,11 +2707,7 @@ bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::sh
 }
 
 bool get_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    if(!StringUtils::is_uint32_t(req->params["id"])) {
-        res->set_400("Invalid ID.");
-        return false;
-    }
-    const int model_id = std::stoi(req->params["id"]);
+    const std::string& model_id = req->params["id"];
 
     auto model_op = ConversationModelManager::get_model(model_id);
 
@@ -2752,13 +2741,8 @@ bool get_conversation_models(const std::shared_ptr<http_req>& req, const std::sh
     return true;
 }
 
-
 bool del_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    if(!StringUtils::is_uint32_t(req->params["id"])) {
-        res->set_400("Invalid ID.");
-        return false;
-    }
-    const int model_id = std::stoi(req->params["id"]);
+    const std::string& model_id = req->params["id"];
 
     auto model_op = ConversationModelManager::delete_model(model_id);
 
@@ -2776,11 +2760,7 @@ bool del_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
 }
 
 bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    if(!StringUtils::is_uint32_t(req->params["id"])) {
-        res->set_400("Invalid ID.");
-        return false;
-    }
-    const int model_id = std::stoi(req->params["id"]);
+    const std::string& model_id = req->params["id"];
 
     nlohmann::json req_json;
 

@@ -1260,7 +1260,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     bool conversation = false;
     std::string conversation_id;
-    size_t conversation_model_id = std::numeric_limits<size_t>::max();
+    std::string conversation_model_id;
 
     std::string drop_tokens_mode_str = "right_to_left";
     bool prioritize_num_matching_fields = true;
@@ -1291,7 +1291,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
-        {CONVERSATION_MODEL_ID, &conversation_model_id},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1307,6 +1306,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {CONVERSATION_ID, &conversation_id},
         {DROP_TOKENS_MODE, &drop_tokens_mode_str},
         {OVERRIDE_TAGS, &override_tags},
+        {CONVERSATION_MODEL_ID, &conversation_model_id},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -1525,7 +1525,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           prioritize_num_matching_fields,
                                                           group_missing_values,
                                                           conversation,
-                                                          (conversation_model_id == std::numeric_limits<size_t>::max()) ? -1 : static_cast<int>(conversation_model_id),
+                                                          conversation_model_id,
                                                           conversation_id,
                                                           override_tags);
 
