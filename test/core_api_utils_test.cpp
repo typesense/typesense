@@ -1137,7 +1137,7 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
     post_proxy(req, resp);
 
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("Parameter `method` must be one of GET, POST, PUT, DELETE.", nlohmann::json::parse(resp->body)["message"]);
+    ASSERT_EQ("Parameter `method` must be one of GET, POST, POST_STREAM, PUT, DELETE.", nlohmann::json::parse(resp->body)["message"]);
 
     // test with method as integer
     body["method"] = 123;
@@ -1286,13 +1286,17 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
 
     ASSERT_TRUE(add_model_op.ok());
 
+    LOG(INFO) << "Model id: " << add_model_op.get();
+
+    auto model_id = add_model_op.get()["id"].get<std::string>();
+
     auto results_op = coll->search("how many products are there for clothing category?", {"embedding"},
                                  "", {}, {}, {2}, 10,
                                  1, FREQUENCY, {true},
                                  0, spp::sparse_hash_set<std::string>(), {},
                                  10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
                                  true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
-                                 true, 0, max_score, 100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true, true, true, 0);
+                                 true, 0, max_score, 100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_id);
     
     ASSERT_TRUE(results_op.ok());
 
@@ -1305,12 +1309,11 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
     ASSERT_TRUE(res_json.is_array());
     ASSERT_EQ(1, res_json.size());
 
-    ASSERT_EQ(0, res_json[0]["id"].get<size_t>());
     ASSERT_TRUE(res_json[0]["conversation"].is_array());
     ASSERT_EQ(2, res_json[0]["conversation"].size());
     ASSERT_EQ("how many products are there for clothing category?", res_json[0]["conversation"][0]["user"].get<std::string>());
 
-
+    req->params["id"] = res_json[0]["id"].get<std::string>();
     get_conversation(req, resp);
 
     ASSERT_EQ(200, resp->status_code);
@@ -1318,24 +1321,21 @@ TEST_F(CoreAPIUtilsTest, TestGetConversations) {
     res_json = nlohmann::json::parse(resp->body);
 
     ASSERT_TRUE(res_json.is_object());
-    ASSERT_EQ(0, res_json["id"].get<size_t>());
     ASSERT_TRUE(res_json["conversation"].is_array());
     ASSERT_EQ(2, res_json["conversation"].size());
-
-
     ASSERT_EQ("how many products are there for clothing category?", res_json["conversation"][0]["user"].get<std::string>());
 
     del_conversation(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
 
     get_conversations(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
 
     res_json = nlohmann::json::parse(resp->body);
     ASSERT_TRUE(res_json.is_array());
     ASSERT_EQ(0, res_json.size());
+
+    auto del_res = ConversationModelManager::delete_model(model_id);
 }
 
 TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
@@ -1411,29 +1411,24 @@ TEST_F(CoreAPIUtilsTest, TestConversationModels) {
     auto resp = std::make_shared<http_res>(nullptr);
 
     req->body = model_config.dump();
-
     post_conversation_model(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
 
-    req->params["id"] = "0";
-
+    auto id = nlohmann::json::parse(resp->body)["id"].get<std::string>();
+    req->params["id"] = id;
     get_conversation_model(req, resp);
 
     ASSERT_EQ(200, resp->status_code);
-    ASSERT_EQ(0, nlohmann::json::parse(resp->body)["id"].get<size_t>());
+    ASSERT_EQ(id, nlohmann::json::parse(resp->body)["id"].get<std::string>());
 
     get_conversation_models(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
     ASSERT_EQ(1, nlohmann::json::parse(resp->body).size());
 
     del_conversation_model(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
 
     get_conversation_models(req, resp);
-
     ASSERT_EQ(200, resp->status_code);
     ASSERT_EQ(0, nlohmann::json::parse(resp->body).size());
 }

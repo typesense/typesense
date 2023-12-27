@@ -600,3 +600,10 @@ struct http_message_dispatcher {
         message_handlers.emplace(message, handler);
     }
 };
+
+struct async_stream_response_t {
+    std::vector<std::string> response_chunks;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool ready = false;
+};
