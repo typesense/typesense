@@ -101,7 +101,7 @@ protected:
         this->enable_search_analytics = false;
         this->analytics_flush_interval = 3600;  // in seconds
         this->housekeeping_interval = 1800;     // in seconds
-        this->db_compaction_interval = 604800;     // in seconds
+        this->db_compaction_interval = 0;     // in seconds, disabled
     }
 
     Config(Config const&) {
@@ -619,7 +619,7 @@ public:
         }
 
         if(reader.Exists("server", "db-compaction-interval")) {
-            this->db_compaction_interval = (int) reader.GetInteger("server", "db-compaction-interval", 1800);
+            this->db_compaction_interval = (int) reader.GetInteger("server", "db-compaction-interval", 0);
         }
 
         if(reader.Exists("server", "thread-pool-size")) {
