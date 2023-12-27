@@ -9,7 +9,7 @@ private:
     std::condition_variable cv;
 
     std::atomic<bool> quit = false;
-    std::atomic<uint32_t> interval_seconds = 1800;
+    std::atomic<uint32_t> hnsw_repair_interval_s = 1800;
 
     HouseKeeper() {}
 
