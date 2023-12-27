@@ -1985,7 +1985,7 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
             scores[1] = int64_t(1);
             scores[2] = int64_t(1);
 
-            KV kv(searched_queries.size(), seq_id, distinct_id, 0, scores);
+            KV kv(0, seq_id, distinct_id, 0, scores);
             curated_topster->add(&kv);
         }
     }

@@ -56,6 +56,8 @@ protected:
 };
 
 TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
+    Config::get_instance().set_enable_search_analytics(true);
+
     nlohmann::json override_json = {
             {"id",   "exclude-rule"},
             {
@@ -207,6 +209,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_EQ(4, results["found"].get<uint32_t>());
 
     coll_mul_fields->remove_override("include-rule");
+    Config::get_instance().set_enable_search_analytics(false);
 }
 
 TEST_F(CollectionOverrideTest, OverrideJSONValidation) {

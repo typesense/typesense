@@ -2381,6 +2381,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     nlohmann::json docs_array = nlohmann::json::array();
 
+    // handle analytics query expansion
+    std::string first_q = raw_query;
+    expand_search_query(raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
+
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
@@ -2774,9 +2778,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 highlight_t highlight;
 
                 if(!facet_query.query.empty()) {
-                    bool is_cyrillic = Tokenizer::is_cyrillic(the_field.locale);
-                    bool use_word_tokenizer = the_field.locale == "th" || the_field.locale == "ja" ||
-                                              Tokenizer::is_cyrillic(the_field.locale);
+                    bool use_word_tokenizer = Tokenizer::has_word_tokenizer(the_field.locale);
                     bool normalise = !use_word_tokenizer;
 
                     std::vector<std::string> fquery_tokens;
@@ -2911,6 +2913,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["request_params"]["collection_name"] = name;
     result["request_params"]["per_page"] = per_page;
     result["request_params"]["q"] = raw_query;
+    result["request_params"]["first_q"] = first_q;
 
     if(!override_metadata.empty()) {
         result["metadata"] = override_metadata;
@@ -2920,6 +2923,48 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return Option<nlohmann::json>(result);
+}
+
+void Collection::expand_search_query(const string& raw_query, size_t offset, size_t total, const search_args* search_params,
+                                    const std::vector<std::vector<KV*>>& result_group_kvs,
+                                    const std::vector<std::string>& raw_search_fields, string& first_q) const {
+    if(!Config::get_instance().get_enable_search_analytics()) {
+        return ;
+    }
+
+    if(offset == 0 && !raw_search_fields.empty() && !search_params->searched_queries.empty() &&
+        total != 0 && !result_group_kvs.empty()) {
+        // we have to map raw_query (which could contain a prefix) back to expanded version
+        auto search_field_it = search_schema.find(raw_search_fields[0]);
+        if(search_field_it == search_schema.end() || Tokenizer::has_word_tokenizer(search_field_it->locale)) {
+            return ;
+        }
+
+        first_q = "";
+        auto q_index = result_group_kvs[0][0]->query_index;
+        if(q_index >= search_params->searched_queries.size()) {
+            return ;
+        }
+
+        const auto& qleaves = search_params->searched_queries[q_index];
+        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators);
+        std::string raw_token;
+        size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
+
+        while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
+            if(raw_token_index < qleaves.size()) {
+                auto leaf = qleaves[raw_token_index];
+                std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
+                if(StringUtils::begins_with(tok, raw_token)) {
+                    first_q += tok + " ";
+                }
+            }
+        }
+
+        if(!first_q.empty()) {
+            first_q.pop_back();
+        }
+    }
 }
 
 void Collection::copy_highlight_doc(std::vector<highlight_field_t>& hightlight_items,
@@ -3577,8 +3622,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
     tsl::htrie_set<char> matched_tokens;
 
-    bool use_word_tokenizer = search_field.locale == "th" || search_field.locale == "ja" ||
-                                Tokenizer::is_cyrillic(search_field.locale);
+    bool use_word_tokenizer = Tokenizer::has_word_tokenizer(search_field.locale);
     bool normalise = !use_word_tokenizer;
 
     std::vector<std::string> raw_query_tokens;

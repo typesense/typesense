@@ -45,7 +45,7 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
 
             for(const auto& coll: event_data_val["collections"]) {
                 std::string query = event_data_query_it.get<std::string>();
-                AnalyticsManager::get_instance().add_suggestion(coll.get<std::string>(), query, false, "");
+                AnalyticsManager::get_instance().add_suggestion(coll.get<std::string>(), query, query, false, "");
             }
         } else if(event_type == "query_click") {
             if (!event.contains("data")) {

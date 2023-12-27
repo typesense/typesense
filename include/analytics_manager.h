@@ -120,6 +120,7 @@ private:
         std::vector<std::string> query_collections;
         size_t limit;
         std::string rule_type;
+        bool expand_query = false;
 
         void to_json(nlohmann::json& obj) const {
             obj["name"] = name;
@@ -128,6 +129,10 @@ private:
             obj["params"]["limit"] = limit;
             obj["params"]["source"]["collections"] = query_collections;
             obj["params"]["destination"]["collection"] = suggestion_collection;
+
+            if(rule_type == POPULAR_QUERIES_TYPE) {
+                obj["params"]["expand_query"] = expand_query;
+            }
         }
     };
 
@@ -195,7 +200,8 @@ public:
     Option<bool> remove_rule(const std::string& name);
 
     void add_suggestion(const std::string& query_collection,
-                        const std::string& query, bool live_query, const std::string& user_id);
+                        const std::string& query, const std::string& expanded_query,
+                        bool live_query, const std::string& user_id);
 
     void stop();
 

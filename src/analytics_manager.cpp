@@ -72,9 +72,14 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
     }
 
     size_t limit = 1000;
+    bool expand_query = false;
 
     if(params.contains("limit") && params["limit"].is_number_integer()) {
         limit = params["limit"].get<size_t>();
+    }
+
+    if(params.contains("expand_query") && params["expand_query"].is_boolean()) {
+        expand_query = params["expand_query"].get<bool>();
     }
 
     if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
@@ -99,6 +104,7 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
     suggestion_config.name = suggestion_config_name;
     suggestion_config.suggestion_collection = suggestion_collection;
     suggestion_config.limit = limit;
+    suggestion_config.expand_query = expand_query;
     suggestion_config.rule_type = payload["type"];
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
@@ -150,7 +156,8 @@ Option<bool> AnalyticsManager::create_queries_index(nlohmann::json &payload, boo
     }
 
     if(payload["type"] == POPULAR_QUERIES_TYPE) {
-        QueryAnalytics *popularQueries = new QueryAnalytics(limit);
+        QueryAnalytics* popularQueries = new QueryAnalytics(limit);
+        popularQueries->set_expand_query(suggestion_config.expand_query);
         popular_queries.emplace(suggestion_collection, popularQueries);
     } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
         QueryAnalytics *noresultsQueries = new QueryAnalytics(limit);
@@ -256,7 +263,8 @@ Option<bool> AnalyticsManager::remove_queries_index(const std::string &name) {
     return Option<bool>(true);
 }
 
-void AnalyticsManager::add_suggestion(const std::string &query_collection, const std::string& query,
+void AnalyticsManager::add_suggestion(const std::string &query_collection,
+                                      const std::string& query, const std::string& expanded_query,
                                       const bool live_query, const std::string& user_id) {
     // look up suggestion collections for the query collection
     std::unique_lock lock(mutex);
@@ -265,7 +273,7 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection, const
         for(const auto& suggestion_collection: suggestion_collections_it->second) {
             const auto& popular_queries_it = popular_queries.find(suggestion_collection);
             if(popular_queries_it != popular_queries.end()) {
-                popular_queries_it->second->add(query, live_query, user_id);
+                popular_queries_it->second->add(query, expanded_query, live_query, user_id);
             }
         }
     }
@@ -327,7 +335,7 @@ void AnalyticsManager::add_nohits_query(const std::string &query_collection, con
         for(const auto& suggestion_collection: suggestion_collections_it->second) {
             const auto& noresults_queries_it = nohits_queries.find(suggestion_collection);
             if(noresults_queries_it != nohits_queries.end()) {
-                noresults_queries_it->second->add(query, live_query, user_id);
+                noresults_queries_it->second->add(query, query, live_query, user_id);
             }
         }
     }

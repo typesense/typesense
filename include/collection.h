@@ -681,6 +681,10 @@ public:
     friend class filter_result_iterator_t;
 
     std::shared_mutex& get_lifecycle_mutex();
+
+    void expand_search_query(const string& raw_query, size_t offset, size_t total, const search_args* search_params,
+                             const std::vector<std::vector<KV*>>& result_group_kvs,
+                             const std::vector<std::string>& raw_search_fields, string& first_q) const;
 };
 
 template<class T>

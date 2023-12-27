@@ -85,25 +85,78 @@ TEST_F(AnalyticsManagerTest, AddSuggestion) {
     auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
-    std::string q = "foobar";
-    analyticsManager.add_suggestion("titles", q, true, "1");
+    std::string q = "coo";
+    analyticsManager.add_suggestion("titles", q, "cool", true, "1");
 
     auto popularQueries = analyticsManager.get_popular_queries();
     auto userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
     ASSERT_EQ(1, userQueries.size());
-    ASSERT_EQ("foobar", userQueries[0].query);
+    ASSERT_EQ("coo", userQueries[0].query);  // expanded query is NOT stored since it's not enabled
 
     // add another query which is more popular
     q = "buzzfoo";
-    analyticsManager.add_suggestion("titles", q, true, "1");
-    analyticsManager.add_suggestion("titles", q, true, "2");
-    analyticsManager.add_suggestion("titles", q, true, "3");
+    analyticsManager.add_suggestion("titles", q, q, true, "1");
+    analyticsManager.add_suggestion("titles", q, q, true, "2");
+    analyticsManager.add_suggestion("titles", q, q, true, "3");
 
     popularQueries = analyticsManager.get_popular_queries();
     userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
     ASSERT_EQ(2, userQueries.size());
-    ASSERT_EQ("foobar", userQueries[0].query);
+    ASSERT_EQ("coo", userQueries[0].query);
     ASSERT_EQ("buzzfoo", userQueries[1].query);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+}
+
+TEST_F(AnalyticsManagerTest, AddSuggestionWithExpandedQuery) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    // create a collection to store suggestions
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analyticsManager.add_suggestion("titles", "c", "cool", true, "1");
+
+    auto popularQueries = analyticsManager.get_popular_queries();
+    auto userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
+    ASSERT_EQ(1, userQueries.size());
+    ASSERT_EQ("cool", userQueries[0].query);
 
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 }
