@@ -1049,6 +1049,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         }
         StringUtils::trim(ref_fields);
 
+        index = closing_parenthesis_pos;
         auto as_pos = include_field_exp.find(" as ", index);
         comma_pos = include_field_exp.find(',', index);
         if (as_pos != std::string::npos && as_pos < comma_pos) {

@@ -1516,6 +1516,30 @@ TEST_F(CollectionManagerTest, InitializeRefIncludeFields) {
     ref_include_fields_vec.clear();
 
     filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
+    include_fields_vec = {"$product_variants(id,$inventory(qty,sku,$retailers(id,title)))"};
+    initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
+                                                                          ref_include_fields_vec);
+    ASSERT_TRUE(initialize_op.ok());
+    ASSERT_EQ(1, ref_include_fields_vec.size());
+    ASSERT_EQ("product_variants", ref_include_fields_vec[0].collection_name);
+    ASSERT_EQ("id,", ref_include_fields_vec[0].fields);
+    ASSERT_TRUE(ref_include_fields_vec[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_fields_vec[0].strategy);
+
+    auto nested_join_includes = ref_include_fields_vec[0].nested_join_includes;
+    ASSERT_EQ("inventory", nested_join_includes[0].collection_name);
+    ASSERT_EQ("qty,sku,", nested_join_includes[0].fields);
+    ASSERT_TRUE(nested_join_includes[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, nested_join_includes[0].strategy);
+
+    nested_join_includes = ref_include_fields_vec[0].nested_join_includes[0].nested_join_includes;
+    ASSERT_EQ("retailers", nested_join_includes[0].collection_name);
+    ASSERT_EQ("id,title", nested_join_includes[0].fields);
+    ASSERT_TRUE(nested_join_includes[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_fields_vec[0].strategy);
+    ref_include_fields_vec.clear();
+
+    filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
     include_fields_vec = {"$product_variants(title, $inventory(qty:merge) as inventory: nest) as variants"};
     initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
                                                                           ref_include_fields_vec);
@@ -1526,7 +1550,7 @@ TEST_F(CollectionManagerTest, InitializeRefIncludeFields) {
     ASSERT_EQ("variants", ref_include_fields_vec[0].alias);
     ASSERT_EQ(ref_include::nest, ref_include_fields_vec[0].strategy);
 
-    auto nested_join_includes = ref_include_fields_vec[0].nested_join_includes;
+    nested_join_includes = ref_include_fields_vec[0].nested_join_includes;
     ASSERT_EQ("inventory", nested_join_includes[0].collection_name);
     ASSERT_EQ("qty", nested_join_includes[0].fields);
     ASSERT_EQ("inventory.", nested_join_includes[0].alias);
