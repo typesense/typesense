@@ -3484,3 +3484,42 @@ TEST_F(CollectionVectorTest, TestVectorQueryInvalidQs) {
     ASSERT_EQ(results.error(), "Malformed vector query string: "
                                "`qs` parameter must be a list of strings.");
 }
+
+
+
+TEST_F(CollectionVectorTest, TestVectorQueryQsWithHybridSearch) {
+    auto schema_json =
+        R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/all-MiniLM-L12-v2"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "Stark Industries"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll->search("stark", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "embedding:([], qs:[superhero, company])");
+    
+    ASSERT_TRUE(results.ok());
+    ASSERT_EQ(results.get()["hits"].size(), 1);
+}
