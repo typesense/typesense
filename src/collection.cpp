@@ -1691,6 +1691,63 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` is marked as a non-indexed field in the schema.");
         }
 
+        if(!vector_query.qs.empty()) {
+            if(embedding_fields.find(vector_query.field_name) == embedding_fields.end()) {
+                return Option<nlohmann::json>(400, "`qs` parameter is only supported for auto-embedding fields.");
+            }
+
+            std::vector<std::vector<float>> embeddings;
+            for(const auto& q: vector_query.qs) {
+                EmbedderManager& embedder_manager = EmbedderManager::get_instance();
+                auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+                if(!embedder_op.ok()) {
+                    return Option<nlohmann::json>(400, embedder_op.error());
+                }
+
+                auto remote_embedding_timeout_us = remote_embedding_timeout_ms * 1000;
+                if((std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > remote_embedding_timeout_us) {
+                    std::string error = "Request timed out.";
+                    return Option<nlohmann::json>(500, error);
+                }
+
+                auto embedder = embedder_op.get();
+
+                if(embedder->is_remote()) {
+                    if(remote_embedding_num_tries == 0) {
+                        std::string error = "`remote_embedding_num_tries` must be greater than 0.";
+                        return Option<nlohmann::json>(400, error);
+                    }
+                }
+
+                std::string embed_query = embedder_manager.get_query_prefix(vector_field_it.value().embed[fields::model_config]) + q;
+                auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+
+                if(!embedding_op.success) {
+                    if(!embedding_op.error["error"].get<std::string>().empty()) {
+                        return Option<nlohmann::json>(400, embedding_op.error["error"].get<std::string>());
+                    } else {
+                        return Option<nlohmann::json>(400, embedding_op.error.dump());
+                    }
+                }
+
+                embeddings.emplace_back(embedding_op.embedding);
+            }
+
+            // get average of all embeddings
+            std::vector<float> avg_embedding(vector_field_it.value().num_dim, 0);
+            for(const auto& embedding: embeddings) {
+                for(size_t i = 0; i < embedding.size(); i++) {
+                    avg_embedding[i] += embedding[i];
+                }
+            }
+            for(size_t i = 0; i < avg_embedding.size(); i++) {
+                avg_embedding[i] /= embeddings.size();
+            }
+
+            vector_query.values = avg_embedding;
+        }
+
         if(is_wildcard_query) {
             if(vector_query.values.empty() && !vector_query.query_doc_given) {
                 // for usability we will treat this as non-vector query

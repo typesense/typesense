@@ -85,9 +85,16 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
             std::vector<std::string> param_kvs;
             StringUtils::split(param_str, param_kvs, ",");
 
-            for(auto& param_kv_str: param_kvs) {
+            for(size_t i = 0; i < param_kvs.size(); i++) {
+                auto& param_kv_str = param_kvs[i];
                 if(param_kv_str.back() == ')') {
                     param_kv_str.pop_back();
+                }
+
+                if(i < param_kvs.size() - 1 && StringUtils::get_occurence_count(param_kv_str, '[') != StringUtils::get_occurence_count(param_kv_str, ']')) {
+                    // this is a hack to handle the case where the query string contains a comma in the `qs` parameter
+                    param_kvs[i+1] = param_kv_str + "," + param_kvs[i+1];
+                    continue;
                 }
 
                 std::vector<std::string> param_kv;
@@ -165,6 +172,23 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     }
 
                     vector_query.alpha = std::stof(param_kv[1]);
+                }
+
+                if(param_kv[0] == "qs") {
+                    if(param_kv[1].front() != '[' || param_kv[1].back() != ']') {
+                        return Option<bool>(400, "Malformed vector query string: "
+                                                 "`qs` parameter must be a list of strings.");
+                    }
+
+                    param_kv[1].erase(0, 1);
+                    param_kv[1].pop_back();
+
+                    std::vector<std::string> qs;
+                    StringUtils::split(param_kv[1], qs, ",");
+                    for(auto& q: qs) {
+                        StringUtils::trim(q);
+                        vector_query.qs.push_back(q);
+                    }
                 }
             }
 

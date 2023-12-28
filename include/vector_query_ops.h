@@ -17,6 +17,8 @@ struct vector_query_t {
     bool query_doc_given = false;
     float alpha = 0.3;
 
+    std::vector<std::string> qs;
+
     void _reset() {
         // used for testing only
         field_name.clear();
