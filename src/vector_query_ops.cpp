@@ -92,7 +92,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                 }
 
                 if(i < param_kvs.size() - 1 && StringUtils::get_occurence_count(param_kv_str, '[') != StringUtils::get_occurence_count(param_kv_str, ']')) {
-                    // this is a hack to handle the case where the query string contains a comma in the `qs` parameter
+                    // this is a hack to handle the case where the query string contains a comma in the vector values
                     param_kvs[i+1] = param_kv_str + "," + param_kvs[i+1];
                     continue;
                 }
@@ -174,10 +174,10 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     vector_query.alpha = std::stof(param_kv[1]);
                 }
 
-                if(param_kv[0] == "qs") {
+                if(param_kv[0] == "queries") {
                     if(param_kv[1].front() != '[' || param_kv[1].back() != ']') {
                         return Option<bool>(400, "Malformed vector query string: "
-                                                 "`qs` parameter must be a list of strings.");
+                                                 "`queries` parameter must be a list of strings.");
                     }
 
                     param_kv[1].erase(0, 1);
@@ -187,8 +187,47 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     StringUtils::split(param_kv[1], qs, ",");
                     for(auto& q: qs) {
                         StringUtils::trim(q);
-                        vector_query.qs.push_back(q);
+                        vector_query.queries.push_back(q);
                     }
+                }
+
+                if(param_kv[0] == "query_weights") {
+                    if(param_kv[1].front() != '[' || param_kv[1].back() != ']') {
+                        return Option<bool>(400, "Malformed vector query string: "
+                                                 "`query_weights` parameter must be a list of floats.");
+                    }
+
+                    param_kv[1].erase(0, 1);
+                    param_kv[1].pop_back();
+
+                    std::vector<std::string> ws;
+                    StringUtils::split(param_kv[1], ws, ",");
+                    for(auto& w: ws) {
+                        StringUtils::trim(w);
+                        if(!StringUtils::is_float(w)) {
+                            return Option<bool>(400, "Malformed vector query string: "
+                                                     "`query_weights` parameter must be a list of floats.");
+                        }
+
+                        vector_query.query_weights.push_back(std::stof(w));
+                    }
+                }
+            }
+
+            if(vector_query.queries.size() != vector_query.query_weights.size() && !vector_query.query_weights.empty()) {
+                return Option<bool>(400, "Malformed vector query string: "
+                                         "`queries` and `query_weights` must be of the same length.");
+            }
+
+            if(!vector_query.query_weights.empty()) {
+                float sum = 0.0;
+                for(auto& w: vector_query.query_weights) {
+                    sum += w;
+                }
+
+                if(sum != 1.0) {
+                    return Option<bool>(400, "Malformed vector query string: "
+                                             "`query_weights` must sum to 1.0.");
                 }
             }
 

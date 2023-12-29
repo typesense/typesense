@@ -1220,13 +1220,13 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     return Option<bool>(400, "Could not find a field named `" + sort_field_std.vector_query.query.field_name + "` in vector index.");
                 }
 
-                if(!sort_field_std.vector_query.query.qs.empty()) {
+                if(!sort_field_std.vector_query.query.queries.empty()) {
                     if(embedding_fields.find(sort_field_std.vector_query.query.field_name) == embedding_fields.end()) {
-                        return Option<bool>(400, "`qs` parameter is only supported for auto-embedding fields.");
+                        return Option<bool>(400, "`queries` parameter is only supported for auto-embedding fields.");
                     }
 
                     std::vector<std::vector<float>> embeddings;
-                    for(const auto& q: sort_field_std.vector_query.query.qs) {
+                    for(const auto& q: sort_field_std.vector_query.query.queries) {
                         EmbedderManager& embedder_manager = EmbedderManager::get_instance();
                         auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
                         if(!embedder_op.ok()) {
@@ -1263,22 +1263,28 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                         embeddings.emplace_back(embedding_op.embedding);
                     }
 
-                    // get average of all embeddings
-                    std::vector<float> avg_embedding(vector_field_it.value().num_dim, 0);
-                    for(const auto& embedding: embeddings) {
-                        for(size_t i = 0; i < embedding.size(); i++) {
-                            avg_embedding[i] += embedding[i];
+                    if(sort_field_std.vector_query.query.query_weights.empty()) {
+                        // get average of all embeddings
+                        std::vector<float> avg_embedding(vector_field_it.value().num_dim, 0);
+                        for(const auto& embedding: embeddings) {
+                            for(size_t i = 0; i < embedding.size(); i++) {
+                                avg_embedding[i] += embedding[i];
+                            }
                         }
-                    }
-                    for(size_t i = 0; i < avg_embedding.size(); i++) {
-                        avg_embedding[i] /= embeddings.size();
-                    }
+                        for(size_t i = 0; i < avg_embedding.size(); i++) {
+                            avg_embedding[i] /= embeddings.size();
+                        }
 
-                    sort_field_std.vector_query.query.values = avg_embedding;
-                    if(vector_field_it.value().vec_dist == cosine) {
-                        std::vector<float> normalized_values(sort_field_std.vector_query.query.values.size());
-                        hnsw_index_t::normalize_vector(sort_field_std.vector_query.query.values, normalized_values);
-                        sort_field_std.vector_query.query.values = normalized_values;
+                        sort_field_std.vector_query.query.values = avg_embedding;
+                    } else {
+                        std::vector<float> weighted_embeddings(vector_field_it.value().num_dim, 0);
+                        for(size_t i = 0; i < embeddings.size(); i++) {
+                            for(size_t j = 0; j < embeddings[i].size(); j++) {
+                                weighted_embeddings[j] += embeddings[i][j] * sort_field_std.vector_query.query.query_weights[i];
+                            }
+                        }
+
+                        sort_field_std.vector_query.query.values = weighted_embeddings;
                     }
                 }
                 
@@ -6379,13 +6385,13 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
         return Option<bool>(400, "Field `" + vector_query.field_name + "` is marked as a non-indexed field in the schema.");
     }
 
-    if(!vector_query.qs.empty()) {
+    if(!vector_query.queries.empty()) {
         if(embedding_fields.find(vector_query.field_name) == embedding_fields.end()) {
-            return Option<bool>(400, "`qs` parameter is only supported for auto-embedding fields.");
+            return Option<bool>(400, "`queries` parameter is only supported for auto-embedding fields.");
         }
 
         std::vector<std::vector<float>> embeddings;
-        for(const auto& q: vector_query.qs) {
+        for(const auto& q: vector_query.queries) {
             EmbedderManager& embedder_manager = EmbedderManager::get_instance();
             auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
             if(!embedder_op.ok()) {
@@ -6421,19 +6427,30 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
 
             embeddings.emplace_back(embedding_op.embedding);
         }
-
-        // get average of all embeddings
-        std::vector<float> avg_embedding(vector_field_it.value().num_dim, 0);
-        for(const auto& embedding: embeddings) {
-            for(size_t i = 0; i < embedding.size(); i++) {
-                avg_embedding[i] += embedding[i];
+        
+        if(vector_query.query_weights.empty()) {
+            // get average of all embeddings
+            std::vector<float> avg_embedding(vector_field_it.value().num_dim, 0);
+            for(const auto& embedding: embeddings) {
+                for(size_t i = 0; i < embedding.size(); i++) {
+                    avg_embedding[i] += embedding[i];
+                }
             }
-        }
-        for(size_t i = 0; i < avg_embedding.size(); i++) {
-            avg_embedding[i] /= embeddings.size();
-        }
+            for(size_t i = 0; i < avg_embedding.size(); i++) {
+                avg_embedding[i] /= embeddings.size();
+            }
 
-        vector_query.values = avg_embedding;
+            vector_query.values = avg_embedding;
+        } else {
+            std::vector<float> embeddings_with_weights(vector_field_it.value().num_dim, 0);
+            for(size_t i = 0; i < embeddings.size(); i++) {
+                for(size_t j = 0; j < embeddings[i].size(); j++) {
+                    embeddings_with_weights[j] += embeddings[i][j] * vector_query.query_weights[i];
+                }
+            }
+
+            vector_query.values = embeddings_with_weights;
+        }
     }
 
     if(is_wildcard_query) {

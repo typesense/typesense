@@ -2623,7 +2623,7 @@ TEST_F(CollectionSortingTest, TestVectorQueryQsSorting) {
     ASSERT_EQ("0", results["hits"][1]["document"]["id"]);
 
     sort_fields = {
-        sort_by("_vector_query(embedding:([], qs: [powerpuff girls, cartoon]))", "asc"),
+        sort_by("_vector_query(embedding:([], queries: [powerpuff girls, cartoon]))", "asc"),
     };
 
     results = coll->search("butter", {"name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,

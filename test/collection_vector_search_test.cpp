@@ -3425,7 +3425,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryQs) {
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
                                 fallback,
                                 4, {off}, 32767, 32767, 2,
-                                false, true, "embedding:([], qs:[superhero, company])");
+                                false, true, "embedding:([], queries:[superhero, company])");
     
     ASSERT_TRUE(results.ok());
     ASSERT_EQ(results.get()["hits"].size(), 1);
@@ -3463,7 +3463,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryInvalidQs) {
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
                                 fallback,
                                 4, {off}, 32767, 32767, 2,
-                                false, true, "embedding:([], qs:\"test\")");
+                                false, true, "embedding:([], queries:\"test\")");
     
     ASSERT_FALSE(results.ok());
 
@@ -3477,7 +3477,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryInvalidQs) {
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
                                 fallback,
                                 4, {off}, 32767, 32767, 2,
-                                false, true, "embedding:([], qs:11)");
+                                false, true, "embedding:([], queries:11)");
     
     ASSERT_FALSE(results.ok());
 
@@ -3518,8 +3518,170 @@ TEST_F(CollectionVectorTest, TestVectorQueryQsWithHybridSearch) {
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
                                 fallback,
                                 4, {off}, 32767, 32767, 2,
-                                false, true, "embedding:([], qs:[superhero, company])");
+                                false, true, "embedding:([], queries:[superhero, company])");
     
     ASSERT_TRUE(results.ok());
     ASSERT_EQ(results.get()["hits"].size(), 1);
+}
+
+TEST_F(CollectionVectorTest, TestVectorQueryQsHybridSearchAlpha) {
+    auto schema_json =
+        R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/all-MiniLM-L12-v2"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "Apple iPhone"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "Samsung Galaxy"
+    })"_json.dump());
+
+    auto results = coll->search("apple", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "embedding:([], queries:[samsung, phone])");
+    
+    ASSERT_TRUE(results.ok());
+    ASSERT_EQ(results.get()["hits"].size(), 2);
+    ASSERT_EQ(results.get()["hits"][0]["document"]["name"], "Apple iPhone");
+
+
+    results = coll->search("apple", {"name"}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "embedding:([], queries:[samsung, phone], alpha:0.9)");
+
+    ASSERT_TRUE(results.ok());
+    ASSERT_EQ(results.get()["hits"].size(), 2);
+    ASSERT_EQ(results.get()["hits"][0]["document"]["name"], "Samsung Galaxy");
+}
+
+TEST_F(CollectionVectorTest, TestVectorQueryQsWeight) {
+    auto schema_json =
+        R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/all-MiniLM-L12-v2"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "Apple iPhone"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "Samsung Galaxy"
+    })"_json.dump());
+
+    auto results = coll->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "embedding:([], queries:[samsung, apple], query_weights:[0.1, 0.9])");
+    
+    ASSERT_TRUE(results.ok());
+    ASSERT_EQ(results.get()["hits"].size(), 2);
+    ASSERT_EQ(results.get()["hits"][0]["document"]["name"], "Apple iPhone");
+
+
+    results = coll->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                fallback,
+                                4, {off}, 32767, 32767, 2,
+                                false, true, "embedding:([], queries:[samsung, apple], query_weights:[0.9, 0.1])");
+
+    ASSERT_TRUE(results.ok());
+    ASSERT_EQ(results.get()["hits"].size(), 2);
+    ASSERT_EQ(results.get()["hits"][0]["document"]["name"], "Samsung Galaxy");
+}
+
+TEST_F(CollectionVectorTest, TestVectorQueryQsWeightInvalid) {
+    auto schema_json =
+        R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/all-MiniLM-L12-v2"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "Apple iPhone"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "Samsung Galaxy"
+    })"_json.dump());
+
+    auto results = coll->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0, 
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, 
+                                fallback, 
+                                4, {off}, 32767, 32767, 2, 
+                                false, true, "embedding:([], queries:[samsung, apple], query_weights:[0.1, 0.9, 0.1])");
+    
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ(results.error(), "Malformed vector query string: `queries` and `query_weights` must be of the same length.");
+
+    results = coll->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                "", 10, {}, {}, {}, 0, 
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, 
+                                fallback, 
+                                4, {off}, 32767, 32767, 2, 
+                                false, true, "embedding:([], queries:[samsung, apple], query_weights:[0.4, 0.9])");
+    
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ(results.error(), "Malformed vector query string: `query_weights` must sum to 1.0.");
 }
