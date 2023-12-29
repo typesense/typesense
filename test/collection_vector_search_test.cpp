@@ -3482,7 +3482,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryInvalidQs) {
     ASSERT_FALSE(results.ok());
 
     ASSERT_EQ(results.error(), "Malformed vector query string: "
-                               "`qs` parameter must be a list of strings.");
+                               "`queries` parameter must be a list of strings.");
 }
 
 
