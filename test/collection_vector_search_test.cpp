@@ -3468,7 +3468,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryInvalidQs) {
     ASSERT_FALSE(results.ok());
 
     ASSERT_EQ(results.error(), "Malformed vector query string: "
-                               "`qs` parameter must be a list of strings.");
+                               "`queries` parameter must be a list of strings.");
     
     results = coll->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                                 spp::sparse_hash_set<std::string>(),
