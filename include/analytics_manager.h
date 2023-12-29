@@ -154,6 +154,9 @@ private:
     //query collection => click events
     std::unordered_map<std::string, std::vector<click_event_t>> query_collection_click_events;
 
+    //query collection=>purchase events
+    std::unordered_map<std::string, std::vector<click_event_t>> query_collection_special_events;
+
     //query collection => query hits count
     std::unordered_map<std::string, std::set<query_hits_count_t, query_hits_count_comp>> query_collection_hits_count;
 
@@ -175,6 +178,7 @@ public:
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
     static constexpr const char* CLICK_EVENT = "$CE";
     static constexpr const char* QUERY_HITS_COUNT = "$QH";
+    static constexpr const char* SPECIAL_EVENT = "$SE";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
     static constexpr const char* POPULAR_CLICKS_TYPE = "popular_clicks";
@@ -213,14 +217,14 @@ public:
 
     std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
 
-    Option<bool> add_click_event(const std::string& query_collection, const std::string& query, const std::string& user_id,
+    Option<bool> add_click_special_event(const std::string& event_type, const std::string& query_collection, const std::string& query, const std::string& user_id,
                             std::string doc_id, uint64_t position, const std::string& client_ip);
 
-    void persist_query_hits_click_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_other_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     void persist_popular_clicks(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
-    nlohmann::json get_click_events();
+    nlohmann::json get_other_events(const std::string& event_type);
 
     std::unordered_map<std::string, popular_clicks_t> get_popular_clicks();
 

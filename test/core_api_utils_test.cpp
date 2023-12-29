@@ -1520,7 +1520,8 @@ TEST_F(CoreAPIUtilsTest, GetClickEvents) {
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
     // no events in db
-    get_click_events(req, res);
+    req->params["name"] = "click_events";
+    get_analytics_events(req, res);
     ASSERT_EQ("{\"message\": \"Not Found\"}", res->body);
 
     //add some events
@@ -1585,7 +1586,8 @@ TEST_F(CoreAPIUtilsTest, GetClickEvents) {
 
     //get click events
     req->data = nullptr;
-    get_click_events(req, res);
+    req->params["name"] = "click_events";
+    get_analytics_events(req, res);
 
     std::vector<std::string> res_strs;
     StringUtils::split(res->body, res_strs, "\n");
