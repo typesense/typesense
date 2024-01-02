@@ -1520,7 +1520,8 @@ TEST_F(CoreAPIUtilsTest, GetClickEvents) {
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
     // no events in db
-    get_click_events(req, res);
+    req->params["name"] = "click_events";
+    get_analytics_events(req, res);
     ASSERT_EQ("{\"message\": \"Not Found\"}", res->body);
 
     //add some events
@@ -1566,13 +1567,13 @@ TEST_F(CoreAPIUtilsTest, GetClickEvents) {
 
     event1["collection_id"] = "0";
     event1["timestamp"] = 1521512521;
-    event1["event_type"] = "click_events";
+    event1["event_type"] = "query_click";
     event2["collection_id"] = "0";
     event2["timestamp"] = 1521514354;
-    event2["event_type"] = "click_events";
+    event2["event_type"] = "query_click";
     event3["collection_id"] = "0";
     event3["timestamp"] = 1521515382;
-    event3["event_type"] = "click_events";
+    event3["event_type"] = "query_click";
 
 
     nlohmann::json click_events = nlohmann::json::array();
@@ -1585,7 +1586,8 @@ TEST_F(CoreAPIUtilsTest, GetClickEvents) {
 
     //get click events
     req->data = nullptr;
-    get_click_events(req, res);
+    req->params["name"] = "click_events";
+    get_analytics_events(req, res);
 
     std::vector<std::string> res_strs;
     StringUtils::split(res->body, res_strs, "\n");
