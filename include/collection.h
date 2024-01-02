@@ -333,6 +333,13 @@ private:
 
     void remove_embedding_field(const std::string& field_name);
 
+    Option<bool> parse_and_validate_vector_query(const std::string& vector_query_str,
+                                                     vector_query_t& vector_query,
+                                                     const bool is_wildcard_query,
+                                                     const size_t remote_embedding_timeout_ms, 
+                                                     const size_t remote_embedding_num_tries,
+                                                     size_t& per_page) const;
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};

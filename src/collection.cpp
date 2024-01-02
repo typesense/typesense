@@ -1219,6 +1219,74 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 if(vector_field_it == search_schema.end() || vector_field_it.value().num_dim == 0) {
                     return Option<bool>(400, "Could not find a field named `" + sort_field_std.vector_query.query.field_name + "` in vector index.");
                 }
+
+                if(!sort_field_std.vector_query.query.queries.empty()) {
+                    if(embedding_fields.find(sort_field_std.vector_query.query.field_name) == embedding_fields.end()) {
+                        return Option<bool>(400, "`queries` parameter is only supported for auto-embedding fields.");
+                    }
+
+                    std::vector<std::vector<float>> embeddings;
+                    for(const auto& q: sort_field_std.vector_query.query.queries) {
+                        EmbedderManager& embedder_manager = EmbedderManager::get_instance();
+                        auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+                        if(!embedder_op.ok()) {
+                            return Option<bool>(400, embedder_op.error());
+                        }
+
+                        auto remote_embedding_timeout_us = remote_embedding_timeout_ms * 1000;
+                        if((std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > remote_embedding_timeout_us) {
+                            std::string error = "Request timed out.";
+                            return Option<bool>(500, error);
+                        }
+
+                        auto embedder = embedder_op.get();
+
+                        if(embedder->is_remote()) {
+                            if(remote_embedding_num_tries == 0) {
+                                std::string error = "`remote_embedding_num_tries` must be greater than 0.";
+                                return Option<bool>(400, error);
+                            }
+                        }
+
+                        std::string embed_query = embedder_manager.get_query_prefix(vector_field_it.value().embed[fields::model_config]) + q;
+                        auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+
+                        if(!embedding_op.success) {
+                            if(!embedding_op.error["error"].get<std::string>().empty()) {
+                                return Option<bool>(400, embedding_op.error["error"].get<std::string>());
+                            } else {
+                                return Option<bool>(400, embedding_op.error.dump());
+                            }
+                        }
+
+                        embeddings.emplace_back(embedding_op.embedding);
+                    }
+
+                    if(sort_field_std.vector_query.query.query_weights.empty()) {
+                        // get average of all embeddings
+                        std::vector<float> avg_embedding(vector_field_it.value().num_dim, 0);
+                        for(const auto& embedding: embeddings) {
+                            for(size_t i = 0; i < embedding.size(); i++) {
+                                avg_embedding[i] += embedding[i];
+                            }
+                        }
+                        for(size_t i = 0; i < avg_embedding.size(); i++) {
+                            avg_embedding[i] /= embeddings.size();
+                        }
+
+                        sort_field_std.vector_query.query.values = avg_embedding;
+                    } else {
+                        std::vector<float> weighted_embeddings(vector_field_it.value().num_dim, 0);
+                        for(size_t i = 0; i < embeddings.size(); i++) {
+                            for(size_t j = 0; j < embeddings[i].size(); j++) {
+                                weighted_embeddings[j] += embeddings[i][j] * sort_field_std.vector_query.query.query_weights[i];
+                            }
+                        }
+
+                        sort_field_std.vector_query.query.values = weighted_embeddings;
+                    }
+                }
                 
                 if(sort_field_std.vector_query.query.values.empty() && embedding_fields.find(sort_field_std.vector_query.query.field_name) != embedding_fields.end()) {
                     // generate embeddings for the query
@@ -1676,34 +1744,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     if(!vector_query_str.empty()) {
         bool is_wildcard_query = (raw_query == "*" || raw_query.empty());
 
-        auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query,
-                                                                      is_wildcard_query, this, false);
+        auto parse_vector_op = parse_and_validate_vector_query(vector_query_str, vector_query, is_wildcard_query, remote_embedding_timeout_ms, remote_embedding_num_tries, per_page);
+
         if(!parse_vector_op.ok()) {
-            return Option<nlohmann::json>(400, parse_vector_op.error());
-        }
-
-        auto vector_field_it = search_schema.find(vector_query.field_name);
-        if(vector_field_it == search_schema.end() || vector_field_it.value().num_dim == 0) {
-            return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
-        }
-
-        if(!vector_field_it.value().index) {
-            return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` is marked as a non-indexed field in the schema.");
-        }
-
-        if(is_wildcard_query) {
-            if(vector_query.values.empty() && !vector_query.query_doc_given) {
-                // for usability we will treat this as non-vector query
-                vector_query.field_name.clear();
-                if(vector_query.k != 0) {
-                    per_page = std::min(per_page, vector_query.k);
-                }
-            }
-
-            else if(vector_field_it.value().num_dim != vector_query.values.size()) {
-                return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
-                                                   std::to_string(vector_field_it.value().num_dim) + " dimensions.");
-            }
+            return Option<nlohmann::json>(parse_vector_op.code(), parse_vector_op.error());
         }
     }
 
@@ -6361,4 +6405,112 @@ tsl::htrie_map<char, field> Collection::get_embedding_fields_unsafe() {
 
 void Collection::do_housekeeping() {
     index->repair_hnsw_index();
+}
+
+Option<bool> Collection::parse_and_validate_vector_query(const std::string& vector_query_str,
+                                                         vector_query_t& vector_query,
+                                                         const bool is_wildcard_query,
+                                                         const size_t remote_embedding_timeout_ms, 
+                                                         const size_t remote_embedding_num_tries,
+                                                         size_t& per_page) const {
+
+    auto parse_vector_op = VectorQueryOps::parse_vector_query_str(vector_query_str, vector_query,
+                                                                    is_wildcard_query, this, false);
+    if(!parse_vector_op.ok()) {
+        return Option<bool>(400, parse_vector_op.error());
+    }
+
+    auto vector_field_it = search_schema.find(vector_query.field_name);
+    if(vector_field_it == search_schema.end() || vector_field_it.value().num_dim == 0) {
+        return Option<bool>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
+    }
+
+    if(!vector_field_it.value().index) {
+        return Option<bool>(400, "Field `" + vector_query.field_name + "` is marked as a non-indexed field in the schema.");
+    }
+
+    if(!vector_query.queries.empty()) {
+        if(embedding_fields.find(vector_query.field_name) == embedding_fields.end()) {
+            return Option<bool>(400, "`queries` parameter is only supported for auto-embedding fields.");
+        }
+
+        std::vector<std::vector<float>> embeddings;
+        for(const auto& q: vector_query.queries) {
+            EmbedderManager& embedder_manager = EmbedderManager::get_instance();
+            auto embedder_op = embedder_manager.get_text_embedder(vector_field_it.value().embed[fields::model_config]);
+            if(!embedder_op.ok()) {
+                return Option<bool>(400, embedder_op.error());
+            }
+
+            auto remote_embedding_timeout_us = remote_embedding_timeout_ms * 1000;
+            if((std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > remote_embedding_timeout_us) {
+                std::string error = "Request timed out.";
+                return Option<bool>(500, error);
+            }
+
+            auto embedder = embedder_op.get();
+
+            if(embedder->is_remote()) {
+                if(remote_embedding_num_tries == 0) {
+                    std::string error = "`remote_embedding_num_tries` must be greater than 0.";
+                    return Option<bool>(400, error);
+                }
+            }
+
+            std::string embed_query = embedder_manager.get_query_prefix(vector_field_it.value().embed[fields::model_config]) + q;
+            auto embedding_op = embedder->Embed(embed_query, remote_embedding_timeout_ms, remote_embedding_num_tries);
+
+            if(!embedding_op.success) {
+                if(!embedding_op.error["error"].get<std::string>().empty()) {
+                    return Option<bool>(400, embedding_op.error["error"].get<std::string>());
+                } else {
+                    return Option<bool>(400, embedding_op.error.dump());
+                }
+            }
+
+            embeddings.emplace_back(embedding_op.embedding);
+        }
+        
+        if(vector_query.query_weights.empty()) {
+            // get average of all embeddings
+            std::vector<float> avg_embedding(vector_field_it.value().num_dim, 0);
+            for(const auto& embedding: embeddings) {
+                for(size_t i = 0; i < embedding.size(); i++) {
+                    avg_embedding[i] += embedding[i];
+                }
+            }
+            for(size_t i = 0; i < avg_embedding.size(); i++) {
+                avg_embedding[i] /= embeddings.size();
+            }
+
+            vector_query.values = avg_embedding;
+        } else {
+            std::vector<float> embeddings_with_weights(vector_field_it.value().num_dim, 0);
+            for(size_t i = 0; i < embeddings.size(); i++) {
+                for(size_t j = 0; j < embeddings[i].size(); j++) {
+                    embeddings_with_weights[j] += embeddings[i][j] * vector_query.query_weights[i];
+                }
+            }
+
+            vector_query.values = embeddings_with_weights;
+        }
+    }
+
+    if(is_wildcard_query) {
+        if(vector_query.values.empty() && !vector_query.query_doc_given) {
+            // for usability we will treat this as non-vector query
+            vector_query.field_name.clear();
+            if(vector_query.k != 0) {
+                per_page = std::min(per_page, vector_query.k);
+            }
+        }
+
+        else if(vector_field_it.value().num_dim != vector_query.values.size()) {
+            return Option<bool>(400, "Query field `" + vector_query.field_name + "` must have " +
+                                                std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+        }
+    }
+
+    return Option<bool>(true);
 }
