@@ -492,24 +492,24 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> StringUtils::split_reference_include_fields(const std::string& include_fields,
-                                                         size_t& index,
-                                                         std::string& token) {
-    auto ref_include_error = Option<bool>(400, "Invalid reference in include_fields, expected `$CollectionName(fieldA, ...)`.");
-    auto const& size = include_fields.size();
+Option<bool> StringUtils::split_reference_include_exclude_fields(const std::string& include_exclude_fields,
+                                                                 size_t& index, std::string& token) {
+    auto ref_include_error = Option<bool>(400, "Invalid reference `" + include_exclude_fields + "` in include_fields/"
+                                                        "exclude_fields, expected `$CollectionName(fieldA, ...)`.");
+    auto const& size = include_exclude_fields.size();
     size_t start_index = index;
-    while(++index < size && include_fields[index] != '(') {}
+    while(++index < size && include_exclude_fields[index] != '(') {}
 
     if (index >= size) {
         return ref_include_error;
     }
 
-    // In case of nested join, the reference include field could have parenthesis inside it.
+    // In case of nested join, the reference include/exclude field could have parenthesis inside it.
     int parenthesis_count = 1;
     while (++index < size && parenthesis_count > 0) {
-        if (include_fields[index] == '(') {
+        if (include_exclude_fields[index] == '(') {
             parenthesis_count++;
-        } else if (include_fields[index] == ')') {
+        } else if (include_exclude_fields[index] == ')') {
             parenthesis_count--;
         }
     }
@@ -525,34 +525,35 @@ Option<bool> StringUtils::split_reference_include_fields(const std::string& incl
     //                                                  ...^
     // $ref_include( $nested_ref_include(foo :merge)as nest :merge ) as ref
     //                                                   ...^
-    auto closing_parenthesis_pos = include_fields.find(')', index);
-    auto comma_pos = include_fields.find(',', index);
-    auto colon_pos = include_fields.find(':', index);
-    auto alias_start_pos = include_fields.find(" as ", index);
+    auto closing_parenthesis_pos = include_exclude_fields.find(')', index);
+    auto comma_pos = include_exclude_fields.find(',', index);
+    auto colon_pos = include_exclude_fields.find(':', index);
+    auto alias_start_pos = include_exclude_fields.find(" as ", index);
     auto alias_end_pos = std::min(std::min(closing_parenthesis_pos, comma_pos), colon_pos);
     std::string alias;
     if (alias_start_pos != std::string::npos && alias_start_pos < alias_end_pos) {
-        alias = include_fields.substr(alias_start_pos, alias_end_pos - alias_start_pos);
+        alias = include_exclude_fields.substr(alias_start_pos, alias_end_pos - alias_start_pos);
     }
 
-    token = include_fields.substr(start_index, index - start_index) + " " + trim(alias);
+    token = include_exclude_fields.substr(start_index, index - start_index) + " " + trim(alias);
     trim(token);
 
     index = alias_end_pos;
     return Option<bool>(true);
 }
 
-Option<bool> StringUtils::split_include_fields(const std::string& include_fields, std::vector<std::string>& tokens) {
+Option<bool> StringUtils::split_include_exclude_fields(const std::string& include_exclude_fields,
+                                                       std::vector<std::string>& tokens) {
     std::string token;
-    auto const& size = include_fields.size();
+    auto const& size = include_exclude_fields.size();
     for (size_t i = 0; i < size;) {
-        auto c = include_fields[i];
+        auto c = include_exclude_fields[i];
         if (c == ' ') {
             i++;
             continue;
-        } else if (c == '$') { // Reference include
+        } else if (c == '$') { // Reference include/exclude
             std::string ref_include_token;
-            auto split_op = split_reference_include_fields(include_fields, i, ref_include_token);
+            auto split_op = split_reference_include_exclude_fields(include_exclude_fields, i, ref_include_token);
             if (!split_op.ok()) {
                 return split_op;
             }
@@ -561,8 +562,8 @@ Option<bool> StringUtils::split_include_fields(const std::string& include_fields
             continue;
         }
 
-        auto comma_pos = include_fields.find(',', i);
-        token = include_fields.substr(i, (comma_pos == std::string::npos ? size : comma_pos) - i);
+        auto comma_pos = include_exclude_fields.find(',', i);
+        token = include_exclude_fields.substr(i, (comma_pos == std::string::npos ? size : comma_pos) - i);
         trim(token);
         if (!token.empty()) {
             tokens.push_back(token);

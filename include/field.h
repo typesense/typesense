@@ -530,14 +530,15 @@ namespace ref_include {
     }
 }
 
-struct ref_include_fields {
+struct ref_include_exclude_fields {
     std::string collection_name;
-    std::string fields;
+    std::string include_fields;
+    std::string exclude_fields;
     std::string alias;
     ref_include::strategy_enum strategy = ref_include::nest;
 
     // In case we have nested join.
-    std::vector<ref_include_fields> nested_join_includes = {};
+    std::vector<ref_include_exclude_fields> nested_join_includes = {};
 };
 
 struct hnsw_index_t;

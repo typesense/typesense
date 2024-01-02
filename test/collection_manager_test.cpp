@@ -1460,156 +1460,241 @@ TEST_F(CollectionManagerTest, GetReferenceCollectionNames) {
     ref_includes = nullptr;
 }
 
-TEST_F(CollectionManagerTest, InitializeRefIncludeFields) {
+TEST_F(CollectionManagerTest, InitializeRefIncludeExcludeFields) {
     std::string filter_query = "";
-    std::vector<std::string> include_fields_vec;
-    std::vector<ref_include_fields> ref_include_fields_vec;
-    auto initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
-                                                                               ref_include_fields_vec);
+    std::vector<std::string> include_fields_vec, exclude_fields_vec;
+    std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec;
+    auto initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                       exclude_fields_vec,
+                                                                                       ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
-    ASSERT_TRUE(ref_include_fields_vec.empty());
+    ASSERT_TRUE(ref_include_exclude_fields_vec.empty());
 
     filter_query = "$foo(bar:baz)";
-    initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
-                                                                               ref_include_fields_vec);
+    exclude_fields_vec = {"$foo(bar)"};
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
-    ASSERT_EQ(1, ref_include_fields_vec.size());
-    ASSERT_EQ("foo", ref_include_fields_vec[0].collection_name);
-    ASSERT_TRUE(ref_include_fields_vec[0].fields.empty());
-    ASSERT_TRUE(ref_include_fields_vec[0].alias.empty());
-    ASSERT_EQ(ref_include::nest, ref_include_fields_vec[0].strategy);
-    ASSERT_TRUE(ref_include_fields_vec[0].nested_join_includes.empty());
-    ref_include_fields_vec.clear();
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("foo", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].include_fields.empty());
+    ASSERT_EQ("bar", ref_include_exclude_fields_vec[0].exclude_fields);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].nested_join_includes.empty());
+    ref_include_exclude_fields_vec.clear();
+    exclude_fields_vec.clear();
 
     filter_query = "";
     include_fields_vec = {"$Customers(product_price: foo) as customers"};
-    initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
-                                                                               ref_include_fields_vec);
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
     ASSERT_FALSE(initialize_op.ok());
     ASSERT_EQ("Error parsing `$Customers(product_price: foo) as customers`: Unknown include strategy `foo`. "
               "Valid options are `merge`, `nest`, `nest_array`.", initialize_op.error());
 
     filter_query = "$Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
     include_fields_vec = {"$Customers(product_price: merge) as customers"};
-    initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
-                                                                          ref_include_fields_vec);
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
-    ASSERT_EQ(1, ref_include_fields_vec.size());
-    ASSERT_EQ("Customers", ref_include_fields_vec[0].collection_name);
-    ASSERT_EQ("product_price", ref_include_fields_vec[0].fields);
-    ASSERT_EQ("customers.", ref_include_fields_vec[0].alias);
-    ASSERT_EQ(ref_include::merge, ref_include_fields_vec[0].strategy);
-    ASSERT_TRUE(ref_include_fields_vec[0].nested_join_includes.empty());
-    ref_include_fields_vec.clear();
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("Customers", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_EQ("product_price", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("customers.", ref_include_exclude_fields_vec[0].alias);
+    ASSERT_EQ(ref_include::merge, ref_include_exclude_fields_vec[0].strategy);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].nested_join_includes.empty());
+    ref_include_exclude_fields_vec.clear();
 
     filter_query = "$Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
     include_fields_vec = {"$Customers(product_price: nest_array) as customers"};
-    initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
-                                                                          ref_include_fields_vec);
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
-    ASSERT_EQ(1, ref_include_fields_vec.size());
-    ASSERT_EQ("Customers", ref_include_fields_vec[0].collection_name);
-    ASSERT_EQ("product_price", ref_include_fields_vec[0].fields);
-    ASSERT_EQ("customers", ref_include_fields_vec[0].alias);
-    ASSERT_EQ(ref_include::nest_array, ref_include_fields_vec[0].strategy);
-    ASSERT_TRUE(ref_include_fields_vec[0].nested_join_includes.empty());
-    ref_include_fields_vec.clear();
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("Customers", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_EQ("product_price", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("customers", ref_include_exclude_fields_vec[0].alias);
+    ASSERT_EQ(ref_include::nest_array, ref_include_exclude_fields_vec[0].strategy);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].nested_join_includes.empty());
+    ref_include_exclude_fields_vec.clear();
 
     filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
     include_fields_vec = {"$product_variants(id,$inventory(qty,sku,$retailers(id,title)))"};
-    initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
-                                                                          ref_include_fields_vec);
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
-    ASSERT_EQ(1, ref_include_fields_vec.size());
-    ASSERT_EQ("product_variants", ref_include_fields_vec[0].collection_name);
-    ASSERT_EQ("id,", ref_include_fields_vec[0].fields);
-    ASSERT_TRUE(ref_include_fields_vec[0].alias.empty());
-    ASSERT_EQ(ref_include::nest, ref_include_fields_vec[0].strategy);
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_EQ("id,", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
 
-    auto nested_join_includes = ref_include_fields_vec[0].nested_join_includes;
-    ASSERT_EQ("inventory", nested_join_includes[0].collection_name);
-    ASSERT_EQ("qty,sku,", nested_join_includes[0].fields);
-    ASSERT_TRUE(nested_join_includes[0].alias.empty());
-    ASSERT_EQ(ref_include::nest, nested_join_includes[0].strategy);
+    auto nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes;
+    ASSERT_EQ("inventory", nested_include_excludes[0].collection_name);
+    ASSERT_EQ("qty,sku,", nested_include_excludes[0].include_fields);
+    ASSERT_TRUE(nested_include_excludes[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, nested_include_excludes[0].strategy);
 
-    nested_join_includes = ref_include_fields_vec[0].nested_join_includes[0].nested_join_includes;
-    ASSERT_EQ("retailers", nested_join_includes[0].collection_name);
-    ASSERT_EQ("id,title", nested_join_includes[0].fields);
-    ASSERT_TRUE(nested_join_includes[0].alias.empty());
-    ASSERT_EQ(ref_include::nest, ref_include_fields_vec[0].strategy);
-    ref_include_fields_vec.clear();
+    nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes[0].nested_join_includes;
+    ASSERT_EQ("retailers", nested_include_excludes[0].collection_name);
+    ASSERT_EQ("id,title", nested_include_excludes[0].include_fields);
+    ASSERT_TRUE(nested_include_excludes[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
+    ref_include_exclude_fields_vec.clear();
 
     filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
     include_fields_vec = {"$product_variants(title, $inventory(qty:merge) as inventory: nest) as variants"};
-    initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
-                                                                          ref_include_fields_vec);
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
-    ASSERT_EQ(1, ref_include_fields_vec.size());
-    ASSERT_EQ("product_variants", ref_include_fields_vec[0].collection_name);
-    ASSERT_EQ("title,", ref_include_fields_vec[0].fields);
-    ASSERT_EQ("variants", ref_include_fields_vec[0].alias);
-    ASSERT_EQ(ref_include::nest, ref_include_fields_vec[0].strategy);
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_EQ("title,", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("variants", ref_include_exclude_fields_vec[0].alias);
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
 
-    nested_join_includes = ref_include_fields_vec[0].nested_join_includes;
-    ASSERT_EQ("inventory", nested_join_includes[0].collection_name);
-    ASSERT_EQ("qty", nested_join_includes[0].fields);
-    ASSERT_EQ("inventory.", nested_join_includes[0].alias);
-    ASSERT_EQ(ref_include::merge, nested_join_includes[0].strategy);
+    nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes;
+    ASSERT_EQ("inventory", nested_include_excludes[0].collection_name);
+    ASSERT_EQ("qty", nested_include_excludes[0].include_fields);
+    ASSERT_EQ("inventory.", nested_include_excludes[0].alias);
+    ASSERT_EQ(ref_include::merge, nested_include_excludes[0].strategy);
 
-    nested_join_includes = ref_include_fields_vec[0].nested_join_includes[0].nested_join_includes;
-    ASSERT_EQ("retailers", nested_join_includes[0].collection_name);
-    ASSERT_TRUE(nested_join_includes[0].fields.empty());
-    ASSERT_TRUE(nested_join_includes[0].alias.empty());
-    ASSERT_EQ(ref_include::nest, ref_include_fields_vec[0].strategy);
-    ref_include_fields_vec.clear();
+    nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes[0].nested_join_includes;
+    ASSERT_EQ("retailers", nested_include_excludes[0].collection_name);
+    ASSERT_TRUE(nested_include_excludes[0].include_fields.empty());
+    ASSERT_TRUE(nested_include_excludes[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
+    ref_include_exclude_fields_vec.clear();
 
     filter_query = "$product_variants( $inventory(id:*) && $retailers(location:(33.865,-118.375,100 km)))";
     include_fields_vec = {"$product_variants(title, $inventory(qty:merge) as inventory,"
                             " $retailers(title): merge) as variants"};
-    initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
-                                                                          ref_include_fields_vec);
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
-    ASSERT_EQ(1, ref_include_fields_vec.size());
-    ASSERT_EQ("product_variants", ref_include_fields_vec[0].collection_name);
-    ASSERT_EQ("title,", ref_include_fields_vec[0].fields);
-    ASSERT_EQ("variants.", ref_include_fields_vec[0].alias);
-    ASSERT_EQ(ref_include::merge, ref_include_fields_vec[0].strategy);
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_EQ("title,", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("variants.", ref_include_exclude_fields_vec[0].alias);
+    ASSERT_EQ(ref_include::merge, ref_include_exclude_fields_vec[0].strategy);
 
-    nested_join_includes = ref_include_fields_vec[0].nested_join_includes;
-    ASSERT_EQ("inventory", nested_join_includes[0].collection_name);
-    ASSERT_EQ("qty", nested_join_includes[0].fields);
-    ASSERT_EQ("inventory.", nested_join_includes[0].alias);
-    ASSERT_EQ(ref_include::merge, nested_join_includes[0].strategy);
+    nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes;
+    ASSERT_EQ("inventory", nested_include_excludes[0].collection_name);
+    ASSERT_EQ("qty", nested_include_excludes[0].include_fields);
+    ASSERT_EQ("inventory.", nested_include_excludes[0].alias);
+    ASSERT_EQ(ref_include::merge, nested_include_excludes[0].strategy);
 
-    ASSERT_EQ("retailers", nested_join_includes[1].collection_name);
-    ASSERT_EQ("title", nested_join_includes[1].fields);
-    ASSERT_TRUE(nested_join_includes[1].alias.empty());
-    ASSERT_EQ(ref_include::nest, nested_join_includes[1].strategy);
-    ref_include_fields_vec.clear();
+    ASSERT_EQ("retailers", nested_include_excludes[1].collection_name);
+    ASSERT_EQ("title", nested_include_excludes[1].include_fields);
+    ASSERT_TRUE(nested_include_excludes[1].alias.empty());
+    ASSERT_EQ(ref_include::nest, nested_include_excludes[1].strategy);
+    ref_include_exclude_fields_vec.clear();
 
     filter_query = "$product_variants( $inventory(id:*) && $retailers(location:(33.865,-118.375,100 km)))";
     include_fields_vec = {"$product_variants(title, $inventory(qty:merge) as inventory, description,"
                             " $retailers(title), foo: merge) as variants"};
-    initialize_op = CollectionManager::_initialize_ref_include_fields_vec(filter_query, include_fields_vec,
-                                                                          ref_include_fields_vec);
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
-    ASSERT_EQ(1, ref_include_fields_vec.size());
-    ASSERT_EQ("product_variants", ref_include_fields_vec[0].collection_name);
-    ASSERT_EQ("title, description, foo", ref_include_fields_vec[0].fields);
-    ASSERT_EQ("variants.", ref_include_fields_vec[0].alias);
-    ASSERT_EQ(ref_include::merge, ref_include_fields_vec[0].strategy);
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_EQ("title, description, foo", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("variants.", ref_include_exclude_fields_vec[0].alias);
+    ASSERT_EQ(ref_include::merge, ref_include_exclude_fields_vec[0].strategy);
 
-    nested_join_includes = ref_include_fields_vec[0].nested_join_includes;
-    ASSERT_EQ("inventory", nested_join_includes[0].collection_name);
-    ASSERT_EQ("qty", nested_join_includes[0].fields);
-    ASSERT_EQ("inventory.", nested_join_includes[0].alias);
-    ASSERT_EQ(ref_include::merge, nested_join_includes[0].strategy);
+    nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes;
+    ASSERT_EQ("inventory", nested_include_excludes[0].collection_name);
+    ASSERT_EQ("qty", nested_include_excludes[0].include_fields);
+    ASSERT_EQ("inventory.", nested_include_excludes[0].alias);
+    ASSERT_EQ(ref_include::merge, nested_include_excludes[0].strategy);
 
-    ASSERT_EQ("retailers", nested_join_includes[1].collection_name);
-    ASSERT_EQ("title", nested_join_includes[1].fields);
-    ASSERT_TRUE(nested_join_includes[1].alias.empty());
-    ASSERT_EQ(ref_include::nest, nested_join_includes[1].strategy);
-    ref_include_fields_vec.clear();
+    ASSERT_EQ("retailers", nested_include_excludes[1].collection_name);
+    ASSERT_EQ("title", nested_include_excludes[1].include_fields);
+    ASSERT_TRUE(nested_include_excludes[1].alias.empty());
+    ASSERT_EQ(ref_include::nest, nested_include_excludes[1].strategy);
+    ref_include_exclude_fields_vec.clear();
+
+    filter_query = "$Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
+    include_fields_vec.clear();
+    exclude_fields_vec = {"$Customers(product_price)"};
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
+    ASSERT_TRUE(initialize_op.ok());
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("Customers", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].include_fields.empty());
+    ASSERT_EQ("product_price", ref_include_exclude_fields_vec[0].exclude_fields);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].nested_join_includes.empty());
+    ref_include_exclude_fields_vec.clear();
+
+    filter_query = "$product_variants( $inventory(id:*) && $retailers(location:(33.865,-118.375,100 km)))";
+    include_fields_vec.clear();
+    exclude_fields_vec = {"$product_variants(title, $inventory(qty), description, $retailers(title), foo)"};
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
+    ASSERT_TRUE(initialize_op.ok());
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].include_fields.empty());
+    ASSERT_EQ("title, description, foo", ref_include_exclude_fields_vec[0].exclude_fields);
+    ASSERT_TRUE(ref_include_exclude_fields_vec[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
+
+    nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes;
+    ASSERT_EQ("inventory", nested_include_excludes[0].collection_name);
+    ASSERT_TRUE(nested_include_excludes[0].include_fields.empty());
+    ASSERT_EQ("qty", nested_include_excludes[0].exclude_fields);
+    ASSERT_TRUE(nested_include_excludes[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, nested_include_excludes[0].strategy);
+
+    ASSERT_EQ("retailers", nested_include_excludes[1].collection_name);
+    ASSERT_TRUE(nested_include_excludes[1].include_fields.empty());
+    ASSERT_EQ("title", nested_include_excludes[1].exclude_fields);
+    ASSERT_TRUE(nested_include_excludes[1].alias.empty());
+    ASSERT_EQ(ref_include::nest, nested_include_excludes[1].strategy);
+    ref_include_exclude_fields_vec.clear();
+
+    filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
+    include_fields_vec = {"$product_variants(title, $inventory(qty:merge) as inventory: nest) as variants"};
+    exclude_fields_vec = {"$product_variants(title, $inventory(qty, $retailers(title)))"};
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
+    ASSERT_TRUE(initialize_op.ok());
+    ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
+    ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
+    ASSERT_EQ("title,", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("title,", ref_include_exclude_fields_vec[0].exclude_fields);
+    ASSERT_EQ("variants", ref_include_exclude_fields_vec[0].alias);
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
+
+    nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes;
+    ASSERT_EQ("inventory", nested_include_excludes[0].collection_name);
+    ASSERT_EQ("qty", nested_include_excludes[0].include_fields);
+    ASSERT_EQ("qty,", nested_include_excludes[0].exclude_fields);
+    ASSERT_EQ("inventory.", nested_include_excludes[0].alias);
+    ASSERT_EQ(ref_include::merge, nested_include_excludes[0].strategy);
+
+    nested_include_excludes = ref_include_exclude_fields_vec[0].nested_join_includes[0].nested_join_includes;
+    ASSERT_EQ("retailers", nested_include_excludes[0].collection_name);
+    ASSERT_TRUE(nested_include_excludes[0].include_fields.empty());
+    ASSERT_EQ("title", nested_include_excludes[0].exclude_fields);
+    ASSERT_TRUE(nested_include_excludes[0].alias.empty());
+    ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
+    ref_include_exclude_fields_vec.clear();
 }
 
 TEST_F(CollectionManagerTest, ReferencedInBacklog) {
