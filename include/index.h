@@ -749,7 +749,8 @@ public:
                                      const std::vector<char>& symbols_to_index,
                                      const bool do_validation, const size_t remote_embedding_batch_size = 200,
                                      const size_t remote_embedding_timeout_ms = 60000, const size_t remote_embedding_num_tries = 2, const bool generate_embeddings = true, 
-                                     const bool use_addition_fields = false, const tsl::htrie_map<char, field>& addition_fields = {});
+                                     const bool use_addition_fields = false,
+                                     const tsl::htrie_map<char, field>& addition_fields = tsl::htrie_map<char, field>());
 
     void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
 
