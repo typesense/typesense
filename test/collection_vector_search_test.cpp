@@ -3481,6 +3481,29 @@ TEST_F(CollectionVectorTest, TestVectorQueryInvalidQs) {
     
     ASSERT_FALSE(results.ok());
 
+    results = coll->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                            fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "embedding:([], queries:[superhero, company");
+    
+    ASSERT_FALSE(results.ok());
+
+    results = coll->search("*", {}, "", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                            fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "embedding:([], queries:[superhero, company)");
+    
+    ASSERT_FALSE(results.ok());
+
+
     ASSERT_EQ(results.error(), "Malformed vector query string: "
                                "`queries` parameter must be a list of strings.");
 }
