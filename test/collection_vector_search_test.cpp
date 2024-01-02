@@ -3502,8 +3502,6 @@ TEST_F(CollectionVectorTest, TestVectorQueryInvalidQs) {
                             false, true, "embedding:([], queries:[superhero, company)");
     
     ASSERT_FALSE(results.ok());
-
-
     ASSERT_EQ(results.error(), "Malformed vector query string: "
                                "`queries` parameter must be a list of strings.");
 }
