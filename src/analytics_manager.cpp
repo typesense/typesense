@@ -8,8 +8,8 @@
 #include "string_utils.h"
 
 LRU::Cache<std::string, event_cache_t> events_cache;
-#define CLICK_EVENTS_RATE_LIMIT_SEC 60
-#define CLICK_EVENTS_RATE_LIMIT_COUNT 5
+#define EVENTS_RATE_LIMIT_SEC 60
+#define EVENTS_RATE_LIMIT_COUNT 5
 #define EVENTS_TTL_INTERVAL_US 2592000000000 //30days
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
@@ -279,12 +279,11 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection,
     }
 }
 
-Option<bool> AnalyticsManager::add_click_special_event(const std::string& event_type, const std::string &query_collection, const std::string &query, const std::string &user_id,
+Option<bool> AnalyticsManager::add_event(const std::string& event_type, const std::string &query_collection, const std::string &query, const std::string &user_id,
                                        std::string doc_id, uint64_t position, const std::string& client_ip) {
     std::unique_lock lock(mutex);
     if(analytics_store) {
-        auto &events_vec = event_type == "query_click" ?
-                query_collection_click_events[query_collection] : query_collection_special_events[query_collection];
+        auto &events_vec= query_collection_events[query_collection];
 
         auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -292,9 +291,9 @@ Option<bool> AnalyticsManager::add_click_special_event(const std::string& event_
 
         if (events_cache_it != events_cache.end()) {
             //event found in events cache
-            if ((now_ts_seconds - events_cache_it->second.last_update_time) < CLICK_EVENTS_RATE_LIMIT_SEC) {
-                if (events_cache_it->second.count >= CLICK_EVENTS_RATE_LIMIT_COUNT) {
-                    return Option<bool>(500, "click event rate limit reached.");
+            if ((now_ts_seconds - events_cache_it->second.last_update_time) < EVENTS_RATE_LIMIT_SEC) {
+                if (events_cache_it->second.count >= EVENTS_RATE_LIMIT_COUNT) {
+                    return Option<bool>(500, "event rate limit reached.");
                 } else {
                     events_cache_it->second.count++;
                 }
@@ -310,8 +309,8 @@ Option<bool> AnalyticsManager::add_click_special_event(const std::string& event_
         auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
-        click_event_t click_event(query, now_ts_useconds, user_id, doc_id, position);
-        events_vec.emplace_back(click_event);
+        event_t event(query, event_type, now_ts_useconds, user_id, doc_id, position);
+        events_vec.emplace_back(event);
 
         auto popular_clicks_it = popular_clicks.find(query_collection);
         if(popular_clicks_it != popular_clicks.end()) {
@@ -387,7 +386,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
 
         checkEventsExpiry();
         persist_query_events(raft_server, prev_persistence_s);
-        persist_other_events(raft_server, prev_persistence_s);
+        persist_events(raft_server, prev_persistence_s);
         persist_popular_clicks(raft_server, prev_persistence_s);
 
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
@@ -483,11 +482,11 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
     }
 }
 
-void AnalyticsManager::persist_other_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // lock is held by caller
     nlohmann::json payload_json = nlohmann::json::array();
 
-    auto send_http_response = [&](const std::string& event_type)->bool {
+    auto send_http_response = [&]()->bool {
         if(payload_json.empty()) {
             return false;
         }
@@ -505,7 +504,7 @@ void AnalyticsManager::persist_other_events(ReplicationState *raft_server, uint6
                                                          res, res_headers, {}, 10 * 1000, true);
 
             if (status_code != 200) {
-                LOG(ERROR) << "Error while sending " << event_type <<" to leader. "
+                LOG(ERROR) << "Error while sending events to leader. "
                            << "Status code: " << status_code << ", response: " << res;
                 return false;
             }
@@ -514,21 +513,20 @@ void AnalyticsManager::persist_other_events(ReplicationState *raft_server, uint6
         return false;
     };
 
-    for (const auto &click_events_collection_it: query_collection_click_events) {
+    for (const auto &events_collection_it: query_collection_events) {
         auto collection_id = CollectionManager::get_instance().get_collection(
-                click_events_collection_it.first)->get_collection_id();
-        for (const auto &click_event: click_events_collection_it.second) {
+                events_collection_it.first)->get_collection_id();
+        for (const auto &event: events_collection_it.second) {
             // send http request
-            nlohmann::json click_event_json;
-            click_event.to_json(click_event_json);
-            click_event_json["collection_id"] = std::to_string(collection_id);
-            click_event_json["event_type"] = "click_events";
-            payload_json.push_back(click_event_json);
+            nlohmann::json event_json;
+            event.to_json(event_json);
+            event_json["collection_id"] = std::to_string(collection_id);
+            payload_json.push_back(event_json);
         }
     }
 
-    if(send_http_response("click_events")) {
-        query_collection_click_events.clear();
+    if(send_http_response()) {
+        query_collection_events.clear();
     }
 
 
@@ -546,29 +544,11 @@ void AnalyticsManager::persist_other_events(ReplicationState *raft_server, uint6
             payload_json.push_back(query_hits_count_json);
         }
     }
-    if(send_http_response("query_hits_counts")) {
+    if(send_http_response()) {
         query_collection_hits_count.clear();
     }
 
     payload_json.clear();
-
-
-    for (const auto &special_events_collection_it: query_collection_special_events) {
-        auto collection_id = CollectionManager::get_instance().get_collection(
-                special_events_collection_it.first)->get_collection_id();
-        for (const auto &special_event: special_events_collection_it.second) {
-            // send http request
-            nlohmann::json special_event_json;
-            special_event.to_json(special_event_json);
-            special_event_json["collection_id"] = std::to_string(collection_id);
-            special_event_json["event_type"] = "special_events";
-            payload_json.push_back(special_event_json);
-        }
-    }
-
-    if(send_http_response("special_events")) {
-        query_collection_special_events.clear();
-    }
 }
 
 void AnalyticsManager::persist_popular_clicks(ReplicationState *raft_server, uint64_t prev_persistence_s) {
@@ -647,13 +627,14 @@ std::unordered_map<std::string, popular_clicks_t> AnalyticsManager::get_popular_
     return popular_clicks;
 }
 
-nlohmann::json AnalyticsManager::get_other_events(const std::string& event_type) {
+nlohmann::json AnalyticsManager::get_events(const std::string& event_type) {
     std::unique_lock lk(mutex);
     std::vector<std::string> event_jsons;
     nlohmann::json result_json = nlohmann::json::array();
 
     if (analytics_store) {
-        auto event_prefix = event_type.find("click_events") != std::string::npos ? std::string(CLICK_EVENT) : std::string(SPECIAL_EVENT);
+        auto event_prefix = event_type.find("click_events") != std::string::npos ? std::string(CLICK_EVENT)
+                                    : std::string(PURCHASE_EVENT);
         analytics_store->scan_fill(event_prefix + "_", event_prefix + "`",
                                    event_jsons);
 
@@ -691,12 +672,12 @@ Option<bool> AnalyticsManager::write_events_to_store(nlohmann::json &event_jsons
         auto timestamp = event_json["timestamp"].get<uint64_t>();
 
         std::string key = "_" + StringUtils::serialize_uint64_t(timestamp) + "_" + collection_id;
-        if(event_json["event_type"] == "click_events") {
+        if(event_json["event_type"] == "query_click") {
            key = std::string(CLICK_EVENT) + key;
         } else if(event_json["event_type"] == "query_hits_counts") {
             key = std::string(QUERY_HITS_COUNT) + key;
-        } else if(event_json["event_type"] == "special_events") {
-            key = std::string(SPECIAL_EVENT) + key;
+        } else if(event_json["event_type"] == "query_purchase") {
+            key = std::string(PURCHASE_EVENT) + key;
         }
 
         if(analytics_store) {

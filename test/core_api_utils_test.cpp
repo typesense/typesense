@@ -1567,13 +1567,13 @@ TEST_F(CoreAPIUtilsTest, GetClickEvents) {
 
     event1["collection_id"] = "0";
     event1["timestamp"] = 1521512521;
-    event1["event_type"] = "click_events";
+    event1["event_type"] = "query_click";
     event2["collection_id"] = "0";
     event2["timestamp"] = 1521514354;
-    event2["event_type"] = "click_events";
+    event2["event_type"] = "query_click";
     event3["collection_id"] = "0";
     event3["timestamp"] = 1521515382;
-    event3["event_type"] = "click_events";
+    event3["event_type"] = "query_click";
 
 
     nlohmann::json click_events = nlohmann::json::array();

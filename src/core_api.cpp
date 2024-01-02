@@ -2801,16 +2801,16 @@ bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::share
 
     auto event_type = req->params["name"];
     if((event_type.find("click_events") == std::string::npos)
-        && (event_type.find("special_events") == std::string::npos)) {
+        && (event_type.find("purchase_events") == std::string::npos)) {
 
         LOG(ERROR) << "Unknown event : " << event_type;
-        LOG(ERROR) << "get_analytics_events supports only click_events and special_events.";
+        LOG(ERROR) << "get_analytics_events supports only click_events and purchase_events.";
         return true;
     }
 
     export_state_t *export_state = nullptr;
-    auto event_prefix =  event_type.find("click_events") != std::string::npos ? std::string(AnalyticsManager::CLICK_EVENT)
-                                                : std::string(AnalyticsManager::SPECIAL_EVENT);
+    auto event_prefix =  event_type.find("click_event") != std::string::npos ? std::string(AnalyticsManager::CLICK_EVENT)
+                                                : std::string(AnalyticsManager::PURCHASE_EVENT);
     if (req->data == nullptr) {
         export_state = new export_state_t();
         req->data = export_state;
@@ -2828,7 +2828,7 @@ bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::share
         std::string().swap(res->body);
 
         if (!it->Valid()) {
-            LOG(ERROR) << "No click events found in db.";
+            LOG(ERROR) << "No events found in db.";
             req->last_chunk_aggregate = true;
             res->final = true;
             res->set_404();

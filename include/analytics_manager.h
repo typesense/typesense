@@ -7,28 +7,31 @@
 #include <unordered_map>
 #include <shared_mutex>
 
-struct click_event_t {
+struct event_t {
     std::string query;
+    std::string event_type;
     uint64_t timestamp;
     std::string user_id;
     std::string doc_id;
     uint64_t position;
 
-    click_event_t() = delete;
+    event_t() = delete;
 
-    ~click_event_t() = default;
+    ~event_t() = default;
 
-    click_event_t(std::string q, uint64_t ts, std::string uid, std::string id, uint64_t pos) {
+    event_t(std::string q, std::string type, uint64_t ts, std::string uid, std::string id, uint64_t pos) {
         query = q;
+        event_type = type;
         timestamp = ts;
         user_id = uid;
         doc_id = id;
         position = pos;
     }
 
-    click_event_t& operator=(click_event_t& other) {
+    event_t& operator=(event_t& other) {
         if (this != &other) {
             query = other.query;
+            event_type = other.event_type;
             timestamp = other.timestamp;
             user_id = other.user_id;
             doc_id = other.doc_id;
@@ -39,6 +42,7 @@ struct click_event_t {
 
     void to_json(nlohmann::json& obj) const {
         obj["query"] = query;
+        obj["event_type"] = event_type;
         obj["timestamp"] = timestamp;
         obj["user_id"] = user_id;
         obj["doc_id"] = doc_id;
@@ -151,11 +155,8 @@ private:
     // collection => popular clicks
     std::unordered_map<std::string, popular_clicks_t> popular_clicks;
 
-    //query collection => click events
-    std::unordered_map<std::string, std::vector<click_event_t>> query_collection_click_events;
-
-    //query collection=>purchase events
-    std::unordered_map<std::string, std::vector<click_event_t>> query_collection_special_events;
+    //query collection => events
+    std::unordered_map<std::string, std::vector<event_t>> query_collection_events;
 
     //query collection => query hits count
     std::unordered_map<std::string, std::set<query_hits_count_t, query_hits_count_comp>> query_collection_hits_count;
@@ -178,7 +179,7 @@ public:
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
     static constexpr const char* CLICK_EVENT = "$CE";
     static constexpr const char* QUERY_HITS_COUNT = "$QH";
-    static constexpr const char* SPECIAL_EVENT = "$SE";
+    static constexpr const char* PURCHASE_EVENT = "$PE";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
     static constexpr const char* POPULAR_CLICKS_TYPE = "popular_clicks";
@@ -217,14 +218,14 @@ public:
 
     std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
 
-    Option<bool> add_click_special_event(const std::string& event_type, const std::string& query_collection, const std::string& query, const std::string& user_id,
+    Option<bool> add_event(const std::string& event_type, const std::string& query_collection, const std::string& query, const std::string& user_id,
                             std::string doc_id, uint64_t position, const std::string& client_ip);
 
-    void persist_other_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     void persist_popular_clicks(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
-    nlohmann::json get_other_events(const std::string& event_type);
+    nlohmann::json get_events(const std::string& event_type);
 
     std::unordered_map<std::string, popular_clicks_t> get_popular_clicks();
 
