@@ -91,16 +91,24 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     param_kv_str.pop_back();
                 }
 
-                if(i < param_kvs.size() - 1 && StringUtils::get_occurence_count(param_kv_str, '[') != StringUtils::get_occurence_count(param_kv_str, ']')) {
-                    // this is a hack to handle the case where the query string contains a comma in the vector values
-                    param_kvs[i+1] = param_kv_str + "," + param_kvs[i+1];
-                    continue;
-                }
-
                 std::vector<std::string> param_kv;
                 StringUtils::split(param_kv_str, param_kv, ":");
                 if(param_kv.size() != 2) {
                     return Option<bool>(400, "Malformed vector query string.");
+                }
+
+                if(i < param_kvs.size() - 1 && param_kv[1].front() == '[' && param_kv[1].back() != ']') {
+                    /*
+                    Currently, we parse vector query parameters by splitting them with commas (e.g., alpha:0.7, k:100). 
+                    However, this approach has challenges when dealing with array parameters, where values are also separated by commas. 
+                    For instance, with a vector query like embedding:([], qs:[x, y]), our logic may incorrectly parse it as qs:[x and y]) due to the comma separator.
+                    
+                    To address this issue, we have implemented a workaround. 
+                    If a comma-separated vector query parameter has '['  as its first character and does not have ']' as its last character, this means that the parameter is not yet complete.
+                    In this case, we append the current parameter to the next parameter, and continue parsing the next parameter.
+                    */
+                    param_kvs[i+1] = param_kv_str + "," + param_kvs[i+1];
+                    continue;
                 }
 
                 if(param_kv[0] == "id") {
