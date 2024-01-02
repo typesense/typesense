@@ -786,11 +786,14 @@ public:
                                         filter_result_t& filter_result,
                                         const std::string& collection_name = "") const;
 
-
     Option<bool> do_reference_filtering_with_lock(filter_node_t* const filter_tree_root,
                                                   filter_result_t& filter_result,
-                                                  const std::string& collection_name,
+                                                  const std::string& ref_collection_name,
                                                   const std::string& reference_helper_field_name) const;
+
+    Option<filter_result_t> do_filtering_with_reference_ids(const std::string& reference_helper_field_name,
+                                                            const std::string& ref_collection_name,
+                                                            filter_result_t&& ref_filter_result) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 

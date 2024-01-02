@@ -398,9 +398,9 @@ TEST(StringUtilsTest, TokenizeFilterQuery) {
     tokenizeTestHelper(filter_query, tokenList);
 }
 
-void splitIncludeTestHelper(const std::string& include_fields, const std::vector<std::string>& expected) {
+void splitIncludeExcludeTestHelper(const std::string& include_exclude_fields, const std::vector<std::string>& expected) {
     std::vector<std::string> output;
-    auto tokenize_op = StringUtils::split_include_fields(include_fields, output);
+    auto tokenize_op = StringUtils::split_include_exclude_fields(include_exclude_fields, output);
     ASSERT_TRUE(tokenize_op.ok());
     ASSERT_EQ(expected.size(), output.size());
     for (auto i = 0; i < output.size(); i++) {
@@ -408,23 +408,73 @@ void splitIncludeTestHelper(const std::string& include_fields, const std::vector
     }
 }
 
-TEST(StringUtilsTest, SplitIncludeFields) {
+TEST(StringUtilsTest, SplitIncludeExcludeFields) {
     std::string include_fields;
     std::vector<std::string> tokens;
 
-    include_fields = "id, title, count";
+    include_fields = " id, title , count ";
     tokens = {"id", "title", "count"};
-    splitIncludeTestHelper(include_fields, tokens);
+    splitIncludeExcludeTestHelper(include_fields, tokens);
+
+    include_fields = "id, $Collection(title, pref*),count";
+    tokens = {"id", "$Collection(title, pref*)", "count"};
+    splitIncludeExcludeTestHelper(include_fields, tokens);
 
     include_fields = "id, $Collection(title, pref*), count, ";
     tokens = {"id", "$Collection(title, pref*)", "count"};
-    splitIncludeTestHelper(include_fields, tokens);
+    splitIncludeExcludeTestHelper(include_fields, tokens);
 
     include_fields = "$Collection(title, pref*) as coll";
     tokens = {"$Collection(title, pref*) as coll"};
-    splitIncludeTestHelper(include_fields, tokens);
+    splitIncludeExcludeTestHelper(include_fields, tokens);
 
     include_fields = "id, $Collection(title, pref*)  as coll , count, ";
     tokens = {"id", "$Collection(title, pref*) as coll", "count"};
-    splitIncludeTestHelper(include_fields, tokens);
+    splitIncludeExcludeTestHelper(include_fields, tokens);
+
+    include_fields = "$Collection(title, pref*: merge) as coll";
+    tokens = {"$Collection(title, pref*: merge) as coll"};
+    splitIncludeExcludeTestHelper(include_fields, tokens);
+
+    include_fields = "$product_variants(id,$inventory(qty,sku,$retailer(id,title: merge) as retailer_info))  as variants";
+    tokens = {"$product_variants(id,$inventory(qty,sku,$retailer(id,title: merge) as retailer_info)) as variants"};
+    splitIncludeExcludeTestHelper(include_fields, tokens);
+
+    std::string exclude_fields = " id, title, $Collection(title), count,";
+    tokens = {"id", "title", "$Collection(title)", "count"};
+    splitIncludeExcludeTestHelper(exclude_fields, tokens);
+
+    exclude_fields = " id, title , count, $Collection(title), $product_variants(id,$inventory(qty,sku,$retailer(id,title)))";
+    tokens = {"id", "title", "count", "$Collection(title)", "$product_variants(id,$inventory(qty,sku,$retailer(id,title)))"};
+    splitIncludeExcludeTestHelper(exclude_fields, tokens);
+}
+
+TEST(StringUtilsTest, SplitReferenceIncludeExcludeFields) {
+    std::string include_fields = "$retailer(id,title: merge) as retailer_info:merge)  as variants, foo", token;
+    size_t index = 0;
+    auto tokenize_op = StringUtils::split_reference_include_exclude_fields(include_fields, index, token);
+    ASSERT_TRUE(tokenize_op.ok());
+    ASSERT_EQ("$retailer(id,title: merge) as retailer_info", token);
+    ASSERT_EQ(":merge)  as variants, foo", include_fields.substr(index));
+
+    include_fields = "$inventory(qty,sku,$retailer(id,title: merge) as retailer_info)  as inventory)  as variants, foo";
+    index = 0;
+    tokenize_op = StringUtils::split_reference_include_exclude_fields(include_fields, index, token);
+    ASSERT_TRUE(tokenize_op.ok());
+    ASSERT_EQ("$inventory(qty,sku,$retailer(id,title: merge) as retailer_info) as inventory", token);
+    ASSERT_EQ(")  as variants, foo", include_fields.substr(index));
+
+    std::string exclude_fields = "$Collection(title), $product_variants(id,$inventory(qty,sku,$retailer(id,title)))";
+    index = 0;
+    tokenize_op = StringUtils::split_reference_include_exclude_fields(exclude_fields, index, token);
+    ASSERT_TRUE(tokenize_op.ok());
+    ASSERT_EQ("$Collection(title)", token);
+    ASSERT_EQ(", $product_variants(id,$inventory(qty,sku,$retailer(id,title)))", exclude_fields.substr(index));
+
+    exclude_fields = "$inventory(qty,sku,$retailer(id,title)), foo)";
+    index = 0;
+    tokenize_op = StringUtils::split_reference_include_exclude_fields(exclude_fields, index, token);
+    ASSERT_TRUE(tokenize_op.ok());
+    ASSERT_EQ("$inventory(qty,sku,$retailer(id,title))", token);
+    ASSERT_EQ(", foo)", exclude_fields.substr(index));
 }

@@ -1827,6 +1827,559 @@ TEST_F(CollectionJoinTest, FilterByNReferences) {
     collectionManager.drop_collection("Links");
 }
 
+TEST_F(CollectionJoinTest, FilterByNestedReferences) {
+    auto schema_json =
+            R"({
+                "name": "Coll_A",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "coll_a_0"
+            })"_json,
+            R"({
+                "title": "coll_a_1"
+            })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+    schema_json =
+            R"({
+                "name": "Coll_B",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "ref_coll_a", "type": "string", "reference": "Coll_A.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "title": "coll_b_0",
+                "ref_coll_a": "1"
+            })"_json,
+            R"({
+                "title": "coll_b_1",
+                "ref_coll_a": "0"
+            })"_json,
+            R"({
+                "title": "coll_b_2",
+                "ref_coll_a": "0"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+    schema_json =
+            R"({
+                "name": "Coll_C",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "ref_coll_b", "type": "string[]", "reference": "Coll_B.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "title": "coll_c_0",
+                "ref_coll_b": ["0"]
+            })"_json,
+            R"({
+                "title": "coll_c_1",
+                "ref_coll_b": ["1"]
+            })"_json,
+            R"({
+                "title": "coll_c_2",
+                "ref_coll_b": ["0", "1"]
+            })"_json,
+            R"({
+                "title": "coll_c_3",
+                "ref_coll_b": ["2"]
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Coll_A"},
+            {"q", "*"},
+            {"filter_by", "$Coll_B($Coll_C(id: [1, 3]))"},
+            {"include_fields", "title, $Coll_B(title, $Coll_C(title))"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    //              coll_b_1 <- coll_c_1
+    // coll_a_0  <
+    //             coll_b_2 <- coll_c_3
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("coll_a_0", res_obj["hits"][0]["document"]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["Coll_B"].size());
+    ASSERT_EQ("coll_b_1", res_obj["hits"][0]["document"]["Coll_B"][0]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_B"][0]["Coll_C"].size());
+    ASSERT_EQ("coll_c_1", res_obj["hits"][0]["document"]["Coll_B"][0]["Coll_C"][0]["title"]);
+    ASSERT_EQ("coll_b_2", res_obj["hits"][0]["document"]["Coll_B"][1]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_B"][1]["Coll_C"].size());
+    ASSERT_EQ("coll_c_3", res_obj["hits"][0]["document"]["Coll_B"][1]["Coll_C"][0]["title"]);
+
+    req_params = {
+            {"collection", "Coll_A"},
+            {"q", "*"},
+            {"filter_by", "$Coll_B($Coll_C(id: != 0))"},
+            {"include_fields", "title, $Coll_B(title, $Coll_C(title):nest_array)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    // coll_a_1 <- coll_b_0 <- coll_c_2
+    //
+    //             coll_b_1 <- coll_c_1, coll_c_2
+    // coll_a_0  <
+    //             coll_b_2 <- coll_c_3
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("coll_a_1", res_obj["hits"][0]["document"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_B"].size());
+    ASSERT_EQ("coll_b_0", res_obj["hits"][0]["document"]["Coll_B"][0]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_B"][0]["Coll_C"].size());
+    ASSERT_EQ("coll_c_2", res_obj["hits"][0]["document"]["Coll_B"][0]["Coll_C"][0]["title"]);
+
+    ASSERT_EQ("coll_a_0", res_obj["hits"][1]["document"]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["Coll_B"].size());
+    ASSERT_EQ("coll_b_1", res_obj["hits"][1]["document"]["Coll_B"][0]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["Coll_B"][0]["Coll_C"].size());
+    ASSERT_EQ("coll_c_1", res_obj["hits"][1]["document"]["Coll_B"][0]["Coll_C"][0]["title"]);
+    ASSERT_EQ("coll_c_2", res_obj["hits"][1]["document"]["Coll_B"][0]["Coll_C"][1]["title"]);
+    ASSERT_EQ("coll_b_2", res_obj["hits"][1]["document"]["Coll_B"][1]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["Coll_B"][1]["Coll_C"].size());
+    ASSERT_EQ("coll_c_3", res_obj["hits"][1]["document"]["Coll_B"][1]["Coll_C"][0]["title"]);
+
+    req_params = {
+            {"collection", "Coll_C"},
+            {"q", "*"},
+            {"filter_by", "$Coll_B($Coll_A(id: 0))"},
+            {"include_fields", "title, $Coll_B(title, $Coll_A(title))"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    // coll_c_3 -> coll_b_2 -> coll_a_0
+    //
+    // coll_c_2 -> coll_b_1 -> coll_a_0
+    //
+    // coll_c_1 -> coll_b_1 -> coll_a_0
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("coll_c_3", res_obj["hits"][0]["document"]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["Coll_B"].size());
+    ASSERT_EQ("coll_b_2", res_obj["hits"][0]["document"]["Coll_B"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_B"]["Coll_A"].size());
+    ASSERT_EQ("coll_a_0", res_obj["hits"][0]["document"]["Coll_B"]["Coll_A"]["title"]);
+
+    ASSERT_EQ(2, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("coll_c_2", res_obj["hits"][1]["document"]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["Coll_B"].size());
+    ASSERT_EQ("coll_b_1", res_obj["hits"][1]["document"]["Coll_B"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["Coll_B"]["Coll_A"].size());
+    ASSERT_EQ("coll_a_0", res_obj["hits"][1]["document"]["Coll_B"]["Coll_A"]["title"]);
+
+    ASSERT_EQ(2, res_obj["hits"][2]["document"].size());
+    ASSERT_EQ("coll_c_1", res_obj["hits"][2]["document"]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][2]["document"]["Coll_B"].size());
+    ASSERT_EQ("coll_b_1", res_obj["hits"][2]["document"]["Coll_B"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["Coll_B"]["Coll_A"].size());
+    ASSERT_EQ("coll_a_0", res_obj["hits"][2]["document"]["Coll_B"]["Coll_A"]["title"]);
+
+    schema_json =
+            R"({
+                "name": "Coll_D",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "ref_coll_c", "type": "string[]", "reference": "Coll_C.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "title": "coll_d_0",
+                "ref_coll_c": []
+            })"_json,
+            R"({
+                "title": "coll_d_1",
+                "ref_coll_c": ["1", "3"]
+            })"_json,
+            R"({
+                "title": "coll_d_2",
+                "ref_coll_c": ["2", "3"]
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Coll_B"},
+            {"q", "*"},
+            {"filter_by", "$Coll_C($Coll_D(id: *))"},
+            {"include_fields", "title, $Coll_C(title, $Coll_D(title:nest_array):nest_array)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    // coll_b_2 <- coll_c_3 <- coll_d_1, coll_d_2
+    //
+    //             coll_c_1 <- coll_d_1
+    // coll_b_1  <
+    //             coll_c_2 <- coll_d_2
+    //
+    // coll_b_0 <- coll_c_2 <- coll_d_2
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("coll_b_2", res_obj["hits"][0]["document"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_C"].size());
+    ASSERT_EQ("coll_c_3", res_obj["hits"][0]["document"]["Coll_C"][0]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["Coll_C"][0]["Coll_D"].size());
+    ASSERT_EQ("coll_d_1", res_obj["hits"][0]["document"]["Coll_C"][0]["Coll_D"][0]["title"]);
+    ASSERT_EQ("coll_d_2", res_obj["hits"][0]["document"]["Coll_C"][0]["Coll_D"][1]["title"]);
+
+    ASSERT_EQ(2, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("coll_b_1", res_obj["hits"][1]["document"]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["Coll_C"].size());
+    ASSERT_EQ("coll_c_1", res_obj["hits"][1]["document"]["Coll_C"][0]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["Coll_C"][0]["Coll_D"].size());
+    ASSERT_EQ("coll_d_1", res_obj["hits"][1]["document"]["Coll_C"][0]["Coll_D"][0]["title"]);
+    ASSERT_EQ("coll_c_2", res_obj["hits"][1]["document"]["Coll_C"][1]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["Coll_C"][1]["Coll_D"].size());
+    ASSERT_EQ("coll_d_2", res_obj["hits"][1]["document"]["Coll_C"][1]["Coll_D"][0]["title"]);
+
+    ASSERT_EQ(2, res_obj["hits"][2]["document"].size());
+    ASSERT_EQ("coll_b_0", res_obj["hits"][2]["document"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["Coll_C"].size());
+    ASSERT_EQ("coll_c_2", res_obj["hits"][2]["document"]["Coll_C"][0]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["Coll_C"][0]["Coll_D"].size());
+    ASSERT_EQ("coll_d_2", res_obj["hits"][2]["document"]["Coll_C"][0]["Coll_D"][0]["title"]);
+
+    req_params = {
+            {"collection", "Coll_D"},
+            {"q", "*"},
+            {"filter_by", "$Coll_C($Coll_B(id: [0, 1]))"},
+            {"include_fields", "title, $Coll_C(title, $Coll_B(title:nest_array):nest_array)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    LOG(INFO) << res_obj.dump();
+    // coll_d_2 -> coll_c_2 -> coll_b_0, coll_b_1
+    //
+    // coll_d_1 -> coll_c_1 -> coll_b_1
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("coll_d_2", res_obj["hits"][0]["document"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_C"].size());
+    ASSERT_EQ("coll_c_2", res_obj["hits"][0]["document"]["Coll_C"][0]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["Coll_C"][0]["Coll_B"].size());
+    ASSERT_EQ("coll_b_0", res_obj["hits"][0]["document"]["Coll_C"][0]["Coll_B"][0]["title"]);
+    ASSERT_EQ("coll_b_1", res_obj["hits"][0]["document"]["Coll_C"][0]["Coll_B"][1]["title"]);
+
+    ASSERT_EQ(2, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("coll_d_1", res_obj["hits"][1]["document"]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["Coll_C"].size());
+    ASSERT_EQ("coll_c_1", res_obj["hits"][1]["document"]["Coll_C"][0]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["Coll_C"][0]["Coll_B"].size());
+    ASSERT_EQ("coll_b_1", res_obj["hits"][1]["document"]["Coll_C"][0]["Coll_B"][0]["title"]);
+
+    schema_json =
+            R"({
+                "name": "products",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "title": "shampoo"
+            })"_json,
+            R"({
+                "title": "soap"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "product_variants",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "product_id", "type": "string", "reference": "products.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "title": "panteen",
+                "product_id": "0"
+            })"_json,
+            R"({
+                "title": "loreal",
+                "product_id": "0"
+            })"_json,
+            R"({
+                "title": "pears",
+                "product_id": "1"
+            })"_json,
+            R"({
+                "title": "lifebuoy",
+                "product_id": "1"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "retailers",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "location", "type": "geopoint"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "title": "retailer 1",
+                "location": [48.872576479306765, 2.332291112241466]
+            })"_json,
+            R"({
+                "title": "retailer 2",
+                "location": [48.888286721920934, 2.342340862419206]
+            })"_json,
+            R"({
+                "title": "retailer 3",
+                "location": [48.87538726829884, 2.296113163780903]
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "inventory",
+                "fields": [
+                    {"name": "qty", "type": "int32"},
+                    {"name": "retailer_id", "type": "string", "reference": "retailers.id"},
+                    {"name": "product_variant_id", "type": "string", "reference": "product_variants.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "qty": "1",
+                "retailer_id": "0",
+                "product_variant_id": "0"
+            })"_json,
+            R"({
+                "qty": "2",
+                "retailer_id": "0",
+                "product_variant_id": "1"
+            })"_json,
+            R"({
+                "qty": "3",
+                "retailer_id": "0",
+                "product_variant_id": "2"
+            })"_json,
+            R"({
+                "qty": "4",
+                "retailer_id": "0",
+                "product_variant_id": "3"
+            })"_json,
+            R"({
+                "qty": "5",
+                "retailer_id": "1",
+                "product_variant_id": "0"
+            })"_json,
+            R"({
+                "qty": "6",
+                "retailer_id": "1",
+                "product_variant_id": "1"
+            })"_json,
+            R"({
+                "qty": "7",
+                "retailer_id": "1",
+                "product_variant_id": "2"
+            })"_json,
+            R"({
+                "qty": "8",
+                "retailer_id": "1",
+                "product_variant_id": "3"
+            })"_json,
+            R"({
+                "qty": "9",
+                "retailer_id": "2",
+                "product_variant_id": "0"
+            })"_json,
+            R"({
+                "qty": "10",
+                "retailer_id": "2",
+                "product_variant_id": "1"
+            })"_json,
+            R"({
+                "qty": "11",
+                "retailer_id": "2",
+                "product_variant_id": "2"
+            })"_json,
+            R"({
+                "qty": "12",
+                "retailer_id": "2",
+                "product_variant_id": "3"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "products"},
+            {"q", "*"},
+            {"filter_by", "$product_variants($inventory($retailers(location:(48.87538726829884, 2.296113163780903,1 km))))"},
+            {"include_fields", "$product_variants(id,$inventory(qty,sku,$retailers(id,title)))"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_variants"].size());
+
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["product_variants"][0]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_variants"][0]["inventory"].size());
+    ASSERT_EQ(11, res_obj["hits"][0]["document"]["product_variants"][0]["inventory"]["qty"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_variants"][0]["inventory"]["retailers"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["product_variants"][0]["inventory"]["retailers"]["id"]);
+    ASSERT_EQ("retailer 3", res_obj["hits"][0]["document"]["product_variants"][0]["inventory"]["retailers"]["title"]);
+
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["product_variants"][1]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_variants"][1]["inventory"].size());
+    ASSERT_EQ(12, res_obj["hits"][0]["document"]["product_variants"][1]["inventory"]["qty"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_variants"][1]["inventory"]["retailers"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"]["product_variants"][1]["inventory"]["retailers"]["id"]);
+    ASSERT_EQ("retailer 3", res_obj["hits"][0]["document"]["product_variants"][1]["inventory"]["retailers"]["title"]);
+
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["title"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_variants"].size());
+
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["product_variants"][0]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_variants"][0]["inventory"].size());
+    ASSERT_EQ(9, res_obj["hits"][1]["document"]["product_variants"][0]["inventory"]["qty"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_variants"][0]["inventory"]["retailers"].size());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["product_variants"][0]["inventory"]["retailers"]["id"]);
+    ASSERT_EQ("retailer 3", res_obj["hits"][1]["document"]["product_variants"][0]["inventory"]["retailers"]["title"]);
+
+    ASSERT_EQ("1", res_obj["hits"][1]["document"]["product_variants"][1]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_variants"][1]["inventory"].size());
+    ASSERT_EQ(10, res_obj["hits"][1]["document"]["product_variants"][1]["inventory"]["qty"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_variants"][1]["inventory"]["retailers"].size());
+    ASSERT_EQ("2", res_obj["hits"][1]["document"]["product_variants"][1]["inventory"]["retailers"]["id"]);
+    ASSERT_EQ("retailer 3", res_obj["hits"][1]["document"]["product_variants"][1]["inventory"]["retailers"]["title"]);
+
+    req_params = {
+            {"collection", "products"},
+            {"q", "*"},
+            {"filter_by", "$product_variants($inventory($retailers(id: [0, 1]) && qty: [4..5]))"},
+            {"include_fields", "$product_variants(id,$inventory(qty,sku,$retailers(id,title)))"},
+            {"exclude_fields", "$product_variants($inventory($retailers(id)))"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["id"]);
+    ASSERT_EQ("soap", res_obj["hits"][0]["document"]["title"]);
+    ASSERT_EQ("3", res_obj["hits"][0]["document"]["product_variants"]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["product_variants"]["inventory"].size());
+    ASSERT_EQ(4, res_obj["hits"][0]["document"]["product_variants"]["inventory"]["qty"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["product_variants"]["inventory"]["retailers"].size());
+    ASSERT_EQ("retailer 1", res_obj["hits"][0]["document"]["product_variants"]["inventory"]["retailers"]["title"]);
+
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["id"]);
+    ASSERT_EQ("shampoo", res_obj["hits"][1]["document"]["title"]);
+    ASSERT_EQ("0", res_obj["hits"][1]["document"]["product_variants"]["id"]);
+    ASSERT_EQ(2, res_obj["hits"][1]["document"]["product_variants"]["inventory"].size());
+    ASSERT_EQ(5, res_obj["hits"][1]["document"]["product_variants"]["inventory"]["qty"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["product_variants"]["inventory"]["retailers"].size());
+    ASSERT_EQ("retailer 2", res_obj["hits"][1]["document"]["product_variants"]["inventory"]["retailers"]["title"]);
+}
+
 TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     auto schema_json =
             R"({
@@ -1926,12 +2479,14 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
 
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Invalid reference in include_fields, expected `$CollectionName(fieldA, ...)`.", search_op.error());
+    ASSERT_EQ("Invalid reference `$foo.bar` in include_fields/exclude_fields, expected `$CollectionName(fieldA, ...)`.",
+              search_op.error());
 
     req_params["include_fields"] = "$foo(bar";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("Invalid reference in include_fields, expected `$CollectionName(fieldA, ...)`.", search_op.error());
+    ASSERT_EQ("Invalid reference `$foo(bar` in include_fields/exclude_fields, expected `$CollectionName(fieldA, ...)`.",
+              search_op.error());
 
     req_params["include_fields"] = "$foo(bar)";
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
@@ -1964,6 +2519,34 @@ TEST_F(CollectionJoinTest, IncludeExcludeFieldsByReference) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_price"));
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id:=customer_a && product_price:<100)"},
+            {"include_fields", "*, $Customers(*:nest_array) as Customers"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    // No fields are mentioned in `include_fields`, should include all fields of Products and Customers by default.
+    ASSERT_EQ(7, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("product_description"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("embedding"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("rating"));
+    // In nest_array strategy we return the referenced docs in an array.
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("customer_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("customer_name"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("product_id"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"][0].count("product_price"));
 
     req_params = {
             {"collection", "Products"},
