@@ -50,9 +50,10 @@ struct event_t {
     }
 };
 
-struct popular_clicks_t {
+struct counter_event_t {
     std::string counter_field;
     std::map<std::string, uint64_t> docid_counts;
+    std::map<std::string, uint16_t> event_weight_map;
 };
 
 struct query_hits_count_t {
@@ -153,7 +154,7 @@ private:
     std::unordered_map<std::string, QueryAnalytics*> nohits_queries;
 
     // collection => popular clicks
-    std::unordered_map<std::string, popular_clicks_t> popular_clicks;
+    std::unordered_map<std::string, counter_event_t> counter_events;
 
     //query collection => events
     std::unordered_map<std::string, std::vector<event_t>> query_collection_events;
@@ -170,9 +171,9 @@ private:
 
     Option<bool> remove_queries_index(const std::string& name);
 
-    Option<bool> create_queries_index(nlohmann::json &payload,
-                                              bool upsert,
-                                              bool write_to_disk);
+    Option<bool> create_index(nlohmann::json &payload,
+                              bool upsert,
+                              bool write_to_disk);
 
 public:
 
@@ -182,7 +183,7 @@ public:
     static constexpr const char* PURCHASE_EVENT = "$PE";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
-    static constexpr const char* POPULAR_CLICKS_TYPE = "popular_clicks";
+    static constexpr const char* COUNTER_TYPE = "counter";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -227,7 +228,7 @@ public:
 
     nlohmann::json get_events(const std::string& event_type);
 
-    std::unordered_map<std::string, popular_clicks_t> get_popular_clicks();
+    std::unordered_map<std::string, counter_event_t> get_popular_clicks();
 
     Option<bool> write_events_to_store(nlohmann::json& event_jsons);
 

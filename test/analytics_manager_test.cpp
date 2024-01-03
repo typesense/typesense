@@ -933,10 +933,11 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
 
     nlohmann::json analytics_rule = R"({
         "name": "product_popularity",
-        "type": "popular_clicks",
+        "type": "counter",
         "params": {
             "source": {
-                "collections": ["products"]
+                "collections": ["products"],
+                "events":  [{"type": "query_click", "weight": 1}, {"type": "query_purchase", "weight": 5} ]
             },
             "destination": {
                 "collection": "products",
@@ -952,7 +953,7 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
     nlohmann::json event1 = R"({
-        "type": "query_click",
+        "type": "query_purchase",
         "data": {
             "q": "trousers",
             "collection": "products",
@@ -985,7 +986,7 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(1, popular_clicks.size());
     ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
     ASSERT_EQ(2, popular_clicks["products"].docid_counts.size());
-    ASSERT_EQ(1, popular_clicks["products"].docid_counts["1"]);
+    ASSERT_EQ(5, popular_clicks["products"].docid_counts["1"]);
     ASSERT_EQ(2, popular_clicks["products"].docid_counts["3"]);
 
     //trigger persistance event
@@ -1011,13 +1012,13 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
 
     ASSERT_EQ(5, results["hits"].size());
 
-    ASSERT_EQ("3", results["hits"][0]["document"]["id"]);
-    ASSERT_EQ(2, results["hits"][0]["document"]["popularity"]);
-    ASSERT_EQ("Trendy shorts", results["hits"][0]["document"]["title"]);
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ(5, results["hits"][0]["document"]["popularity"]);
+    ASSERT_EQ("Funky trousers", results["hits"][0]["document"]["title"]);
 
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
-    ASSERT_EQ(1, results["hits"][1]["document"]["popularity"]);
-    ASSERT_EQ("Funky trousers", results["hits"][1]["document"]["title"]);
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ(2, results["hits"][1]["document"]["popularity"]);
+    ASSERT_EQ("Trendy shorts", results["hits"][1]["document"]["title"]);
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
@@ -1033,10 +1034,11 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     nlohmann::json analytics_rule = R"({
         "name": "books_popularity",
-        "type": "popular_clicks",
+        "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"]
+                "collections": ["books"],
+                "events":  [{"type": "query_click", "weight": 1}, {"type": "query_purchase", "weight": 5} ]
             },
             "destination": {
                 "collection": "popular_books",
@@ -1051,7 +1053,45 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     analytics_rule = R"({
         "name": "books_popularity",
-        "type": "popular_clicks",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                "events":  [{"type": "query_click", "weight": 1}, {"type": "query_purchase", "weight": 5} ]
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity_score"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("counter_field `popularity_score` not found in destination collection.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "popular_click",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                "events":  [{"type": "query_click", "weight": 1}, {"type": "query_purchase", "weight": 5} ]
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity_score"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Invalid type.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "counter",
         "params": {
             "source": {
                 "collections": ["books"]
@@ -1065,7 +1105,45 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_FALSE(create_op.ok());
-    ASSERT_EQ("counter_field `popularity_score` not found in destination collection.", create_op.error());
+    ASSERT_EQ("Bad or missing events.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                "events":  []
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity_score"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Bad or missing events.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                "events":  "query_click"
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity_score"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Bad or missing events.", create_op.error());
 }
 
 TEST_F(AnalyticsManagerTest, PurchaseEventsStoreRetrieval) {
