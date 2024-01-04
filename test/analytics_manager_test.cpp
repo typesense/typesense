@@ -989,6 +989,41 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(5, popular_clicks["products"].docid_counts["1"]);
     ASSERT_EQ(2, popular_clicks["products"].docid_counts["3"]);
 
+    nlohmann::json event3 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "shorts",
+            "collection": "products",
+            "doc_id": "1",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event3.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event4 = R"({
+        "type": "query_purchase",
+        "data": {
+            "q": "shorts",
+            "collection": "products",
+            "doc_id": "3",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event4.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    popular_clicks = analyticsManager.get_popular_clicks();
+    ASSERT_EQ(1, popular_clicks.size());
+    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
+    ASSERT_EQ(2, popular_clicks["products"].docid_counts.size());
+    ASSERT_EQ(7, popular_clicks["products"].docid_counts["3"]);
+    ASSERT_EQ(6, popular_clicks["products"].docid_counts["1"]);
+
     //trigger persistance event
     for(const auto& popular_clicks_it : popular_clicks) {
         auto coll = popular_clicks_it.first;
@@ -1012,13 +1047,13 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
 
     ASSERT_EQ(5, results["hits"].size());
 
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
-    ASSERT_EQ(5, results["hits"][0]["document"]["popularity"]);
-    ASSERT_EQ("Funky trousers", results["hits"][0]["document"]["title"]);
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ(7, results["hits"][0]["document"]["popularity"]);
+    ASSERT_EQ("Trendy shorts", results["hits"][0]["document"]["title"]);
 
-    ASSERT_EQ("3", results["hits"][1]["document"]["id"]);
-    ASSERT_EQ(2, results["hits"][1]["document"]["popularity"]);
-    ASSERT_EQ("Trendy shorts", results["hits"][1]["document"]["title"]);
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
+    ASSERT_EQ(6, results["hits"][1]["document"]["popularity"]);
+    ASSERT_EQ("Funky trousers", results["hits"][1]["document"]["title"]);
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
@@ -1147,6 +1182,9 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 }
 
 TEST_F(AnalyticsManagerTest, PurchaseEventsStoreRetrieval) {
+    //reset rate limit
+    analyticsManager.resetRateLimit();
+
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [
