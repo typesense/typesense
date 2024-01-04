@@ -1806,6 +1806,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             // `id` field needs to be handled separately, we will not handle for now
             std::string error = "Cannot use `id` as a query by field.";
             return Option<nlohmann::json>(400, error);
+        } else if (field_name[0] == '$') {
+            return Option<nlohmann::json>(400, "Query by reference is not yet supported.");
         }
 
         std::vector<std::string> expanded_search_fields;

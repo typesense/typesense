@@ -4893,3 +4893,91 @@ TEST_F(CollectionJoinTest, FilterByReferenceAlias) {
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_id"));
     ASSERT_EQ(1, res_obj["hits"][0]["document"]["Customers"].count("product_price"));
 }
+
+TEST_F(CollectionJoinTest, QueryByReference) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string"},
+                    {"name": "product_description", "type": "string"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair."
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients."
+            })"_json
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "customer_name", "type": "string", "sort": true},
+                    {"name": "product_price", "type": "float"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id", "sort": true}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 143,
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 73.5,
+                "product_id": "product_b"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 75,
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 140,
+                "product_id": "product_b"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "$Customers(customer_name)"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Query by reference is not yet supported.", search_op.error());
+}
