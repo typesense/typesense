@@ -429,7 +429,7 @@ TEST_F(AnalyticsManagerTest, ClickEventsRateLimitTest) {
     })"_json;
 
     //reset the LRU cache to test the rate limit
-    analyticsManager.resetRateLimit();
+    analyticsManager.resetToggleRateLimit(true);
 
     req->body = event.dump();
     for(auto i = 0; i < 5; ++i) {
@@ -439,6 +439,8 @@ TEST_F(AnalyticsManagerTest, ClickEventsRateLimitTest) {
     //as rate limit is 5, adding one more event above that should trigger rate limit
     ASSERT_FALSE(post_create_event(req, res));
     ASSERT_EQ("{\"message\": \"event rate limit reached.\"}", res->body);
+
+    analyticsManager.resetToggleRateLimit(false);
 }
 
 TEST_F(AnalyticsManagerTest, NoresultsQueries) {
@@ -895,8 +897,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryPartial) {
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScore) {
-    //reset click event rate limit
-    analyticsManager.resetRateLimit();
 
     nlohmann::json products_schema = R"({
             "name": "products",
@@ -1182,8 +1182,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 }
 
 TEST_F(AnalyticsManagerTest, PurchaseEventsStoreRetrieval) {
-    //reset rate limit
-    analyticsManager.resetRateLimit();
 
     nlohmann::json titles_schema = R"({
             "name": "titles",

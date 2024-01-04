@@ -1501,7 +1501,6 @@ TEST_F(CoreAPIUtilsTest, TestInvalidConversationModels) {
 
 TEST_F(CoreAPIUtilsTest, GetClickEvents) {
     //reset analytics store
-    analyticsManager.resetRateLimit();
     analyticsManager.resetAnalyticsStore();
 
     nlohmann::json schema = R"({
