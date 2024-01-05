@@ -4980,4 +4980,13 @@ TEST_F(CollectionJoinTest, QueryByReference) {
     auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Query by reference is not yet supported.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "$Customers(customer_name"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not find `$Customers(customer_name` field in the schema.", search_op.error());
 }
