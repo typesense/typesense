@@ -165,6 +165,7 @@ private:
     Store* store = nullptr;
     Store* analytics_store = nullptr;
 
+    bool isRateLimitEnabled = false;
     AnalyticsManager() {}
 
     ~AnalyticsManager();
@@ -237,7 +238,7 @@ public:
 
     std::unordered_map<std::string, QueryAnalytics*> get_nohits_queries();
 
-    void resetRateLimit();
+    void resetToggleRateLimit(bool toggle);
 
     void add_query_hits_count(const std::string& query_collection, const std::string& query, const std::string& user_id,
                                             uint64_t hits_count);
