@@ -1819,7 +1819,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         for(const auto& expanded_search_field: expanded_search_fields) {
             if (search_schema.count(expanded_search_field) == 0) {
-                return Option<nlohmann::json>(400, "Could not find `" + expanded_search_field + "` field in the schema.");
+                return Option<nlohmann::json>(404, "Could not find `" + expanded_search_field + "` field in the schema.");
             }
             auto search_field = search_schema.at(expanded_search_field);
 
