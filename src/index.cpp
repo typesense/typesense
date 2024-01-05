@@ -1378,9 +1378,15 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             for(const auto& kv : facet_results) {
                 //range facet processing
                 if(a_facet.is_range_query) {
-                    const auto doc_val = kv.first;
+                    int64_t doc_val = std::stoll(kv.first);
                     std::pair<int64_t , std::string> range_pair {};
-                    if(a_facet.get_range(std::stoll(doc_val), range_pair)) {
+
+                    if(facet_field.is_float()) {
+                        float val = std::stof(kv.first);
+                        doc_val = Index::float_to_int64_t(val);
+                    }
+
+                    if(a_facet.get_range(doc_val, range_pair)) {
                         const auto& range_id = range_pair.first;
                         facet_count_t& facet_count = a_facet.result_map[range_id];
                         facet_count.count += kv.second.count;
