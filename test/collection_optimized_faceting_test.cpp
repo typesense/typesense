@@ -2695,3 +2695,143 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetAlphanumericLabels) {
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][2]["count"]);
     ASSERT_EQ("10thAD", results["facet_counts"][0]["counts"][2]["value"]);
 }
+
+TEST_F(CollectionOptimizedFacetingTest, RangeFacetsFloatRange) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("inches", field_types::FLOAT, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "", {}, {}).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "TV 1";
+    doc["inches"] = 32.4;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "TV 2";
+    doc["inches"] = 55;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["name"] = "TV 3";
+    doc["inches"] = 55.6;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"inches(small:[0, 55.5])"},
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true,
+                                 6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                 2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("small", results["facet_counts"][0]["counts"][0]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, RangeFacetsMinMaxRange) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("inches", field_types::FLOAT, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "", {}, {}).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "TV 1";
+    doc["inches"] = 32.4;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "TV 2";
+    doc["inches"] = 55;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["name"] = "TV 3";
+    doc["inches"] = 55.6;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"inches(small:[0, 55], large:[55, ])"},
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true,
+                                 6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                 2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
+
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("small", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("large", results["facet_counts"][0]["counts"][1]["value"]);
+
+    results = coll1->search("*", {},
+                            "", {"inches(small:[,55])"},
+                            {}, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000,
+                            true, false, true, "", true,
+                            6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                            2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("small", results["facet_counts"][0]["counts"][0]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, RangeFacetRangeLabelWithSpace) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("inches", field_types::FLOAT, true),};
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "", {}, {}).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "TV 1";
+    doc["inches"] = 32.4;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "TV 2";
+    doc["inches"] = 55;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["name"] = "TV 3";
+    doc["inches"] = 55.6;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"inches(small tvs with display size:[0,55])"},
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true,
+                                 6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                 2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("small tvs with display size", results["facet_counts"][0]["counts"][0]["value"]);
+}
