@@ -1338,8 +1338,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
     size_t total_docs = seq_ids->num_ids();
     // assumed that facet fields have already been validated upstream
-    for(size_t findex=0; findex < facets.size(); findex++) {
-        auto& a_facet = facets[findex];
+    for(auto& a_facet : facets) {
+        auto findex = a_facet.orig_index;
         const auto& facet_field = facet_infos[findex].facet_field;
         const bool use_facet_query = facet_infos[findex].use_facet_query;
         const auto& fquery_hashes = facet_infos[findex].hashes;
