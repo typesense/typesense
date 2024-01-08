@@ -85,7 +85,8 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
             std::vector<std::string> param_kvs;
             StringUtils::split(param_str, param_kvs, ",");
 
-            for(auto& param_kv_str: param_kvs) {
+            for(size_t i = 0; i < param_kvs.size(); i++) {
+                auto& param_kv_str = param_kvs[i];
                 if(param_kv_str.back() == ')') {
                     param_kv_str.pop_back();
                 }
@@ -94,6 +95,20 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                 StringUtils::split(param_kv_str, param_kv, ":");
                 if(param_kv.size() != 2) {
                     return Option<bool>(400, "Malformed vector query string.");
+                }
+
+                if(i < param_kvs.size() - 1 && param_kv[1].front() == '[' && param_kv[1].back() != ']') {
+                    /*
+                    Currently, we parse vector query parameters by splitting them with commas (e.g., alpha:0.7, k:100). 
+                    However, this approach has challenges when dealing with array parameters, where values are also separated by commas. 
+                    For instance, with a vector query like embedding:([], qs:[x, y]), our logic may incorrectly parse it as qs:[x and y]) due to the comma separator.
+                    
+                    To address this issue, we have implemented a workaround. 
+                    If a comma-separated vector query parameter has '['  as its first character and does not have ']' as its last character, this means that the parameter is not yet complete.
+                    In this case, we append the current parameter to the next parameter, and continue parsing the next parameter.
+                    */
+                    param_kvs[i+1] = param_kv_str + "," + param_kvs[i+1];
+                    continue;
                 }
 
                 if(param_kv[0] == "id") {
@@ -165,6 +180,62 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     }
 
                     vector_query.alpha = std::stof(param_kv[1]);
+                }
+
+                if(param_kv[0] == "queries") {
+                    if(param_kv[1].front() != '[' || param_kv[1].back() != ']') {
+                        return Option<bool>(400, "Malformed vector query string: "
+                                                 "`queries` parameter must be a list of strings.");
+                    }
+
+                    param_kv[1].erase(0, 1);
+                    param_kv[1].pop_back();
+
+                    std::vector<std::string> qs;
+                    StringUtils::split(param_kv[1], qs, ",");
+                    for(auto& q: qs) {
+                        StringUtils::trim(q);
+                        vector_query.queries.push_back(q);
+                    }
+                }
+
+                if(param_kv[0] == "query_weights") {
+                    if(param_kv[1].front() != '[' || param_kv[1].back() != ']') {
+                        return Option<bool>(400, "Malformed vector query string: "
+                                                 "`query_weights` parameter must be a list of floats.");
+                    }
+
+                    param_kv[1].erase(0, 1);
+                    param_kv[1].pop_back();
+
+                    std::vector<std::string> ws;
+                    StringUtils::split(param_kv[1], ws, ",");
+                    for(auto& w: ws) {
+                        StringUtils::trim(w);
+                        if(!StringUtils::is_float(w)) {
+                            return Option<bool>(400, "Malformed vector query string: "
+                                                     "`query_weights` parameter must be a list of floats.");
+                        }
+
+                        vector_query.query_weights.push_back(std::stof(w));
+                    }
+                }
+            }
+
+            if(vector_query.queries.size() != vector_query.query_weights.size() && !vector_query.query_weights.empty()) {
+                return Option<bool>(400, "Malformed vector query string: "
+                                         "`queries` and `query_weights` must be of the same length.");
+            }
+
+            if(!vector_query.query_weights.empty()) {
+                float sum = 0.0;
+                for(auto& w: vector_query.query_weights) {
+                    sum += w;
+                }
+
+                if(sum != 1.0) {
+                    return Option<bool>(400, "Malformed vector query string: "
+                                             "`query_weights` must sum to 1.0.");
                 }
             }
 

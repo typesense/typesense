@@ -14,8 +14,14 @@ struct filter_node_t;
 struct reference_filter_result_t {
     uint32_t count = 0;
     uint32_t* docs = nullptr;
+    bool is_reference_array_field = true;
 
-    explicit reference_filter_result_t(uint32_t count = 0, uint32_t* docs = nullptr) : count(count), docs(docs) {}
+    // In case of nested join, references can further have references.
+    std::map<std::string, reference_filter_result_t>* coll_to_references = nullptr;
+
+    explicit reference_filter_result_t(uint32_t count = 0, uint32_t* docs = nullptr,
+                                        bool is_reference_array_field = true) : count(count), docs(docs),
+                                        is_reference_array_field(is_reference_array_field) {}
 
     reference_filter_result_t(const reference_filter_result_t& obj) {
         if (&obj == this) {
@@ -25,6 +31,9 @@ struct reference_filter_result_t {
         count = obj.count;
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
+        is_reference_array_field = obj.is_reference_array_field;
+
+        copy_references(obj, *this);
     }
 
     reference_filter_result_t& operator=(const reference_filter_result_t& obj) noexcept {
@@ -35,7 +44,9 @@ struct reference_filter_result_t {
         count = obj.count;
         docs = new uint32_t[count];
         memcpy(docs, obj.docs, count * sizeof(uint32_t));
+        is_reference_array_field = obj.is_reference_array_field;
 
+        copy_references(obj, *this);
         return *this;
     }
 
@@ -46,26 +57,38 @@ struct reference_filter_result_t {
 
         count = obj.count;
         docs = obj.docs;
+        coll_to_references = obj.coll_to_references;
+        is_reference_array_field = obj.is_reference_array_field;
 
+        // Set default values in obj.
+        obj.count = 0;
         obj.docs = nullptr;
+        obj.coll_to_references = nullptr;
+        obj.is_reference_array_field = true;
 
         return *this;
     }
 
     ~reference_filter_result_t() {
         delete[] docs;
+        delete[] coll_to_references;
     }
+
+    static void copy_references(const reference_filter_result_t& from, reference_filter_result_t& to);
 };
 
 struct single_filter_result_t {
     uint32_t seq_id = 0;
     // Collection name -> Reference filter result
     std::map<std::string, reference_filter_result_t> reference_filter_results = {};
+    bool is_reference_array_field = true;
 
     single_filter_result_t() = default;
 
-    single_filter_result_t(uint32_t seq_id, std::map<std::string, reference_filter_result_t>&& reference_filter_results) :
-                            seq_id(seq_id), reference_filter_results(std::move(reference_filter_results)) {}
+    single_filter_result_t(uint32_t seq_id, std::map<std::string, reference_filter_result_t>&& reference_filter_results,
+                           bool is_reference_array_field = true) :
+                            seq_id(seq_id), reference_filter_results(std::move(reference_filter_results)),
+                            is_reference_array_field(is_reference_array_field) {}
 
     single_filter_result_t(const single_filter_result_t& obj) {
         if (&obj == this) {
@@ -73,12 +96,52 @@ struct single_filter_result_t {
         }
 
         seq_id = obj.seq_id;
+        is_reference_array_field = obj.is_reference_array_field;
 
         // Copy every collection's reference.
         for (const auto &item: obj.reference_filter_results) {
             auto& ref_coll_name = item.first;
             reference_filter_results[ref_coll_name] = item.second;
         }
+    }
+
+    single_filter_result_t(single_filter_result_t&& obj) {
+        if (&obj == this) {
+            return;
+        }
+
+        seq_id = obj.seq_id;
+        is_reference_array_field = obj.is_reference_array_field;
+        reference_filter_results = std::move(obj.reference_filter_results);
+    }
+
+    single_filter_result_t& operator=(const single_filter_result_t& obj) noexcept {
+        if (&obj == this) {
+            return *this;
+        }
+
+        seq_id = obj.seq_id;
+        is_reference_array_field = obj.is_reference_array_field;
+
+        // Copy every collection's reference.
+        for (const auto &item: obj.reference_filter_results) {
+            auto& ref_coll_name = item.first;
+            reference_filter_results[ref_coll_name] = item.second;
+        }
+
+        return *this;
+    }
+
+    single_filter_result_t& operator=(single_filter_result_t&& obj) noexcept {
+        if (&obj == this) {
+            return *this;
+        }
+
+        seq_id = obj.seq_id;
+        is_reference_array_field = obj.is_reference_array_field;
+        reference_filter_results = std::move(obj.reference_filter_results);
+
+        return *this;
     }
 };
 
@@ -127,6 +190,8 @@ struct filter_result_t {
         docs = obj.docs;
         coll_to_references = obj.coll_to_references;
 
+        // Set default values in obj.
+        obj.count = 0;
         obj.docs = nullptr;
         obj.coll_to_references = nullptr;
 
