@@ -258,7 +258,115 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
     ASSERT_FALSE(missing_rule_op.ok());
 }
 
-TEST_F(AnalyticsManagerTest, ClickEventsValidation) {
+TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
+    //stores events in memory and reads as events are persisted in file on disk
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json event1 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 2,
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event1.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event2 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event2.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    auto result = analyticsManager.get_events("titles", "query_click");
+    ASSERT_EQ("13", result[0]["user_id"]);
+    ASSERT_EQ("21", result[0]["doc_id"]);
+    ASSERT_EQ(2, result[0]["position"]);
+    ASSERT_EQ("technology", result[0]["query"]);
+
+    ASSERT_EQ("11", result[1]["user_id"]);
+    ASSERT_EQ("21", result[1]["doc_id"]);
+    ASSERT_EQ(4, result[1]["position"]);
+    ASSERT_EQ("technology", result[1]["query"]);
+}
+
+TEST_F(AnalyticsManagerTest, PurchaseEventsStoreRetrieval) {
+//stores events in memory and reads as events are persisted in file on disk
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json event1 = R"({
+        "type": "query_purchase",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 2,
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event1.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event2 = R"({
+        "type": "query_purchase",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event2.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    auto result = analyticsManager.get_events("titles", "query_purchase");
+    ASSERT_EQ("13", result[0]["user_id"]);
+    ASSERT_EQ("21", result[0]["doc_id"]);
+    ASSERT_EQ(2, result[0]["position"]);
+    ASSERT_EQ("technology", result[0]["query"]);
+
+    ASSERT_EQ("11", result[1]["user_id"]);
+    ASSERT_EQ("21", result[1]["doc_id"]);
+    ASSERT_EQ(4, result[1]["position"]);
+    ASSERT_EQ("technology", result[1]["query"]);
+}
+
+TEST_F(AnalyticsManagerTest, EventsValidation) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [
@@ -304,7 +412,7 @@ TEST_F(AnalyticsManagerTest, ClickEventsValidation) {
 
     //should be string type
     nlohmann::json event3 = R"({
-        "type": "query_click",
+        "type": "query_purchase",
         "data": {
             "q": "technology",
             "collection": "titles",
@@ -332,9 +440,23 @@ TEST_F(AnalyticsManagerTest, ClickEventsValidation) {
 
     req->body = event4.dump();
     ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event5 = R"({
+        "type": "query_purchase",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event5.dump();
+    ASSERT_TRUE(post_create_event(req, res));
 }
 
-TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
+TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [
@@ -346,6 +468,8 @@ TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
 
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    std::vector<nlohmann::json> events;
 
     nlohmann::json event1 = R"({
         "type": "query_click",
@@ -358,11 +482,8 @@ TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
         }
     })"_json;
 
-    req->body = event1.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
     nlohmann::json event2 = R"({
-        "type": "query_click",
+        "type": "query_purchase",
         "data": {
             "q": "technology",
             "collection": "titles",
@@ -372,67 +493,14 @@ TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
         }
     })"_json;
 
-    req->body = event2.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
-    event1["collection_id"] = "0";
-    event1["timestamp"] = 1521512521;
-    event1["event_type"] = "query_click";
-    event2["collection_id"] = "0";
-    event2["timestamp"] = 1521514354;
-    event2["event_type"] = "query_click";
-
-    nlohmann::json click_events = nlohmann::json::array();
-    click_events.push_back(event1);
-    click_events.push_back(event2);
-
-    req->body = click_events.dump();
-    ASSERT_TRUE(post_replicate_events(req, res));
-
-    auto result = analyticsManager.get_events("click_events");
-
-    ASSERT_EQ("0", result[0]["collection_id"]);
-    ASSERT_EQ("13", result[0]["data"]["user_id"]);
-    ASSERT_EQ("21", result[0]["data"]["doc_id"]);
-    ASSERT_EQ(2, result[0]["data"]["position"]);
-    ASSERT_EQ("technology", result[0]["data"]["q"]);
-
-    ASSERT_EQ("0", result[1]["collection_id"]);
-    ASSERT_EQ("11", result[1]["data"]["user_id"]);
-    ASSERT_EQ("21", result[1]["data"]["doc_id"]);
-    ASSERT_EQ(4, result[1]["data"]["position"]);
-    ASSERT_EQ("technology", result[1]["data"]["q"]);
-}
-
-TEST_F(AnalyticsManagerTest, ClickEventsRateLimitTest) {
-    nlohmann::json titles_schema = R"({
-            "name": "titles",
-            "fields": [
-                {"name": "title", "type": "string"}
-            ]
-        })"_json;
-
-    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
-
-    std::shared_ptr<http_req> req = std::make_shared<http_req>();
-    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
-
-    nlohmann::json event = R"({
-        "type": "query_click",
-        "data": {
-            "q": "technology",
-            "collection": "titles",
-            "doc_id": "21",
-            "position": 2,
-            "user_id": "13"
-        }
-    })"_json;
+    events.push_back(event1);
+    events.push_back(event2);
 
     //reset the LRU cache to test the rate limit
     analyticsManager.resetToggleRateLimit(true);
 
-    req->body = event.dump();
     for(auto i = 0; i < 5; ++i) {
+        req->body = events[i%2].dump();
         ASSERT_TRUE(post_create_event(req, res));
     }
 
@@ -648,39 +716,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryBasic) {
     nlohmann::json events = nlohmann::json::array();
 
     auto ts = 1701851341000000;
-    nlohmann::json event;
-    event["event_type"] = "query_click";
-    event["q"] = "technology";
-    event["collection_id"] = "0";
-    event["doc_id"] = "21";
-    event["position"] = 2;
-    event["user_id"] = 13;
-    event["timestamp"] = ts;
-    events.push_back(event);
-
-    event["doc_id"] = "12";
-    event["position"] = 3;
-    event["timestamp"] = ts+1000000; //1 sec later
-    events.push_back(event);
-
-    ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
-
-    nlohmann::json resp = analyticsManager.get_events("click_events");
-    ASSERT_EQ(2, resp.size());
-    ASSERT_EQ("technology", resp[0]["q"]);
-    ASSERT_EQ("21", resp[0]["doc_id"]);
-    ASSERT_EQ(2, resp[0]["position"]);
-    ASSERT_EQ(13, resp[0]["user_id"]);
-
-    ASSERT_EQ("technology", resp[1]["q"]);
-    ASSERT_EQ("12", resp[1]["doc_id"]);
-    ASSERT_EQ(3, resp[1]["position"]);
-    ASSERT_EQ(13, resp[1]["user_id"]);
-
-    analyticsManager.checkEventsExpiry();
-
-    resp = analyticsManager.get_events("click_events");
-    ASSERT_EQ(0, resp.size());
 
     //add query hits events with click events
     nlohmann::json event2;
@@ -695,18 +730,14 @@ TEST_F(AnalyticsManagerTest, EventsExpiryBasic) {
 
     ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
 
-    resp = analyticsManager.get_query_hits_counts();
+    auto resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(1, resp.size());
     ASSERT_EQ("technology", resp[0]["q"]);
     ASSERT_EQ(13, resp[0]["user_id"]);
     ASSERT_EQ(124, resp[0]["hits_count"]);
 
-    //now old click events will be deleted on checking expiry but query hits events will be remaining
     // assumming ttl is ts + 5 sec
     analyticsManager.checkEventsExpiry();
-
-    resp = analyticsManager.get_events("click_events");
-    ASSERT_EQ(0, resp.size());
 
     resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(1, resp.size());
@@ -731,21 +762,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryAll) {
     nlohmann::json events = nlohmann::json::array();
 
     auto ts = 1701851341000000;
-    nlohmann::json event;
-    event["event_type"] = "query_click";
-    event["q"] = "technology";
-    event["collection_id"] = "0";
-    event["doc_id"] = "21";
-    event["position"] = 2;
-    event["user_id"] = 13;
-    event["timestamp"] = ts;
-    events.push_back(event);
-
-    event["doc_id"] = "12";
-    event["position"] = 3;
-    event["timestamp"] = ts + 1000000; //after 1s
-    events.push_back(event);
-
     nlohmann::json event2;
     event2["event_type"] = "query_hits_counts";
     event2["q"] = "technology";
@@ -758,19 +774,7 @@ TEST_F(AnalyticsManagerTest, EventsExpiryAll) {
 
     ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
 
-    nlohmann::json resp = analyticsManager.get_events("click_events");
-    ASSERT_EQ(2, resp.size());
-    ASSERT_EQ("technology", resp[0]["q"]);
-    ASSERT_EQ("21", resp[0]["doc_id"]);
-    ASSERT_EQ(2, resp[0]["position"]);
-    ASSERT_EQ(13, resp[0]["user_id"]);
-
-    ASSERT_EQ("technology", resp[1]["q"]);
-    ASSERT_EQ("12", resp[1]["doc_id"]);
-    ASSERT_EQ(3, resp[1]["position"]);
-    ASSERT_EQ(13, resp[1]["user_id"]);
-
-    resp = analyticsManager.get_query_hits_counts();
+    auto resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(1, resp.size());
     ASSERT_EQ("technology", resp[0]["q"]);
     ASSERT_EQ(13, resp[0]["user_id"]);
@@ -779,9 +783,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryAll) {
     //check for events expiry
     // assuming ttl is ts + 5 sec
     analyticsManager.checkEventsExpiry();
-
-    resp = analyticsManager.get_events("click_events");
-    ASSERT_EQ(0, resp.size());
 
     resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(0, resp.size());
@@ -803,25 +804,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryPartial) {
     nlohmann::json events = nlohmann::json::array();
 
     auto ts = 1701851341000000;
-    nlohmann::json event;
-    event["event_type"] = "query_click";
-    event["q"] = "technology";
-    event["collection_id"] = "0";
-    event["doc_id"] = "21";
-    event["position"] = 2;
-    event["user_id"] = 13;
-    event["timestamp"] = ts;
-    events.push_back(event);
-
-    event["doc_id"] = "12";
-    event["position"] = 3;
-    event["timestamp"] = ts + 1000000; //after 1s
-    events.push_back(event);
-
-    event["doc_id"] = "19";
-    event["position"] = 1;
-    event["timestamp"] = ts + 6000000; //after 6s
-    events.push_back(event);
 
     nlohmann::json event2;
     event2["event_type"] = "query_hits_counts";
@@ -846,24 +828,7 @@ TEST_F(AnalyticsManagerTest, EventsExpiryPartial) {
 
     ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
 
-    nlohmann::json resp = analyticsManager.get_events("click_events");
-    ASSERT_EQ(3, resp.size());
-    ASSERT_EQ("technology", resp[0]["q"]);
-    ASSERT_EQ("21", resp[0]["doc_id"]);
-    ASSERT_EQ(2, resp[0]["position"]);
-    ASSERT_EQ(13, resp[0]["user_id"]);
-
-    ASSERT_EQ("technology", resp[1]["q"]);
-    ASSERT_EQ("12", resp[1]["doc_id"]);
-    ASSERT_EQ(3, resp[1]["position"]);
-    ASSERT_EQ(13, resp[1]["user_id"]);
-
-    ASSERT_EQ("technology", resp[2]["q"]);
-    ASSERT_EQ("19", resp[2]["doc_id"]);
-    ASSERT_EQ(1, resp[2]["position"]);
-    ASSERT_EQ(13, resp[2]["user_id"]);
-
-    resp = analyticsManager.get_query_hits_counts();
+    auto resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(3, resp.size());
     ASSERT_EQ("technology", resp[0]["q"]);
     ASSERT_EQ(13, resp[0]["user_id"]);
@@ -881,13 +846,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryPartial) {
     // assuming ttl is ts + 5 sec
     //only events in ttl interval will be removed
     analyticsManager.checkEventsExpiry();
-
-    resp = analyticsManager.get_events("click_events");
-    ASSERT_EQ(1, resp.size());
-    ASSERT_EQ("technology", resp[0]["q"]);
-    ASSERT_EQ("19", resp[0]["doc_id"]);
-    ASSERT_EQ(1, resp[0]["position"]);
-    ASSERT_EQ(13, resp[0]["user_id"]);
 
     resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(1, resp.size());
@@ -1179,75 +1137,4 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_FALSE(create_op.ok());
     ASSERT_EQ("Bad or missing events.", create_op.error());
-}
-
-TEST_F(AnalyticsManagerTest, PurchaseEventsStoreRetrieval) {
-
-    nlohmann::json titles_schema = R"({
-            "name": "titles",
-            "fields": [
-                {"name": "title", "type": "string"}
-            ]
-        })"_json;
-
-    Collection *titles_coll = collectionManager.create_collection(titles_schema).get();
-
-    std::shared_ptr<http_req> req = std::make_shared<http_req>();
-    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
-
-    nlohmann::json event1 = R"({
-        "type": "query_purchase",
-        "data": {
-            "q": "technology",
-            "collection": "titles",
-            "doc_id": "21",
-            "position": 2,
-            "user_id": "13"
-        }
-    })"_json;
-
-    req->body = event1.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
-    nlohmann::json event2 = R"({
-        "type": "query_purchase",
-        "data": {
-            "q": "technology",
-            "collection": "titles",
-            "doc_id": "21",
-            "position": 4,
-            "user_id": "11"
-        }
-    })"_json;
-
-    req->body = event2.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
-    event1["collection_id"] = "0";
-    event1["timestamp"] = 1521512521;
-    event1["event_type"] = "query_purchase";
-    event2["collection_id"] = "0";
-    event2["timestamp"] = 1521514354;
-    event2["event_type"] = "query_purchase";
-
-    nlohmann::json events = nlohmann::json::array();
-    events.push_back(event1);
-    events.push_back(event2);
-
-    req->body = events.dump();
-    ASSERT_TRUE(post_replicate_events(req, res));
-
-    auto result = analyticsManager.get_events("purchase_events");
-
-    ASSERT_EQ("0", result[0]["collection_id"]);
-    ASSERT_EQ("13", result[0]["data"]["user_id"]);
-    ASSERT_EQ("21", result[0]["data"]["doc_id"]);
-    ASSERT_EQ(2, result[0]["data"]["position"]);
-    ASSERT_EQ("technology", result[0]["data"]["q"]);
-
-    ASSERT_EQ("0", result[1]["collection_id"]);
-    ASSERT_EQ("11", result[1]["data"]["user_id"]);
-    ASSERT_EQ("21", result[1]["data"]["doc_id"]);
-    ASSERT_EQ(4, result[1]["data"]["position"]);
-    ASSERT_EQ("technology", result[1]["data"]["q"]);
 }
