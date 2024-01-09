@@ -6,8 +6,9 @@
 #include <filesystem>
 #include <cstdlib>
 #include <collection_manager.h>
+#include <validator.h>
 #include "collection.h"
-#include "text_embedder_manager.h"
+#include "embedder_manager.h"
 #include "http_client.h"
 
 class CollectionTest : public ::testing::Test {
@@ -397,7 +398,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10).get();
 
-    ids = {"1", "13", "8"};
+    ids = {"8", "1", "17"};
 
     ASSERT_EQ(3, results["hits"].size());
 
@@ -2384,16 +2385,16 @@ TEST_F(CollectionTest, UpdateDocument) {
     res = coll1->search("lazy", {"title"}, "", {"tags"}, sort_fields, {0}, 10, 1,
                         token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
-
+    
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(1, res["facet_counts"].size());
     ASSERT_STREQ("tags", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
 
-    ASSERT_STREQ("LAZY", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("NEWS", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][0]["count"]);
 
-    ASSERT_STREQ("NEWS", res["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("LAZY", res["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
     ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][1]["count"]);
 
     // upsert only part of the document -- document should be REPLACED
@@ -4606,7 +4607,7 @@ TEST_F(CollectionTest, SemanticSearchTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4640,7 +4641,7 @@ TEST_F(CollectionTest, InvalidSemanticSearch) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     LOG(INFO) << "op.error(): " << op.error();
@@ -4669,7 +4670,7 @@ TEST_F(CollectionTest, HybridSearch) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4702,7 +4703,7 @@ TEST_F(CollectionTest, HybridSearch) {
 //                             ]
 //                         })"_json;
     
-//     TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+//     EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 //
 
 //     auto op = collectionManager.create_collection(schema);
@@ -4730,7 +4731,7 @@ TEST_F(CollectionTest, HybridSearchRankFusionTest) {
                             ]
                         })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4803,7 +4804,7 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
                         ]
                     })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4818,7 +4819,7 @@ TEST_F(CollectionTest, WildcardSearchWithEmbeddingField) {
 TEST_F(CollectionTest, CreateModelDirIfNotExists) {
     system("mkdir -p /tmp/typesense_test/new_models_dir");
     system("rm -rf /tmp/typesense_test/new_models_dir");
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/new_models_dir");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/new_models_dir");
 
     // check if model dir is created
     ASSERT_TRUE(std::filesystem::exists("/tmp/typesense_test/new_models_dir"));
@@ -4833,7 +4834,7 @@ TEST_F(CollectionTest, EmbedStringArrayField) {
                     ]
                 })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4858,7 +4859,7 @@ TEST_F(CollectionTest, MissingFieldForEmbedding) {
                     ]
                 })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4882,7 +4883,7 @@ TEST_F(CollectionTest, WrongTypeInEmbedFrom) {
             ]
         })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_FALSE(op.ok());
@@ -4898,7 +4899,7 @@ TEST_F(CollectionTest, WrongTypeForEmbedding) {
                 ]
             })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4921,7 +4922,7 @@ TEST_F(CollectionTest, WrongTypeOfElementForEmbeddingInStringArray) {
             ]
         })"_json;
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4944,7 +4945,7 @@ TEST_F(CollectionTest, UpdateEmbeddingsForUpdatedDocument) {
                     ]
                 })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -4997,7 +4998,7 @@ TEST_F(CollectionTest, CreateCollectionWithOpenAI) {
 
     auto api_key = std::string(std::getenv("api_key"));
     schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
 
@@ -5030,7 +5031,7 @@ TEST_F(CollectionTest, CreateOpenAIEmbeddingField) {
 
     auto api_key = std::string(std::getenv("api_key"));
     schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     auto summary = op.get()->get_summary_json();
@@ -5061,7 +5062,7 @@ TEST_F(CollectionTest, HideOpenAIApiKey) {
 
     auto api_key = std::string(std::getenv("api_key"));
     schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
     auto summary = op.get()->get_summary_json();
@@ -5085,7 +5086,7 @@ TEST_F(CollectionTest, PrefixSearchDisabledForOpenAI) {
 
     auto api_key = std::string(std::getenv("api_key"));
     schema["fields"][1]["embed"]["model_config"]["api_key"] = api_key;
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
 
@@ -5117,7 +5118,7 @@ TEST_F(CollectionTest, MoreThanOneEmbeddingField) {
                 ]
             })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
@@ -5150,7 +5151,7 @@ TEST_F(CollectionTest, EmbeddingFieldEmptyArrayInDocument) {
                 ]
             })"_json;
     
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());

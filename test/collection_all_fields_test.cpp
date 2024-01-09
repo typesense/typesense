@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <collection_manager.h>
 #include "collection.h"
-#include "text_embedder_manager.h"
+#include "embedder_manager.h"
 #include "http_client.h"
 
 class CollectionAllFieldsTest : public ::testing::Test {
@@ -313,7 +313,7 @@ TEST_F(CollectionAllFieldsTest, ShouldBeAbleToUpdateSchemaDetectedDocs) {
     // insert multiple docs at the same time
     const size_t NUM_DOCS = 20;
     std::vector<std::string> json_lines;
-    
+
     for(size_t i = 0; i < NUM_DOCS; i++) {
         const std::string &i_str = std::to_string(i);
         doc["title"] = std::string("upserted ") + std::to_string(StringUtils::hash_wy(i_str.c_str(), i_str.size()));
@@ -1279,7 +1279,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
 
     auto op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("Field `post` must be optional since it is marked as non-indexable.", op.error());
+    ASSERT_EQ("Field `.*_txt` cannot be a facet since it's marked as non-indexable.", op.error());
 
     fields = {field("company_name", field_types::STRING, false),
               field("num_employees", field_types::INT32, false),
@@ -1591,7 +1591,7 @@ TEST_F(CollectionAllFieldsTest, FieldNameMatchingRegexpShouldNotBeIndexedInNonAu
 }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromFieldJSONInvalidField) {
-    TextEmbedderManager::set_model_dir("/tmp/typensense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1608,11 +1608,11 @@ TEST_F(CollectionAllFieldsTest, EmbedFromFieldJSONInvalidField) {
     auto field_op = field::json_fields_to_fields(false, arr, fallback_field_type, fields);
 
     ASSERT_FALSE(field_op.ok());
-    ASSERT_EQ("Property `embed.from` can only refer to string or string array fields.", field_op.error());
+    ASSERT_EQ("Property `embed.from` can only refer to string, string array or image (for supported models) fields.", field_op.error());
 }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromNotArray) {
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1633,7 +1633,7 @@ TEST_F(CollectionAllFieldsTest, EmbedFromNotArray) {
 }
 
 TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     nlohmann::json field_json;
     field_json["name"] = "embedding";
     field_json["type"] = "float[]";
@@ -1651,7 +1651,7 @@ TEST_F(CollectionAllFieldsTest, ModelParametersWithoutEmbedFrom) {
 }
 
 TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
     nlohmann::json schema = R"({
         "name": "obj_coll",
         "fields": [
@@ -1679,15 +1679,6 @@ TEST_F(CollectionAllFieldsTest, EmbedFromBasicValid) {
 }
 
 TEST_F(CollectionAllFieldsTest, WrongDataTypeForEmbedFrom) {
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
-    nlohmann::json field_json;
-    field_json["name"] = "embedding";
-    field_json["type"] = "float[]";
-    field_json["embed"] = nlohmann::json::object();
-    field_json["embed"]["from"] = {"age"};
-    field_json["embed"]["model_config"] = nlohmann::json::object();
-    field_json["embed"]["model_config"]["model_name"] = "ts/e5-small";
-
     nlohmann::json schema = R"({
         "name": "obj_coll",
         "fields": [
@@ -1700,5 +1691,20 @@ TEST_F(CollectionAllFieldsTest, WrongDataTypeForEmbedFrom) {
     auto obj_coll_op = collectionManager.create_collection(schema);
 
     ASSERT_FALSE(obj_coll_op.ok());
-    ASSERT_EQ("Property `embed.from` can only refer to string or string array fields.", obj_coll_op.error());
+    ASSERT_EQ("Property `embed.from` can only refer to string, string array or image (for supported models) fields.", obj_coll_op.error());
+}
+
+TEST_F(CollectionAllFieldsTest, StoreInvalidInput) {
+        nlohmann::json schema = R"({
+        "name": "obj_coll",
+        "fields": [
+            {"name": "age", "type": "int32", "store": "qwerty"}
+        ]
+    })"_json;
+
+
+    auto obj_coll_op = collectionManager.create_collection(schema);
+
+    ASSERT_FALSE(obj_coll_op.ok());
+    ASSERT_EQ("The `store` property of the field `age` should be a boolean.", obj_coll_op.error());
 }

@@ -36,6 +36,35 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
 }
 
 
+long HttpClient::post_response_stream(const std::string &url, const std::string &body, async_stream_response_t &response,
+                                     std::map<std::string, std::string>& res_headers,
+                                     const std::unordered_map<std::string, std::string>& headers, long timeout_ms) {
+    struct curl_slist* chunk = nullptr;
+
+    CURL *curl = init_curl_stream(url, response, timeout_ms);
+    if(curl == nullptr) {
+        return 500;
+    }
+
+    for(const auto& header: headers) {
+        std::string header_str = header.first + ": " + header.second;
+        chunk = curl_slist_append(chunk, header_str.c_str());
+    }
+
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    curl_easy_perform(curl);
+
+    long status_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(chunk);
+
+    return status_code;
+}
+
 long HttpClient::post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
                                      const std::shared_ptr<http_res> response, HttpServer* server,
                                      bool send_ts_api_header) {
@@ -292,6 +321,24 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     return res_size;
 }
 
+size_t HttpClient::curl_write_stream(char *buffer, size_t size, size_t nmemb, void *context) {
+    size_t res_size = size * nmemb;
+    auto res = reinterpret_cast<async_stream_response_t*>(context);
+    res->response_chunks.emplace_back(std::string(buffer, res_size));
+    return res_size;
+}
+
+size_t HttpClient::curl_write_stream_done(void *context, curl_socket_t item) {
+    auto res = reinterpret_cast<async_stream_response_t*>(context);
+
+    std::unique_lock<std::mutex> lock(res->mutex);
+    res->ready = true;
+    res->cv.notify_one();
+
+    close(item);
+    return 0;
+}
+
 size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     //LOG(INFO) << "curl_write_async_done";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
@@ -318,6 +365,34 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     close(item);
 
     return 0;
+}
+
+CURL *HttpClient::init_curl_stream(const std::string& url, async_stream_response_t& res, long timeout_ms) {
+    CURL* curl = curl_easy_init();
+
+    if(!ca_cert_path.empty()) {
+        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
+    } else {
+        LOG(WARNING) << "Unable to locate system SSL certificates.";
+    }
+
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+
+    // to allow self-signed certs
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_stream);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &res);
+
+    curl_easy_setopt(curl, CURLOPT_CLOSESOCKETFUNCTION, HttpClient::curl_write_stream_done);
+    curl_easy_setopt(curl, CURLOPT_CLOSESOCKETDATA, &res);
+
+    return curl;
 }
 
 CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk,

@@ -19,9 +19,11 @@
 #include <list>
 #include <stdint.h>
 #include <posting.h>
+#include <or_iterator.h>
 #include "art.h"
 #include "logger.h"
 #include "array_utils.h"
+#include "filter_result_iterator.h"
 
 /**
  * Macros to manipulate pointer tags
@@ -999,6 +1001,50 @@ bool validate_and_add_leaf(art_leaf* leaf, const bool last_token, const std::str
     return true;
 }
 
+bool validate_and_add_leaf(art_leaf* leaf,
+                           const std::string& prev_token, const art_leaf* prev_leaf,
+                           const art_leaf* exact_leaf,
+                           filter_result_iterator_t* const filter_result_iterator,
+                           std::set<std::string>& exclude_leaves,
+                           std::vector<art_leaf *>& results) {
+    if(leaf == exact_leaf) {
+        return false;
+    }
+
+    std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
+    if(exclude_leaves.count(tok) != 0) {
+        return false;
+    }
+
+    if(prev_token.empty() || !prev_leaf) {
+        if (filter_result_iterator->validity == filter_result_iterator_t::valid &&
+                !filter_result_iterator->contains_atleast_one(leaf->values)) {
+            return false;
+        }
+    } else {
+        std::vector<or_iterator_t> or_iterators;
+        std::vector<posting_list_t*> expanded_plists;
+
+        posting_t::get_or_iterator(const_cast<art_leaf*&>(prev_leaf)->values, or_iterators, expanded_plists);
+        posting_t::get_or_iterator(leaf->values, or_iterators, expanded_plists);
+
+        auto found = or_iterator_t::contains_atleast_one(or_iterators,
+                                                         result_iter_state_t(nullptr, 0, filter_result_iterator));
+
+        for (auto& item: expanded_plists) {
+            delete item;
+        }
+        if (!found) {
+            return false;
+        }
+    }
+
+    exclude_leaves.emplace(tok);
+    results.push_back(leaf);
+
+    return true;
+}
+
 int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_results,
                   const art_leaf* exact_leaf,
                   const bool last_token, const std::string& prev_token,
@@ -1039,6 +1085,102 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
 
             if (++num_processed % 1024 == 0 && (microseconds(
                     std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) {
+                search_cutoff = true;
+                break;
+            }
+
+            continue;
+        }
+
+        int idx;
+        switch (n->type) {
+            case NODE4:
+                //LOG(INFO)  << "NODE4, SCORE: " << n->max_score;
+                for (int i=0; i < n->num_children; i++) {
+                    art_node* child = ((art_node4*)n)->children[i];
+                    q.push(child);
+                }
+                break;
+
+            case NODE16:
+                //LOG(INFO)  << "NODE16, SCORE: " << n->max_score;
+                for (int i=0; i < n->num_children; i++) {
+                    q.push(((art_node16*)n)->children[i]);
+                }
+                break;
+
+            case NODE48:
+                //LOG(INFO)  << "NODE48, SCORE: " << n->max_score;
+                for (int i=0; i < 256; i++) {
+                    idx = ((art_node48*)n)->keys[i];
+                    if (!idx) continue;
+                    art_node *child = ((art_node48*)n)->children[idx - 1];
+                    q.push(child);
+                }
+                break;
+
+            case NODE256:
+                //LOG(INFO)  << "NODE256, SCORE: " << n->max_score;
+                for (int i=0; i < 256; i++) {
+                    if (!((art_node256*)n)->children[i]) continue;
+                    q.push(((art_node256*)n)->children[i]);
+                }
+                break;
+
+            default:
+                printf("ABORTING BECAUSE OF UNKNOWN NODE TYPE: %d\n", n->type);
+                abort();
+        }
+    }
+
+    /*LOG(INFO) << "leaf results.size: " << results.size()
+              << ", filter_ids_length: " << filter_ids_length
+              << ", num_large_lists: " << num_large_lists;*/
+
+    printf("OUTSIDE art_topk_iter: results size: %d\n", results.size());
+    return 0;
+}
+
+int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_results,
+                  const art_leaf* exact_leaf,
+                  const bool last_token, const std::string& prev_token,
+                  filter_result_iterator_t* const filter_result_iterator,
+                  const art_tree* t, std::set<std::string>& exclude_leaves, std::vector<art_leaf *>& results) {
+
+//    printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
+
+    auto prev_leaf = static_cast<art_leaf*>(
+            art_search(t, reinterpret_cast<const unsigned char*>(prev_token.c_str()), prev_token.size() + 1)
+    );
+
+    std::priority_queue<const art_node *, std::vector<const art_node *>,
+            decltype(&compare_art_node_score_pq)> q(compare_art_node_score_pq);
+
+    if(token_order == FREQUENCY) {
+        q = std::priority_queue<const art_node *, std::vector<const art_node *>,
+                decltype(&compare_art_node_frequency_pq)>(compare_art_node_frequency_pq);
+    }
+
+    q.push(root);
+
+    size_t num_processed = 0;
+
+    while(!q.empty() && results.size() < max_results*4) {
+        art_node *n = (art_node *) q.top();
+        q.pop();
+
+        if (!n) continue;
+        if (IS_LEAF(n)) {
+            art_leaf *l = (art_leaf *) LEAF_RAW(n);
+            //LOG(INFO) << "END LEAF SCORE: " << l->max_score;
+
+            validate_and_add_leaf(l, prev_token, prev_leaf, exact_leaf, filter_result_iterator,
+                                  exclude_leaves, results);
+            filter_result_iterator->reset();
+
+            if (filter_result_iterator->validity == filter_result_iterator_t::timed_out ||
+                (++num_processed % 1024 == 0 && (microseconds(
+                    std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us)) {
                 search_cutoff = true;
                 break;
             }
@@ -1349,13 +1491,15 @@ static inline void rotate(int &i, int &j, int &k) {
 }
 
 // -1: return without adding, 0 : continue iteration, 1: return after adding
-static inline int fuzzy_search_state(const bool prefix, int key_index, bool last_key_char,
-                                     const int query_len, const int* cost_row, int min_cost, int max_cost) {
+static inline int fuzzy_search_state(const bool prefix, int key_index, unsigned char p, unsigned char c,
+                                     const unsigned char* query, const int query_len,
+                                     const int* cost_row, int min_cost, int max_cost) {
 
     // There are 2 scenarios:
     // a) key_len < query_len: "pltninum" (query) on "pst" (key)
     // b) query_len < key_len: "pst" (query) on "pltninum" (key)
 
+    bool last_key_char = (c == '\0');
     int key_len = last_key_char ? key_index : key_index + 1;
 
     if(last_key_char) {
@@ -1387,11 +1531,67 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, bool last
         }
     }
 
-    // Terminate the search early or continue iterating on the key?
-    // We have to account for the case that `cost` could momentarily exceed max_cost but resolve later.
-    // e.g. key=example, query=exZZample, after 5 chars, cost is 3 but drops to 2 at the end.
-    // But we will limit this for longer keys for performance.
-    return cost > max_cost && (key_len > 3 ? cost > (max_cost * 2) : true) ? -1 : 0;
+    /*
+        Terminate the search early or continue iterating on the key?
+        We have to account for the case that `cost` could momentarily exceed max_cost but resolve later.
+        In such cases, we will compare characters in the query with p and/or c to decide.
+    */
+
+    if(cost <= max_cost) {
+        return 0;
+    }
+
+    if(cost == 2 || cost == 3) {
+        /*
+            [1 letter extra]
+            exam ple
+            exZa mple
+
+            [1 letter missing]
+            exam ple
+            exmp le
+
+            [1 letter missing + transpose]
+            dacrycystal gia
+            dacrcyystlg ia
+        */
+        bool letter_more = (key_index+1 < query_len && query[key_index+1] == c);
+        bool letter_less = (key_index > 0 && query[key_index-1] == c);
+        if(letter_more || letter_less) {
+            return 0;
+        }
+    }
+
+    if(cost == 3 || cost == 4) {
+        /*
+            [2 letter extra]
+            exam ple
+            eTxT ample
+
+            abbviat ion
+            abbrevi ation
+        */
+
+        bool extra_matching_letters = (key_index + 1 < query_len && p == query[key_index + 1] &&
+                                       key_index + 2 < query_len && c == query[key_index + 2]);
+
+        if(extra_matching_letters) {
+            return 0;
+        }
+
+        /*
+            [2 letter missing]
+            exam ple
+            expl e
+       */
+
+        bool two_letter_less = (key_index > 1 && query[key_index-2] == c);
+        if(two_letter_less) {
+            return 0;
+        }
+    }
+
+    return -1;
 }
 
 static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *n, int depth, const unsigned char *term,
@@ -1420,10 +1620,9 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
         if(!prefix || !last_key_char) {
             levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
             rotate(i, j, k);
-            p = c;
         }
 
-        int action = fuzzy_search_state(prefix, depth, last_key_char, term_len, rows[j], min_cost, max_cost);
+        int action = fuzzy_search_state(prefix, depth, p, c, term, term_len, rows[j], min_cost, max_cost);
         if(1 == action) {
             results.push_back(n);
             return;
@@ -1433,6 +1632,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
             return;
         }
 
+        p = c;
         depth++;
     }
 
@@ -1451,7 +1651,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 
         if(depth >= iter_len) {
             // when a preceding partial node completely contains the whole leaf (e.g. "[raspberr]y" on "raspberries")
-            int action = fuzzy_search_state(prefix, depth, true, term_len, rows[j], min_cost, max_cost);
+            int action = fuzzy_search_state(prefix, depth, '\0', '\0', term, term_len, rows[j], min_cost, max_cost);
             if(action == 1) {
                 results.push_back(n);
             }
@@ -1471,10 +1671,9 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
                 printf("cost: %d, depth: %d, term_len: %d\n", temp_cost, depth, term_len);
 
                 rotate(i, j, k);
-                p = c;
             }
 
-            int action = fuzzy_search_state(prefix, depth, last_key_char, term_len, rows[j], min_cost, max_cost);
+            int action = fuzzy_search_state(prefix, depth, p, c, term, term_len, rows[j], min_cost, max_cost);
             if(action == 1) {
                 results.push_back(n);
                 return;
@@ -1484,6 +1683,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
                 return;
             }
 
+            p = c;
             depth++;
         }
 
@@ -1500,9 +1700,8 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 
         levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
         rotate(i, j, k);
-        p = c;
 
-        int action = fuzzy_search_state(prefix, depth, false, term_len, rows[j], min_cost, max_cost);
+        int action = fuzzy_search_state(prefix, depth, p, c, term, term_len, rows[j], min_cost, max_cost);
         if(action == 1) {
             results.push_back(n);
             return;
@@ -1512,6 +1711,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
             return;
         }
 
+        p = c;
         depth++;
     }
 
@@ -1520,9 +1720,8 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
         c = term[depth];
         levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
         rotate(i, j, k);
-        p = c;
 
-        int action = fuzzy_search_state(prefix, depth, false, term_len, rows[j], min_cost, max_cost);
+        int action = fuzzy_search_state(prefix, depth, p, c, term, term_len, rows[j], min_cost, max_cost);
         if(action == 1) {
             results.push_back(n);
             return;
@@ -1532,6 +1731,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
             return;
         }
 
+        p = c;
         depth++;
         partial_len++;
     }
@@ -1618,6 +1818,77 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     if(allowed_doc_ids != filter_ids) {
         delete [] allowed_doc_ids;
     }
+
+    return 0;
+}
+
+int art_fuzzy_search_i(art_tree *t, const unsigned char *term, const int term_len, const int min_cost, const int max_cost,
+                       const size_t max_words, const token_ordering token_order,
+                       const bool prefix, bool last_token, const std::string& prev_token,
+                       filter_result_iterator_t* const filter_result_iterator,
+                       std::vector<art_leaf *> &results, std::set<std::string>& exclude_leaves) {
+
+    std::vector<const art_node*> nodes;
+    int irow[term_len + 1];
+    int jrow[term_len + 1];
+    for (int i = 0; i <= term_len; i++){
+        irow[i] = jrow[i] = i;
+    }
+
+    //auto begin = std::chrono::high_resolution_clock::now();
+
+    if(IS_LEAF(t->root)) {
+        art_leaf *l = (art_leaf *) LEAF_RAW(t->root);
+        art_fuzzy_recurse(0, l->key[0], t->root, 0, term, term_len, irow, jrow, min_cost, max_cost, prefix, nodes);
+    } else {
+        if(t->root == nullptr) {
+            return 0;
+        }
+
+        // send depth as -1 to indicate that this is a root node
+        art_fuzzy_recurse(0, 0, t->root, -1, term, term_len, irow, jrow, min_cost, max_cost, prefix, nodes);
+    }
+
+    //long long int time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
+    //!LOG(INFO) << "Time taken for fuzz: " << time_micro << "us, size of nodes: " << nodes.size();
+
+    //auto begin = std::chrono::high_resolution_clock::now();
+
+    size_t key_len = prefix ? term_len + 1 : term_len;
+    art_leaf* exact_leaf = (art_leaf *) art_search(t, term, key_len);
+    //LOG(INFO) << "exact_leaf: " << exact_leaf << ", term: " << term << ", term_len: " << term_len;
+
+    for(auto node: nodes) {
+        art_topk_iter(node, token_order, max_words,
+                      exact_leaf, last_token, prev_token,
+                      filter_result_iterator,
+                      t, exclude_leaves, results);
+    }
+
+    if(token_order == FREQUENCY) {
+        std::sort(results.begin(), results.end(), compare_art_leaf_frequency);
+    } else {
+        std::sort(results.begin(), results.end(), compare_art_leaf_score);
+    }
+
+    if(exact_leaf && min_cost == 0) {
+        std::string tok(reinterpret_cast<char*>(exact_leaf->key), exact_leaf->key_len - 1);
+        if(exclude_leaves.count(tok) == 0) {
+            results.insert(results.begin(), exact_leaf);
+            exclude_leaves.emplace(tok);
+        }
+    }
+
+    if(results.size() > max_words) {
+        results.resize(max_words);
+    }
+
+    /*auto time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
+    if(time_micro > 1000) {
+        LOG(INFO) << "Time taken for art_topk_iter: " << time_micro
+                  << "us, size of nodes: " << nodes.size()
+                  << ", filter_ids_length: " << filter_result_iterator.approx_filter_ids_length;
+    }*/
 
     return 0;
 }

@@ -135,6 +135,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
                 transliterator->transliterate(raw_text);
                 raw_text.toUTF8String(word);
+                StringUtils::replace_all(word, "\"", "");
             } else if(normalize && locale == "th") {
                 UErrorCode errcode = U_ZERO_ERROR;
                 icu::UnicodeString src = unicode_text.tempSubStringBetween(start_pos, end_pos);
@@ -343,7 +344,7 @@ bool Tokenizer::next(std::string &token, size_t &token_index) {
 }
 
 bool Tokenizer::is_cyrillic(const std::string& locale) {
-    return locale == "el" ||
+    return locale == "el" || locale == "bg" ||
            locale == "ru" || locale == "sr" || locale == "uk" || locale == "be";
 }
 
@@ -368,4 +369,9 @@ std::string Tokenizer::normalize_ascii_no_spaces(const std::string& text) {
     }
 
     return analytics_query;
+}
+
+bool Tokenizer::has_word_tokenizer(const std::string& locale) {
+    bool use_word_tokenizer = locale == "th" || locale == "ja" || Tokenizer::is_cyrillic(locale);
+    return use_word_tokenizer;
 }

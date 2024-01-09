@@ -173,3 +173,45 @@ TEST(SortedArrayTest, FilterArray) {
     delete[] arr1;
     delete[] results;
 }
+
+TEST(SortedArrayTest, SkipToID) {
+    std::vector<uint32_t> array;
+    for (uint32_t i = 0; i < 10; i++) {
+        array.push_back(i * 3);
+    }
+
+    uint32_t index = 0;
+    bool found = ArrayUtils::skip_index_to_id(index, array.data(), array.size(), 15);
+    ASSERT_TRUE(found);
+    ASSERT_EQ(5, index);
+
+    index = 4;
+    found = ArrayUtils::skip_index_to_id(index, array.data(), array.size(), 3);
+    ASSERT_FALSE(found);
+    ASSERT_EQ(4, index);
+
+    index = 4;
+    found = ArrayUtils::skip_index_to_id(index, array.data(), array.size(), 12);
+    ASSERT_TRUE(found);
+    ASSERT_EQ(4, index);
+
+    index = 4;
+    found = ArrayUtils::skip_index_to_id(index, array.data(), array.size(), 24);
+    ASSERT_TRUE(found);
+    ASSERT_EQ(8, index);
+
+    index = 4;
+    found = ArrayUtils::skip_index_to_id(index, array.data(), array.size(), 25);
+    ASSERT_FALSE(found);
+    ASSERT_EQ(9, index);
+
+    index = 4;
+    found = ArrayUtils::skip_index_to_id(index, array.data(), array.size(), 30);
+    ASSERT_FALSE(found);
+    ASSERT_EQ(10, index);
+
+    index = 12;
+    found = ArrayUtils::skip_index_to_id(index, array.data(), array.size(), 30);
+    ASSERT_FALSE(found);
+    ASSERT_EQ(12, index);
+}

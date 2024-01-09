@@ -4,6 +4,10 @@
 #include <collection_manager.h>
 #include <core_api.h>
 #include "core_api_utils.h"
+#include "raft_server.h"
+#include "conversation_model_manager.h"
+#include "conversation_manager.h"
+#include <analytics_manager.h>
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -14,14 +18,21 @@ protected:
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
 
+    AnalyticsManager& analyticsManager = AnalyticsManager::get_instance();
+
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/core_api_utils";
+        std::string analytics_db_path = "/tmp/typesense_test/analytics_db2";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
+
+        ConversationModelManager::init(store);
+        ConversationManager::get_instance().init(store);
+        analyticsManager.init(store, analytics_db_path);
     }
 
     virtual void SetUp() {
@@ -31,6 +42,7 @@ protected:
     virtual void TearDown() {
         collectionManager.dispose();
         delete store;
+        analyticsManager.stop();
     }
 };
 
@@ -621,6 +633,7 @@ TEST_F(CoreAPIUtilsTest, PresetMultiSearch) {
 
     auto op = collectionManager.create_collection(schema);
     ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
 
     auto preset_value = R"(
         {"collection":"preset_coll", "per_page": "12"}
@@ -1123,7 +1136,7 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
     post_proxy(req, resp);
 
     ASSERT_EQ(400, resp->status_code);
-    ASSERT_EQ("Parameter `method` must be one of GET, POST, PUT, DELETE.", nlohmann::json::parse(resp->body)["message"]);
+    ASSERT_EQ("Parameter `method` must be one of GET, POST, POST_STREAM, PUT, DELETE.", nlohmann::json::parse(resp->body)["message"]);
 
     // test with method as integer
     body["method"] = 123;
@@ -1170,8 +1183,6 @@ TEST_F(CoreAPIUtilsTest, TestProxyInvalid) {
     ASSERT_EQ("Headers must be a JSON object.", nlohmann::json::parse(resp->body)["message"]);
 }
 
-
-
 TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {
     nlohmann::json body;
 
@@ -1191,4 +1202,298 @@ TEST_F(CoreAPIUtilsTest, TestProxyTimeout) {
 
     ASSERT_EQ(408, resp->status_code);
     ASSERT_EQ("Server error on remote server. Please try again later.", nlohmann::json::parse(resp->body)["message"]);
+}
+
+TEST_F(CoreAPIUtilsTest, TestGetConversations) {
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["id"] = "0";
+
+    get_conversations(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    nlohmann::json res_json = nlohmann::json::parse(resp->body);
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(0, res_json.size());
+
+    get_conversation(req, resp);
+
+    ASSERT_EQ(404, resp->status_code);
+
+    auto schema_json =
+        R"({
+        "name": "Products",
+        "fields": [
+            {"name": "product_name", "type": "string", "infix": true},
+            {"name": "category", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["product_name", "category"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "product_name": "moisturizer",
+        "category": "beauty"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "shampoo",
+        "category": "beauty"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "shirt",
+        "category": "clothing"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "product_name": "pants",
+        "category": "clothing"
+    })"_json.dump());
+
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo"
+    })"_json;
+
+    model_config["api_key"] = api_key;
+
+    auto add_model_op = ConversationModelManager::add_model(model_config);
+
+    ASSERT_TRUE(add_model_op.ok());
+
+    LOG(INFO) << "Model id: " << add_model_op.get();
+
+    auto model_id = add_model_op.get()["id"].get<std::string>();
+
+    auto results_op = coll->search("how many products are there for clothing category?", {"embedding"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(), {},
+                                 10, "", 30, 4, "", 1, "", "", {}, 3, "<mark>", "</mark>", {}, 4294967295UL, true, false,
+                                 true, "", false, 6000000UL, 4, 7, fallback, 4, {off}, 32767UL, 32767UL, 2, 2, false, "",
+                                 true, 0, max_score, 100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true, true, true, model_id);
+    
+    ASSERT_TRUE(results_op.ok());
+
+    get_conversations(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    res_json = nlohmann::json::parse(resp->body);
+
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(1, res_json.size());
+
+    ASSERT_TRUE(res_json[0]["conversation"].is_array());
+    ASSERT_EQ(2, res_json[0]["conversation"].size());
+    ASSERT_EQ("how many products are there for clothing category?", res_json[0]["conversation"][0]["user"].get<std::string>());
+
+    req->params["id"] = res_json[0]["id"].get<std::string>();
+    get_conversation(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+
+    res_json = nlohmann::json::parse(resp->body);
+
+    ASSERT_TRUE(res_json.is_object());
+    ASSERT_TRUE(res_json["conversation"].is_array());
+    ASSERT_EQ(2, res_json["conversation"].size());
+    ASSERT_EQ("how many products are there for clothing category?", res_json["conversation"][0]["user"].get<std::string>());
+
+    del_conversation(req, resp);
+    ASSERT_EQ(200, resp->status_code);
+
+    get_conversations(req, resp);
+    ASSERT_EQ(200, resp->status_code);
+
+    res_json = nlohmann::json::parse(resp->body);
+    ASSERT_TRUE(res_json.is_array());
+    ASSERT_EQ(0, res_json.size());
+
+    auto del_res = ConversationModelManager::delete_model(model_id);
+}
+
+TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
+    Collection *coll_hnstories;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll_hnstories = collectionManager.get_collection("coll_hnstories").get();
+    if(coll_hnstories == nullptr) {
+        coll_hnstories = collectionManager.create_collection("coll_hnstories", 4, fields, "title").get();
+    }
+
+    auto req = std::make_shared<http_req>();
+    std::ifstream infile(std::string(ROOT_DIR)+"test/resources/hnstories.jsonl.gz");
+    std::stringstream outbuffer;
+
+    infile.seekg (0, infile.end);
+    int length = infile.tellg();
+    infile.seekg (0, infile.beg);
+
+    req->body.resize(length);
+    infile.read(&req->body[0], length);
+
+    auto res = ReplicationState::handle_gzip(req);
+    if (!res.error().empty()) {
+        LOG(ERROR) << res.error();
+        FAIL();
+    } else {
+        outbuffer << req->body;
+    }
+
+    std::vector<std::string> doc_lines;
+    std::string line;
+    while(std::getline(outbuffer, line)) {
+        doc_lines.push_back(line);
+    }
+
+    ASSERT_EQ(14, doc_lines.size());
+    ASSERT_EQ("{\"points\":1,\"title\":\"DuckDuckGo Settings\"}", doc_lines[0]);
+    ASSERT_EQ("{\"points\":1,\"title\":\"Making Twitter Easier to Use\"}", doc_lines[1]);
+    ASSERT_EQ("{\"points\":2,\"title\":\"London refers Uber app row to High Court\"}", doc_lines[2]);
+    ASSERT_EQ("{\"points\":1,\"title\":\"Young Global Leaders, who should be nominated? (World Economic Forum)\"}", doc_lines[3]);
+    ASSERT_EQ("{\"points\":1,\"title\":\"Blooki.st goes BETA in a few hours\"}", doc_lines[4]);
+    ASSERT_EQ("{\"points\":1,\"title\":\"Unicode Security Data: Beta Review\"}", doc_lines[5]);
+    ASSERT_EQ("{\"points\":2,\"title\":\"FileMap: MapReduce on the CLI\"}", doc_lines[6]);
+    ASSERT_EQ("{\"points\":1,\"title\":\"[Full Video] NBC News Interview with Edward Snowden\"}", doc_lines[7]);
+    ASSERT_EQ("{\"points\":1,\"title\":\"Hybrid App Monetization Example with Mobile Ads and In-App Purchases\"}", doc_lines[8]);
+    ASSERT_EQ("{\"points\":1,\"title\":\"We need oppinion from Android Developers\"}", doc_lines[9]);
+    ASSERT_EQ("{\"points\":1,\"title\":\"\\\\t Why Mobile Developers Should Care About Deep Linking\"}", doc_lines[10]);
+    ASSERT_EQ("{\"points\":2,\"title\":\"Are we getting too Sassy? Weighing up micro-optimisation vs. maintainability\"}", doc_lines[11]);
+    ASSERT_EQ("{\"points\":2,\"title\":\"Google's XSS game\"}", doc_lines[12]);
+    ASSERT_EQ("{\"points\":1,\"title\":\"Telemba Turns Your Old Roomba and Tablet Into a Telepresence Robot\"}", doc_lines[13]);
+
+    infile.close();
+}
+
+TEST_F(CoreAPIUtilsTest, TestConversationModels) {
+    nlohmann::json model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo"
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    model_config["api_key"] = std::string(std::getenv("api_key"));
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->body = model_config.dump();
+    post_conversation_model(req, resp);
+    ASSERT_EQ(200, resp->status_code);
+
+    auto id = nlohmann::json::parse(resp->body)["id"].get<std::string>();
+    req->params["id"] = id;
+    get_conversation_model(req, resp);
+
+    ASSERT_EQ(200, resp->status_code);
+    ASSERT_EQ(id, nlohmann::json::parse(resp->body)["id"].get<std::string>());
+
+    get_conversation_models(req, resp);
+    ASSERT_EQ(200, resp->status_code);
+    ASSERT_EQ(1, nlohmann::json::parse(resp->body).size());
+
+    del_conversation_model(req, resp);
+    ASSERT_EQ(200, resp->status_code);
+
+    get_conversation_models(req, resp);
+    ASSERT_EQ(200, resp->status_code);
+    ASSERT_EQ(0, nlohmann::json::parse(resp->body).size());
+}
+
+TEST_F(CoreAPIUtilsTest, TestInvalidConversationModels) {
+    // test with no model_name
+    nlohmann::json model_config = R"({
+    })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    model_config["api_key"] = std::string(std::getenv("api_key"));
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Property `model_name` is not provided or not a string.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with invalid model_name
+    model_config["model_name"] = "invalid_model_name";
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Model namespace `` is not supported.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with no api_key
+    model_config["model_name"] = "openai/gpt-3.5-turbo";
+    model_config.erase("api_key");
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("API key is not provided", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with api_key as integer
+    model_config["api_key"] = 123;
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("API key is not a string", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with model_name as integer
+
+    model_config["api_key"] = std::string(std::getenv("api_key"));
+    model_config["model_name"] = 123;
+
+    req->body = model_config.dump();
+
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Property `model_name` is not provided or not a string.", nlohmann::json::parse(resp->body)["message"]);
 }

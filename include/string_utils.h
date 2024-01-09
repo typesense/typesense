@@ -10,6 +10,7 @@
 #include <queue>
 #include "wyhash_v5.h"
 #include <unicode/normalizer2.h>
+#include <set>
 #include "option.h"
 
 struct StringUtils {
@@ -333,5 +334,11 @@ struct StringUtils {
 
     static Option<bool> tokenize_filter_query(const std::string& filter_query, std::queue<std::string>& tokens);
 
-    static Option<bool> split_include_fields(const std::string& include_fields, std::vector<std::string>& tokens);
+    static Option<bool> split_include_exclude_fields(const std::string& include_exclude_fields,
+                                                     std::vector<std::string>& tokens);
+
+    static size_t get_occurence_count(const std::string& str, char symbol);
+
+    static Option<bool> split_reference_include_exclude_fields(const std::string& include_fields,
+                                                               size_t& index, std::string& token);
 };

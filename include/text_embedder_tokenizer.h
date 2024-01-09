@@ -4,12 +4,16 @@
 #include <unordered_map>
 #include <sentencepiece_processor.h>
 #include <tokenizer/bert_tokenizer.hpp>
+#include <clip_tokenizer.h>
+#include <core/session/onnxruntime_cxx_api.h>
+#include <mutex>
 
 
 enum class TokenizerType {
     bert,
     distilbert,
-    xlm_roberta
+    xlm_roberta,
+    clip
 };
 
 struct encoded_input_t {
@@ -31,6 +35,7 @@ class TextEmbeddingTokenizer {
     public:
         virtual encoded_input_t Encode(const std::string& text) = 0;
         virtual ~TextEmbeddingTokenizer() = default;
+        virtual TokenizerType get_tokenizer_type() = 0;
 };
 
 class BertTokenizerWrapper : public TextEmbeddingTokenizer {
@@ -39,6 +44,9 @@ class BertTokenizerWrapper : public TextEmbeddingTokenizer {
     public:
         BertTokenizerWrapper(const std::string& vocab_path);
         encoded_input_t Encode(const std::string& text) override;
+        virtual TokenizerType get_tokenizer_type() override {
+            return TokenizerType::bert;
+        }
 };
 
 class DistilbertTokenizer : public BertTokenizerWrapper {
@@ -62,4 +70,19 @@ class XLMRobertaTokenizer : public TextEmbeddingTokenizer {
     public:
         XLMRobertaTokenizer(const std::string& model_path);
         encoded_input_t Encode(const std::string& text) override;
+        virtual TokenizerType get_tokenizer_type() override {
+            return TokenizerType::xlm_roberta;
+        }
+};
+
+class CLIPTokenizerWrapper : public TextEmbeddingTokenizer {
+    private:
+        std::unique_ptr<CLIPTokenizer> clip_tokenizer_;
+        std::mutex mutex_;
+    public:
+        CLIPTokenizerWrapper(const std::string& vocab_path);
+        encoded_input_t Encode(const std::string& text) override;
+        virtual TokenizerType get_tokenizer_type() override {
+            return TokenizerType::clip;
+        }
 };

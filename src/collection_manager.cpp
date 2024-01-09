@@ -8,6 +8,9 @@
 #include "batched_indexer.h"
 #include "logger.h"
 #include "magic_enum.hpp"
+#include "stopwords_manager.h"
+#include "conversation_model.h"
+#include "field.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -80,7 +83,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             size_t num_dim = 0;
             auto& model_config = field_obj[fields::embed][fields::model_config];
 
-            auto res = TextEmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
+            auto res = EmbedderManager::get_instance().validate_and_init_model(model_config, num_dim);
             if(!res.ok()) {
                 const std::string& model_name = model_config["model_name"].get<std::string>();
                 LOG(ERROR) << "Error initializing model: " << model_name << ", error: " << res.error();
@@ -218,6 +221,8 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     ThreadPool loading_pool(collection_batch_size);
 
     size_t num_processed = 0;
+    // Collection name -> Referenced in
+    std::map<std::string, std::set<reference_pair>> referenced_ins = {};
     std::mutex m_process;
     std::condition_variable cv_process;
 
@@ -231,7 +236,8 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
-                              &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit]() {
+                              &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
+                              &referenced_ins]() {
 
             //auto begin = std::chrono::high_resolution_clock::now();
             Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit);
@@ -248,6 +254,20 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
+
+            auto& cm = CollectionManager::get_instance();
+            auto const& collection_name = collection_meta.at("name");
+            auto collection = cm.get_collection(collection_name);
+            if (collection != nullptr) {
+                for (const auto &item: collection->get_reference_fields()) {
+                    auto const& ref_coll_name = item.second.collection;
+                    if (referenced_ins.count(ref_coll_name) == 0) {
+                        referenced_ins[ref_coll_name] = {};
+                    }
+                    auto const field_name = item.first + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+                    referenced_ins.at(ref_coll_name).insert(reference_pair{collection_name, field_name});
+                }
+            }
             cv_process.notify_one();
 
             size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
@@ -263,6 +283,17 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         return num_processed == num_collections;
     });
 
+    // Initialize references
+    for (const auto &item: referenced_ins) {
+        auto& cm = CollectionManager::get_instance();
+        auto collection = cm.get_collection(item.first);
+        if (collection != nullptr) {
+            for (const auto &reference_pair: item.second) {
+                collection->add_referenced_in(reference_pair);
+            }
+        }
+    }
+
     // load aliases
 
     std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
@@ -276,7 +307,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         collection_symlinks[parts[0]] = iter->value().ToString();
         iter->Next();
     }
-
     delete iter;
 
     // load presets
@@ -299,6 +329,28 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         iter->Next();
     }
+    delete iter;
+
+    //load stopwords
+    std::string stopword_prefix_key = std::string(StopwordsManager::STOPWORD_PREFIX) + "_";
+    std::string stopword_upper_bound_key = std::string(StopwordsManager::STOPWORD_PREFIX) + "`"; // cannot inline this
+    rocksdb::Slice stopword_upper_bound(stopword_upper_bound_key);
+
+    iter = store->scan(stopword_prefix_key, &stopword_upper_bound);
+    while(iter->Valid() && iter->key().starts_with(stopword_prefix_key)) {
+        std::vector<std::string> parts;
+        std::string stopword_name = iter->key().ToString().substr(stopword_prefix_key.size());
+        nlohmann::json stopword_obj = nlohmann::json::parse(iter->value().ToString(), nullptr, false);
+
+        if(!stopword_obj.is_discarded() && stopword_obj.is_object()) {
+            StopwordsManager::get_instance().upsert_stopword(stopword_name, stopword_obj);
+        } else {
+            LOG(INFO) << "Invalid object for stopword " << stopword_name;
+        }
+
+        iter->Next();
+    }
+    delete iter;
 
     // restore query suggestions configs
     std::vector<std::string> analytics_config_jsons;
@@ -310,8 +362,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         nlohmann::json analytics_config = nlohmann::json::parse(analytics_config_json);
         AnalyticsManager::get_instance().create_rule(analytics_config, false, false);
     }
-
-    delete iter;
 
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";
 
@@ -391,9 +441,12 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         return Option<Collection*>(fields_json_op.code(), fields_json_op.error());
     }
 
+    uint32_t new_coll_id = next_collection_id;
+    next_collection_id++;
+
     nlohmann::json collection_meta;
     collection_meta[Collection::COLLECTION_NAME_KEY] = name;
-    collection_meta[Collection::COLLECTION_ID_KEY] = next_collection_id.load();
+    collection_meta[Collection::COLLECTION_ID_KEY] = new_coll_id;
     collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
     collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
     collection_meta[Collection::COLLECTION_CREATED] = created_at;
@@ -402,13 +455,6 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
-
-    Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
-                                                default_sorting_field,
-                                                this->max_memory_ratio, fallback_field_type,
-                                                symbols_to_index, token_separators,
-                                                enable_nested_fields);
-    next_collection_id++;
 
     rocksdb::WriteBatch batch;
     batch.Put(Collection::get_next_seq_id_key(name), StringUtils::serialize_uint32_t(0));
@@ -421,7 +467,21 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     }
 
     lock.unlock();
+
+    Collection* new_collection = new Collection(name, new_coll_id, created_at, 0, store, fields,
+                                                default_sorting_field,
+                                                this->max_memory_ratio, fallback_field_type,
+                                                symbols_to_index, token_separators,
+                                                enable_nested_fields);
+
     add_to_collections(new_collection);
+
+    lock.lock();
+
+    if (referenced_in_backlog.count(name) > 0) {
+        new_collection->add_referenced_ins(referenced_in_backlog.at(name));
+        referenced_in_backlog.erase(name);
+    }
 
     return Option<Collection*>(new_collection);
 }
@@ -624,11 +684,165 @@ AuthManager& CollectionManager::getAuthManager() {
     return auth_manager;
 }
 
+bool parse_multi_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sort_by>& sort_fields) {
+    // FORMAT:
+    // _eval([ (<expr_1>): <score_1>, (<expr_2>): <score_2> ]):<order>
+
+    std::vector<std::string> eval_expressions;
+    std::vector<std::int64_t> scores;
+    while (true) {
+        if (index >= sort_by_str.size()) {
+            return false;
+        } else if (sort_by_str[index] == ']') {
+            break;
+        }
+
+        auto open_paren_pos = sort_by_str.find('(', index);
+        if (open_paren_pos == std::string::npos) {
+            return false;
+        }
+        index = open_paren_pos;
+        std::string eval_expr = "(";
+        int paren_count = 1;
+        while (++index < sort_by_str.size() && paren_count > 0) {
+            if (sort_by_str[index] == '(') {
+                paren_count++;
+            } else if (sort_by_str[index] == ')') {
+                paren_count--;
+            }
+            eval_expr += sort_by_str[index];
+        }
+
+        // Removing outer parenthesis.
+        eval_expr = eval_expr.substr(1, eval_expr.size() - 2);
+        if (paren_count != 0 || index >= sort_by_str.size()) {
+            return false;
+        }
+
+        while (sort_by_str[index] != ':' && ++index < sort_by_str.size());
+        if (index >= sort_by_str.size()) {
+            return false;
+        }
+
+        std::string score;
+        while (++index < sort_by_str.size() && !(sort_by_str[index] == ',' || sort_by_str[index] == ']')) {
+            score += sort_by_str[index];
+        }
+        StringUtils::trim(score);
+        if (!StringUtils::is_int64_t(score)) {
+            return false;
+        }
+
+        eval_expressions.emplace_back(eval_expr);
+        scores.emplace_back(std::stoll(score));
+    }
+
+    while (++index < sort_by_str.size() && sort_by_str[index] != ':');
+    if (index >= sort_by_str.size()) {
+        return false;
+    }
+
+    std::string order_str;
+    while (++index < sort_by_str.size() && sort_by_str[index] != ',') {
+        order_str += sort_by_str[index];
+    }
+    StringUtils::trim(order_str);
+    StringUtils::toupper(order_str);
+
+    sort_fields.emplace_back(eval_expressions, scores, order_str);
+    return true;
+}
+
+bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sort_by>& sort_fields) {
+    // FORMAT:
+    // _eval(<expr>):<order>
+    std::string eval_expr = "(";
+    int paren_count = 1;
+    while (++index < sort_by_str.size() && paren_count > 0) {
+        if (sort_by_str[index] == '(') {
+            paren_count++;
+        } else if (sort_by_str[index] == ')') {
+            paren_count--;
+        }
+        eval_expr += sort_by_str[index];
+    }
+
+    // Removing outer parenthesis.
+    eval_expr = eval_expr.substr(1, eval_expr.size() - 2);
+
+    if (paren_count != 0 || index >= sort_by_str.size()) {
+        return false;
+    }
+
+    while (sort_by_str[index] != ':' && ++index < sort_by_str.size());
+    if (index >= sort_by_str.size()) {
+        return false;
+    }
+
+    std::string order_str;
+    while (++index < sort_by_str.size() && sort_by_str[index] != ',') {
+        order_str += sort_by_str[index];
+    }
+    StringUtils::trim(order_str);
+    StringUtils::toupper(order_str);
+
+    std::vector<std::string> eval_expressions = {eval_expr};
+    std::vector<int64_t> scores = {1};
+    sort_fields.emplace_back(eval_expressions, scores, order_str);
+
+    return true;
+}
+
 bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields) {
     std::string sort_field_expr;
     char prev_non_space_char = 'a';
 
-    for(size_t i=0; i < sort_by_str.size(); i++) {
+    for(uint32_t i=0; i < sort_by_str.size(); i++) {
+        if (sort_field_expr.empty()) {
+            if (sort_by_str[i] == '$') {
+                // Sort by reference field
+                auto open_paren_pos = sort_by_str.find('(', i);
+                if (open_paren_pos == std::string::npos) {
+                    return false;
+                }
+                sort_field_expr = sort_by_str.substr(i, open_paren_pos - i + 1);
+
+                i = open_paren_pos;
+                int paren_count = 1;
+                while (++i < sort_by_str.size() && paren_count > 0) {
+                    if (sort_by_str[i] == '(') {
+                        paren_count++;
+                    } else if (sort_by_str[i] == ')') {
+                        paren_count--;
+                    }
+                    sort_field_expr += sort_by_str[i];
+                }
+                if (paren_count != 0) {
+                    return false;
+                }
+
+                sort_fields.emplace_back(sort_field_expr, "");
+                sort_field_expr = "";
+                continue;
+            } else if (sort_by_str.substr(i, 5) == sort_field_const::eval) {
+                // Optional filtering
+                auto open_paren_pos = sort_by_str.find('(', i);
+                if (open_paren_pos == std::string::npos) {
+                    return false;
+                }
+
+                i = open_paren_pos;
+                while(sort_by_str[++i] == ' ');
+
+                auto result = sort_by_str[i] == '[' ? parse_multi_eval(sort_by_str, i, sort_fields) :
+                                                        parse_eval(sort_by_str, --i, sort_fields);
+                if (!result) {
+                    return false;
+                }
+                continue;
+            }
+        }
+
         if(i == sort_by_str.size()-1 || (sort_by_str[i] == ',' && !isdigit(prev_non_space_char))) {
             if(i == sort_by_str.size()-1) {
                 sort_field_expr += sort_by_str[i];
@@ -695,6 +909,364 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
     return Option<bool>(true);
 }
 
+void CollectionManager::_get_reference_collection_names(const std::string& filter_query,
+                                                        ref_include_collection_names_t*& ref_include) {
+    if (ref_include == nullptr) {
+        ref_include = new ref_include_collection_names_t();
+    }
+
+    auto size = filter_query.size();
+    for (uint32_t i = 0; i < size;) {
+        auto c = filter_query[i];
+        if (c == ' ' || c == '(' || c == ')') {
+            i++;
+        } else if (c == '&' || c == '|') {
+            if (i + 1 >= size || (c == '&' && filter_query[i+1] != '&') || (c == '|' && filter_query[i+1] != '|')) {
+                ref_include->collection_names.clear();
+                return;
+            }
+            i += 2;
+        } else {
+            // Reference filter would start with $ symbol.
+            if (c == '$') {
+                auto open_paren_pos = filter_query.find('(', ++i);
+                if (open_paren_pos == std::string::npos) {
+                    ref_include->collection_names.clear();
+                    return;
+                }
+
+                auto reference_collection_name = filter_query.substr(i, open_paren_pos - i);
+                StringUtils::trim(reference_collection_name);
+                if (!reference_collection_name.empty()) {
+                    ref_include->collection_names.insert(reference_collection_name);
+                }
+
+                i = open_paren_pos;
+                int parenthesis_count = 1;
+                while (++i < size && parenthesis_count > 0) {
+                    if (filter_query[i] == '(') {
+                        parenthesis_count++;
+                    } else if (filter_query[i] == ')') {
+                        parenthesis_count--;
+                    }
+                }
+
+                if (parenthesis_count != 0) {
+                    ref_include->collection_names.clear();
+                    return;
+                }
+
+                // Need to process the filter expression inside parenthesis in case of nested join.
+                auto sub_filter_query = filter_query.substr(open_paren_pos + 1, i - open_paren_pos - 2);
+                if (sub_filter_query.find('$') != std::string::npos) {
+                    _get_reference_collection_names(sub_filter_query, ref_include->nested_include);
+                }
+            } else {
+                while (i + 1 < size && filter_query[++i] != ':');
+                if (i >= size) {
+                    ref_include->collection_names.clear();
+                    return;
+                }
+
+                bool in_backtick = false;
+                do {
+                    c = filter_query[++i];
+                    if (c == '`') {
+                        in_backtick = !in_backtick;
+                    }
+                } while (i < size && (in_backtick || (c != '(' && c != ')' &&
+                                                      !(c == '&' && filter_query[i + 1] == '&') &&
+                                                      !(c == '|' && filter_query[i + 1] == '|'))));
+            }
+        }
+    }
+}
+
+Option<bool> parse_nested_exclude(const std::string& exclude_field_exp,
+                                  std::unordered_map<std::string, std::string>& ref_excludes) {
+    // Format: $ref_collection_name(field_1, field_2, $nested_ref_coll(nested_field_1))
+    size_t index = 0;
+    while (index < exclude_field_exp.size()) {
+        auto parenthesis_index = exclude_field_exp.find('(');
+        auto ref_collection_name = exclude_field_exp.substr(index + 1, parenthesis_index - index - 1);
+        std::string ref_fields;
+
+        index = parenthesis_index + 1;
+        auto nested_exclude_pos = exclude_field_exp.find('$', parenthesis_index);
+        auto closing_parenthesis_pos = exclude_field_exp.find(')', parenthesis_index);
+        size_t comma_pos;
+        if (nested_exclude_pos < closing_parenthesis_pos) {
+            // Nested reference exclude.
+            // "... $product_variants(title, $inventory(qty)) ..."
+            do {
+                ref_fields += exclude_field_exp.substr(index, nested_exclude_pos - index);
+                StringUtils::trim(ref_fields);
+                index = nested_exclude_pos;
+                std::string nested_exclude_field_exp;
+                auto split_op = StringUtils::split_reference_include_exclude_fields(exclude_field_exp, index,
+                                                                                    nested_exclude_field_exp);
+                if (!split_op.ok()) {
+                    return split_op;
+                }
+
+                auto parse_op = parse_nested_exclude(nested_exclude_field_exp, ref_excludes);
+                if (!parse_op.ok()) {
+                    return parse_op;
+                }
+
+                nested_exclude_pos = exclude_field_exp.find('$', index);
+                closing_parenthesis_pos = exclude_field_exp.find(')', index);
+                comma_pos = exclude_field_exp.find(',', index);
+                index = std::min(closing_parenthesis_pos, comma_pos) + 1;
+            } while (index < exclude_field_exp.size() && nested_exclude_pos < closing_parenthesis_pos);
+        }
+
+        // ... $inventory(qty) ...
+        if (index < closing_parenthesis_pos) {
+            ref_fields += exclude_field_exp.substr(index, closing_parenthesis_pos - index);
+        }
+        StringUtils::trim(ref_fields);
+
+        ref_excludes[ref_collection_name] = ref_fields;
+        index = closing_parenthesis_pos + 1;
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> parse_nested_include(const std::string& include_field_exp,
+                                  CollectionManager::ref_include_collection_names_t* const ref_include_coll_names,
+                                  std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
+    // Format: $ref_collection_name(field_1, field_2, $nested_ref_coll(nested_field_1: nested_include_strategy) as nested_ref_alias: include_strategy) as ref_alias
+    size_t index = 0;
+    while (index < include_field_exp.size()) {
+        auto parenthesis_index = include_field_exp.find('(');
+        auto ref_collection_name = include_field_exp.substr(index + 1, parenthesis_index - index - 1);
+        bool nest_ref_doc = true;
+        std::string ref_fields, ref_alias;
+
+        index = parenthesis_index + 1;
+        auto nested_include_pos = include_field_exp.find('$', parenthesis_index);
+        auto closing_parenthesis_pos = include_field_exp.find(')', parenthesis_index);
+        auto colon_pos = include_field_exp.find(':', index);
+        size_t comma_pos;
+        std::vector<ref_include_exclude_fields> nested_ref_include_exclude_fields_vec;
+        if (nested_include_pos < closing_parenthesis_pos) {
+            // Nested reference include.
+            // "... $product_variants(title, $inventory(qty:merge) as inventory :nest) as variants ..."
+            do {
+                ref_fields += include_field_exp.substr(index, nested_include_pos - index);
+                StringUtils::trim(ref_fields);
+                index = nested_include_pos;
+                std::string nested_include_field_exp;
+                auto split_op = StringUtils::split_reference_include_exclude_fields(include_field_exp, index,
+                                                                                    nested_include_field_exp);
+                if (!split_op.ok()) {
+                    return split_op;
+                }
+
+                auto parse_op = parse_nested_include(nested_include_field_exp,
+                                                     ref_include_coll_names == nullptr ? nullptr : ref_include_coll_names->nested_include,
+                                                     nested_ref_include_exclude_fields_vec);
+                if (!parse_op.ok()) {
+                    return parse_op;
+                }
+
+                nested_include_pos = include_field_exp.find('$', index);
+                closing_parenthesis_pos = include_field_exp.find(')', index);
+                colon_pos = include_field_exp.find(':', index);
+                comma_pos = include_field_exp.find(',', index);
+                index = std::min(std::min(closing_parenthesis_pos, colon_pos), comma_pos) + 1;
+            } while(index < include_field_exp.size() && nested_include_pos < closing_parenthesis_pos);
+        }
+
+        // ... $inventory(qty:merge) as inventory ...
+        auto include_strategy = ref_include::nest_string;
+        auto strategy_enum = ref_include::nest;
+        if (colon_pos < closing_parenthesis_pos) { // Merge strategy is specified.
+            include_strategy = include_field_exp.substr(colon_pos + 1, closing_parenthesis_pos - colon_pos - 1);
+            StringUtils::trim(include_strategy);
+
+            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
+            if (!string_to_enum_op.ok()) {
+                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
+            }
+            strategy_enum = string_to_enum_op.get();
+
+            if (index < colon_pos) {
+                ref_fields += include_field_exp.substr(index, colon_pos - index);
+            }
+        } else if (index < closing_parenthesis_pos) {
+            ref_fields += include_field_exp.substr(index, closing_parenthesis_pos - index);
+        }
+        StringUtils::trim(ref_fields);
+
+        index = closing_parenthesis_pos;
+        auto as_pos = include_field_exp.find(" as ", index);
+        comma_pos = include_field_exp.find(',', index);
+        if (as_pos != std::string::npos && as_pos < comma_pos) {
+            ref_alias = include_field_exp.substr(as_pos + 4, comma_pos - as_pos - 4);
+        }
+
+        // For an alias `foo`,
+        // In case of "merge" reference doc, we need append `foo.` to all the top level keys of reference doc.
+        // In case of "nest" reference doc, `foo` becomes the key with reference doc as value.
+        nest_ref_doc = strategy_enum == ref_include::nest || strategy_enum == ref_include::nest_array;
+        ref_alias = !ref_alias.empty() ? (StringUtils::trim(ref_alias) + (nest_ref_doc ? "" : ".")) : "";
+
+        ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{ref_collection_name, ref_fields, "",
+                                                                               ref_alias, strategy_enum});
+        ref_include_exclude_fields_vec.back().nested_join_includes = std::move(nested_ref_include_exclude_fields_vec);
+
+        // Referenced collection in filter_by is already mentioned in include_fields.
+        if (ref_include_coll_names != nullptr) {
+            ref_include_coll_names->collection_names.erase(ref_collection_name);
+        }
+        if (comma_pos == std::string::npos) {
+            break;
+        }
+        index = comma_pos + 1;
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> CollectionManager::_initialize_ref_include_exclude_fields_vec(const std::string& filter_query,
+                                                                           std::vector<std::string>& include_fields_vec,
+                                                                           std::vector<std::string>& exclude_fields_vec,
+                                                                           std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
+    ref_include_collection_names_t* ref_include_coll_names = nullptr;
+    CollectionManager::_get_reference_collection_names(filter_query, ref_include_coll_names);
+    std::unique_ptr<CollectionManager::ref_include_collection_names_t> guard(ref_include_coll_names);
+
+    std::vector<std::string> result_include_fields_vec;
+    auto wildcard_include_all = true;
+    for (auto const& include_field_exp: include_fields_vec) {
+        if (include_field_exp[0] != '$') {
+            if (include_field_exp == "*") {
+                continue;
+            }
+
+            wildcard_include_all = false;
+            result_include_fields_vec.emplace_back(include_field_exp);
+            continue;
+        }
+
+        // Nested reference include.
+        if (include_field_exp.find('$', 1) != std::string::npos) {
+            auto parse_op = parse_nested_include(include_field_exp, ref_include_coll_names, ref_include_exclude_fields_vec);
+            if (!parse_op.ok()) {
+                return parse_op;
+            }
+            continue;
+        }
+
+        // Format: $ref_collection_name(field_1, field_2: include_strategy) as ref_alias
+        auto as_pos = include_field_exp.find(" as ");
+        auto ref_include = include_field_exp.substr(0, as_pos);
+        auto alias = (as_pos == std::string::npos) ? "" :
+                        include_field_exp.substr(as_pos + 4, include_field_exp.size() - (as_pos + 4));
+
+        auto parenthesis_index = ref_include.find('(');
+        auto ref_collection_name = ref_include.substr(1, parenthesis_index - 1);
+        auto ref_fields = ref_include.substr(parenthesis_index + 1, ref_include.size() - parenthesis_index - 2);
+
+        auto include_strategy = ref_include::nest_string;
+        auto strategy_enum = ref_include::nest;
+        auto colon_pos = ref_fields.find(':');
+        if (colon_pos != std::string::npos) {
+            include_strategy = ref_fields.substr(colon_pos + 1, ref_fields.size() - colon_pos - 1);
+            StringUtils::trim(include_strategy);
+
+            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
+            if (!string_to_enum_op.ok()) {
+                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
+            }
+            strategy_enum = string_to_enum_op.get();
+
+            ref_fields = ref_fields.substr(0, colon_pos);
+        }
+
+        // For an alias `foo`,
+        // In case of "merge" reference doc, we need append `foo.` to all the top level keys of reference doc.
+        // In case of "nest" reference doc, `foo` becomes the key with reference doc as value.
+        auto const& nest_ref_doc = strategy_enum == ref_include::nest || strategy_enum == ref_include::nest_array;
+        auto ref_alias = !alias.empty() ? (StringUtils::trim(alias) + (nest_ref_doc ? "" : ".")) : "";
+        ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{ref_collection_name, ref_fields, "",
+                                                                               ref_alias, strategy_enum});
+
+        // Referenced collection in filter_by is already mentioned in include_fields.
+        if (ref_include_coll_names != nullptr) {
+            ref_include_coll_names->collection_names.erase(ref_collection_name);
+        }
+    }
+
+    // Get all the fields of the referenced collection mentioned in the filter_by but not in include_fields.
+    auto references = std::ref(ref_include_exclude_fields_vec);
+    while (ref_include_coll_names != nullptr) {
+        for (const auto &reference_collection_name: ref_include_coll_names->collection_names) {
+            references.get().emplace_back(ref_include_exclude_fields{reference_collection_name, "", "", ""});
+        }
+
+        ref_include_coll_names = ref_include_coll_names->nested_include;
+        if (references.get().empty()) {
+            break;
+        }
+        references = std::ref(references.get().front().nested_join_includes);
+    }
+
+    std::unordered_map<std::string, std::string> ref_excludes;
+    std::vector<std::string> result_exclude_fields_vec;
+    for (const auto& exclude_field_exp: exclude_fields_vec) {
+        if (exclude_field_exp[0] != '$') {
+            result_exclude_fields_vec.emplace_back(exclude_field_exp);
+            continue;
+        }
+
+        // Nested reference exclude.
+        if (exclude_field_exp.find('$', 1) != std::string::npos) {
+            auto parse_op = parse_nested_exclude(exclude_field_exp, ref_excludes);
+            if (!parse_op.ok()) {
+                return parse_op;
+            }
+            continue;
+        }
+
+        // Format: $ref_collection_name(field_1, field_2)
+        auto parenthesis_index = exclude_field_exp.find('(');
+        auto ref_collection_name = exclude_field_exp.substr(1, parenthesis_index - 1);
+        auto ref_fields = exclude_field_exp.substr(parenthesis_index + 1, exclude_field_exp.size() - parenthesis_index - 2);
+        if (!ref_fields.empty()) {
+            ref_excludes[ref_collection_name] = ref_fields;
+        }
+    }
+
+    if (!ref_excludes.empty()) {
+        references = std::ref(ref_include_exclude_fields_vec);
+        while (!references.get().empty()) {
+            for (auto& ref_include_exclude: references.get()) {
+                if (ref_excludes.count(ref_include_exclude.collection_name) == 0) {
+                    continue;
+                }
+
+                ref_include_exclude.exclude_fields = ref_excludes[ref_include_exclude.collection_name];
+            }
+
+            references = std::ref(references.get().front().nested_join_includes);
+        }
+    }
+
+    // Since no field of the collection being searched is mentioned in include_fields, include all the fields.
+    if (wildcard_include_all) {
+        result_include_fields_vec.clear();
+    }
+
+    include_fields_vec = std::move(result_include_fields_vec);
+    exclude_fields_vec = std::move(result_exclude_fields_vec);
+
+    return Option<bool>(true);
+}
+
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
                                           nlohmann::json& embedded_params,
                                           std::string& results_json_str,
@@ -719,6 +1291,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_QUERY = "facet_query";
     const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
     const char *MAX_FACET_VALUES = "max_facet_values";
+
+    const char *FACET_RETURN_PARENT = "facet_return_parent";
 
     const char *VECTOR_QUERY = "vector_query";
 
@@ -777,8 +1351,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_SAMPLE_PERCENT = "facet_sample_percent";
     const char *FACET_SAMPLE_THRESHOLD = "facet_sample_threshold";
 
-    const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
+    const char *CONVERSATION = "conversation";
+    const char *CONVERSATION_ID = "conversation_id";
+    const char *SYSTEM_PROMPT = "system_prompt";
+    const char *CONVERSATION_MODEL_ID = "conversation_model_id";
+
     const char *DROP_TOKENS_MODE = "drop_tokens_mode";
+    const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
+    const char *OVERRIDE_TAGS = "override_tags";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -813,6 +1393,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
+    //check if stopword set is supplied
+    const auto stopword_it = req_params.find("stopwords");
+    std::string stopwords_set="";
+
+    if(stopword_it != req_params.end()) {
+        stopwords_set = stopword_it->second;
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     const std::string& orig_coll_name = req_params["collection"];
     auto collection = collectionManager.get_collection(orig_coll_name);
@@ -838,7 +1426,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD;
 
     std::vector<std::string> search_fields;
-    std::string simple_filter_query;
+    std::string filter_query;
     std::vector<std::string> facet_fields;
     std::vector<sort_by> sort_fields;
     size_t per_page = 10;
@@ -846,10 +1434,13 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t offset = 0;
     token_ordering token_order = NOT_SET;
 
+    std::vector<std::string> facet_return_parent;
+
     std::string vector_query;
 
     std::vector<std::string> include_fields_vec;
     std::vector<std::string> exclude_fields_vec;
+    std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec;
     spp::sparse_hash_set<std::string> include_fields;
     spp::sparse_hash_set<std::string> exclude_fields;
 
@@ -886,12 +1477,18 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
-
+    
     size_t facet_sample_percent = 100;
     size_t facet_sample_threshold = 0;
 
-    bool prioritize_num_matching_fields = true;
+    bool conversation = false;
+    std::string conversation_id;
+    std::string conversation_model_id;
+
     std::string drop_tokens_mode_str = "right_to_left";
+    bool prioritize_num_matching_fields = true;
+    std::string override_tags;
+
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -920,7 +1517,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
-        {FILTER, &simple_filter_query},
+        {FILTER, &filter_query},
         {VECTOR_QUERY, &vector_query},
         {FACET_QUERY, &simple_facet_query},
         {HIGHLIGHT_FIELDS, &highlight_fields},
@@ -929,7 +1526,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {HIGHLIGHT_END_TAG, &highlight_end_tag},
         {PINNED_HITS, &pinned_hits_str},
         {HIDDEN_HITS, &hidden_hits_str},
+        {CONVERSATION_ID, &conversation_id},
         {DROP_TOKENS_MODE, &drop_tokens_mode_str},
+        {OVERRIDE_TAGS, &override_tags},
+        {CONVERSATION_MODEL_ID, &conversation_model_id},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -939,6 +1539,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
         {ENABLE_OVERRIDES, &enable_overrides},
         {ENABLE_HIGHLIGHT_V1, &enable_highlight_v1},
+        {CONVERSATION, &conversation},
         {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
         {GROUP_MISSING_VALUES, &group_missing_values},
     };
@@ -949,6 +1550,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {GROUP_BY, &group_by_fields},
         {INCLUDE_FIELDS, &include_fields_vec},
         {EXCLUDE_FIELDS, &exclude_fields_vec},
+        {FACET_RETURN_PARENT, &facet_return_parent},
     };
 
     std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
@@ -1022,8 +1624,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 if(key == FACET_BY){
                     StringUtils::split_facet(val, *find_str_list_it->second);
                 }
-                else if(key == INCLUDE_FIELDS){
-                    auto op = StringUtils::split_include_fields(val, *find_str_list_it->second);
+                else if(key == INCLUDE_FIELDS || key == EXCLUDE_FIELDS){
+                    auto op = StringUtils::split_include_exclude_fields(val, *find_str_list_it->second);
                     if (!op.ok()) {
                         return op;
                     }
@@ -1046,6 +1648,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(!req_params[FACET_QUERY].empty() && req_params.count(PER_PAGE) == 0) {
         // for facet query we will set per_page to zero if it is not explicitly overridden
         per_page = 0;
+    }
+
+    auto initialize_op = _initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec, exclude_fields_vec,
+                                                                    ref_include_exclude_fields_vec);
+    if (!initialize_op.ok()) {
+        return initialize_op;
     }
 
     include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
@@ -1090,7 +1698,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                           Index::NUM_CANDIDATES_DEFAULT_MIN);
     }
 
-    Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
+
+    Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, filter_query, facet_fields,
                                                           sort_fields, num_typos,
                                                           per_page,
                                                           page,
@@ -1133,11 +1742,19 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           facet_sample_percent,
                                                           facet_sample_threshold,
                                                           offset,
+                                                          HASH,
                                                           remote_embedding_timeout_ms,
                                                           remote_embedding_num_tries,
+                                                          stopwords_set,
+                                                          facet_return_parent,
+                                                          ref_include_exclude_fields_vec,
+                                                          drop_tokens_mode_str,
                                                           prioritize_num_matching_fields,
                                                           group_missing_values,
-                                                          drop_tokens_mode_str);
+                                                          conversation,
+                                                          conversation_model_id,
+                                                          conversation_id,
+                                                          override_tags);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
@@ -1154,8 +1771,20 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(Config::get_instance().get_enable_search_analytics()) {
         if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
-            AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query,
+            const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
+                                                result["request_params"]["first_q"].get<std::string>());
+
+            AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
                                                             true, req_params["x-typesense-user-id"]);
+#ifdef ENABLE_QUERY_HITS
+            AnalyticsManager::get_instance().add_query_hits_count(orig_coll_name, analytics_query,
+                                                                  req_params["x-typesense-user-id"],
+                                                                  result["found"].get<size_t>());
+#endif
+        } else if(result.contains("found") == 0 && result["found"].get<size_t>() == 0) {
+            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
+            AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
+                                                              true, req_params["x-typesense-user-id"]);
         }
     }
 
@@ -1294,6 +1923,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     if(!parse_op.ok()) {
         return Option<Collection*>(parse_op.code(), parse_op.error());
     }
+
 
     const auto created_at = static_cast<uint64_t>(std::time(nullptr));
 
@@ -1585,6 +2215,16 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     return Option<Collection*>(new_coll);
 }
 
+void CollectionManager::add_referenced_in_backlog(const std::string& collection_name, reference_pair&& pair) {
+    std::shared_lock lock(mutex);
+    referenced_in_backlog[collection_name].insert(pair);
+}
+
+std::map<std::string, std::set<reference_pair>> CollectionManager::_get_referenced_in_backlog() const {
+    std::shared_lock lock(mutex);
+    return referenced_in_backlog;
+}
+
 void CollectionManager::process_embedding_field_delete(const std::string& model_name) {
     std::shared_lock lock(mutex);
     bool found = false;
@@ -1607,6 +2247,7 @@ void CollectionManager::process_embedding_field_delete(const std::string& model_
 
     if(!found) {
         LOG(INFO) << "Deleting text embedder: " << model_name;
-        TextEmbedderManager::get_instance().delete_text_embedder(model_name);
+        EmbedderManager::get_instance().delete_text_embedder(model_name);
+        EmbedderManager::get_instance().delete_image_embedder(model_name);
     }
 }

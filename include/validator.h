@@ -6,21 +6,6 @@
 #include "tsl/htrie_map.h"
 #include "field.h"
 
-enum index_operation_t {
-    CREATE,
-    UPSERT,
-    UPDATE,
-    EMPLACE,
-    DELETE
-};
-
-enum class DIRTY_VALUES {
-    REJECT = 1,
-    DROP = 2,
-    COERCE_OR_REJECT = 3,
-    COERCE_OR_DROP = 4,
-};
-
 class validator_t {
 public:
 

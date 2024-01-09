@@ -841,8 +841,8 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
     res_op = coll1->search("*", {}, "loc: (28.7040592, 77.10249019999999, 28.7040592, "
                                     "77.10249019999999, 28.7040592, 77.10249019999999, 28.7040592, 77.10249019999999)",
                            {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
-    ASSERT_TRUE(res_op.ok());
-    ASSERT_EQ(0, res_op.get()["found"].get<size_t>());
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Polygon is invalid: Edge 0 is degenerate (duplicate vertex)", res_op.error());
 
     // badly formatted exclusion filter
 
@@ -1988,7 +1988,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
             "name": "coll1",
             "fields": [
               {"name": "title", "type": "string" },
-              {"name": "brand", "type": "string" },
+              {"name": "brand", "type": "string", "infix": true },
               {"name": "points", "type": "int32" }
             ]
         }
@@ -2007,7 +2007,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     }
 
     std::vector<sort_by> sort_fields = {
-        sort_by("_eval(brand:nike)", "DESC"),
+        sort_by({"brand:nike"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2021,7 +2021,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
 
     // compound query
     sort_fields = {
-        sort_by("_eval(brand:nike && points:0)", "DESC"),
+        sort_by({"brand:nike && points:0"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2033,9 +2033,22 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
+    sort_fields = {
+            sort_by({"brand:nike", "points:1"}, {2, 1}, "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    expected_ids = {"3", "0", "1", "4", "2"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
     // when no results are found for eval query
     sort_fields = {
-            sort_by("_eval(brand:foobar)", "DESC"),
+            sort_by({"brand:foobar"}, {1}, "DESC"),
             sort_by("points", "DESC"),
     };
 
@@ -2047,9 +2060,45 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
+    nlohmann::json doc = R"(
+        {
+            "title": "title5",
+            "brand": "puma",
+            "points": 5
+        }
+    )"_json;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    sort_fields = {
+            sort_by({"brand:nike", "brand:adidas"}, {3, 2}, "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, results["hits"].size());
+
+    expected_ids = {"3", "0", "4", "2", "1", "5"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // Score associated with the first match is assigned to the document.
+    sort_fields = {
+            sort_by({"brand:nike", "brand:adidas", "points: 1"}, {3, 2, 5}, "DESC"),
+            sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(6, results["hits"].size());
+
+    expected_ids = {"3", "0", "4", "2", "1", "5"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
     // bad syntax for eval query
     sort_fields = {
-        sort_by("_eval(brandnike || points:0)", "DESC"),
+        sort_by({"brandnike || points:0"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2058,13 +2107,38 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     ASSERT_EQ("Error parsing eval expression in sort_by clause.", res_op.error());
 
     // when eval condition is empty
-    sort_fields = {
-        sort_by("_eval()", "DESC"),
-        sort_by("points", "DESC"),
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "*"},
+            {"query_by", "title"},
+            {"sort_by", "_eval():desc"},
     };
-    res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("The eval expression in sort_by is empty.", res_op.error());
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("The eval expression in sort_by is empty.", search_op.error());
+
+    req_params = {
+            {"collection", "coll1"},
+            {"q", "a"},
+            {"query_by", "brand"},
+            {"sort_by", "_eval(brand:puma):desc, _text_match:desc"},
+            {"infix", "always"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(4, results["hits"].size()); // 3 Adidas 1 Puma documents
+    // Because of `_eval`, Puma document will be on top even when having a lower text match score than Adidas documents.
+    expected_ids = {"5", "4", "2", "1"};
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
 
     // more bad syntax!
     sort_fields = {
@@ -2078,8 +2152,8 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
 
     // don't allow multiple sorting eval expressions
     sort_fields = {
-        sort_by("_eval(brand: nike || points:0)", "DESC"),
-        sort_by("_eval(brand: nike || points:0)", "DESC"),
+        sort_by({"brand: nike || points:0"}, {1}, "DESC"),
+        sort_by({"brand: nike || points:0"}, {1}, "DESC"),
     };
 
     res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10);
@@ -2114,7 +2188,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
     }
 
     std::vector<sort_by> sort_fields = {
-        sort_by("_eval(brand:nike)", "DESC"),
+        sort_by({"brand:nike"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2128,11 +2202,27 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
 
     // compound query
     sort_fields = {
-        sort_by("_eval(brand:nike && points:0)", "DESC"),
+        sort_by({"brand:nike && points:0"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
     results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "coll1"},
+            {"q", "title"},
+            {"query_by", "title"},
+            {"sort_by", "_eval(brand:[nike, adidas] && points:0):desc, points:DESC"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+    results = nlohmann::json::parse(json_res);
     ASSERT_EQ(5, results["hits"].size());
 
     expected_ids = {"0", "4", "3", "2", "1"};
@@ -2142,7 +2232,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
 
     // when no results are found for eval query
     sort_fields = {
-        sort_by("_eval(brand:foobar)", "DESC"),
+        sort_by({"brand:foobar"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2156,7 +2246,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
 
     // bad syntax for eval query
     sort_fields = {
-        sort_by("_eval(brandnike || points:0)", "DESC"),
+        sort_by({"brandnike || points:0"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2221,7 +2311,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
 
     std::vector<sort_by> sort_fields = {
         sort_by("val", "DESC"),
-        sort_by("_eval(brand:nike)", "DESC"),
+        sort_by({"brand:nike"}, {1}, "DESC"),
         sort_by("points", "DESC"),
     };
 
@@ -2237,7 +2327,32 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
     sort_fields = {
         sort_by("val", "DESC"),
         sort_by("val", "DESC"),
-        sort_by("_eval(brand:nike)", "DESC"),
+        sort_by({"brand:nike"}, {1}, "DESC"),
+    };
+
+    results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    sort_fields = {
+            sort_by("val", "DESC"),
+            sort_by({"brand:adidas", "brand:nike"}, {2, 1}, "DESC"),
+            sort_by("points", "DESC"),
+    };
+    expected_ids = {"4", "2", "1","3", "0"};
+
+    results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(5, results["hits"].size());
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    sort_fields = {
+            sort_by("val", "DESC"),
+            sort_by("val", "DESC"),
+            sort_by({"brand:adidas", "brand:nike"}, {2, 1}, "DESC"),
     };
 
     results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
@@ -2389,7 +2504,6 @@ TEST_F(CollectionSortingTest, InvalidVectorDistanceSorting) {
     ASSERT_EQ("sort_by vector_distance is only supported for vector queries, semantic search and hybrid search.", results.error());
 }
 
-
 TEST_F(CollectionSortingTest, TestSortByVectorQuery) {
     std::string coll_schema = R"(
         {
@@ -2467,4 +2581,60 @@ TEST_F(CollectionSortingTest, TestSortByVectorQuery) {
     ASSERT_EQ("2", results["hits"][0]["document"]["id"]);
     ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
     ASSERT_EQ("0", results["hits"][2]["document"]["id"]);
+}
+
+TEST_F(CollectionSortingTest, TestVectorQueryQsSorting) {
+        auto schema_json =
+        R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "embedding", "type":"float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto coll = collection_create_op.get();
+
+    auto add_op = coll->add(R"({
+        "name": "buttercup"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    add_op = coll->add(R"({
+        "name": "butter"
+    })"_json.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll->search("butter", {"name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "").get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"]);
+
+    sort_fields = {
+        sort_by("_vector_query(embedding:([], queries: [powerpuff girls, cartoon]))", "asc"),
+    };
+
+    results = coll->search("butter", {"name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"]);
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
 }

@@ -12,6 +12,7 @@
 #include "logger.h"
 #include "app_metrics.h"
 #include "tsconfig.h"
+#include "zlib.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -291,6 +292,9 @@ struct http_req {
     std::atomic<bool> is_diposed;
     std::string client_ip = "0.0.0.0";
 
+    z_stream zs;
+    bool zstream_initialized = false;
+
     // stores http lib related datastructures to avoid race conditions between indexing and http write threads
     stream_response_state_t res_state;
 
@@ -378,6 +382,11 @@ struct http_req {
 
         delete data;
         data = nullptr;
+
+        if(zstream_initialized) {
+            zstream_initialized = false;
+            inflateEnd(&zs);
+        }
     }
 
     void wait() {
@@ -590,4 +599,11 @@ struct http_message_dispatcher {
     void on(const std::string & message, bool (*handler)(void*)) {
         message_handlers.emplace(message, handler);
     }
+};
+
+struct async_stream_response_t {
+    std::vector<std::string> response_chunks;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool ready = false;
 };

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <field.h>
+#include "filter_result_iterator.h"
 
 struct KV {
     int8_t match_score_index{};
@@ -14,25 +15,25 @@ struct KV {
     uint64_t key{};
     uint64_t distinct_key{};
     int64_t scores[3]{};  // match score + 2 custom attributes
-    
+
     // only to be used in hybrid search
     float vector_distance = -1.0f;
     int64_t text_match_score = 0;
 
-    reference_filter_result_t* reference_filter_result = nullptr;
-
     // to be used only in final aggregation
     uint64_t* query_indices = nullptr;
 
+    std::map<std::string, reference_filter_result_t> reference_filter_results;
+
     KV(uint16_t queryIndex, uint64_t key, uint64_t distinct_key, int8_t match_score_index, const int64_t *scores,
-       reference_filter_result_t* reference_filter_result = nullptr):
+       std::map<std::string, reference_filter_result_t>  reference_filter_results = {}):
             match_score_index(match_score_index), query_index(queryIndex), array_index(0), key(key),
-            distinct_key(distinct_key), reference_filter_result(reference_filter_result) {
+            distinct_key(distinct_key), reference_filter_results(std::move(reference_filter_results)) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
         this->scores[2] = scores[2];
 
-        if(match_score_index >= 0) {
+        if(match_score_index >= 0){
             this->text_match_score = scores[match_score_index];
         }
     }
@@ -54,6 +55,8 @@ struct KV {
 
         vector_distance = kv.vector_distance;
         text_match_score = kv.text_match_score;
+
+        reference_filter_results = std::move(kv.reference_filter_results);
     }
 
     KV& operator=(KV&& kv) noexcept  {
@@ -74,6 +77,8 @@ struct KV {
 
             vector_distance = kv.vector_distance;
             text_match_score = kv.text_match_score;
+
+            reference_filter_results = std::move(kv.reference_filter_results);
         }
 
         return *this;
@@ -97,6 +102,12 @@ struct KV {
 
             vector_distance = kv.vector_distance;
             text_match_score = kv.text_match_score;
+
+            reference_filter_results.clear();
+
+            for (const auto& item: kv.reference_filter_results) {
+                reference_filter_results[item.first] = item.second;
+            }
         }
 
         return *this;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <filter_result_iterator.h>
 #include "posting_list.h"
 
 /*
@@ -48,8 +49,13 @@ public:
 
     static bool take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded);
 
+    static bool take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded,
+                        single_filter_result_t& filter_result);
+
     template<class T>
     static bool intersect(std::vector<or_iterator_t>& its, result_iter_state_t& istate, T func);
+
+    static bool contains_atleast_one(std::vector<or_iterator_t>& its, result_iter_state_t&& istate);
 };
 
 template<class T>
@@ -62,8 +68,8 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
         case 0:
             break;
         case 1:
-            if(istate.filter_ids_length != 0) {
-                its[0].skip_to(istate.filter_ids[istate.filter_ids_index]);
+            if(istate.is_filter_provided() && istate.is_filter_valid()) {
+                its[0].skip_to(istate.get_filter_id());
             }
 
             while(its.size() == it_size && its[0].valid()) {
@@ -75,14 +81,15 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
                 }
 
                 auto id = its[0].id();
-                if(take_id(istate, id, is_excluded)) {
-                    func(id, its);
+                single_filter_result_t filter_result;
+                if(take_id(istate, id, is_excluded, filter_result)) {
+                    func(filter_result, its);
                 }
 
-                if(istate.filter_ids_length != 0 && !is_excluded) {
-                    if(istate.filter_ids_index < istate.filter_ids_length) {
+                if(istate.is_filter_provided() && !is_excluded) {
+                    if(istate.is_filter_valid()) {
                         // skip iterator till next id available in filter
-                        its[0].skip_to(istate.filter_ids[istate.filter_ids_index]);
+                        its[0].skip_to(istate.get_filter_id());
                     } else {
                         break;
                     }
@@ -92,9 +99,9 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
             }
             break;
         case 2:
-            if(istate.filter_ids_length != 0) {
-                its[0].skip_to(istate.filter_ids[istate.filter_ids_index]);
-                its[1].skip_to(istate.filter_ids[istate.filter_ids_index]);
+            if(istate.is_filter_provided() && istate.is_filter_valid()) {
+                its[0].skip_to(istate.get_filter_id());
+                its[1].skip_to(istate.get_filter_id());
             }
 
             while(its.size() == it_size && !at_end2(its)) {
@@ -107,15 +114,16 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
                 if(equals2(its)) {
                     auto id = its[0].id();
-                    if(take_id(istate, id, is_excluded)) {
-                        func(id, its);
+                    single_filter_result_t filter_result;
+                    if(take_id(istate, id, is_excluded, filter_result)) {
+                        func(filter_result, its);
                     }
 
-                    if(istate.filter_ids_length != 0 && !is_excluded) {
-                        if(istate.filter_ids_index < istate.filter_ids_length) {
+                    if(istate.is_filter_provided() != 0 && !is_excluded) {
+                        if(istate.is_filter_valid()) {
                             // skip iterator till next id available in filter
-                            its[0].skip_to(istate.filter_ids[istate.filter_ids_index]);
-                            its[1].skip_to(istate.filter_ids[istate.filter_ids_index]);
+                            its[0].skip_to(istate.get_filter_id());
+                            its[1].skip_to(istate.get_filter_id());
                         } else {
                             break;
                         }
@@ -128,9 +136,9 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
             }
             break;
         default:
-            if(istate.filter_ids_length != 0) {
+            if(istate.is_filter_provided() && istate.is_filter_valid()) {
                 for(auto& it: its) {
-                    it.skip_to(istate.filter_ids[istate.filter_ids_index]);
+                    it.skip_to(istate.get_filter_id());
                 }
             }
 
@@ -144,15 +152,16 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
                 if(equals(its)) {
                     auto id = its[0].id();
-                    if(take_id(istate, id, is_excluded)) {
-                        func(id, its);
+                    single_filter_result_t filter_result;
+                    if(take_id(istate, id, is_excluded, filter_result)) {
+                        func(filter_result, its);
                     }
 
-                    if(istate.filter_ids_length != 0 && !is_excluded) {
-                        if(istate.filter_ids_index < istate.filter_ids_length) {
+                    if(istate.is_filter_provided() && !is_excluded) {
+                        if(istate.is_filter_valid()) {
                             // skip iterator till next id available in filter
                             for(auto& it: its) {
-                                it.skip_to(istate.filter_ids[istate.filter_ids_index]);
+                                it.skip_to(istate.get_filter_id());
                             }
                         } else {
                             break;

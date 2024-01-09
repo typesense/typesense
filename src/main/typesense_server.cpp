@@ -68,13 +68,22 @@ void master_server_routes() {
     server->put("/presets/:name", put_upsert_preset);
     server->del("/presets/:name", del_preset);
 
+    server->get("/stopwords", get_stopwords);
+    server->get("/stopwords/:name", get_stopword);
+    server->put("/stopwords/:name", put_upsert_stopword);
+    server->del("/stopwords/:name", del_stopword);
+
     // analytics
     server->get("/analytics/rules", get_analytics_rules);
     server->get("/analytics/rules/:name", get_analytics_rule);
     server->post("/analytics/rules", post_create_analytics_rules);
     server->put("/analytics/rules/:name", put_upsert_analytics_rules);
     server->del("/analytics/rules/:name", del_analytics_rules);
+
+    //analytics events
     server->post("/analytics/events", post_create_event);
+    server->post("/analytics/events/replicate", post_replicate_events);
+    server->get("/analytics/query_hits_counts", get_query_hits_counts);
 
     // meta
     server->get("/metrics.json", get_metrics_json);
@@ -89,6 +98,17 @@ void master_server_routes() {
     server->post("/operations/cache/clear", post_clear_cache, false, false);
     server->post("/operations/db/compact", post_compact_db, false, false);
     server->post("/operations/reset_peers", post_reset_peers, false, false);
+    
+    server->post("/conversations/models", post_conversation_model);
+    server->get("/conversations/models", get_conversation_models);
+    server->get("/conversations/models/:id", get_conversation_model);
+    server->del("/conversations/models/:id", del_conversation_model);
+
+
+    server->get("/conversations", get_conversations);
+    server->get("/conversations/:id", get_conversation);
+    server->del("/conversations/:id", del_conversation);
+    server->put("/conversations/:id", put_conversation);
 
     server->get("/limits", get_rate_limits);
     server->get("/limits/active", get_active_throttles);

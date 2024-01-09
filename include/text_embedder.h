@@ -25,9 +25,21 @@ class TextEmbedder {
             return remote_embedder_ != nullptr;
         }
         Option<bool> validate();
+
+        std::shared_ptr<Ort::Session> get_session() {
+            return session_;
+        }
+
+        std::shared_ptr<Ort::Env> get_env() {
+            return env_;
+        }
+
+        const TokenizerType get_tokenizer_type() {
+            return tokenizer_->get_tokenizer_type();
+        }
     private:
-        std::unique_ptr<Ort::Session> session_;
-        Ort::Env env_;
+        std::shared_ptr<Ort::Session> session_;
+        std::shared_ptr<Ort::Env> env_;
         encoded_input_t Encode(const std::string& text);
         batch_encoded_input_t batch_encode(const std::vector<std::string>& inputs);
         std::unique_ptr<TextEmbeddingTokenizer> tokenizer_;

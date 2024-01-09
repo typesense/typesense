@@ -13,7 +13,7 @@
 
 class array_base {
 protected:
-    uint8_t* in;
+    uint8_t* in = nullptr;
     uint32_t size_bytes = 0;    // allocated size
     uint32_t length_bytes = 0;  // actual size
     uint32_t length = 0;

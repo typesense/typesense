@@ -26,7 +26,7 @@ public:
 
     ~num_tree_t();
 
-    void insert(int64_t value, uint32_t id);
+    void insert(int64_t value, uint32_t id, bool is_facet=false);
 
     void range_inclusive_search(int64_t start, int64_t end, uint32_t** ids, size_t& ids_len);
 
@@ -55,4 +55,6 @@ public:
                   uint32_t* const& context_ids,
                   size_t& result_ids_len,
                   uint32_t*& result_ids) const;
+
+    std::pair<int64_t, int64_t> get_min_max(const uint32_t* result_ids, size_t result_ids_len);
 };

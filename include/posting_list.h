@@ -8,6 +8,7 @@
 #include "thread_local_vars.h"
 
 typedef uint32_t last_id_t;
+class filter_result_iterator_t;
 
 struct result_iter_state_t {
     const uint32_t* excluded_result_ids = nullptr;
@@ -19,12 +20,25 @@ struct result_iter_state_t {
     size_t excluded_result_ids_index = 0;
     size_t filter_ids_index = 0;
 
+    filter_result_iterator_t* fit = nullptr;
+
     result_iter_state_t() = default;
 
     result_iter_state_t(const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
                         const uint32_t* filter_ids, const size_t filter_ids_length) : excluded_result_ids(excluded_result_ids),
                                                                                       excluded_result_ids_size(excluded_result_ids_size),
                                                                                       filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
+
+    result_iter_state_t(const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
+                        filter_result_iterator_t* fit) : excluded_result_ids(excluded_result_ids),
+                                                                   excluded_result_ids_size(excluded_result_ids_size),
+                                                                   fit(fit){}
+
+    [[nodiscard]] bool is_filter_provided() const;
+
+    [[nodiscard]] bool is_filter_valid() const;
+
+    [[nodiscard]] uint32_t get_filter_id() const;
 };
 
 /*
@@ -77,7 +91,7 @@ public:
         uint32_t* offsets = nullptr;
 
         explicit iterator_t(const std::map<last_id_t, block_t*>* id_block_map,
-                            block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0);
+                            block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0, bool reverse = false);
         ~iterator_t();
 
         iterator_t(iterator_t&& rhs) noexcept;
@@ -87,9 +101,12 @@ public:
         [[nodiscard]] bool valid() const;
         void next();
         void skip_to(uint32_t id);
+        void skip_to_rev(uint32_t id);
         void set_index(uint32_t index);
         [[nodiscard]] uint32_t id() const;
+        [[nodiscard]] uint32_t offset() const;
         [[nodiscard]] uint32_t last_block_id() const;
+        [[nodiscard]] uint32_t first_block_id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
         [[nodiscard]] uint32_t get_field_id() const;
@@ -160,9 +177,13 @@ public:
 
     iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr, uint32_t field_id = 0);
 
+    iterator_t new_rev_iterator();
+
     static void merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
     static void intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
+
+    static void intersect(std::vector<posting_list_t::iterator_t>& posting_list_iterators, bool& is_valid);
 
     template<class T>
     static bool block_intersect(
@@ -172,6 +193,8 @@ public:
     );
 
     static bool take_id(result_iter_state_t& istate, uint32_t id);
+    
+    static void get_offsets(iterator_t& iter, std::vector<uint32_t>& positions);
 
     static bool get_offsets(
         const std::vector<iterator_t>& its,
@@ -183,6 +206,9 @@ public:
     static void get_exact_matches(std::vector<iterator_t>& its, bool field_is_array,
                                   const uint32_t* ids, const uint32_t num_ids,
                                   uint32_t*& exact_ids, size_t& num_exact_ids);
+
+    static bool has_exact_match(std::vector<posting_list_t::iterator_t>& posting_list_iterators,
+                                  const bool field_is_array);
 
     static void get_phrase_matches(std::vector<iterator_t>& its, bool field_is_array,
                                    const uint32_t* ids, const uint32_t num_ids,

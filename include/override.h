@@ -13,6 +13,7 @@ struct override_t {
         std::string match;
         bool dynamic_query = false;
         std::string filter_by;
+        std::set<std::string> tags;
     };
 
     struct add_hit_t {
@@ -38,6 +39,8 @@ struct override_t {
 
     std::string sort_by;
     std::string replace_query;
+
+    nlohmann::json metadata;
 
     // epoch seconds
     int64_t effective_from_ts = -1;

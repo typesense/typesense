@@ -819,7 +819,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
     art_fuzzy_search(&t, (const unsigned char *) "hown", strlen("hown") + 1, 0, 1, 10, FREQUENCY, false, false, "", nullptr, 0, leaves, exclude_leaves);
     ASSERT_EQ(10, leaves.size());
 
-    std::set<std::string> expected_words = {"town", "sown", "mown", "lown", "howl", "howk", "howe", "how", "horn", "hoon"};
+    std::set<std::string> expected_words = {"town", "sown", "shown", "own", "mown", "lown", "howl", "howk", "howe", "how"};
 
     for(size_t leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
         art_leaf*& leaf = leaves.at(leaf_index);
@@ -1099,6 +1099,14 @@ TEST(ArtTest, test_art_search_roche_chews) {
     ASSERT_EQ(0, leaves.size());
 
     art_fuzzy_search(&t, (const unsigned char*)keys[0].c_str(), keys[0].size() + 1, 0, 0, 10,
+                     FREQUENCY, false, false, "", nullptr, 0, leaves, exclude_leaves);
+
+    ASSERT_EQ(1, leaves.size());
+
+    term = "xxroche";
+    leaves.clear();
+    exclude_leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char*)term.c_str(), term.size()+1, 0, 2, 10,
                      FREQUENCY, false, false, "", nullptr, 0, leaves, exclude_leaves);
 
     ASSERT_EQ(1, leaves.size());

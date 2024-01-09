@@ -111,7 +111,17 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnSingleField) {
 
     // max candidates as default 4
     auto results = coll1->search("mark j", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("mark b", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("9", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("8", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("mark b", {"title"}, "points: < 9", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("8", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionSpecificMoreTest, TypoCorrectionShouldUseMaxCandidates) {
@@ -1879,7 +1889,7 @@ TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                                 "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                 4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                                100, 0, 0, 30000, 2, true);
+                                100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true);
 
 
     auto res = coll1->search("beta", {"name", "brand"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 5,
@@ -1887,7 +1897,7 @@ TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                              4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                             100, 0, 0, 30000, 2, false).get();
+                             100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", false).get();
 
     size_t score1 = std::stoul(res["hits"][0]["text_match_info"]["score"].get<std::string>());
     size_t score2 = std::stoul(res["hits"][1]["text_match_info"]["score"].get<std::string>());
@@ -1898,7 +1908,7 @@ TEST_F(CollectionSpecificMoreTest, DisableFieldCountForScoring) {
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {3,3}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                         4, {off}, 0, 0, 0, 2, false, "", true, 0, max_score,
-                        100, 0, 0, 30000, 2, true).get();
+                        100, 0, 0, HASH, 30000, 2, "", {}, {}, "right_to_left", true).get();
 
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
@@ -2169,6 +2179,10 @@ TEST_F(CollectionSpecificMoreTest, PhraseMatchAcrossArrayElements) {
 
     auto res = coll1->search(R"("state of the art)", {"texts"}, "", {}, {}, {0}, 10, 1,
                              FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>()).get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    res = coll1->search(R"("state of the art")", {"texts"}, "", {}, {}, {0}, 10, 1,
+                        FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>()).get();
     ASSERT_EQ(0, res["hits"].size());
 }
 
@@ -2409,7 +2423,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                              4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                             0, 30000, 2, true, true, "left_to_right").get();
+                             0, HASH, 30000, 2, "", {}, {}, "left_to_right").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
@@ -2419,7 +2433,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                         4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                        0, 30000, 2, true, true, "right_to_left").get();
+                        0, HASH, 30000, 2, "", {}, {}, "right_to_left").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
@@ -2430,7 +2444,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                         4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                        0, 30000, 2, true, true, "both_sides:3").get();
+                        0, HASH, 30000, 2, "", {}, {}, "both_sides:3").get();
     ASSERT_EQ(2, res["hits"].size());
 
     // but must follow token limit
@@ -2439,7 +2453,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                         4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                        0, 30000, 2, true, true, "both_sides:1").get();
+                        0, HASH, 30000, 2, "", {}, {}, "both_sides:1").get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
 
@@ -2449,7 +2463,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                                 4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                                0, 30000, 2, true, true, "all_sides");
+                                0, HASH, 30000, 2, "", {}, {}, "all_sides");
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
 
@@ -2458,7 +2472,7 @@ TEST_F(CollectionSpecificMoreTest, DropTokensLeftToRightFirst) {
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "", true, 0, max_score, 100, 0,
-                           0, 30000, 2, true, true, "both_sides:x");
+                           0, HASH, 30000, 2, "", {}, {}, "both_sides:x");
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Invalid format for drop tokens mode.", res_op.error());
 }
@@ -2541,236 +2555,108 @@ TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {
     ASSERT_EQ(1, res["hits"].size());
 }
 
-TEST_F(CollectionSpecificMoreTest, RearrangingFilterTree) {
-    nlohmann::json schema =
-            R"({
-                "name": "Collection",
-                "fields": [
-                    {"name": "name", "type": "string"},
-                    {"name": "age", "type": "int32"},
-                    {"name": "years", "type": "int32[]"},
-                    {"name": "rating", "type": "float"}
-                ]
-            })"_json;
+TEST_F(CollectionSpecificMoreTest, AnalyticsFullFirstQuery) {
+    Config::get_instance().set_enable_search_analytics(true);
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "color", "type": "string"}
+            ]
+        })"_json;
 
-    Collection* coll = collectionManager.create_collection(schema).get();
+    Collection* coll1 = collectionManager.create_collection(schema).get();
 
-    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
-    std::string json_line;
-    while (std::getline(infile, json_line)) {
-        auto add_op = coll->add(json_line);
-        ASSERT_TRUE(add_op.ok());
-    }
-    infile.close();
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Cool trousers";
+    doc["color"] = "blue";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
-    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query("years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
-                                                        coll->get_schema(), store, doc_id_prefix, filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
-    std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
-
-    //           &&
-    //         /    \
-    //   years>2000  ||
-    //       4      /  \
-    //             /    &&
-    //           &&    /   \
-    //          /  \ age>50 rating<5
-    //         /    \   1        2
-    //        /      \
-    //    age<30  rating>5
-    //      2         3
-    ASSERT_TRUE(filter_tree_root != nullptr);
-    ASSERT_TRUE(filter_tree_root->isOperator);
-    ASSERT_EQ(filter_tree_root->filter_operator, AND);
-
-    auto root = filter_tree_root->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "years");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, OR);
-
-    root = filter_tree_root->right->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, AND);
-
-    root = filter_tree_root->right->left->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "age");
-    ASSERT_EQ(root->filter_exp.comparators.front(), LESS_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "30");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right->left->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "rating");
-    ASSERT_EQ(root->filter_exp.comparators.front(), GREATER_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "5");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, AND);
-
-    root = filter_tree_root->right->right->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "age");
-    ASSERT_EQ(root->filter_exp.comparators.front(), GREATER_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "50");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right->right->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "rating");
-    ASSERT_EQ(root->filter_exp.comparators.front(), LESS_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "5");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    uint32_t count = 0;
-    coll->_get_index()->rearrange_filter_tree(filter_tree_root, count);
-
-    //                 &&
-    //               /    \
-    //             ||    years>2000
-    //           /    \
-    //         &&       \
-    //       /   \        \
-    //  age>50  rating<5   &&
-    //                   /    \
-    //               age<30  rating>5
-    ASSERT_TRUE(filter_tree_root != nullptr);
-    ASSERT_TRUE(filter_tree_root->isOperator);
-    ASSERT_EQ(filter_tree_root->filter_operator, AND);
-
-    root = filter_tree_root->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, OR);
-
-    root = filter_tree_root->left->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, AND);
-
-    root = filter_tree_root->left->left->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "age");
-    ASSERT_EQ(root->filter_exp.comparators.front(), GREATER_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "50");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->left->left->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "rating");
-    ASSERT_EQ(root->filter_exp.comparators.front(), LESS_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "5");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->left->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_TRUE(root->isOperator);
-    ASSERT_EQ(root->filter_operator, AND);
-
-    root = filter_tree_root->left->right->left;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "age");
-    ASSERT_EQ(root->filter_exp.comparators.front(), LESS_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "30");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->left->right->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "rating");
-    ASSERT_EQ(root->filter_exp.comparators.front(), GREATER_THAN);
-    ASSERT_EQ(root->filter_exp.values.front(), "5");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    root = filter_tree_root->right;
-    ASSERT_TRUE(root != nullptr);
-    ASSERT_FALSE(root->isOperator);
-    ASSERT_EQ(root->filter_exp.field_name, "years");
-    ASSERT_TRUE(root->left == nullptr);
-    ASSERT_TRUE(root->right == nullptr);
-
-    collectionManager.drop_collection("Collection");
+    auto res = coll1->search("co", {"title", "color"}, "", {}, {}, {2, 0}, 10, 1, FREQUENCY, {true}, 0,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {2, 3}).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("cool", res["request_params"]["first_q"].get<std::string>());
+    Config::get_instance().set_enable_search_analytics(false);
 }
 
-TEST_F(CollectionSpecificMoreTest, ApproxFilterMatchCount) {
-    nlohmann::json schema =
-            R"({
-                "name": "Collection",
-                "fields": [
-                    {"name": "name", "type": "string"},
-                    {"name": "age", "type": "int32"},
-                    {"name": "years", "type": "int32[]"},
-                    {"name": "rating", "type": "float"},
-                    {"name": "location", "type": "geopoint", "optional": true}
-                ]
-            })"_json;
+TEST_F(CollectionSpecificMoreTest, TruncateAterTopK) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
 
-    Collection *coll = collectionManager.create_collection(schema).get();
+    Collection* coll1 = collectionManager.create_collection(schema).get();
 
-    std::ifstream infile(std::string(ROOT_DIR) + "test/numeric_array_documents.jsonl");
-    std::string json_line;
-    while (std::getline(infile, json_line)) {
-        auto add_op = coll->add(json_line);
-        ASSERT_TRUE(add_op.ok());
+    for(auto i = -10; i < 5; i++) {
+        nlohmann::json doc;
+        doc["title"] = std::to_string(i);
+        doc["points"] = i;
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
-    infile.close();
 
-    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root = nullptr;
-    Option<bool> filter_op = filter::parse_filter_query("name: Jeremy", coll->get_schema(), store, doc_id_prefix,
-                                                        filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
+    for(auto i = 0; i < 5; i++) {
+        nlohmann::json doc;
+        doc["title"] = std::to_string(10 + i);
+        doc["points"] = i;
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
 
-    uint32_t approx_count = 0;
-    coll->_get_index()->_approximate_filter_ids(filter_tree_root->filter_exp, approx_count);
-    ASSERT_EQ(approx_count, 5);
+/*     Values   Doc ids
+        -10       0
+        -9        1
+        -8        2
+        -7        3
+        -6        4
+        -5        5
+        -4        6
+        -3        7
+        -2        8
+        -1        9
+        0         10, 15
+        1         11, 16
+        2         12, 17
+        3         13, 18
+        4         14, 19
+ */
 
-    delete filter_tree_root;
-    filter_op = filter::parse_filter_query("location:(48.8662, 2.3255, 48.8581, 2.3209, 48.8561, 2.3448, 48.8641, 2.3469)",
-                                           coll->get_schema(), store, doc_id_prefix, filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
+    auto results = coll1->search("*", {"*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(20, results["found"]);
 
-    coll->_get_index()->_approximate_filter_ids(filter_tree_root->filter_exp, approx_count);
-    ASSERT_EQ(approx_count, 100);
+    coll1->truncate_after_top_k("points", 15);
 
-    delete filter_tree_root;
-    filter_op = filter::parse_filter_query("years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5))",
-                                                        coll->get_schema(), store, doc_id_prefix, filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
+    results = coll1->search("*", {"*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(15, results["found"]);
 
-    coll->_get_index()->rearrange_filter_tree(filter_tree_root, approx_count);
-    ASSERT_EQ(approx_count, 3);
+    std::vector<std::string> ids = {"19", "18", "17", "16", "15", "14", "13", "12", "11", "10", "9", "8", "7", "6", "5"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(ids[i], results["hits"][i]["document"]["id"]);
+    }
 
-    delete filter_tree_root;
-    collectionManager.drop_collection("Collection");
+    coll1->truncate_after_top_k("points", 11);
+
+    results = coll1->search("*", {"*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(11, results["found"]);
+
+    ids = {"19", "18", "17", "16", "15", "14", "13", "12", "11", "10", "9"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(ids[i], results["hits"][i]["document"]["id"]);
+    }
+
+    coll1->truncate_after_top_k("points", 5);
+
+    results = coll1->search("*", {"*"}, "", {}, {}, {0}).get();
+    ASSERT_EQ(5, results["found"]);
+
+    ids = {"19", "18", "14", "13", "12"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(ids[i], results["hits"][i]["document"]["id"]);
+    }
 }
 
 TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
@@ -2797,7 +2683,7 @@ TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
             })"_json
     };
 
-    TextEmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -2824,5 +2710,3 @@ TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
     ASSERT_EQ(0, results["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
     ASSERT_EQ(0, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
 }
-
-

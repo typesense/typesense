@@ -1,5 +1,4 @@
-#ifndef ART_H
-#define ART_H
+#pragma once
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -7,6 +6,7 @@
 #include <set>
 #include "array.h"
 #include "sorted_array.h"
+#include "filter_result_iterator.h"
 
 #define IGNORE_PRINTF 1
 
@@ -111,7 +111,7 @@ struct token_leaf {
     uint32_t num_typos;
 
     token_leaf(art_leaf* leaf, uint32_t root_len, uint32_t num_typos, bool is_prefix) :
-               leaf(leaf), root_len(root_len), num_typos(num_typos), is_prefix(is_prefix) {
+            leaf(leaf), root_len(root_len), num_typos(num_typos), is_prefix(is_prefix) {
 
     }
 };
@@ -155,11 +155,6 @@ enum NUM_COMPARATOR {
     GREATER_THAN,
     GREATER_THAN_EQUALS,
     RANGE_INCLUSIVE
-};
-
-enum FILTER_OPERATOR {
-    AND,
-    OR
 };
 
 /**
@@ -281,6 +276,12 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
                      const uint32_t *filter_ids, const size_t filter_ids_length,
                      std::vector<art_leaf *> &results, std::set<std::string>& exclude_leaves);
 
+int art_fuzzy_search_i(art_tree *t, const unsigned char *term, const int term_len, const int min_cost, const int max_cost,
+                     const size_t max_words, const token_ordering token_order,
+                     const bool prefix, bool last_token, const std::string& prev_token,
+                     filter_result_iterator_t* const filter_result_iterator,
+                     std::vector<art_leaf *> &results, std::set<std::string>& exclude_leaves);
+
 void encode_int32(int32_t n, unsigned char *chars);
 
 void encode_int64(int64_t n, unsigned char *chars);
@@ -295,6 +296,4 @@ int art_float_search(art_tree *t, float value, NUM_COMPARATOR comparator, std::v
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

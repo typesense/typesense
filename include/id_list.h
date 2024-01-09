@@ -126,6 +126,8 @@ public:
 
     uint32_t first_id();
 
+    uint32_t last_id();
+
     block_t* block_of(uint32_t id);
 
     bool contains(uint32_t id);
@@ -152,6 +154,8 @@ public:
     uint32_t* uncompress();
 
     void uncompress(std::vector<uint32_t>& data);
+
+    size_t intersect_count(const uint32_t* res_ids, size_t res_ids_len);
 };
 
 template<class T>

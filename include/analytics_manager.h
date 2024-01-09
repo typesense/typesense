@@ -1,11 +1,114 @@
 #pragma once
-#include "popular_queries.h"
+#include "query_analytics.h"
 #include "option.h"
 #include "raft_server.h"
 #include <vector>
 #include <string>
 #include <unordered_map>
 #include <shared_mutex>
+
+struct event_t {
+    std::string query;
+    std::string event_type;
+    uint64_t timestamp;
+    std::string user_id;
+    std::string doc_id;
+    uint64_t position;
+
+    event_t() = delete;
+
+    ~event_t() = default;
+
+    event_t(std::string q, std::string type, uint64_t ts, std::string uid, std::string id, uint64_t pos) {
+        query = q;
+        event_type = type;
+        timestamp = ts;
+        user_id = uid;
+        doc_id = id;
+        position = pos;
+    }
+
+    event_t& operator=(event_t& other) {
+        if (this != &other) {
+            query = other.query;
+            event_type = other.event_type;
+            timestamp = other.timestamp;
+            user_id = other.user_id;
+            doc_id = other.doc_id;
+            position = other.position;
+            return *this;
+        }
+    }
+
+    void to_json(nlohmann::json& obj) const {
+        obj["query"] = query;
+        obj["event_type"] = event_type;
+        obj["timestamp"] = timestamp;
+        obj["user_id"] = user_id;
+        obj["doc_id"] = doc_id;
+        obj["position"] = position;
+    }
+};
+
+struct counter_event_t {
+    std::string counter_field;
+    std::map<std::string, uint64_t> docid_counts;
+    std::map<std::string, uint16_t> event_weight_map;
+};
+
+struct query_hits_count_t {
+    std::string query;
+    uint64_t timestamp;
+    std::string user_id;
+    uint64_t hits_count;
+
+    query_hits_count_t() = delete;
+
+    ~query_hits_count_t() = default;
+
+    query_hits_count_t(std::string q, uint64_t ts, std::string uid, uint64_t count) {
+        query = q;
+        timestamp = ts;
+        user_id = uid;
+        hits_count = count;
+    }
+
+    query_hits_count_t &operator=(query_hits_count_t &other) {
+        if (this != &other) {
+            query = other.query;
+            timestamp = other.timestamp;
+            user_id = other.user_id;
+            hits_count = other.hits_count;
+            return *this;
+        }
+    }
+
+    void to_json(nlohmann::json &obj) const {
+        obj["query"] = query;
+        obj["timestamp"] = timestamp;
+        obj["user_id"] = user_id;
+        obj["hits_count"] = hits_count;
+    }
+};
+
+struct query_hits_count_comp {
+    bool operator()(const query_hits_count_t& a, const query_hits_count_t& b) const {
+        return a.query < b.query;
+    }
+};
+
+struct event_cache_t {
+    uint64_t last_update_time;
+    uint64_t count;
+
+    bool operator == (const event_cache_t& res) const {
+        return last_update_time == res.last_update_time;
+    }
+
+    bool operator != (const event_cache_t& res) const {
+        return last_update_time != res.last_update_time;
+    }
+};
 
 class AnalyticsManager {
 private:
@@ -21,14 +124,20 @@ private:
         std::string suggestion_collection;
         std::vector<std::string> query_collections;
         size_t limit;
+        std::string rule_type;
+        bool expand_query = false;
 
         void to_json(nlohmann::json& obj) const {
             obj["name"] = name;
-            obj["type"] = POPULAR_QUERIES_TYPE;
+            obj["type"] = rule_type;
             obj["params"] = nlohmann::json::object();
             obj["params"]["limit"] = limit;
             obj["params"]["source"]["collections"] = query_collections;
             obj["params"]["destination"]["collection"] = suggestion_collection;
+
+            if(rule_type == POPULAR_QUERIES_TYPE) {
+                obj["params"]["expand_query"] = expand_query;
+            }
         }
     };
 
@@ -39,24 +148,44 @@ private:
     std::unordered_map<std::string, std::vector<std::string>> query_collection_mapping;
 
     // suggestion collection => popular queries
-    std::unordered_map<std::string, PopularQueries*> popular_queries;
+    std::unordered_map<std::string, QueryAnalytics*> popular_queries;
+
+    // suggestion collection => nohits queries
+    std::unordered_map<std::string, QueryAnalytics*> nohits_queries;
+
+    // collection => popular clicks
+    std::unordered_map<std::string, counter_event_t> counter_events;
+
+    //query collection => events
+    std::unordered_map<std::string, std::vector<event_t>> query_collection_events;
+
+    //query collection => query hits count
+    std::unordered_map<std::string, std::set<query_hits_count_t, query_hits_count_comp>> query_collection_hits_count;
 
     Store* store = nullptr;
+    Store* analytics_store = nullptr;
+    std::ofstream  analytics_logs;
 
+    bool isRateLimitEnabled = false;
     AnalyticsManager() {}
 
     ~AnalyticsManager();
 
-    Option<bool> remove_popular_queries_index(const std::string& name);
+    Option<bool> remove_index(const std::string& name);
 
-    Option<bool> create_popular_queries_index(nlohmann::json &payload,
-                                              bool upsert,
-                                              bool write_to_disk);
+    Option<bool> create_index(nlohmann::json &payload,
+                              bool upsert,
+                              bool write_to_disk);
 
 public:
 
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
+    static constexpr const char* CLICK_EVENT = "$CE";
+    static constexpr const char* QUERY_HITS_COUNT = "$QH";
+    static constexpr const char* PURCHASE_EVENT = "$PE";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
+    static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
+    static constexpr const char* COUNTER_TYPE = "counter";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -66,7 +195,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store);
+    void init(Store* store, const std::string& analytics_dir="");
 
     void run(ReplicationState* raft_server);
 
@@ -79,13 +208,47 @@ public:
     Option<bool> remove_rule(const std::string& name);
 
     void add_suggestion(const std::string& query_collection,
-                        const std::string& query, bool live_query, const std::string& user_id);
+                        const std::string& query, const std::string& expanded_query,
+                        bool live_query, const std::string& user_id);
 
     void stop();
 
     void dispose();
 
-    void persist_suggestions(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    Store* get_analytics_store();
 
-    std::unordered_map<std::string, PopularQueries*> get_popular_queries();
+    void persist_query_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+
+    std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
+
+    Option<bool> add_event(const std::string& event_type, const std::string& query_collection, const std::string& query, const std::string& user_id,
+                            std::string doc_id, uint64_t position, const std::string& client_ip);
+
+    void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+
+    void persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+
+    nlohmann::json get_events(const std::string& coll, const std::string& event_type);
+
+    std::unordered_map<std::string, counter_event_t> get_popular_clicks();
+
+    Option<bool> write_events_to_store(nlohmann::json& event_jsons);
+
+    void add_nohits_query(const std::string& query_collection,
+                          const std::string& query, bool live_query, const std::string& user_id);
+
+    std::unordered_map<std::string, QueryAnalytics*> get_nohits_queries();
+
+    void resetToggleRateLimit(bool toggle);
+
+    void add_query_hits_count(const std::string& query_collection, const std::string& query, const std::string& user_id,
+                                            uint64_t hits_count);
+
+    nlohmann::json get_query_hits_counts();
+
+    void checkEventsExpiry();
+
+    uint64_t get_current_time_us();
+
+    void resetAnalyticsStore();
 };

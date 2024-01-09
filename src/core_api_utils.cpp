@@ -67,6 +67,7 @@ Option<bool> stateful_export_docs(export_state_t* export_state, size_t batch_siz
                     export_state->res_body->append(doc.dump());
                 } else {
                     Collection::remove_flat_fields(doc);
+                    Collection::remove_reference_helper_fields(doc);
                     Collection::prune_doc(doc, export_state->include_fields, export_state->exclude_fields);
                     export_state->res_body->append(doc.dump());
                 }
