@@ -164,13 +164,14 @@ private:
 
     Store* store = nullptr;
     Store* analytics_store = nullptr;
+    std::ofstream  analytics_logs;
 
     bool isRateLimitEnabled = false;
     AnalyticsManager() {}
 
     ~AnalyticsManager();
 
-    Option<bool> remove_queries_index(const std::string& name);
+    Option<bool> remove_index(const std::string& name);
 
     Option<bool> create_index(nlohmann::json &payload,
                               bool upsert,
@@ -194,7 +195,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store, Store* analytics_store);
+    void init(Store* store, const std::string& analytics_dir="");
 
     void run(ReplicationState* raft_server);
 
@@ -225,9 +226,9 @@ public:
 
     void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
-    void persist_popular_clicks(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
-    nlohmann::json get_events(const std::string& event_type);
+    nlohmann::json get_events(const std::string& coll, const std::string& event_type);
 
     std::unordered_map<std::string, counter_event_t> get_popular_clicks();
 

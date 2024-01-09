@@ -169,8 +169,6 @@ bool put_upsert_analytics_rules(const std::shared_ptr<http_req>& req, const std:
 
 bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_analytics_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
-
 bool post_replicate_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool get_query_hits_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

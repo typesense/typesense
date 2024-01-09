@@ -83,7 +83,6 @@ void master_server_routes() {
     //analytics events
     server->post("/analytics/events", post_create_event);
     server->post("/analytics/events/replicate", post_replicate_events);
-    server->get("/analytics/events/:name", get_analytics_events, false, true);
     server->get("/analytics/query_hits_counts", get_query_hits_counts);
 
     // meta
