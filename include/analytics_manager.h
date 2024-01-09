@@ -195,7 +195,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store, Store* analytics_store);
+    void init(Store* store, const std::string& analytics_dir="");
 
     void run(ReplicationState* raft_server);
 

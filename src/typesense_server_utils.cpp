@@ -402,15 +402,12 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     //analytics DB for storing query click events
     std::unique_ptr<Store> analytics_store = nullptr;
-    if(!analytics_dir.empty()) {
-        analytics_store.reset(new Store(analytics_dir, 24 * 60 * 60, 1024, true));
-    }
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
 
-    AnalyticsManager::get_instance().init(&store, analytics_store.get());
+    AnalyticsManager::get_instance().init(&store, analytics_dir);
 
     server = new HttpServer(
         version,

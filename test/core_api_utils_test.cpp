@@ -11,7 +11,7 @@
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
-    Store *store, *analytics_store;
+    Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
 
@@ -27,13 +27,12 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        analytics_store = new Store(analytics_db_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
         ConversationModelManager::init(store);
         ConversationManager::get_instance().init(store);
-        analyticsManager.init(store, analytics_store);
+        analyticsManager.init(store, analytics_db_path);
     }
 
     virtual void SetUp() {
@@ -43,7 +42,7 @@ protected:
     virtual void TearDown() {
         collectionManager.dispose();
         delete store;
-        delete analytics_store;
+        analyticsManager.stop();
     }
 };
 

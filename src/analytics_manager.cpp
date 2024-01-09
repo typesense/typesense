@@ -6,7 +6,6 @@
 #include "collection_manager.h"
 #include "lru/lru.hpp"
 #include "string_utils.h"
-#include "tsconfig.h"
 
 LRU::Cache<std::string, event_cache_t> events_cache;
 #define EVENTS_RATE_LIMIT_SEC 60
@@ -609,6 +608,9 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
 void AnalyticsManager::stop() {
     quit = true;
     cv.notify_all();
+    if(analytics_store) {
+        delete analytics_store;
+    }
 }
 
 void AnalyticsManager::dispose() {
@@ -627,12 +629,11 @@ void AnalyticsManager::dispose() {
     nohits_queries.clear();
 }
 
-void AnalyticsManager::init(Store* store, Store* analytics_store) {
+void AnalyticsManager::init(Store* store, const std::string& analytics_dir) {
     this->store = store;
-    this->analytics_store = analytics_store;
 
-    if(analytics_store) {
-        const auto analytics_dir = Config::get_instance().get_analytics_dir();
+    if(!analytics_dir.empty()) {
+        this->analytics_store = new Store(analytics_dir, 24 * 60 * 60, 1024, true);
         const auto analytics_log_path = analytics_dir + "/analytics_events.tsv";
 
         analytics_logs.open(analytics_log_path, std::ofstream::out | std::ofstream::app);
