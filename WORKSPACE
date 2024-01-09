@@ -317,3 +317,10 @@ http_archive(
     strip_prefix = "elfutils-0.182",
     urls = ["https://sourceware.org/elfutils/ftp/0.182/elfutils-0.182.tar.bz2"],
 )
+
+new_git_repository(
+    name= "whisper.cpp",
+    build_file = "//bazel:whisper.BUILD",
+    branch = "master",
+    remote = "https://github.com/ggerganov/whisper.cpp.git"
+)

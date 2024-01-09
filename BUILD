@@ -26,6 +26,12 @@ cc_library(
     includes = ["include"],
 )
 
+
+config_setting(
+    name = "with_cuda",
+    define_values = { "use_cuda": "on" }
+)
+
 cc_library(
     name = "common_deps",
     defines = [
@@ -54,7 +60,10 @@ cc_library(
         "@rocksdb",
         "@s2geometry",
         "@hnsw",
-        "@clip_tokenizer//:clip"
+        "@clip_tokenizer//:clip",
+        "@whisper.cpp//:whisper",
+        "@whisper.cpp//:whisper_headers",
+        "//:cuda_deps",
         # "@zip",
     ],
 )
@@ -83,6 +92,23 @@ ASAN_COPTS = [
     "-fno-omit-frame-pointer",
     "-DASAN_BUILD"
 ]
+
+
+load("@cuda_home_repo//:cuda_home.bzl", "CUDA_HOME")
+load("@cuda_home_repo//:cudnn_home.bzl", "CUDNN_HOME")
+
+cc_library(
+    name = "cuda_deps",
+    linkopts = select({
+        ":with_cuda": [
+            "-lcudart",
+            "-lcublas",
+            "-lcuda",
+            "-L" + CUDA_HOME + "/lib64",
+        ],
+        "//conditions:default": [],
+    }),
+)
 
 cc_binary(
     name = "typesense-server",
@@ -186,6 +212,7 @@ cc_test(
     deps = [
         ":common_deps",
         "@com_google_googletest//:gtest",
+        ":cuda_deps",
     ],
     defines = [
         "ROOT_DIR="
