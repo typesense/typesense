@@ -4774,7 +4774,7 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
             field::flatten_doc(document, nested_fields, {}, true, flattened_fields);
         }
 
-        index_record record(num_found_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::REJECT);
+        index_record record(num_found_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::COERCE_OR_DROP);
         iter_batch.emplace_back(std::move(record));
 
         // Peek and check for last record right here so that we handle batched indexing correctly
@@ -4891,10 +4891,12 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     auto validate_op = validate_alter_payload(alter_payload, addition_fields, reindex_fields,
                                               del_fields, this_fallback_field_type);
     if(!validate_op.ok()) {
+        LOG(INFO) << "Alter failed validation: " << validate_op.error();
         return validate_op;
     }
 
     if(!this_fallback_field_type.empty() && !fallback_field_type.empty()) {
+        LOG(INFO) << "Alter failed: schema already contains a `.*` field.";
         return Option<bool>(400, "The schema already contains a `.*` field.");
     }
 
@@ -4912,6 +4914,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
 
     auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type);
     if(!batch_alter_op.ok()) {
+        LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
         return batch_alter_op;
     }
 
@@ -4919,6 +4922,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         LOG(INFO) << "Processing field modifications now...";
         batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type);
         if(!batch_alter_op.ok()) {
+            LOG(INFO) << "Alter failed during alter data: " << batch_alter_op.error();
             return batch_alter_op;
         }
     }
