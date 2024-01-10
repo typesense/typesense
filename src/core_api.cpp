@@ -1787,6 +1787,10 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
         req_json["expires_at"] = api_key_t::FAR_FUTURE_TIMESTAMP;
     }
 
+    if(req_json.count("autodelete") == 0) {
+        req_json["autodelete"] = false;
+    }
+
     const std::string &rand_key = (req_json.count("value") != 0) ?
             req_json["value"].get<std::string>() : req->metadata;
 
@@ -1795,7 +1799,8 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
         req_json["description"].get<std::string>(),
         req_json["actions"].get<std::vector<std::string>>(),
         req_json["collections"].get<std::vector<std::string>>(),
-        req_json["expires_at"].get<uint64_t>()
+        req_json["expires_at"].get<uint64_t>(),
+        req_json["autodelete"].get<bool>()
     );
 
     const Option<api_key_t>& api_key_op = auth_manager.create_key(api_key);

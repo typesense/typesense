@@ -48,6 +48,9 @@ void HouseKeeper::run() {
                 LOG(INFO) << "Ran housekeeping for " << coll_names.size() << " collections.";
             }
 
+            //do housekeeping for authmanager
+            CollectionManager::get_instance().getAuthManager().do_housekeeping();
+
             prev_hnsw_repair_s = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
         }
