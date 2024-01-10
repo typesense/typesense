@@ -45,7 +45,7 @@ protected:
 };
 
 TEST_F(CollectionVectorTest, BasicVectorQuerying) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"},
@@ -237,7 +237,7 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
 }
 
 TEST_F(CollectionVectorTest, VectorDistanceConfig) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"},
@@ -253,7 +253,7 @@ TEST_F(CollectionVectorTest, VectorDistanceConfig) {
 }
 
 TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
             "name": "coll1",
             "fields": [
                 {"name": "title", "type": "string"},
@@ -316,7 +316,7 @@ TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {
 }
 
 TEST_F(CollectionVectorTest, VectorChangedUpsert) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
             "name": "coll1",
             "fields": [
                 {"name": "title", "type": "string"},
@@ -407,7 +407,7 @@ TEST_F(CollectionVectorTest, VectorChangedUpsert) {
 }
 
 TEST_F(CollectionVectorTest, VectorManyUpserts) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
             "name": "coll1",
             "fields": [
                 {"name": "title", "type": "string"},
@@ -498,7 +498,7 @@ TEST_F(CollectionVectorTest, VectorManyUpserts) {
 
 
 TEST_F(CollectionVectorTest, VectorPartialUpdate) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
             "name": "coll1",
             "fields": [
                 {"name": "title", "type": "string"},
@@ -566,7 +566,7 @@ TEST_F(CollectionVectorTest, VectorPartialUpdate) {
 }
 
 TEST_F(CollectionVectorTest, NumVectorGreaterThanNumDim) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
             "name": "coll1",
             "fields": [
                 {"name": "title", "type": "string"},
@@ -599,7 +599,7 @@ TEST_F(CollectionVectorTest, NumVectorGreaterThanNumDim) {
 
 TEST_F(CollectionVectorTest, IndexGreaterThan1KVectors) {
     // tests the dynamic resizing of graph
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"},
@@ -644,7 +644,7 @@ TEST_F(CollectionVectorTest, IndexGreaterThan1KVectors) {
 }
 
 TEST_F(CollectionVectorTest, InsertDocWithEmptyVectorAndDelete) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "vec", "type": "float[]", "num_dim": 4, "optional": true}
@@ -660,7 +660,7 @@ TEST_F(CollectionVectorTest, InsertDocWithEmptyVectorAndDelete) {
 }
 
 TEST_F(CollectionVectorTest, VecSearchWithFiltering) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"},
@@ -759,7 +759,7 @@ TEST_F(CollectionVectorTest, VecSearchWithFiltering) {
 }
 
 TEST_F(CollectionVectorTest, VecSearchWithFilteringWithMissingVectorValues) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"},
@@ -901,7 +901,7 @@ TEST_F(CollectionVectorTest, VecSearchWithFilteringWithMissingVectorValues) {
 }
 
 TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"},
@@ -1000,7 +1000,7 @@ TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {
 }
 
 TEST_F(CollectionVectorTest, VectorWithNullValue) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "vec", "type": "float[]", "num_dim": 4}
@@ -1034,7 +1034,7 @@ TEST_F(CollectionVectorTest, VectorWithNullValue) {
 }
 
 TEST_F(CollectionVectorTest, EmbeddedVectorUnchangedUpsert) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                 "name": "coll1",
                 "fields": [
                     {"name": "title", "type": "string"},
@@ -1116,7 +1116,7 @@ TEST_F(CollectionVectorTest, EmbeddedVectorUnchangedUpsert) {
 }
 
 TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                             "name": "objects",
                             "fields": [
                             {"name": "name", "type": "string"},
@@ -1265,7 +1265,7 @@ TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
 }
 
 TEST_F(CollectionVectorTest, HybridSearchOnlyVectorMatches) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "name", "type": "string", "facet": true},
@@ -1297,7 +1297,7 @@ TEST_F(CollectionVectorTest, HybridSearchOnlyVectorMatches) {
 }
 
 TEST_F(CollectionVectorTest, DistanceThresholdTest) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "test",
         "fields": [
             {"name": "vec", "type": "float[]", "num_dim": 3}
@@ -1357,7 +1357,7 @@ TEST_F(CollectionVectorTest, DistanceThresholdTest) {
 
 
 TEST_F(CollectionVectorTest, HybridSearchSortByGeopoint) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                 "name": "objects",
                 "fields": [
                 {"name": "name", "type": "string"},
@@ -1424,7 +1424,7 @@ TEST_F(CollectionVectorTest, HybridSearchSortByGeopoint) {
 
 
 TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                 "name": "objects",
                 "fields": [
                 {"name": "text", "type": "string", "optional": true},
@@ -1537,7 +1537,7 @@ TEST_F(CollectionVectorTest, HideCredential) {
 }
 
 TEST_F(CollectionVectorTest, UpdateOfFieldReferencedByEmbedding) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "objects",
         "fields": [
             {"name": "name", "type": "string"},
@@ -1597,7 +1597,7 @@ TEST_F(CollectionVectorTest, UpdateOfFieldReferencedByEmbedding) {
 
 TEST_F(CollectionVectorTest, UpdateOfFieldNotReferencedByEmbedding) {
     // test updates to a field that's not referred by an embedding field
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "objects",
         "fields": [
             {"name": "name", "type": "string"},
@@ -1698,7 +1698,7 @@ TEST_F(CollectionVectorTest, EmbeddingFieldWithIdFieldPrecedingInSchema) {
 }
 
 TEST_F(CollectionVectorTest, SkipEmbeddingOpWhenValueExists) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "objects",
         "fields": [
             {"name": "name", "type": "string"},
@@ -1843,7 +1843,7 @@ TEST_F(CollectionVectorTest, KeywordSearchReturnOnlyTextMatchInfo) {
 }
 
 TEST_F(CollectionVectorTest, GroupByWithVectorSearch) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"},
@@ -2063,7 +2063,7 @@ TEST_F(CollectionVectorTest, TestMultilingualE5) {
 }
 
 TEST_F(CollectionVectorTest, TestTwoEmbeddingFieldsSamePrefix) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                             "name": "docs",
                             "fields": [
                                 {
@@ -2120,7 +2120,7 @@ TEST_F(CollectionVectorTest, TestTwoEmbeddingFieldsSamePrefix) {
 }
 
 TEST_F(CollectionVectorTest, TestOneEmbeddingOneKeywordFieldsHaveSamePrefix) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                         "name": "test",
                         "fields": [
                             {
@@ -2165,7 +2165,7 @@ TEST_F(CollectionVectorTest, TestOneEmbeddingOneKeywordFieldsHaveSamePrefix) {
 }
 
 TEST_F(CollectionVectorTest, HybridSearchOnlyKeyworMatchDoNotHaveVectorDistance) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                         "name": "test",
                         "fields": [
                             {
@@ -2220,7 +2220,7 @@ TEST_F(CollectionVectorTest, HybridSearchOnlyKeyworMatchDoNotHaveVectorDistance)
 }
 
 TEST_F(CollectionVectorTest, QueryByNotAutoEmbeddingVectorField) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                     "name": "test",
                     "fields": [
                         {
@@ -2527,7 +2527,7 @@ TEST_F(CollectionVectorTest, TestUnloadModelsCollectionHaveTwoEmbeddingField) {
 }
 
 TEST_F(CollectionVectorTest, TestHybridSearchAlphaParam) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                         "name": "test",
                         "fields": [
                             {
@@ -2603,7 +2603,7 @@ TEST_F(CollectionVectorTest, TestHybridSearchAlphaParam) {
 }   
 
 TEST_F(CollectionVectorTest, TestHybridSearchInvalidAlpha) {
-        nlohmann::json schema = R"({
+        const nlohmann::json& schema = R"({
                         "name": "test",
                         "fields": [
                             {
@@ -2678,7 +2678,7 @@ TEST_F(CollectionVectorTest, TestHybridSearchInvalidAlpha) {
 }
 
 TEST_F(CollectionVectorTest, TestSearchNonIndexedEmbeddingField) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                     "name": "test",
                     "fields": [
                         {
@@ -2722,7 +2722,7 @@ TEST_F(CollectionVectorTest, TestSearchNonIndexedEmbeddingField) {
 }
 
 TEST_F(CollectionVectorTest, TestSearchNonIndexedVectorField) {
-        nlohmann::json schema = R"({
+        const nlohmann::json& schema = R"({
                     "name": "test",
                     "fields": [
                         {
@@ -2759,7 +2759,7 @@ TEST_F(CollectionVectorTest, TestSearchNonIndexedVectorField) {
 }
 
 TEST_F(CollectionVectorTest, TestSemanticSearchAfterUpdate) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                 "name": "test",
                 "fields": [
                     {
@@ -3030,7 +3030,7 @@ TEST_F(CollectionVectorTest, TestImageEmbedding) {
 }
 
 TEST_F(CollectionVectorTest, TestHybridSearchHiddenHits) {
-    nlohmann::json schema = R"({
+    const nlohmann::json& schema = R"({
                 "name": "test",
                 "fields": [
                     {
@@ -3710,7 +3710,7 @@ TEST_F(CollectionVectorTest, TestVectorQueryQsWeightInvalid) {
 
 
 TEST_F(CollectionVectorTest, TestInvalidVoiceQueryModel) {
-    nlohmann::json schema_json = R"({
+    const nlohmann::json& schema_json = R"({
         "name": "test",
         "fields": [
             {"name": "name", "type": "string"}
@@ -3723,7 +3723,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQueryModel) {
     
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ(collection_create_op.error(), "Voice query model not found");
+    ASSERT_EQ("Voice query model not found", collection_create_op.error());
 
     schema_json = R"({
         "name": "test",
@@ -3737,7 +3737,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQueryModel) {
 
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ(collection_create_op.error(), "Voice query model not found");
+    ASSERT_EQ("Voice query model not found", collection_create_op.error());
 
     schema_json = R"({
         "name": "test",
@@ -3763,7 +3763,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQueryModel) {
 
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ(collection_create_op.error(), "Parameter `voice_query_model.model_name` must be a non-empty string.");
+    ASSERT_EQ("Parameter `voice_query_model.model_name` must be a non-empty string."collection_create_op.error());
 
     schema_json = R"({
         "name": "test",
@@ -3777,11 +3777,11 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQueryModel) {
 
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ(collection_create_op.error(), "Parameter `voice_query_model.model_name` must be a non-empty string.");
+    ASSERT_EQ("Parameter `voice_query_model.model_name` must be a non-empty string.", collection_create_op.error());
 }
 
 TEST_F(CollectionVectorTest, TestVoiceQuery) {
-    nlohmann::json schema_json = R"({
+    const nlohmann::json& schema_json = R"({
         "name": "test",
         "fields": [
             {"name": "name", "type": "string"}
@@ -3817,13 +3817,13 @@ TEST_F(CollectionVectorTest, TestVoiceQuery) {
     
     ASSERT_TRUE(results.ok());
     auto results_json = results.get();
-    ASSERT_EQ(results_json["request_params"]["voice_query"]["transcribed_query"].get<std::string>(), " Smartphone.");
-    ASSERT_EQ(results_json["hits"].size(), 1);
-    ASSERT_EQ(results_json["hits"][0]["document"]["id"].get<std::string>(), "1");
+    ASSERT_EQ(" Smartphone.", results_json["request_params"]["voice_query"]["transcribed_query"].get<std::string>());
+    ASSERT_EQ(1, results_json["hits"].size());
+    ASSERT_EQ("1", results_json["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionVectorTest, TestInvalidVoiceQuery) {
-    nlohmann::json schema_json = R"({
+    const nlohmann::json& schema_json = R"({
         "name": "test",
         "fields": [
             {"name": "name", "type": "string"}
@@ -3849,5 +3849,5 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQuery) {
                             true, true, false, "", "", "", "test");
     
     ASSERT_FALSE(results.ok());
-    ASSERT_EQ(results.error(), "Invalid audio format. Please provide a 16-bit 16kHz wav file.");
+    ASSERT_EQ("Invalid audio format. Please provide a 16-bit 16kHz wav file.", results.error());
 }

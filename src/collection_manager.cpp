@@ -140,7 +140,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
     std::shared_ptr<VQModel> model = nullptr;
     if(collection_meta.count(Collection::COLLECTION_VOICE_QUERY_MODEL) != 0) {
-        nlohmann::json voice_query_model = collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL];
+        const nlohmann::json& voice_query_model = collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL];
 
         if(!voice_query_model.is_object()) {
             LOG(ERROR) << "Parameter `voice_query_model` must be an object.";
@@ -1961,7 +1961,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     std::shared_ptr<VQModel> model = nullptr;
     if(req_json.count(Collection::COLLECTION_VOICE_QUERY_MODEL) != 0) {
-        nlohmann::json voice_query_model = req_json[Collection::COLLECTION_VOICE_QUERY_MODEL];
+        const nlohmann::json& voice_query_model = req_json[Collection::COLLECTION_VOICE_QUERY_MODEL];
 
         if(!voice_query_model.is_object()) {
             return Option<Collection*>(400, "Parameter `voice_query_model` must be an object.");
@@ -1975,7 +1975,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
             return Option<Collection*>(400, "Parameter `voice_query_model.model_name` must be a non-empty string.");
         }
 
-        std::string model_name = voice_query_model["model_name"].get<std::string>();
+        const std::string& model_name = voice_query_model["model_name"].get<std::string>();
         auto model_res = VQModelManager::get_instance().validate_and_init_model(model_name);
         if(!model_res.ok()) {
             LOG(ERROR) << "Error while loading voice query model: " << model_res.error();
