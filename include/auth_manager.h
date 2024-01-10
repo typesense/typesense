@@ -17,6 +17,7 @@ struct api_key_t {
     std::vector<std::string> actions;
     std::vector<std::string> collections;
     uint64_t expires_at;
+    bool autodelete;
 
     static constexpr const size_t PREFIX_LEN = 4;
     static constexpr const uint64_t FAR_FUTURE_TIMESTAMP = 64723363199;  // year 4020
@@ -26,8 +27,9 @@ struct api_key_t {
     }
 
     api_key_t(const std::string &value, const std::string &description, const std::vector<std::string> &actions,
-              const std::vector<std::string> &collections, uint64_t expires_at) :
-            value(value), description(description), actions(actions), collections(collections), expires_at(expires_at) {
+              const std::vector<std::string> &collections, uint64_t expires_at, bool autodel=false) :
+            value(value), description(description), actions(actions), collections(collections), expires_at(expires_at),
+            autodelete(autodel) {
 
     }
 
@@ -45,6 +47,7 @@ struct api_key_t {
         description = key_obj["description"].get<std::string>();
         actions = key_obj["actions"].get<std::vector<std::string>>();
         collections = key_obj["collections"].get<std::vector<std::string>>();
+        autodelete = key_obj["autodelete"].get<bool>();
 
         // handle optional fields
 
@@ -67,6 +70,7 @@ struct api_key_t {
         obj["actions"] = actions;
         obj["collections"] = collections;
         obj["expires_at"] = expires_at;
+        obj["autodelete"] = autodelete;
 
         return obj;
     }
@@ -119,6 +123,7 @@ private:
 
     static bool regexp_match(const std::string& value, const std::string& regexp);
 
+    void remove_expired_keys();
 public:
 
     static const size_t GENERATED_KEY_LEN = 32;
@@ -144,4 +149,6 @@ public:
     static bool add_item_to_params(std::map<std::string, std::string> &req_params,
                                    const nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
                                    bool overwrite);
+
+    void do_housekeeping();
 };

@@ -492,49 +492,88 @@ Option<bool> StringUtils::tokenize_filter_query(const std::string& filter_query,
     return Option<bool>(true);
 }
 
-Option<bool> StringUtils::split_include_fields(const std::string& include_fields, std::vector<std::string>& tokens) {
-    size_t start = 0, end = 0, size = include_fields.size();
-    std::string include_field;
+Option<bool> StringUtils::split_reference_include_exclude_fields(const std::string& include_exclude_fields,
+                                                                 size_t& index, std::string& token) {
+    auto ref_include_error = Option<bool>(400, "Invalid reference `" + include_exclude_fields + "` in include_fields/"
+                                                        "exclude_fields, expected `$CollectionName(fieldA, ...)`.");
+    auto const& size = include_exclude_fields.size();
+    size_t start_index = index;
+    while(++index < size && include_exclude_fields[index] != '(') {}
 
-    while (true) {
-        auto range_pos = include_fields.find('$', start);
-        auto comma_pos = include_fields.find(',', start);
+    if (index >= size) {
+        return ref_include_error;
+    }
 
-        if (range_pos == std::string::npos && comma_pos == std::string::npos) {
-            if (start < size - 1) {
-                include_field = include_fields.substr(start, size - start);
-                include_field = trim(include_field);
-                if (!include_field.empty()) {
-                    tokens.push_back(include_field);
-                }
+    // In case of nested join, the reference include/exclude field could have parenthesis inside it.
+    int parenthesis_count = 1;
+    while (++index < size && parenthesis_count > 0) {
+        if (include_exclude_fields[index] == '(') {
+            parenthesis_count++;
+        } else if (include_exclude_fields[index] == ')') {
+            parenthesis_count--;
+        }
+    }
+
+    if (parenthesis_count != 0) {
+        return ref_include_error;
+    }
+
+    // In case of nested reference include, we might end up with one of the following scenarios:
+    // $ref_include( $nested_ref_include(foo :merge)as nest ) as ref
+    //                                                   ...^
+    // $ref_include( $nested_ref_include(foo :merge)as nest, bar ) as ref
+    //                                                  ...^
+    // $ref_include( $nested_ref_include(foo :merge)as nest :merge ) as ref
+    //                                                   ...^
+    auto closing_parenthesis_pos = include_exclude_fields.find(')', index);
+    auto comma_pos = include_exclude_fields.find(',', index);
+    auto colon_pos = include_exclude_fields.find(':', index);
+    auto alias_start_pos = include_exclude_fields.find(" as ", index);
+    auto alias_end_pos = std::min(std::min(closing_parenthesis_pos, comma_pos), colon_pos);
+    std::string alias;
+    if (alias_start_pos != std::string::npos && alias_start_pos < alias_end_pos) {
+        alias = include_exclude_fields.substr(alias_start_pos, alias_end_pos - alias_start_pos);
+    }
+
+    token = include_exclude_fields.substr(start_index, index - start_index) + " " + trim(alias);
+    trim(token);
+
+    index = alias_end_pos;
+    return Option<bool>(true);
+}
+
+Option<bool> StringUtils::split_include_exclude_fields(const std::string& include_exclude_fields,
+                                                       std::vector<std::string>& tokens) {
+    std::string token;
+    auto const& size = include_exclude_fields.size();
+    for (size_t i = 0; i < size;) {
+        auto c = include_exclude_fields[i];
+        if (c == ' ') {
+            i++;
+            continue;
+        } else if (c == '$') { // Reference include/exclude
+            std::string ref_include_token;
+            auto split_op = split_reference_include_exclude_fields(include_exclude_fields, i, ref_include_token);
+            if (!split_op.ok()) {
+                return split_op;
             }
+
+            tokens.push_back(ref_include_token);
+            continue;
+        }
+
+        auto comma_pos = include_exclude_fields.find(',', i);
+        token = include_exclude_fields.substr(i, (comma_pos == std::string::npos ? size : comma_pos) - i);
+        trim(token);
+        if (!token.empty()) {
+            tokens.push_back(token);
+        }
+
+        if (comma_pos == std::string::npos) {
             break;
-        } else if (range_pos < comma_pos) {
-            end = include_fields.find(')', range_pos);
-            if (end == std::string::npos || end < include_fields.find('(', range_pos)) {
-                return Option<bool>(400, "Invalid reference in include_fields, expected `$CollectionName(fieldA, ...)`.");
-            }
-
-            include_field = include_fields.substr(range_pos, (end - range_pos) + 1);
-
-            comma_pos = include_fields.find(',', end);
-            auto as_pos = include_fields.find(" as ", end);
-            if (as_pos != std::string::npos && as_pos < comma_pos) {
-                auto alias = include_fields.substr(as_pos, (comma_pos - as_pos));
-                end += alias.size() + 1;
-                include_field += (" " + trim(alias));
-            }
-        } else {
-            end = comma_pos;
-            include_field = include_fields.substr(start, end - start);
         }
-
-        include_field = trim(include_field);
-        if (!include_field.empty()) {
-            tokens.push_back(include_field);
-        }
-
-        start = end + 1;
+        i = comma_pos + 1;
+        token.clear();
     }
 
     return Option<bool>(true);

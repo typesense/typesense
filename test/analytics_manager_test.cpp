@@ -8,7 +8,7 @@
 
 class AnalyticsManagerTest : public ::testing::Test {
 protected:
-    Store *store, *analytics_store;
+    Store *store;
     CollectionManager& collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
 
@@ -25,11 +25,10 @@ protected:
         system("mkdir -p /tmp/typesense_test/models");
 
         store = new Store(state_dir_path);
-        analytics_store = new Store(analytics_db_path);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        analyticsManager.init(store, analytics_store);
+        analyticsManager.init(store, analytics_db_path);
     }
 
     virtual void SetUp() {
@@ -39,7 +38,7 @@ protected:
     virtual void TearDown() {
         collectionManager.dispose();
         delete store;
-        delete analytics_store;
+        analyticsManager.stop();
     }
 };
 
@@ -85,25 +84,78 @@ TEST_F(AnalyticsManagerTest, AddSuggestion) {
     auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
-    std::string q = "foobar";
-    analyticsManager.add_suggestion("titles", q, true, "1");
+    std::string q = "coo";
+    analyticsManager.add_suggestion("titles", q, "cool", true, "1");
 
     auto popularQueries = analyticsManager.get_popular_queries();
     auto userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
     ASSERT_EQ(1, userQueries.size());
-    ASSERT_EQ("foobar", userQueries[0].query);
+    ASSERT_EQ("coo", userQueries[0].query);  // expanded query is NOT stored since it's not enabled
 
     // add another query which is more popular
     q = "buzzfoo";
-    analyticsManager.add_suggestion("titles", q, true, "1");
-    analyticsManager.add_suggestion("titles", q, true, "2");
-    analyticsManager.add_suggestion("titles", q, true, "3");
+    analyticsManager.add_suggestion("titles", q, q, true, "1");
+    analyticsManager.add_suggestion("titles", q, q, true, "2");
+    analyticsManager.add_suggestion("titles", q, q, true, "3");
 
     popularQueries = analyticsManager.get_popular_queries();
     userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
     ASSERT_EQ(2, userQueries.size());
-    ASSERT_EQ("foobar", userQueries[0].query);
+    ASSERT_EQ("coo", userQueries[0].query);
     ASSERT_EQ("buzzfoo", userQueries[1].query);
+
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+}
+
+TEST_F(AnalyticsManagerTest, AddSuggestionWithExpandedQuery) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    // create a collection to store suggestions
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "expand_query": true,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analyticsManager.add_suggestion("titles", "c", "cool", true, "1");
+
+    auto popularQueries = analyticsManager.get_popular_queries();
+    auto userQueries = popularQueries["top_queries"]->get_user_prefix_queries()["1"];
+    ASSERT_EQ(1, userQueries.size());
+    ASSERT_EQ("cool", userQueries[0].query);
 
     ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
 }
@@ -205,7 +257,115 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
     ASSERT_FALSE(missing_rule_op.ok());
 }
 
-TEST_F(AnalyticsManagerTest, ClickEventsValidation) {
+TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
+    //stores events in memory and reads as events are persisted in file on disk
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json event1 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 2,
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event1.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event2 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event2.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    auto result = analyticsManager.get_events("titles", "query_click");
+    ASSERT_EQ("13", result[0]["user_id"]);
+    ASSERT_EQ("21", result[0]["doc_id"]);
+    ASSERT_EQ(2, result[0]["position"]);
+    ASSERT_EQ("technology", result[0]["query"]);
+
+    ASSERT_EQ("11", result[1]["user_id"]);
+    ASSERT_EQ("21", result[1]["doc_id"]);
+    ASSERT_EQ(4, result[1]["position"]);
+    ASSERT_EQ("technology", result[1]["query"]);
+}
+
+TEST_F(AnalyticsManagerTest, PurchaseEventsStoreRetrieval) {
+//stores events in memory and reads as events are persisted in file on disk
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json event1 = R"({
+        "type": "query_purchase",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 2,
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event1.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event2 = R"({
+        "type": "query_purchase",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event2.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    auto result = analyticsManager.get_events("titles", "query_purchase");
+    ASSERT_EQ("13", result[0]["user_id"]);
+    ASSERT_EQ("21", result[0]["doc_id"]);
+    ASSERT_EQ(2, result[0]["position"]);
+    ASSERT_EQ("technology", result[0]["query"]);
+
+    ASSERT_EQ("11", result[1]["user_id"]);
+    ASSERT_EQ("21", result[1]["doc_id"]);
+    ASSERT_EQ(4, result[1]["position"]);
+    ASSERT_EQ("technology", result[1]["query"]);
+}
+
+TEST_F(AnalyticsManagerTest, EventsValidation) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [
@@ -251,7 +411,7 @@ TEST_F(AnalyticsManagerTest, ClickEventsValidation) {
 
     //should be string type
     nlohmann::json event3 = R"({
-        "type": "query_click",
+        "type": "query_purchase",
         "data": {
             "q": "technology",
             "collection": "titles",
@@ -279,9 +439,23 @@ TEST_F(AnalyticsManagerTest, ClickEventsValidation) {
 
     req->body = event4.dump();
     ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event5 = R"({
+        "type": "query_purchase",
+        "data": {
+            "q": "technology",
+            "collection": "titles",
+            "doc_id": "21",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event5.dump();
+    ASSERT_TRUE(post_create_event(req, res));
 }
 
-TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
+TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
             "fields": [
@@ -293,6 +467,8 @@ TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
 
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    std::vector<nlohmann::json> events;
 
     nlohmann::json event1 = R"({
         "type": "query_click",
@@ -305,11 +481,8 @@ TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
         }
     })"_json;
 
-    req->body = event1.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
     nlohmann::json event2 = R"({
-        "type": "query_click",
+        "type": "query_purchase",
         "data": {
             "q": "technology",
             "collection": "titles",
@@ -319,73 +492,22 @@ TEST_F(AnalyticsManagerTest, ClickEventsStoreRetrieveal) {
         }
     })"_json;
 
-    req->body = event2.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
-    event1["collection_id"] = "0";
-    event1["timestamp"] = 1521512521;
-    event1["event_type"] = "click_events";
-    event2["collection_id"] = "0";
-    event2["timestamp"] = 1521514354;
-    event2["event_type"] = "click_events";
-
-    nlohmann::json click_events = nlohmann::json::array();
-    click_events.push_back(event1);
-    click_events.push_back(event2);
-
-    req->body = click_events.dump();
-    ASSERT_TRUE(post_replicate_events(req, res));
-
-    auto result = analyticsManager.get_click_events();
-
-    ASSERT_EQ("0", result[0]["collection_id"]);
-    ASSERT_EQ("13", result[0]["data"]["user_id"]);
-    ASSERT_EQ("21", result[0]["data"]["doc_id"]);
-    ASSERT_EQ(2, result[0]["data"]["position"]);
-    ASSERT_EQ("technology", result[0]["data"]["q"]);
-
-    ASSERT_EQ("0", result[1]["collection_id"]);
-    ASSERT_EQ("11", result[1]["data"]["user_id"]);
-    ASSERT_EQ("21", result[1]["data"]["doc_id"]);
-    ASSERT_EQ(4, result[1]["data"]["position"]);
-    ASSERT_EQ("technology", result[1]["data"]["q"]);
-}
-
-TEST_F(AnalyticsManagerTest, ClickEventsRateLimitTest) {
-    nlohmann::json titles_schema = R"({
-            "name": "titles",
-            "fields": [
-                {"name": "title", "type": "string"}
-            ]
-        })"_json;
-
-    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
-
-    std::shared_ptr<http_req> req = std::make_shared<http_req>();
-    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
-
-    nlohmann::json event = R"({
-        "type": "query_click",
-        "data": {
-            "q": "technology",
-            "collection": "titles",
-            "doc_id": "21",
-            "position": 2,
-            "user_id": "13"
-        }
-    })"_json;
+    events.push_back(event1);
+    events.push_back(event2);
 
     //reset the LRU cache to test the rate limit
-    analyticsManager.resetRateLimit();
+    analyticsManager.resetToggleRateLimit(true);
 
-    req->body = event.dump();
     for(auto i = 0; i < 5; ++i) {
+        req->body = events[i%2].dump();
         ASSERT_TRUE(post_create_event(req, res));
     }
 
     //as rate limit is 5, adding one more event above that should trigger rate limit
     ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"click event rate limit reached.\"}", res->body);
+    ASSERT_EQ("{\"message\": \"event rate limit reached.\"}", res->body);
+
+    analyticsManager.resetToggleRateLimit(false);
 }
 
 TEST_F(AnalyticsManagerTest, NoresultsQueries) {
@@ -443,6 +565,78 @@ TEST_F(AnalyticsManagerTest, NoresultsQueries) {
 
     noresults_queries = analyticsManager.get_nohits_queries();
     ASSERT_EQ(0, noresults_queries.size());
+}
+
+TEST_F(AnalyticsManagerTest, SuggestionConfigRule) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+
+    // create a collection to store suggestions
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    //add popular quries rule
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    //add nohits rule
+    analytics_rule = R"({
+        "name": "search_queries",
+        "type": "nohits_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    auto rules = analyticsManager.list_rules().get()["rules"];
+    ASSERT_EQ(2, rules.size());
+    ASSERT_EQ("search_queries", rules[0]["name"]);
+    ASSERT_EQ("nohits_queries", rules[0]["type"]);
+    ASSERT_EQ("top_search_queries", rules[1]["name"]);
+    ASSERT_EQ("popular_queries", rules[1]["type"]);
+
+    //try deleting rules
+    ASSERT_TRUE(analyticsManager.remove_rule("search_queries").ok());
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+    rules = analyticsManager.list_rules().get()["rules"];
+    ASSERT_EQ(0, rules.size());
 }
 
 TEST_F(AnalyticsManagerTest, QueryHitsCount) {
@@ -521,39 +715,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryBasic) {
     nlohmann::json events = nlohmann::json::array();
 
     auto ts = 1701851341000000;
-    nlohmann::json event;
-    event["event_type"] = "click_events";
-    event["q"] = "technology";
-    event["collection_id"] = "0";
-    event["doc_id"] = "21";
-    event["position"] = 2;
-    event["user_id"] = 13;
-    event["timestamp"] = ts;
-    events.push_back(event);
-
-    event["doc_id"] = "12";
-    event["position"] = 3;
-    event["timestamp"] = ts+1000000; //1 sec later
-    events.push_back(event);
-
-    ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
-
-    nlohmann::json resp = analyticsManager.get_click_events();
-    ASSERT_EQ(2, resp.size());
-    ASSERT_EQ("technology", resp[0]["q"]);
-    ASSERT_EQ("21", resp[0]["doc_id"]);
-    ASSERT_EQ(2, resp[0]["position"]);
-    ASSERT_EQ(13, resp[0]["user_id"]);
-
-    ASSERT_EQ("technology", resp[1]["q"]);
-    ASSERT_EQ("12", resp[1]["doc_id"]);
-    ASSERT_EQ(3, resp[1]["position"]);
-    ASSERT_EQ(13, resp[1]["user_id"]);
-
-    analyticsManager.checkEventsExpiry();
-
-    resp = analyticsManager.get_click_events();
-    ASSERT_EQ(0, resp.size());
 
     //add query hits events with click events
     nlohmann::json event2;
@@ -568,18 +729,14 @@ TEST_F(AnalyticsManagerTest, EventsExpiryBasic) {
 
     ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
 
-    resp = analyticsManager.get_query_hits_counts();
+    auto resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(1, resp.size());
     ASSERT_EQ("technology", resp[0]["q"]);
     ASSERT_EQ(13, resp[0]["user_id"]);
     ASSERT_EQ(124, resp[0]["hits_count"]);
 
-    //now old click events will be deleted on checking expiry but query hits events will be remaining
     // assumming ttl is ts + 5 sec
     analyticsManager.checkEventsExpiry();
-
-    resp = analyticsManager.get_click_events();
-    ASSERT_EQ(0, resp.size());
 
     resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(1, resp.size());
@@ -604,21 +761,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryAll) {
     nlohmann::json events = nlohmann::json::array();
 
     auto ts = 1701851341000000;
-    nlohmann::json event;
-    event["event_type"] = "click_events";
-    event["q"] = "technology";
-    event["collection_id"] = "0";
-    event["doc_id"] = "21";
-    event["position"] = 2;
-    event["user_id"] = 13;
-    event["timestamp"] = ts;
-    events.push_back(event);
-
-    event["doc_id"] = "12";
-    event["position"] = 3;
-    event["timestamp"] = ts + 1000000; //after 1s
-    events.push_back(event);
-
     nlohmann::json event2;
     event2["event_type"] = "query_hits_counts";
     event2["q"] = "technology";
@@ -631,19 +773,7 @@ TEST_F(AnalyticsManagerTest, EventsExpiryAll) {
 
     ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
 
-    nlohmann::json resp = analyticsManager.get_click_events();
-    ASSERT_EQ(2, resp.size());
-    ASSERT_EQ("technology", resp[0]["q"]);
-    ASSERT_EQ("21", resp[0]["doc_id"]);
-    ASSERT_EQ(2, resp[0]["position"]);
-    ASSERT_EQ(13, resp[0]["user_id"]);
-
-    ASSERT_EQ("technology", resp[1]["q"]);
-    ASSERT_EQ("12", resp[1]["doc_id"]);
-    ASSERT_EQ(3, resp[1]["position"]);
-    ASSERT_EQ(13, resp[1]["user_id"]);
-
-    resp = analyticsManager.get_query_hits_counts();
+    auto resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(1, resp.size());
     ASSERT_EQ("technology", resp[0]["q"]);
     ASSERT_EQ(13, resp[0]["user_id"]);
@@ -652,9 +782,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryAll) {
     //check for events expiry
     // assuming ttl is ts + 5 sec
     analyticsManager.checkEventsExpiry();
-
-    resp = analyticsManager.get_click_events();
-    ASSERT_EQ(0, resp.size());
 
     resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(0, resp.size());
@@ -676,25 +803,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryPartial) {
     nlohmann::json events = nlohmann::json::array();
 
     auto ts = 1701851341000000;
-    nlohmann::json event;
-    event["event_type"] = "click_events";
-    event["q"] = "technology";
-    event["collection_id"] = "0";
-    event["doc_id"] = "21";
-    event["position"] = 2;
-    event["user_id"] = 13;
-    event["timestamp"] = ts;
-    events.push_back(event);
-
-    event["doc_id"] = "12";
-    event["position"] = 3;
-    event["timestamp"] = ts + 1000000; //after 1s
-    events.push_back(event);
-
-    event["doc_id"] = "19";
-    event["position"] = 1;
-    event["timestamp"] = ts + 6000000; //after 6s
-    events.push_back(event);
 
     nlohmann::json event2;
     event2["event_type"] = "query_hits_counts";
@@ -719,24 +827,7 @@ TEST_F(AnalyticsManagerTest, EventsExpiryPartial) {
 
     ASSERT_TRUE(analyticsManager.write_events_to_store(events).ok());
 
-    nlohmann::json resp = analyticsManager.get_click_events();
-    ASSERT_EQ(3, resp.size());
-    ASSERT_EQ("technology", resp[0]["q"]);
-    ASSERT_EQ("21", resp[0]["doc_id"]);
-    ASSERT_EQ(2, resp[0]["position"]);
-    ASSERT_EQ(13, resp[0]["user_id"]);
-
-    ASSERT_EQ("technology", resp[1]["q"]);
-    ASSERT_EQ("12", resp[1]["doc_id"]);
-    ASSERT_EQ(3, resp[1]["position"]);
-    ASSERT_EQ(13, resp[1]["user_id"]);
-
-    ASSERT_EQ("technology", resp[2]["q"]);
-    ASSERT_EQ("19", resp[2]["doc_id"]);
-    ASSERT_EQ(1, resp[2]["position"]);
-    ASSERT_EQ(13, resp[2]["user_id"]);
-
-    resp = analyticsManager.get_query_hits_counts();
+    auto resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(3, resp.size());
     ASSERT_EQ("technology", resp[0]["q"]);
     ASSERT_EQ(13, resp[0]["user_id"]);
@@ -755,13 +846,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryPartial) {
     //only events in ttl interval will be removed
     analyticsManager.checkEventsExpiry();
 
-    resp = analyticsManager.get_click_events();
-    ASSERT_EQ(1, resp.size());
-    ASSERT_EQ("technology", resp[0]["q"]);
-    ASSERT_EQ("19", resp[0]["doc_id"]);
-    ASSERT_EQ(1, resp[0]["position"]);
-    ASSERT_EQ(13, resp[0]["user_id"]);
-
     resp = analyticsManager.get_query_hits_counts();
     ASSERT_EQ(1, resp.size());
     ASSERT_EQ("management", resp[0]["q"]);
@@ -770,8 +854,6 @@ TEST_F(AnalyticsManagerTest, EventsExpiryPartial) {
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScore) {
-    //reset click event rate limit
-    analyticsManager.resetRateLimit();
 
     nlohmann::json products_schema = R"({
             "name": "products",
@@ -808,10 +890,11 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
 
     nlohmann::json analytics_rule = R"({
         "name": "product_popularity",
-        "type": "popular_clicks",
+        "type": "counter",
         "params": {
             "source": {
-                "collections": ["products"]
+                "collections": ["products"],
+                "events":  [{"type": "query_click", "weight": 1}, {"type": "query_purchase", "weight": 5} ]
             },
             "destination": {
                 "collection": "products",
@@ -827,7 +910,7 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
     nlohmann::json event1 = R"({
-        "type": "query_click",
+        "type": "query_purchase",
         "data": {
             "q": "trousers",
             "collection": "products",
@@ -860,8 +943,43 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(1, popular_clicks.size());
     ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
     ASSERT_EQ(2, popular_clicks["products"].docid_counts.size());
-    ASSERT_EQ(1, popular_clicks["products"].docid_counts["1"]);
+    ASSERT_EQ(5, popular_clicks["products"].docid_counts["1"]);
     ASSERT_EQ(2, popular_clicks["products"].docid_counts["3"]);
+
+    nlohmann::json event3 = R"({
+        "type": "query_click",
+        "data": {
+            "q": "shorts",
+            "collection": "products",
+            "doc_id": "1",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event3.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    nlohmann::json event4 = R"({
+        "type": "query_purchase",
+        "data": {
+            "q": "shorts",
+            "collection": "products",
+            "doc_id": "3",
+            "position": 4,
+            "user_id": "11"
+        }
+    })"_json;
+
+    req->body = event4.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    popular_clicks = analyticsManager.get_popular_clicks();
+    ASSERT_EQ(1, popular_clicks.size());
+    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
+    ASSERT_EQ(2, popular_clicks["products"].docid_counts.size());
+    ASSERT_EQ(7, popular_clicks["products"].docid_counts["3"]);
+    ASSERT_EQ(6, popular_clicks["products"].docid_counts["1"]);
 
     //trigger persistance event
     for(const auto& popular_clicks_it : popular_clicks) {
@@ -887,11 +1005,11 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(5, results["hits"].size());
 
     ASSERT_EQ("3", results["hits"][0]["document"]["id"]);
-    ASSERT_EQ(2, results["hits"][0]["document"]["popularity"]);
+    ASSERT_EQ(7, results["hits"][0]["document"]["popularity"]);
     ASSERT_EQ("Trendy shorts", results["hits"][0]["document"]["title"]);
 
     ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
-    ASSERT_EQ(1, results["hits"][1]["document"]["popularity"]);
+    ASSERT_EQ(6, results["hits"][1]["document"]["popularity"]);
     ASSERT_EQ("Funky trousers", results["hits"][1]["document"]["title"]);
 }
 
@@ -908,10 +1026,11 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     nlohmann::json analytics_rule = R"({
         "name": "books_popularity",
-        "type": "popular_clicks",
+        "type": "counter",
         "params": {
             "source": {
-                "collections": ["books"]
+                "collections": ["books"],
+                "events":  [{"type": "query_click", "weight": 1}, {"type": "query_purchase", "weight": 5} ]
             },
             "destination": {
                 "collection": "popular_books",
@@ -926,7 +1045,45 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     analytics_rule = R"({
         "name": "books_popularity",
-        "type": "popular_clicks",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                "events":  [{"type": "query_click", "weight": 1}, {"type": "query_purchase", "weight": 5} ]
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity_score"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("counter_field `popularity_score` not found in destination collection.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "popular_click",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                "events":  [{"type": "query_click", "weight": 1}, {"type": "query_purchase", "weight": 5} ]
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity_score"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Invalid type.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "counter",
         "params": {
             "source": {
                 "collections": ["books"]
@@ -940,5 +1097,43 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_FALSE(create_op.ok());
-    ASSERT_EQ("counter_field `popularity_score` not found in destination collection.", create_op.error());
+    ASSERT_EQ("Bad or missing events.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                "events":  []
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity_score"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Bad or missing events.", create_op.error());
+
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                "events":  "query_click"
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity_score"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Bad or missing events.", create_op.error());
 }

@@ -22,9 +22,9 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
 
     if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
        override_json.count("filter_by") == 0 && override_json.count("sort_by") == 0 &&
-       override_json.count("remove_matched_tokens") == 0 &&
+       override_json.count("remove_matched_tokens") == 0 && override_json.count("metadata") == 0 &&
        override_json.count("replace_query") == 0) {
-        return Option<bool>(400, "Must contain one of: `includes`, `excludes`, "
+        return Option<bool>(400, "Must contain one of: `includes`, `excludes`, `metadata`, "
                                  "`filter_by`, `sort_by`, `remove_matched_tokens`, `replace_query`.");
     }
 

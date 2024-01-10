@@ -370,3 +370,8 @@ std::string Tokenizer::normalize_ascii_no_spaces(const std::string& text) {
 
     return analytics_query;
 }
+
+bool Tokenizer::has_word_tokenizer(const std::string& locale) {
+    bool use_word_tokenizer = locale == "th" || locale == "ja" || Tokenizer::is_cyrillic(locale);
+    return use_word_tokenizer;
+}

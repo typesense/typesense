@@ -14,21 +14,29 @@
 #include "posting.h"
 #include "collection_manager.h"
 
-void filter_result_t::copy_references(const filter_result_t& from, filter_result_t& to) {
-    if (from.coll_to_references == nullptr) {
+void copy_references_helper(const std::map<std::string, reference_filter_result_t>* from,
+                            std::map<std::string, reference_filter_result_t>*& to, const uint32_t& count) {
+    if (from == nullptr) {
         return;
     }
 
-    auto const& count = from.count;
-    to.coll_to_references = new std::map<std::string, reference_filter_result_t>[count] {};
+    to = new std::map<std::string, reference_filter_result_t>[count] {};
     for (uint32_t i = 0; i < count; i++) {
-        if (from.coll_to_references[i].empty()) {
+        if (from[i].empty()) {
             continue;
         }
 
-        auto& ref = to.coll_to_references[i];
-        ref.insert(from.coll_to_references[i].begin(), from.coll_to_references[i].end());
+        auto& ref = to[i];
+        ref.insert(from[i].begin(), from[i].end());
     }
+}
+
+void reference_filter_result_t::copy_references(const reference_filter_result_t& from, reference_filter_result_t& to) {
+    return copy_references_helper(from.coll_to_references, to.coll_to_references, from.count);
+}
+
+void filter_result_t::copy_references(const filter_result_t& from, filter_result_t& to) {
+    return copy_references_helper(from.coll_to_references, to.coll_to_references, from.count);
 }
 
 void filter_result_t::and_filter_results(const filter_result_t& a, const filter_result_t& b, filter_result_t& result) {
@@ -660,26 +668,16 @@ void filter_result_iterator_t::init() {
                 return;
             }
 
-            std::vector<std::string> values;
-            for (uint32_t i = 0; i < result.count; i++) {
-                values.push_back(std::to_string(result.docs[i]));
-            }
-
-            filter filter_exp = {get_reference_field_op.get(), std::move(values),
-                                 std::vector<NUM_COMPARATOR>(result.count, EQUALS)};
-
-            auto filter_tree_root = new filter_node_t(filter_exp);
-            std::unique_ptr<filter_node_t> filter_tree_root_guard(filter_tree_root);
-
-            auto fit = filter_result_iterator_t(collection_name, index, filter_tree_root);
-            auto filter_init_op = fit.init_status();
-            if (!filter_init_op.ok()) {
-                status = Option<bool>(filter_init_op.code(), filter_init_op.error());
+            auto const& reference_helper_field_name = get_reference_field_op.get();
+            auto op = index->do_filtering_with_reference_ids(reference_helper_field_name, ref_collection_name,
+                                                             std::move(result));
+            if (!op.ok()) {
+                status = Option<bool>(op.code(), op.error());
                 validity = invalid;
                 return;
             }
 
-            filter_result = std::move(fit.filter_result);
+            filter_result = op.get();
         }
 
         if (filter_result.count == 0) {
@@ -1304,6 +1302,7 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
             }
 
             seq_id = id;
+            and_filter_iterators();
             return 1;
         } else {
             validity = (left_it->validity == valid || right_it->validity == valid) ? valid : invalid;
@@ -1327,6 +1326,7 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
             }
 
             seq_id = id;
+            or_filter_iterators();
             return 1;
         }
     }

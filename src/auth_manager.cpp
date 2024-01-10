@@ -416,4 +416,25 @@ bool AuthManager::add_item_to_params(std::map<std::string, std::string>& req_par
     return true;
 }
 
+void AuthManager::remove_expired_keys() {
+    const Option<std::vector<api_key_t>>& keys_op = list_keys();
+    if(!keys_op.ok()) {
+        LOG(ERROR) << keys_op.error();
+        return;
+    }
 
+    const std::vector<api_key_t>& keys = keys_op.get();
+    for(const auto& key : keys) {
+        if(key.autodelete &&  (uint64_t(std::time(0)) > key.expires_at)) {
+            LOG(INFO) << "Deleting expired key " << key.value;
+            auto delete_op = remove_key(key.id);
+            if(!delete_op.ok()) {
+                LOG(ERROR) << delete_op.error();
+            }
+        }
+    }
+}
+
+void AuthManager::do_housekeeping() {
+    remove_expired_keys();
+}

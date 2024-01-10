@@ -1696,7 +1696,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t remote_embedding_num_tries,
                                   const std::string& stopwords_set,
                                   const std::vector<std::string>& facet_return_parent,
-                                  const std::vector<ref_include_fields>& ref_include_fields_vec,
+                                  const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec,
                                   const std::string& drop_tokens_mode,
                                   const bool prioritize_num_matching_fields,
                                   const bool group_missing_values,
@@ -1837,6 +1837,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             // `id` field needs to be handled separately, we will not handle for now
             std::string error = "Cannot use `id` as a query by field.";
             return Option<nlohmann::json>(400, error);
+        } else if (field_name[0] == '$' && field_name.find('(') != std::string::npos &&
+                    field_name.find(')') != std::string::npos) {
+            return Option<nlohmann::json>(400, "Query by reference is not yet supported.");
         }
 
         std::vector<std::string> expanded_search_fields;
@@ -1846,6 +1849,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
 
         for(const auto& expanded_search_field: expanded_search_fields) {
+            if (search_schema.count(expanded_search_field) == 0) {
+                return Option<nlohmann::json>(404, "Could not find `" + expanded_search_field + "` field in the schema.");
+            }
             auto search_field = search_schema.at(expanded_search_field);
 
             if(search_field.num_dim > 0) {
@@ -2456,6 +2462,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     nlohmann::json docs_array = nlohmann::json::array();
 
+    // handle analytics query expansion
+    std::string first_q = raw_query;
+    expand_search_query(raw_query, offset, total, search_params, result_group_kvs, raw_search_fields, first_q);
+
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
@@ -2622,7 +2632,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                       0,
                                       field_order_kv->reference_filter_results,
                                       const_cast<Collection *>(this), get_seq_id_from_key(seq_id_key),
-                                      ref_include_fields_vec);
+                                      ref_include_exclude_fields_vec);
             if (!prune_op.ok()) {
                 return Option<nlohmann::json>(prune_op.code(), prune_op.error());
             }
@@ -2849,9 +2859,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 highlight_t highlight;
 
                 if(!facet_query.query.empty()) {
-                    bool is_cyrillic = Tokenizer::is_cyrillic(the_field.locale);
-                    bool use_word_tokenizer = the_field.locale == "th" || the_field.locale == "ja" ||
-                                              Tokenizer::is_cyrillic(the_field.locale);
+                    bool use_word_tokenizer = Tokenizer::has_word_tokenizer(the_field.locale);
                     bool normalise = !use_word_tokenizer;
 
                     std::vector<std::string> fquery_tokens;
@@ -2987,13 +2995,13 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["request_params"]["per_page"] = per_page;
     if(!raw_query.empty()) {
         result["request_params"]["q"] = raw_query;
+        result["request_params"]["first_q"] = first_q;
     }
 
     if(!voice_query.empty()) {
         result["request_params"]["voice_query"] = nlohmann::json::object();
         result["request_params"]["voice_query"]["transcribed_query"] = transcribed_query;
     }
-
     if(!override_metadata.empty()) {
         result["metadata"] = override_metadata;
     }
@@ -3002,6 +3010,48 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return Option<nlohmann::json>(result);
+}
+
+void Collection::expand_search_query(const string& raw_query, size_t offset, size_t total, const search_args* search_params,
+                                    const std::vector<std::vector<KV*>>& result_group_kvs,
+                                    const std::vector<std::string>& raw_search_fields, string& first_q) const {
+    if(!Config::get_instance().get_enable_search_analytics()) {
+        return ;
+    }
+
+    if(offset == 0 && !raw_search_fields.empty() && !search_params->searched_queries.empty() &&
+        total != 0 && !result_group_kvs.empty()) {
+        // we have to map raw_query (which could contain a prefix) back to expanded version
+        auto search_field_it = search_schema.find(raw_search_fields[0]);
+        if(search_field_it == search_schema.end() || Tokenizer::has_word_tokenizer(search_field_it->locale)) {
+            return ;
+        }
+
+        first_q = "";
+        auto q_index = result_group_kvs[0][0]->query_index;
+        if(q_index >= search_params->searched_queries.size()) {
+            return ;
+        }
+
+        const auto& qleaves = search_params->searched_queries[q_index];
+        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators);
+        std::string raw_token;
+        size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
+
+        while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
+            if(raw_token_index < qleaves.size()) {
+                auto leaf = qleaves[raw_token_index];
+                std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
+                if(StringUtils::begins_with(tok, raw_token)) {
+                    first_q += tok + " ";
+                }
+            }
+        }
+
+        if(!first_q.empty()) {
+            first_q.pop_back();
+        }
+    }
 }
 
 void Collection::copy_highlight_doc(std::vector<highlight_field_t>& hightlight_items,
@@ -3659,8 +3709,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
     tsl::htrie_set<char> matched_tokens;
 
-    bool use_word_tokenizer = search_field.locale == "th" || search_field.locale == "ja" ||
-                                Tokenizer::is_cyrillic(search_field.locale);
+    bool use_word_tokenizer = Tokenizer::has_word_tokenizer(search_field.locale);
     bool normalise = !use_word_tokenizer;
 
     std::vector<std::string> raw_query_tokens;
@@ -4944,17 +4993,25 @@ void Collection::remove_reference_helper_fields(nlohmann::json& document) {
     }
 }
 
-Option<bool> Collection::include_references(nlohmann::json& doc,
-                                            const std::string& ref_collection_name,
-                                            Collection *const ref_collection,
-                                            const std::string& alias,
-                                            const reference_filter_result_t& references,
-                                            const tsl::htrie_set<char>& ref_include_fields_full,
-                                            const tsl::htrie_set<char>& ref_exclude_fields_full,
-                                            const std::string& error_prefix, const bool& is_reference_array,
-                                            const bool& nest_ref_doc) {
+Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
+                                       const reference_filter_result_t& references,
+                                       const tsl::htrie_set<char>& ref_include_fields_full,
+                                       const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                       const bool& is_reference_array,
+                                       const ref_include_exclude_fields& ref_include_exclude) {
+    auto const& ref_collection_name = ref_include_exclude.collection_name;
+    auto& cm = CollectionManager::get_instance();
+    auto ref_collection = cm.get_collection(ref_collection_name);
+    if (ref_collection == nullptr) {
+        return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in `include_fields` not found.");
+    }
+
+    auto const& alias = ref_include_exclude.alias;
+    auto const& strategy = ref_include_exclude.strategy;
+    auto error_prefix = "Referenced collection `" + ref_collection_name + "`: ";
+
     // One-to-one relation.
-    if (!is_reference_array && references.count == 1) {
+    if (strategy != ref_include::nest_array && !is_reference_array && references.count == 1) {
         auto ref_doc_seq_id = references.docs[0];
 
         nlohmann::json ref_doc;
@@ -4971,23 +5028,33 @@ Option<bool> Collection::include_references(nlohmann::json& doc,
             return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
         }
 
-        if (ref_doc.empty()) {
-            return Option<bool>(true);
+        auto const key = alias.empty() ? ref_collection_name : alias;
+        auto const& nest_ref_doc = (strategy == ref_include::nest);
+        if (!ref_doc.empty()) {
+            if (nest_ref_doc) {
+                doc[key] = ref_doc;
+            } else {
+                if (!alias.empty()) {
+                    auto temp_doc = ref_doc;
+                    ref_doc.clear();
+                    for (const auto &item: temp_doc.items()) {
+                        ref_doc[alias + item.key()] = item.value();
+                    }
+                }
+                doc.update(ref_doc);
+            }
         }
 
-        if (nest_ref_doc) {
-            auto key = alias.empty() ? ref_collection_name : alias;
-            doc[key] = ref_doc;
-        } else {
-            if (!alias.empty()) {
-                auto temp_doc = ref_doc;
-                ref_doc.clear();
-                for (const auto &item: temp_doc.items()) {
-                    ref_doc[alias + item.key()] = item.value();
-                }
+        // Include nested join references.
+        if (!ref_include_exclude.nested_join_includes.empty() && !references.coll_to_references->empty()) {
+            auto nested_include_exclude_op = include_references(nest_ref_doc ? doc[key] : doc, ref_doc_seq_id,
+                                                                ref_collection.get(), references.coll_to_references[0],
+                                                                ref_include_exclude.nested_join_includes);
+            if (!nested_include_exclude_op.ok()) {
+                return nested_include_exclude_op;
             }
-            doc.update(ref_doc);
         }
+
         return Option<bool>(true);
     }
 
@@ -5009,33 +5076,209 @@ Option<bool> Collection::include_references(nlohmann::json& doc,
             return Option<bool>(prune_op.code(), error_prefix + prune_op.error());
         }
 
-        if (ref_doc.empty()) {
-            continue;
-        }
-
-        if (nest_ref_doc) {
-            auto key = alias.empty() ? ref_collection_name : alias;
-            if (doc.contains(key) && !doc[key].is_array()) {
-                return Option<bool>(400, "Could not include the reference document of `" + ref_collection_name +
-                                            "` collection. Expected `" + key + "` to be an array. Try " +
-                                            (alias.empty() ? "adding an" : "renaming the") + " alias.");
-            }
-
-            doc[key] += ref_doc;
-        } else {
-            for (auto ref_doc_it = ref_doc.begin(); ref_doc_it != ref_doc.end(); ref_doc_it++) {
-                auto const& ref_doc_key = ref_doc_it.key();
-                auto const& doc_key = alias + ref_doc_key;
-                if (doc.contains(doc_key) && !doc[doc_key].is_array()) {
-                    return Option<bool>(400, "Could not include the value of `" + ref_doc_key +
-                                             "` key of the reference document of `" + ref_collection_name +
-                                             "` collection. Expected `" + doc_key + "` to be an array. Try " +
+        std::string key;
+        auto const& nest_ref_doc = (strategy == ref_include::nest || strategy == ref_include::nest_array);
+        if (!ref_doc.empty()) {
+            if (nest_ref_doc) {
+                key = alias.empty() ? ref_collection_name : alias;
+                if (doc.contains(key) && !doc[key].is_array()) {
+                    return Option<bool>(400, "Could not include the reference document of `" + ref_collection_name +
+                                             "` collection. Expected `" + key + "` to be an array. Try " +
                                              (alias.empty() ? "adding an" : "renaming the") + " alias.");
                 }
 
-                // Add the values of ref_doc as JSON array into doc.
-                doc[doc_key] += ref_doc_it.value();
+                doc[key] += ref_doc;
+            } else {
+                for (auto ref_doc_it = ref_doc.begin(); ref_doc_it != ref_doc.end(); ref_doc_it++) {
+                    auto const& ref_doc_key = ref_doc_it.key();
+                    key = alias + ref_doc_key;
+                    if (doc.contains(key) && !doc[key].is_array()) {
+                        return Option<bool>(400, "Could not include the value of `" + ref_doc_key +
+                                                 "` key of the reference document of `" + ref_collection_name +
+                                                 "` collection. Expected `" + key + "` to be an array. Try " +
+                                                 (alias.empty() ? "adding an" : "renaming the") + " alias.");
+                    }
+
+                    // Add the values of ref_doc as JSON array into doc.
+                    doc[key] += ref_doc_it.value();
+                }
             }
+        }
+
+        // Include nested join references.
+        if (!ref_include_exclude.nested_join_includes.empty() &&
+                references.coll_to_references != nullptr && !references.coll_to_references->empty()) {
+            auto nested_include_exclude_op = include_references(nest_ref_doc ? doc[key].at(i) : doc, ref_doc_seq_id,
+                                                                ref_collection.get(), references.coll_to_references[i],
+                                                                ref_include_exclude.nested_join_includes);
+            if (!nested_include_exclude_op.ok()) {
+                return nested_include_exclude_op;
+            }
+        }
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t& seq_id, Collection *const collection,
+                                            const std::map<std::string, reference_filter_result_t>& reference_filter_results,
+                                            const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
+    for (auto const& ref_include_exclude: ref_include_exclude_fields_vec) {
+        auto const& ref_collection_name = ref_include_exclude.collection_name;
+
+        auto& cm = CollectionManager::get_instance();
+        auto ref_collection = cm.get_collection(ref_collection_name);
+        if (ref_collection == nullptr) {
+            return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in `include_fields` not found.");
+        }
+
+        auto const joined_on_ref_collection = reference_filter_results.count(ref_collection_name) > 0,
+                has_filter_reference = (joined_on_ref_collection &&
+                                        reference_filter_results.at(ref_collection_name).count > 0);
+        auto doc_has_reference = false, joined_coll_has_reference = false;
+
+        // Reference include_by without join, check if doc itself contains the reference.
+        if (!joined_on_ref_collection && collection != nullptr) {
+            doc_has_reference = ref_collection->is_referenced_in(collection->name);
+        }
+
+        std::string joined_coll_having_reference;
+        // Check if the joined collection has a reference.
+        if (!joined_on_ref_collection && !doc_has_reference) {
+            for (const auto &reference_filter_result: reference_filter_results) {
+                joined_coll_has_reference = ref_collection->is_referenced_in(reference_filter_result.first);
+                if (joined_coll_has_reference) {
+                    joined_coll_having_reference = reference_filter_result.first;
+                    break;
+                }
+            }
+        }
+
+        if (!has_filter_reference && !doc_has_reference && !joined_coll_has_reference) {
+            continue;
+        }
+
+        std::vector<std::string> ref_include_fields_vec, ref_exclude_fields_vec;
+        StringUtils::split(ref_include_exclude.include_fields, ref_include_fields_vec, ",");
+        StringUtils::split(ref_include_exclude.exclude_fields, ref_exclude_fields_vec, ",");
+
+        spp::sparse_hash_set<std::string> ref_include_fields, ref_exclude_fields;
+        ref_include_fields.insert(ref_include_fields_vec.begin(), ref_include_fields_vec.end());
+        ref_exclude_fields.insert(ref_exclude_fields_vec.begin(), ref_exclude_fields_vec.end());
+
+        tsl::htrie_set<char> ref_include_fields_full, ref_exclude_fields_full;
+        auto include_exclude_op = ref_collection->populate_include_exclude_fields_lk(ref_include_fields,
+                                                                                     ref_exclude_fields,
+                                                                                     ref_include_fields_full,
+                                                                                     ref_exclude_fields_full);
+        auto error_prefix = "Referenced collection `" + ref_collection_name + "`: ";
+        if (!include_exclude_op.ok()) {
+            return Option<bool>(include_exclude_op.code(), error_prefix + include_exclude_op.error());
+        }
+
+        Option<bool> prune_doc_op = Option<bool>(true);
+        auto const& ref_collection_alias = ref_include_exclude.alias;
+        if (has_filter_reference) {
+            auto const& ref_filter_result = reference_filter_results.at(ref_collection_name);
+            prune_doc_op = prune_ref_doc(doc, ref_filter_result, ref_include_fields_full, ref_exclude_fields_full,
+                                         ref_filter_result.is_reference_array_field, ref_include_exclude);
+        } else if (doc_has_reference) {
+            auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection->name);
+            if (!get_reference_field_op.ok()) {
+                continue;
+            }
+            auto const& field_name = get_reference_field_op.get();
+            if (collection->search_schema.count(field_name) == 0) {
+                continue;
+            }
+
+            if (collection->object_reference_helper_fields.count(field_name) != 0) {
+                std::vector<std::string> keys;
+                StringUtils::split(field_name, keys, ".");
+                if (!doc.contains(keys[0])) {
+                    return Option<bool>(400, "Could not find `" + keys[0] +
+                                             "` in the document to include the referenced document.");
+                }
+
+                if (doc[keys[0]].is_array()) {
+                    for (uint32_t i = 0; i < doc[keys[0]].size(); i++) {
+                        uint32_t ref_doc_id;
+                        auto op = collection->get_object_array_related_id(field_name, seq_id, i, ref_doc_id);
+                        if (!op.ok()) {
+                            if (op.code() == 404) { // field_name is not indexed.
+                                break;
+                            } else { // No reference found for this object.
+                                continue;
+                            }
+                        }
+
+                        reference_filter_result_t result(1, new uint32_t[1]{ref_doc_id});
+                        prune_doc_op = prune_ref_doc(doc[keys[0]][i], result,
+                                                     ref_include_fields_full, ref_exclude_fields_full,
+                                                     false, ref_include_exclude);
+                        if (!prune_doc_op.ok()) {
+                            return prune_doc_op;
+                        }
+                    }
+                } else {
+                    std::vector<uint32_t> ids;
+                    auto get_references_op = collection->get_related_ids(field_name, seq_id, ids);
+                    if (!get_references_op.ok()) {
+                        continue;
+                    }
+                    reference_filter_result_t result(ids.size(), &ids[0]);
+                    prune_doc_op = prune_ref_doc(doc[keys[0]], result, ref_include_fields_full, ref_exclude_fields_full,
+                                                 collection->search_schema.at(field_name).is_array(), ref_include_exclude);
+                    result.docs = nullptr;
+                }
+            } else {
+                std::vector<uint32_t> ids;
+                auto get_references_op = collection->get_related_ids(field_name, seq_id, ids);
+                if (!get_references_op.ok()) {
+                    continue;
+                }
+                reference_filter_result_t result(ids.size(), &ids[0]);
+                prune_doc_op = prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
+                                             collection->search_schema.at(field_name).is_array(), ref_include_exclude);
+                result.docs = nullptr;
+            }
+        } else if (joined_coll_has_reference) {
+            auto joined_collection = cm.get_collection(joined_coll_having_reference);
+            if (joined_collection == nullptr) {
+                continue;
+            }
+
+            auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
+            if (!reference_field_name_op.ok() || joined_collection->get_schema().count(reference_field_name_op.get()) == 0) {
+                continue;
+            }
+
+            auto const& reference_field_name = reference_field_name_op.get();
+            auto const& reference_filter_result = reference_filter_results.at(joined_coll_having_reference);
+            auto const& count = reference_filter_result.count;
+            std::vector<uint32_t> ids;
+            ids.reserve(count);
+            for (uint32_t i = 0; i < count; i++) {
+                joined_collection->get_related_ids_with_lock(reference_field_name, reference_filter_result.docs[i], ids);
+            }
+            if (ids.empty()) {
+                continue;
+            }
+
+            gfx::timsort(ids.begin(), ids.end());
+            ids.erase(unique(ids.begin(), ids.end()), ids.end());
+
+            reference_filter_result_t result;
+            result.count = ids.size();
+            result.docs = &ids[0];
+            prune_doc_op = prune_ref_doc(doc, result, ref_include_fields_full, ref_exclude_fields_full,
+                                         joined_collection->get_schema().at(reference_field_name).is_array(),
+                                         ref_include_exclude);
+            result.docs = nullptr;
+        }
+
+        if (!prune_doc_op.ok()) {
+            return prune_doc_op;
         }
     }
 
@@ -5048,7 +5291,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
                                    const std::string& parent_name, size_t depth,
                                    const std::map<std::string, reference_filter_result_t>& reference_filter_results,
                                    Collection *const collection, const uint32_t& seq_id,
-                                   const std::vector<ref_include_fields>& ref_includes) {
+                                   const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
     // doc can only be an object
     auto it = doc.begin();
     while(it != doc.end()) {
@@ -5124,191 +5367,7 @@ Option<bool> Collection::prune_doc(nlohmann::json& doc,
         it++;
     }
 
-    for (auto const& ref_include: ref_includes) {
-        auto const& ref_collection_name = ref_include.collection_name;
-
-        auto& cm = CollectionManager::get_instance();
-        auto ref_collection = cm.get_collection(ref_collection_name);
-        if (ref_collection == nullptr) {
-            return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in `include_fields` not found.");
-        }
-
-        auto const joined_on_ref_collection = reference_filter_results.count(ref_collection_name) > 0,
-                    has_filter_reference = (joined_on_ref_collection &&
-                                            reference_filter_results.at(ref_collection_name).count > 0);
-        auto doc_has_reference = false, joined_coll_has_reference = false;
-
-        // Reference include_by without join, check if doc itself contains the reference.
-        if (!joined_on_ref_collection && collection != nullptr) {
-            doc_has_reference = ref_collection->is_referenced_in(collection->name);
-        }
-
-        std::string joined_coll_having_reference;
-        // Check if the joined collection has a reference.
-        if (!joined_on_ref_collection && !doc_has_reference) {
-            for (const auto &reference_filter_result: reference_filter_results) {
-                joined_coll_has_reference = ref_collection->is_referenced_in(reference_filter_result.first);
-                if (joined_coll_has_reference) {
-                    joined_coll_having_reference = reference_filter_result.first;
-                    break;
-                }
-            }
-        }
-
-        if (!has_filter_reference && !doc_has_reference && !joined_coll_has_reference) {
-            continue;
-        }
-
-        std::vector<std::string> ref_include_fields_vec, ref_exclude_fields_vec;
-        StringUtils::split(ref_include.fields, ref_include_fields_vec, ",");
-        auto exclude_reference_it = exclude_names.equal_prefix_range("$" + ref_collection_name);
-        if (exclude_reference_it.first != exclude_reference_it.second) {
-            auto ref_exclude = exclude_reference_it.first.key();
-            auto parenthesis_index = ref_exclude.find('(');
-            auto reference_fields = ref_exclude.substr(parenthesis_index + 1, ref_exclude.size() - parenthesis_index - 2);
-            StringUtils::split(reference_fields, ref_exclude_fields_vec, ",");
-        }
-
-        spp::sparse_hash_set<std::string> ref_include_fields, ref_exclude_fields;
-        ref_include_fields.insert(ref_include_fields_vec.begin(), ref_include_fields_vec.end());
-        ref_exclude_fields.insert(ref_exclude_fields_vec.begin(), ref_exclude_fields_vec.end());
-
-        tsl::htrie_set<char> ref_include_fields_full, ref_exclude_fields_full;
-        auto include_exclude_op = ref_collection->populate_include_exclude_fields(ref_include_fields,
-                                                                                  ref_exclude_fields,
-                                                                                  ref_include_fields_full,
-                                                                                  ref_exclude_fields_full);
-        auto error_prefix = "Referenced collection `" + ref_collection_name + "`: ";
-        if (!include_exclude_op.ok()) {
-            return Option<bool>(include_exclude_op.code(), error_prefix + include_exclude_op.error());
-        }
-
-        Option<bool> include_references_op = Option<bool>(true);
-        if (has_filter_reference) {
-            auto get_reference_field_op = collection->get_referenced_in_field(ref_collection_name);
-            if (!get_reference_field_op.ok()) {
-                continue;
-            }
-            auto const& field_name = get_reference_field_op.get();
-            if (ref_collection->search_schema.count(field_name) == 0) {
-                continue;
-            }
-            include_references_op = include_references(doc, ref_include.collection_name,
-                                                       ref_collection.get(), ref_include.alias,
-                                                       reference_filter_results.at(ref_collection_name),
-                                                       ref_include_fields_full, ref_exclude_fields_full, error_prefix,
-                                                       ref_collection->get_schema().at(field_name).is_array(),
-                                                       ref_include.nest_ref_doc);
-        } else if (doc_has_reference) {
-            auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(collection->name);
-            if (!get_reference_field_op.ok()) {
-                continue;
-            }
-            auto const& field_name = get_reference_field_op.get();
-            if (collection->search_schema.count(field_name) == 0) {
-                continue;
-            }
-
-            if (collection->object_reference_helper_fields.count(field_name) != 0) {
-                std::vector<std::string> keys;
-                StringUtils::split(field_name, keys, ".");
-                if (!doc.contains(keys[0])) {
-                    return Option<bool>(400, "Could not find `" + keys[0] +
-                                             "` in the document to include the referenced document.");
-                }
-
-                if (doc[keys[0]].is_array()) {
-                    for (uint32_t i = 0; i < doc[keys[0]].size(); i++) {
-                        uint32_t ref_doc_id;
-                        auto op = collection->get_object_array_related_id(field_name, seq_id, i, ref_doc_id);
-                        if (!op.ok()) {
-                            if (op.code() == 404) { // field_name is not indexed.
-                                break;
-                            } else { // No reference found for this object.
-                                continue;
-                            }
-                        }
-
-                        reference_filter_result_t result(1, new uint32_t[1]{ref_doc_id});
-                        include_references_op = include_references(doc[keys[0]][i], ref_include.collection_name,
-                                                                   ref_collection.get(), ref_include.alias, result,
-                                                                   ref_include_fields_full, ref_exclude_fields_full, error_prefix,
-                                                                   false, ref_include.nest_ref_doc);
-                        if (!include_references_op.ok()) {
-                            return include_references_op;
-                        }
-                    }
-                } else {
-                    std::vector<uint32_t> ids;
-                    auto get_references_op = collection->get_related_ids(field_name, seq_id, ids);
-                    if (!get_references_op.ok()) {
-                        continue;
-                    }
-                    reference_filter_result_t result(ids.size(), &ids[0]);
-                    include_references_op = include_references(doc[keys[0]], ref_include.collection_name,
-                                                               ref_collection.get(), ref_include.alias, result,
-                                                               ref_include_fields_full, ref_exclude_fields_full, error_prefix,
-                                                               collection->search_schema.at(field_name).is_array(),
-                                                               ref_include.nest_ref_doc);
-                    result.docs = nullptr;
-                }
-            } else {
-                std::vector<uint32_t> ids;
-                auto get_references_op = collection->get_related_ids(field_name, seq_id, ids);
-                if (!get_references_op.ok()) {
-                    continue;
-                }
-                reference_filter_result_t result(ids.size(), &ids[0]);
-                include_references_op = include_references(doc, ref_include.collection_name,
-                                                           ref_collection.get(), ref_include.alias, result,
-                                                           ref_include_fields_full, ref_exclude_fields_full, error_prefix,
-                                                           collection->search_schema.at(field_name).is_array(),
-                                                           ref_include.nest_ref_doc);
-                result.docs = nullptr;
-            }
-        } else if (joined_coll_has_reference) {
-            auto joined_collection = cm.get_collection(joined_coll_having_reference);
-            if (joined_collection == nullptr) {
-                continue;
-            }
-
-            auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
-            if (!reference_field_name_op.ok() || joined_collection->get_schema().count(reference_field_name_op.get()) == 0) {
-                continue;
-            }
-
-            auto const& reference_field_name = reference_field_name_op.get();
-            auto const& reference_filter_result = reference_filter_results.at(joined_coll_having_reference);
-            auto const& count = reference_filter_result.count;
-            std::vector<uint32_t> ids;
-            ids.reserve(count);
-            for (uint32_t i = 0; i < count; i++) {
-                joined_collection->get_related_ids_with_lock(reference_field_name, reference_filter_result.docs[i], ids);
-            }
-            if (ids.empty()) {
-                continue;
-            }
-
-            gfx::timsort(ids.begin(), ids.end());
-            ids.erase(unique(ids.begin(), ids.end()), ids.end());
-
-            reference_filter_result_t result;
-            result.count = ids.size();
-            result.docs = &ids[0];
-            include_references_op = include_references(doc, ref_include.collection_name,
-                                                       ref_collection.get(), ref_include.alias, result,
-                                                       ref_include_fields_full, ref_exclude_fields_full, error_prefix,
-                                                       joined_collection->get_schema().at(reference_field_name).is_array(),
-                                                       ref_include.nest_ref_doc);
-            result.docs = nullptr;
-        }
-
-        if (!include_references_op.ok()) {
-            return include_references_op;
-        }
-    }
-
-    return Option<bool>(true);
+    return include_references(doc, seq_id, collection, reference_filter_results, ref_include_exclude_fields_vec);
 }
 
 Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,

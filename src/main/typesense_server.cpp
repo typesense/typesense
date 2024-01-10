@@ -79,14 +79,11 @@ void master_server_routes() {
     server->post("/analytics/rules", post_create_analytics_rules);
     server->put("/analytics/rules/:name", put_upsert_analytics_rules);
     server->del("/analytics/rules/:name", del_analytics_rules);
-    server->post("/analytics/events", post_create_event);
 
-    //collection based query click events
-    server->get("/analytics/click_events", get_click_events, false, true);
-    server->post("/analytics/click_events", post_create_event);
-    server->post("/analytics/click_events/replicate", post_replicate_events);
+    //analytics events
+    server->post("/analytics/events", post_create_event);
+    server->post("/analytics/events/replicate", post_replicate_events);
     server->get("/analytics/query_hits_counts", get_query_hits_counts);
-    server->post("/analytics/query_hits_counts/replicate", post_replicate_events);
 
     // meta
     server->get("/metrics.json", get_metrics_json);

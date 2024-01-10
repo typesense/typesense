@@ -2555,6 +2555,33 @@ TEST_F(CollectionSpecificMoreTest, CrossFieldTypoAndPrefixWithWeights) {
     ASSERT_EQ(1, res["hits"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, AnalyticsFullFirstQuery) {
+    Config::get_instance().set_enable_search_analytics(true);
+    nlohmann::json schema = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "color", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Cool trousers";
+    doc["color"] = "blue";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res = coll1->search("co", {"title", "color"}, "", {}, {}, {2, 0}, 10, 1, FREQUENCY, {true}, 0,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {2, 3}).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("cool", res["request_params"]["first_q"].get<std::string>());
+    Config::get_instance().set_enable_search_analytics(false);
+}
+
 TEST_F(CollectionSpecificMoreTest, TruncateAterTopK) {
     nlohmann::json schema = R"({
         "name": "coll1",

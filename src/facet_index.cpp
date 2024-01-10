@@ -11,8 +11,8 @@ void facet_index_t::initialize(const std::string& field) {
     }
 }
 
-void facet_index_t::insert(const std::string& field_name,std::unordered_map<facet_value_id_t,
-                           std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,
+void facet_index_t::insert(const std::string& field_name,
+                           std::unordered_map<facet_value_id_t, std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,
                            std::unordered_map<uint32_t, std::vector<facet_value_id_t>>& seq_id_to_fvalues,
                            bool is_string_field) {
     
@@ -569,5 +569,42 @@ size_t facet_index_t::facet_node_count(const string &field_name, const string &f
     }
 
     return facet_field_map_it->second.fvalue_seq_ids[fvalue].facet_count_it->count;
+}
+
+void facet_index_t::check_for_high_cardinality(const string& field_name, size_t total_num_docs) {
+    // high cardinality or sparse facet fields must be dropped from value facet index
+    const auto facet_field_map_it = facet_field_map.find(field_name);
+    if(facet_field_map_it == facet_field_map.end()) {
+        return ;
+    }
+
+    if(!facet_field_map_it->second.has_value_index) {
+        return ;
+    }
+
+    size_t value_facet_threshold = 0.8 * total_num_docs;
+
+    auto num_facet_values = facet_field_map_it->second.fvalue_seq_ids.size();
+    bool is_sparse_field = false;
+
+    if(facet_field_map.size() > 100 && total_num_docs > 10*1000) {
+        size_t num_docs_with_facet = facet_field_map_it->second.seq_id_hashes->num_ids();
+        if(num_docs_with_facet > 0 && num_docs_with_facet < 100) {
+            is_sparse_field = true;
+        }
+    }
+
+    if(num_facet_values > value_facet_threshold || is_sparse_field) {
+        // if there are too many unique values, we will drop the value index
+        auto& fvalue_seq_ids = facet_field_map_it->second.fvalue_seq_ids;
+        for(auto it = fvalue_seq_ids.begin(); it != fvalue_seq_ids.end(); ++it) {
+            ids_t::destroy_list(it->second.seq_ids);
+        }
+        fvalue_seq_ids.clear();
+        facet_field_map_it->second.counts.clear();
+        facet_field_map_it->second.count_map.clear();
+        facet_field_map_it->second.has_value_index = false;
+        //LOG(INFO) << "Dropped value index for field " << field_name;
+    }
 }
 

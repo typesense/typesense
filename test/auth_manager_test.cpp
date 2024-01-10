@@ -465,3 +465,39 @@ TEST_F(AuthManagerTest, ValidateBadKeyProperties) {
     ASSERT_FALSE(validate_op.ok());
     ASSERT_STREQ("Key description must be a string.", validate_op.error().c_str());
 }
+
+TEST_F(AuthManagerTest, AutoDeleteKeysOnExpiry) {
+    auto list_op = auth_manager.list_keys();
+    ASSERT_TRUE(list_op.ok());
+    ASSERT_EQ(0, list_op.get().size());
+
+    //regular key(future ts)
+    api_key_t api_key1("abcd", "test key 1", {"read", "write"}, {"collection1", "collection2"}, FUTURE_TS);
+
+    //key is expired (past ts)
+    uint64_t PAST_TS = uint64_t(std::time(0)) - 100;
+    api_key_t api_key2("wxyz", "test key 2", {"admin"}, {"*"}, PAST_TS, true);
+
+    auto insert_op = auth_manager.create_key(api_key1);
+    ASSERT_TRUE(insert_op.ok());
+    ASSERT_EQ(4, insert_op.get().value.size());
+
+    insert_op = auth_manager.create_key(api_key2);
+    ASSERT_TRUE(insert_op.ok());
+    ASSERT_EQ(4, insert_op.get().value.size());
+
+    list_op = auth_manager.list_keys();
+    ASSERT_TRUE(list_op.ok());
+    auto keys = list_op.get();
+    ASSERT_EQ(2, keys.size());
+    ASSERT_EQ("abcd", keys[0].value);
+    ASSERT_EQ("wxyz", keys[1].value);
+
+    auth_manager.do_housekeeping();
+
+    list_op = auth_manager.list_keys();
+    ASSERT_TRUE(list_op.ok());
+    keys = list_op.get();
+    ASSERT_EQ(1, keys.size());
+    ASSERT_EQ("abcd", keys[0].value);
+}

@@ -25,7 +25,7 @@ TEST_F(PopularQueriesTest, PrefixQueryCompaction) {
     ASSERT_TRUE(queries.empty());
 
     // compaction after user has typed first prefix but before compaction interval has happened
-    pq.add("f", true, "0", now_ts_us+1);
+    pq.add("f", "f", true, "0", now_ts_us+1);
     pq.compact_user_queries(now_ts_us+2);
     queries = pq.get_user_prefix_queries();
     ASSERT_EQ(1, queries.size());
@@ -46,9 +46,9 @@ TEST_F(PopularQueriesTest, PrefixQueryCompaction) {
 
     // 3 letter search
     pq.reset_local_counts();
-    pq.add("f", true, "0", now_ts_us+1);
-    pq.add("fo", true, "0", now_ts_us+2);
-    pq.add("foo", true, "0", now_ts_us+3);
+    pq.add("f", "f", true, "0", now_ts_us+1);
+    pq.add("fo", "fo", true, "0", now_ts_us+2);
+    pq.add("foo", "foo", true, "0", now_ts_us+3);
     pq.compact_user_queries(now_ts_us + QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS + 100);
     queries = pq.get_user_prefix_queries();
     ASSERT_EQ(0, queries.size());
@@ -59,10 +59,10 @@ TEST_F(PopularQueriesTest, PrefixQueryCompaction) {
 
     // 3 letter search + start of next search
     pq.reset_local_counts();
-    pq.add("f", true, "0", now_ts_us+1);
-    pq.add("fo", true, "0", now_ts_us+2);
-    pq.add("foo", true, "0", now_ts_us+3);
-    pq.add("b", true, "0", now_ts_us + 3 + QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS + 100);
+    pq.add("f", "f", true, "0", now_ts_us+1);
+    pq.add("fo", "fo", true, "0", now_ts_us+2);
+    pq.add("foo", "foo", true, "0", now_ts_us+3);
+    pq.add("b", "b", true, "0", now_ts_us + 3 + QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS + 100);
     pq.compact_user_queries(now_ts_us + 3 + QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS + 100 + 1);
     queries = pq.get_user_prefix_queries();
     ASSERT_EQ(1, queries.size());
@@ -75,8 +75,8 @@ TEST_F(PopularQueriesTest, PrefixQueryCompaction) {
 
     // continue with that query
     auto prev_ts = now_ts_us + 3 + QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS + 100 + 1;
-    pq.add("ba", true, "0", prev_ts+1);
-    pq.add("bar", true, "0", prev_ts+2);
+    pq.add("ba", "ba", true, "0", prev_ts+1);
+    pq.add("bar", "bar", true, "0", prev_ts+2);
     pq.compact_user_queries(prev_ts + 2 + QueryAnalytics::QUERY_FINALIZATION_INTERVAL_MICROS + 1);
     queries = pq.get_user_prefix_queries();
     ASSERT_EQ(0, queries.size());
