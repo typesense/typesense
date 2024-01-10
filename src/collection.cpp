@@ -47,17 +47,17 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const float max_memory_ratio, const std::string& fallback_field_type,
                        const std::vector<std::string>& symbols_to_index,
                        const std::vector<std::string>& token_separators,
-                       const bool enable_nested_fields, std::shared_ptr<AQModel> aq_model) :
+                       const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
-        index(init_index()), aq_model(aq_model) {
+        index(init_index()), vq_model(vq_model) {
     
-    if (aq_model) {
-        aq_model->inc_collection_ref_count();
+    if (vq_model) {
+        vq_model->inc_collection_ref_count();
     }
     this->num_documents = 0;
 }
@@ -68,8 +68,8 @@ Collection::~Collection() {
     delete index;
     delete synonym_index;
 
-    if (aq_model) {
-        aq_model->dec_collection_ref_count();
+    if (vq_model) {
+        vq_model->dec_collection_ref_count();
     }
 }
 
@@ -455,9 +455,9 @@ nlohmann::json Collection::get_summary_json() const {
     json_response["fields"] = fields_arr;
     json_response["default_sorting_field"] = default_sorting_field;
     
-    if(aq_model) {
-        json_response["audio_query_model"] = nlohmann::json::object();
-        json_response["audio_query_model"]["model_name"] = aq_model->get_model_name();
+    if(vq_model) {
+        json_response["voice_query_model"] = nlohmann::json::object();
+        json_response["voice_query_model"]["model_name"] = vq_model->get_model_name();
     }
 
     return json_response;
@@ -1700,7 +1700,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::string& conversation_model_id,
                                   std::string conversation_id,
                                   const std::string& override_tags_str,
-                                  const std::string& audio_query) const {
+                                  const std::string& voice_query) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -1772,12 +1772,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     size_t num_embed_fields = 0;
     std::string query = raw_query;
     std::string transcribed_query;
-    if(!audio_query.empty()) {
-        if(!aq_model) {
-            return Option<nlohmann::json>(400, "Audio query is not enabled. Please set `audio_query_model` for this collection.");
+    if(!voice_query.empty()) {
+        if(!vq_model) {
+            return Option<nlohmann::json>(400, "Audio query is not enabled. Please set `voice_query_model` for this collection.");
         }
 
-        auto transcribe_res = aq_model->transcribe(audio_query);
+        auto transcribe_res = vq_model->transcribe(voice_query);
         if(!transcribe_res.ok()) {
             return Option<nlohmann::json>(transcribe_res.code(), transcribe_res.error());
         }
@@ -2983,9 +2983,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["request_params"]["per_page"] = per_page;
     result["request_params"]["q"] = raw_query;
 
-    if(!audio_query.empty()) {
-        result["audio_query"] = nlohmann::json::object();
-        result["audio_query"]["transcribed_query"] = transcribed_query;
+    if(!voice_query.empty()) {
+        result["voice_query"] = nlohmann::json::object();
+        result["voice_query"]["transcribed_query"] = transcribed_query;
     }
 
     if(!override_metadata.empty()) {
@@ -6503,6 +6503,6 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
     return Option<bool>(true);
 }
 
-std::shared_ptr<AQModel> Collection::get_aq_model() {
-    return aq_model;
+std::shared_ptr<VQModel> Collection::get_vq_model() {
+    return vq_model;
 }

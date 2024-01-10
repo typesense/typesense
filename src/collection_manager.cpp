@@ -138,24 +138,24 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     }
 
     LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
-    std::shared_ptr<AQModel> model = nullptr;
-    if(collection_meta.count(Collection::COLLECTION_AUDIO_QUERY_MODEL) != 0) {
-        nlohmann::json audio_query_model = collection_meta[Collection::COLLECTION_AUDIO_QUERY_MODEL];
+    std::shared_ptr<VQModel> model = nullptr;
+    if(collection_meta.count(Collection::COLLECTION_VOICE_QUERY_MODEL) != 0) {
+        nlohmann::json voice_query_model = collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL];
 
-        if(!audio_query_model.is_object()) {
-            LOG(ERROR) << "Parameter `audio_query_model` must be an object.";
+        if(!voice_query_model.is_object()) {
+            LOG(ERROR) << "Parameter `voice_query_model` must be an object.";
         }
 
-        if(audio_query_model.count("model_name") == 0) {
-            LOG(ERROR) << "Parameter `audio_query_model.model_name` is missing.";
+        if(voice_query_model.count("model_name") == 0) {
+            LOG(ERROR) << "Parameter `voice_query_model.model_name` is missing.";
         }
 
-        if(!audio_query_model["model_name"].is_string() || audio_query_model["model_name"].get<std::string>().empty()) {
-            LOG(ERROR) << "Parameter `audio_query_model.model_name` is invalid.";
+        if(!voice_query_model["model_name"].is_string() || voice_query_model["model_name"].get<std::string>().empty()) {
+            LOG(ERROR) << "Parameter `voice_query_model.model_name` is invalid.";
         }
 
-        std::string model_name = audio_query_model["model_name"].get<std::string>();
-        auto model_res = AQModelManager::get_instance().validate_and_init_model(model_name);
+        std::string model_name = voice_query_model["model_name"].get<std::string>();
+        auto model_res = VQModelManager::get_instance().validate_and_init_model(model_name);
         if(!model_res.ok()) {
             LOG(ERROR) << "Error while loading audio query model: " << model_res.error();
         } else {
@@ -442,7 +442,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::string& fallback_field_type,
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
-                                                         const bool enable_nested_fields, std::shared_ptr<AQModel> model) {
+                                                         const bool enable_nested_fields, std::shared_ptr<VQModel> model) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -481,8 +481,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
 
     if(model != nullptr) {
-        collection_meta[Collection::COLLECTION_AUDIO_QUERY_MODEL] = nlohmann::json::object();
-        collection_meta[Collection::COLLECTION_AUDIO_QUERY_MODEL]["model_name"] = model->get_model_name();
+        collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL] = nlohmann::json::object();
+        collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL]["model_name"] = model->get_model_name();
     }
 
     rocksdb::WriteBatch batch;
@@ -1166,7 +1166,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
     const char *OVERRIDE_TAGS = "override_tags";
 
-    const char *AUDIO_QUERY = "audio_query";
+    const char *VOICE_QUERY = "voice_query";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -1297,7 +1297,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool prioritize_num_matching_fields = true;
     std::string override_tags;
 
-    std::string audio_query;
+    std::string voice_query;
 
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
@@ -1340,7 +1340,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {DROP_TOKENS_MODE, &drop_tokens_mode_str},
         {OVERRIDE_TAGS, &override_tags},
         {CONVERSATION_MODEL_ID, &conversation_model_id},
-        {AUDIO_QUERY, &audio_query},
+        {VOICE_QUERY, &voice_query},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -1562,7 +1562,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           conversation_model_id,
                                                           conversation_id,
                                                           override_tags,
-                                                          audio_query);
+                                                          voice_query);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
@@ -1727,24 +1727,24 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         return Option<Collection*>(parse_op.code(), parse_op.error());
     }
 
-    std::shared_ptr<AQModel> model = nullptr;
-    if(req_json.count(Collection::COLLECTION_AUDIO_QUERY_MODEL) != 0) {
-        nlohmann::json audio_query_model = req_json[Collection::COLLECTION_AUDIO_QUERY_MODEL];
+    std::shared_ptr<VQModel> model = nullptr;
+    if(req_json.count(Collection::COLLECTION_VOICE_QUERY_MODEL) != 0) {
+        nlohmann::json voice_query_model = req_json[Collection::COLLECTION_VOICE_QUERY_MODEL];
 
-        if(!audio_query_model.is_object()) {
-            return Option<Collection*>(400, "Parameter `audio_query_model` must be an object.");
+        if(!voice_query_model.is_object()) {
+            return Option<Collection*>(400, "Parameter `voice_query_model` must be an object.");
         }
 
-        if(audio_query_model.count("model_name") == 0) {
-            return Option<Collection*>(400, "Parameter `audio_query_model.model_name` is required.");
+        if(voice_query_model.count("model_name") == 0) {
+            return Option<Collection*>(400, "Parameter `voice_query_model.model_name` is required.");
         }
 
-        if(!audio_query_model["model_name"].is_string() || audio_query_model["model_name"].get<std::string>().empty()) {
-            return Option<Collection*>(400, "Parameter `audio_query_model.model_name` must be a non-empty string.");
+        if(!voice_query_model["model_name"].is_string() || voice_query_model["model_name"].get<std::string>().empty()) {
+            return Option<Collection*>(400, "Parameter `voice_query_model.model_name` must be a non-empty string.");
         }
 
-        std::string model_name = audio_query_model["model_name"].get<std::string>();
-        auto model_res = AQModelManager::get_instance().validate_and_init_model(model_name);
+        std::string model_name = voice_query_model["model_name"].get<std::string>();
+        auto model_res = VQModelManager::get_instance().validate_and_init_model(model_name);
         if(!model_res.ok()) {
             LOG(ERROR) << "Error while loading audio query model: " << model_res.error();
             return Option<Collection*>(model_res.code(), model_res.error());
@@ -2019,7 +2019,7 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     auto coll_create_op = create_collection(new_name, DEFAULT_NUM_MEMORY_SHARDS, existing_coll->get_fields(),
                               existing_coll->get_default_sorting_field(), static_cast<uint64_t>(std::time(nullptr)),
                               existing_coll->get_fallback_field_type(), symbols_to_index, token_separators,
-                              existing_coll->get_enable_nested_fields(), existing_coll->get_aq_model());
+                              existing_coll->get_enable_nested_fields(), existing_coll->get_vq_model());
 
     lock.lock();
 

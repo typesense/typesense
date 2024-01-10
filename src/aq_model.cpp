@@ -1,4 +1,4 @@
-#include "aq_model.h"
+#include "vq_model.h"
 #include <sstream>
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
@@ -8,7 +8,7 @@ whisper_context* WhisperModel::validate_and_load_model(const std::string& model_
     return whisper_init_from_file(model_path.c_str());                                                              
 }
 
-WhisperModel::WhisperModel(whisper_context* ctx, const std::string& model_name) : ctx(ctx), AQModel(model_name) {
+WhisperModel::WhisperModel(whisper_context* ctx, const std::string& model_name) : ctx(ctx), VQModel(model_name) {
     // surpress whisper logs
     whisper_log_set([](enum ggml_log_level level, const char * text, void * user_data) {
     }, nullptr);

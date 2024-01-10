@@ -1,19 +1,19 @@
 #include <filesystem>
 #include <map>
-#include "aq_model_manager.h"
+#include "vq_model_manager.h"
 #include "http_client.h"
 
 
-const std::string AQModelManager::get_model_url(const std::string& model_name) {
-    return MODELS_REPO_URL + "audio_query/" + model_name + ".bin";
+const std::string VQModelManager::get_model_url(const std::string& model_name) {
+    return MODELS_REPO_URL + "voice_query/" + model_name + ".bin";
 }
 
-const std::string AQModelManager::get_config_url() {
-    return MODELS_REPO_URL + "audio_query/models.json";
+const std::string VQModelManager::get_config_url() {
+    return MODELS_REPO_URL + "voice_query/models.json";
 }
 
 
-const std::string AQModelManager::get_model_namespace(const std::string& model_name) {
+const std::string VQModelManager::get_model_namespace(const std::string& model_name) {
     // <namespace>/<model_name> if / is present in model_name
     if(model_name.find("/") != std::string::npos) {
         return model_name.substr(0, model_name.find("/"));
@@ -22,7 +22,7 @@ const std::string AQModelManager::get_model_namespace(const std::string& model_n
     }
 }
 
-const Option<nlohmann::json> AQModelManager::get_config() {
+const Option<nlohmann::json> VQModelManager::get_config() {
     auto config_url = get_config_url();
     auto& client = HttpClient::get_instance();  
     std::string res;
@@ -42,24 +42,24 @@ const Option<nlohmann::json> AQModelManager::get_config() {
     }
 }
 
-const std::string AQModelManager::get_absolute_model_path(const std::string& model_name) {
-    auto audio_query_home = EmbedderManager::get_model_dir();
-    audio_query_home += audio_query_home.back() == '/' ? "" : "/";
-    audio_query_home += "audio_query";
-    std::filesystem::path path(audio_query_home);
+const std::string VQModelManager::get_absolute_model_path(const std::string& model_name) {
+    auto voice_query_home = EmbedderManager::get_model_dir();
+    voice_query_home += voice_query_home.back() == '/' ? "" : "/";
+    voice_query_home += "voice_query";
+    std::filesystem::path path(voice_query_home);
     if (!std::filesystem::exists(path)) {
         std::filesystem::create_directory(path);
     }
 
     auto model_namespace = get_model_namespace(model_name);
-    std::filesystem::path model_path(audio_query_home.back() == '/' ? audio_query_home + model_namespace : audio_query_home + "/" + model_namespace);
+    std::filesystem::path model_path(voice_query_home.back() == '/' ? voice_query_home + model_namespace : voice_query_home + "/" + model_namespace);
     if (!std::filesystem::exists(model_path)) {
         std::filesystem::create_directory(model_path);
     }
-    return audio_query_home.back() == '/' ? audio_query_home + model_name + ".bin" : audio_query_home + "/" + model_name + ".bin";
+    return voice_query_home.back() == '/' ? voice_query_home + model_name + ".bin" : voice_query_home + "/" + model_name + ".bin";
 }
 
-Option<bool> AQModelManager::download_model(const std::string& model_name) {
+Option<bool> VQModelManager::download_model(const std::string& model_name) {
     auto model_path = get_absolute_model_path(model_name);
     auto config = get_config();
 
@@ -92,15 +92,15 @@ Option<bool> AQModelManager::download_model(const std::string& model_name) {
     return Option<bool>(true);
 }
 
-Option<std::shared_ptr<AQModel>> AQModelManager::validate_and_init_model(const std::string& model_name) {
+Option<std::shared_ptr<VQModel>> VQModelManager::validate_and_init_model(const std::string& model_name) {
     if(models.find(model_name) != models.end()) {
-        return Option<std::shared_ptr<AQModel>>(models[model_name]);
+        return Option<std::shared_ptr<VQModel>>(models[model_name]);
     }
 
     auto download_res = download_model(model_name);
 
     if (!download_res.ok()) {
-        return Option<std::shared_ptr<AQModel>>(download_res.code(), download_res.error());
+        return Option<std::shared_ptr<VQModel>>(download_res.code(), download_res.error());
     }
 
     auto model_path = get_absolute_model_path(model_name);
@@ -109,29 +109,29 @@ Option<std::shared_ptr<AQModel>> AQModelManager::validate_and_init_model(const s
     if (model_namespace == "whisper") {
         auto whisper_ctx = WhisperModel::validate_and_load_model(model_path);
         if (!whisper_ctx) {
-            return Option<std::shared_ptr<AQModel>>(400, "Failed to load audio query model");
+            return Option<std::shared_ptr<VQModel>>(400, "Failed to load audio query model");
         }
-        auto whisper_model = std::shared_ptr<AQModel>(new WhisperModel(whisper_ctx, model_name));
+        auto whisper_model = std::shared_ptr<VQModel>(new WhisperModel(whisper_ctx, model_name));
         {
             std::unique_lock<std::shared_mutex> lock(models_mutex);
             models[model_name] = whisper_model;
         }
-        return Option<std::shared_ptr<AQModel>>(whisper_model);
+        return Option<std::shared_ptr<VQModel>>(whisper_model);
     } else {
-        return Option<std::shared_ptr<AQModel>>(400, "Unknown model namespace");
+        return Option<std::shared_ptr<VQModel>>(400, "Unknown model namespace");
     }
 }
 
-Option<std::shared_ptr<AQModel>> AQModelManager::get_model(const std::string& model_name) {
+Option<std::shared_ptr<VQModel>> VQModelManager::get_model(const std::string& model_name) {
     std::shared_lock<std::shared_mutex> lock(models_mutex);
     auto model = models.find(model_name);
     if (model == models.end()) {
-        return Option<std::shared_ptr<AQModel>>(400, "Audio query model not found");
+        return Option<std::shared_ptr<VQModel>>(400, "Audio query model not found");
     }
-    return Option<std::shared_ptr<AQModel>>(model->second);
+    return Option<std::shared_ptr<VQModel>>(model->second);
 }
 
-void AQModelManager::delete_model(const std::string& model_name) {
+void VQModelManager::delete_model(const std::string& model_name) {
     std::unique_lock<std::shared_mutex> lock(models_mutex);
     auto model = models.find(model_name);
     if (model != models.end()) {
@@ -139,12 +139,12 @@ void AQModelManager::delete_model(const std::string& model_name) {
     }
 }
 
-void AQModelManager::delete_all_models() {
+void VQModelManager::delete_all_models() {
     std::unique_lock<std::shared_mutex> lock(models_mutex);
     models.clear();
 }
 
-void AQModelManager::clear_unused_models() {
+void VQModelManager::clear_unused_models() {
     std::unique_lock<std::shared_mutex> lock(models_mutex);
     for (auto it = models.begin(); it != models.end();) {
         if (it->second->get_collection_ref_count() == 0) {
@@ -155,6 +155,6 @@ void AQModelManager::clear_unused_models() {
     }
 }
 
-AQModelManager::~AQModelManager() {
+VQModelManager::~VQModelManager() {
     delete_all_models();
 }

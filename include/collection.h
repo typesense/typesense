@@ -20,7 +20,7 @@
 #include <tsl/htrie_map.h>
 #include "tokenizer.h"
 #include "synonym_index.h"
-#include "aq_model_manager.h"
+#include "vq_model_manager.h"
 
 struct doc_seq_id_t {
     uint32_t seq_id;
@@ -341,7 +341,7 @@ private:
                                                      const size_t remote_embedding_num_tries,
                                                      size_t& per_page) const;
 
-    std::shared_ptr<AQModel> aq_model = nullptr;
+    std::shared_ptr<VQModel> vq_model = nullptr;
 
 public:
 
@@ -369,7 +369,7 @@ public:
 
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
-    static constexpr const char* COLLECTION_AUDIO_QUERY_MODEL = "audio_query_model";
+    static constexpr const char* COLLECTION_VOICE_QUERY_MODEL = "voice_query_model";
 
     // methods
 
@@ -380,7 +380,7 @@ public:
                const std::string& default_sorting_field,
                const float max_memory_ratio, const std::string& fallback_field_type,
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
-               const bool enable_nested_fields, std::shared_ptr<AQModel> aq_model = nullptr);
+               const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr);
 
     ~Collection();
 
@@ -577,7 +577,7 @@ public:
                                   const std::string& conversation_model_id = "",
                                   std::string conversation_id = "",
                                   const std::string& override_tags_str = "",
-                                  const std::string& audio_query = "") const;
+                                  const std::string& voice_query = "") const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
@@ -603,7 +603,7 @@ public:
 
     bool get_enable_nested_fields();
 
-    std::shared_ptr<AQModel> get_aq_model();
+    std::shared_ptr<VQModel> get_vq_model();
 
     Option<bool> parse_facet(const std::string& facet_field, std::vector<facet>& facets) const;
 

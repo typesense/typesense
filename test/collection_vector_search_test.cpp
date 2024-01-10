@@ -9,7 +9,7 @@
 #include "conversation_model_manager.h"
 #include "index.h"
 #include "core_api.h"
-#include "aq_model_manager.h"
+#include "vq_model_manager.h"
 
 class CollectionVectorTest : public ::testing::Test {
 protected:
@@ -3715,7 +3715,7 @@ TEST_F(CollectionVectorTest, TestInvalidAudioQueryModel) {
         "fields": [
             {"name": "name", "type": "string"}
         ],
-        "audio_query_model": {
+        "voice_query_model": {
             "model_name": "invalid-model"
         }
     })"_json;
@@ -3730,7 +3730,7 @@ TEST_F(CollectionVectorTest, TestInvalidAudioQueryModel) {
         "fields": [
             {"name": "name", "type": "string"}
         ],
-        "audio_query_model": {
+        "voice_query_model": {
             "model_name": "base.en"
         }
     })"_json;
@@ -3744,40 +3744,40 @@ TEST_F(CollectionVectorTest, TestInvalidAudioQueryModel) {
         "fields": [
             {"name": "name", "type": "string"}
         ],
-        "audio_query_model": "invalid"
+        "voice_query_model": "invalid"
     })"_json;
 
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ(collection_create_op.error(), "Parameter `audio_query_model` must be an object.");
+    ASSERT_EQ(collection_create_op.error(), "Parameter `voice_query_model` must be an object.");
 
     schema_json = R"({
         "name": "test",
         "fields": [
             {"name": "name", "type": "string"}
         ],
-        "audio_query_model": {
+        "voice_query_model": {
             "model_name": 1
         }
     })"_json;
 
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ(collection_create_op.error(), "Parameter `audio_query_model.model_name` must be a non-empty string.");
+    ASSERT_EQ(collection_create_op.error(), "Parameter `voice_query_model.model_name` must be a non-empty string.");
 
     schema_json = R"({
         "name": "test",
         "fields": [
             {"name": "name", "type": "string"}
         ],
-        "audio_query_model": {
+        "voice_query_model": {
             "model_name": ""
         }
     })"_json;
 
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ(collection_create_op.error(), "Parameter `audio_query_model.model_name` must be a non-empty string.");
+    ASSERT_EQ(collection_create_op.error(), "Parameter `voice_query_model.model_name` must be a non-empty string.");
 }
 
 TEST_F(CollectionVectorTest, TestAudioQuery) {
@@ -3786,7 +3786,7 @@ TEST_F(CollectionVectorTest, TestAudioQuery) {
         "fields": [
             {"name": "name", "type": "string"}
         ],
-        "audio_query_model": {
+        "voice_query_model": {
             "model_name": "whisper/base.en"
         }
     })"_json;
@@ -3817,7 +3817,7 @@ TEST_F(CollectionVectorTest, TestAudioQuery) {
     
     ASSERT_TRUE(results.ok());
     auto results_json = results.get();
-    ASSERT_EQ(results_json["audio_query"]["transcribed_query"].get<std::string>(), " This is a test recording for audio search.");
+    ASSERT_EQ(results_json["voice_query"]["transcribed_query"].get<std::string>(), " This is a test recording for audio search.");
 }
 
 TEST_F(CollectionVectorTest, TestInvalidAudioQuery) {
@@ -3826,7 +3826,7 @@ TEST_F(CollectionVectorTest, TestInvalidAudioQuery) {
         "fields": [
             {"name": "name", "type": "string"}
         ],
-        "audio_query_model": {
+        "voice_query_model": {
             "model_name": "whisper/base.en"
         }
     })"_json;
