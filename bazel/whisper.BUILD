@@ -36,7 +36,6 @@ cmake(
         },
     }), 
     build_args = [
-        "--config RelWithDebInfo",
         "--", "-j8"
     ],
 
