@@ -66,10 +66,14 @@ Collection::~Collection() {
     std::unique_lock lifecycle_lock(lifecycle_mutex);
     std::unique_lock lock(mutex);
     delete index;
-    delete synonym_index;
+    delete synonym_index;   
 
     if (vq_model) {
         vq_model->dec_collection_ref_count();
+        if (vq_model->get_collection_ref_count() == 0) {
+            LOG(INFO) << "Unloading voice query model " << vq_model->get_model_name();
+            VQModelManager::get_instance().delete_model(vq_model->get_model_name());
+        }
     }
 }
 
@@ -1774,7 +1778,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::string transcribed_query;
     if(!voice_query.empty()) {
         if(!vq_model) {
-            return Option<nlohmann::json>(400, "Audio query is not enabled. Please set `voice_query_model` for this collection.");
+            return Option<nlohmann::json>(400, "Voice query is not enabled. Please set `voice_query_model` for this collection.");
         }
 
         auto transcribe_res = vq_model->transcribe(voice_query);
@@ -2984,8 +2988,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["request_params"]["q"] = raw_query;
 
     if(!voice_query.empty()) {
-        result["voice_query"] = nlohmann::json::object();
-        result["voice_query"]["transcribed_query"] = transcribed_query;
+        result["request_params"]["voice_query"] = nlohmann::json::object();
+        result["request_params"]["voice_query"]["transcribed_query"] = transcribed_query;
     }
 
     if(!override_metadata.empty()) {

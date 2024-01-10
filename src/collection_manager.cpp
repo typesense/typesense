@@ -157,7 +157,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         std::string model_name = voice_query_model["model_name"].get<std::string>();
         auto model_res = VQModelManager::get_instance().validate_and_init_model(model_name);
         if(!model_res.ok()) {
-            LOG(ERROR) << "Error while loading audio query model: " << model_res.error();
+            LOG(ERROR) << "Error while loading voice query model: " << model_res.error();
         } else {
             model = model_res.get();
         }
@@ -1219,7 +1219,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     // check presence of mandatory params here
 
-    if(req_params.count(QUERY) == 0) {
+    if(req_params.count(QUERY) == 0 && req_params.count(VOICE_QUERY) == 0) {
         return Option<bool>(400, std::string("Parameter `") + QUERY + "` is required.");
     }
 
@@ -1746,7 +1746,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         std::string model_name = voice_query_model["model_name"].get<std::string>();
         auto model_res = VQModelManager::get_instance().validate_and_init_model(model_name);
         if(!model_res.ok()) {
-            LOG(ERROR) << "Error while loading audio query model: " << model_res.error();
+            LOG(ERROR) << "Error while loading voice query model: " << model_res.error();
             return Option<Collection*>(model_res.code(), model_res.error());
         } else {
             model = model_res.get();

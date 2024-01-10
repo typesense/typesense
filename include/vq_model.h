@@ -11,7 +11,7 @@
 
 class VQModel {
     protected:
-        int collection_ref_count = 1;
+        int collection_ref_count = 0;
         std::shared_mutex collection_ref_count_mutex;
         std::string model_name;
     public:

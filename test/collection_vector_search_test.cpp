@@ -3723,7 +3723,7 @@ TEST_F(CollectionVectorTest, TestInvalidAudioQueryModel) {
     
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ(collection_create_op.error(), "Audio query model not found");
+    ASSERT_EQ(collection_create_op.error(), "Voice query model not found");
 
     schema_json = R"({
         "name": "test",
@@ -3737,7 +3737,7 @@ TEST_F(CollectionVectorTest, TestInvalidAudioQueryModel) {
 
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ(collection_create_op.error(), "Audio query model not found");
+    ASSERT_EQ(collection_create_op.error(), "Voice query model not found");
 
     schema_json = R"({
         "name": "test",
@@ -3817,7 +3817,7 @@ TEST_F(CollectionVectorTest, TestAudioQuery) {
     
     ASSERT_TRUE(results.ok());
     auto results_json = results.get();
-    ASSERT_EQ(results_json["voice_query"]["transcribed_query"].get<std::string>(), " This is a test recording for audio search.");
+    ASSERT_EQ(results_json["request_params"]["voice_query"]["transcribed_query"].get<std::string>(), " This is a test recording for audio search.");
 }
 
 TEST_F(CollectionVectorTest, TestInvalidAudioQuery) {

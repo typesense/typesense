@@ -70,7 +70,7 @@ Option<bool> VQModelManager::download_model(const std::string& model_name) {
     auto config_json = config.get();
     
     if (config_json.find(model_name + ".bin") == config_json.end()) {
-        return Option<bool>(400, "Audio query model not found");
+        return Option<bool>(400, "Voice query model not found");
     }
 
     auto model_md5 = config_json[model_name + ".bin"].get<std::string>();
@@ -86,7 +86,7 @@ Option<bool> VQModelManager::download_model(const std::string& model_name) {
     LOG(INFO) << "Downloading model " << model_name << " from " << model_url << " to " << model_path;
     if (response != 200) {
         LOG(INFO) << response;
-        return Option<bool>(400, "Failed to download audio query model");
+        return Option<bool>(400, "Failed to download voice query model");
     }
 
     return Option<bool>(true);
@@ -109,7 +109,7 @@ Option<std::shared_ptr<VQModel>> VQModelManager::validate_and_init_model(const s
     if (model_namespace == "whisper") {
         auto whisper_ctx = WhisperModel::validate_and_load_model(model_path);
         if (!whisper_ctx) {
-            return Option<std::shared_ptr<VQModel>>(400, "Failed to load audio query model");
+            return Option<std::shared_ptr<VQModel>>(400, "Failed to load voice query model");
         }
         auto whisper_model = std::shared_ptr<VQModel>(new WhisperModel(whisper_ctx, model_name));
         {
@@ -126,7 +126,7 @@ Option<std::shared_ptr<VQModel>> VQModelManager::get_model(const std::string& mo
     std::shared_lock<std::shared_mutex> lock(models_mutex);
     auto model = models.find(model_name);
     if (model == models.end()) {
-        return Option<std::shared_ptr<VQModel>>(400, "Audio query model not found");
+        return Option<std::shared_ptr<VQModel>>(400, "Voice query model not found");
     }
     return Option<std::shared_ptr<VQModel>>(model->second);
 }
