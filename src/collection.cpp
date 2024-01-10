@@ -2985,7 +2985,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["request_params"] = nlohmann::json::object();
     result["request_params"]["collection_name"] = name;
     result["request_params"]["per_page"] = per_page;
-    result["request_params"]["q"] = raw_query;
+    if(!raw_query.empty()) {
+        result["request_params"]["q"] = raw_query;
+    }
 
     if(!voice_query.empty()) {
         result["request_params"]["voice_query"] = nlohmann::json::object();
