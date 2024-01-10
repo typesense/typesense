@@ -154,6 +154,8 @@ public:
     void handle_index_change(const std::string& field_name, size_t total_num_docs,
                              size_t facet_index_threshold, size_t facet_count);
 
+    void check_for_high_cardinality(const std::string& field_name, size_t total_num_docs);
+
     bool has_hash_index(const std::string& field_name);
 
     bool has_value_index(const std::string& field_name);
@@ -173,4 +175,5 @@ public:
     size_t facet_val_num_ids(const std::string& field_name, const std::string& fvalue);
 
     size_t facet_node_count(const std::string& field_name, const std::string& fvalue);
+
 };

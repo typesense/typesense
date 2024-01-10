@@ -510,15 +510,35 @@ namespace sort_field_const {
 }
 
 namespace ref_include {
-    static const std::string merge = "merge";
-    static const std::string nest = "nest";
+    static const std::string merge_string = "merge";
+    static const std::string nest_string = "nest";
+    static const std::string nest_array_string = "nest_array";
+
+    enum strategy_enum {merge = 0, nest, nest_array};
+
+    static Option<strategy_enum> string_to_enum(const std::string& strategy) {
+        if (strategy == merge_string) {
+            return Option<strategy_enum>(merge);
+        } else if (strategy == nest_string) {
+            return Option<strategy_enum>(nest);
+        } else if (strategy == nest_array_string) {
+            return Option<strategy_enum>(nest_array);
+        }
+
+        return Option<strategy_enum>(400, "Unknown include strategy `" + strategy + "`. "
+                                           "Valid options are `merge`, `nest`, `nest_array`.");
+    }
 }
 
-struct ref_include_fields {
+struct ref_include_exclude_fields {
     std::string collection_name;
-    std::string fields;
+    std::string include_fields;
+    std::string exclude_fields;
     std::string alias;
-    bool nest_ref_doc = false;
+    ref_include::strategy_enum strategy = ref_include::nest;
+
+    // In case we have nested join.
+    std::vector<ref_include_exclude_fields> nested_join_includes = {};
 };
 
 struct hnsw_index_t;

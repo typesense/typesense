@@ -8,7 +8,8 @@ QueryAnalytics::QueryAnalytics(size_t k) : k(k), max_size(k * 2) {
 
 }
 
-void QueryAnalytics::add(const std::string& key, const bool live_query, const std::string& user_id, uint64_t now_ts_us) {
+void QueryAnalytics::add(const std::string& key, const std::string& expanded_key,
+                         const bool live_query, const std::string& user_id, uint64_t now_ts_us) {
     if(live_query) {
         // live query must be aggregated first to their final form as they could be prefix queries
         if(now_ts_us == 0) {
@@ -23,7 +24,9 @@ void QueryAnalytics::add(const std::string& key, const bool live_query, const st
 
         auto& queries = user_prefix_queries[user_id];
         if(queries.size() < 100) {
-            queries.emplace_back(key, now_ts_us);
+            // only live queries could send expanded queries
+            const std::string& actual_key = expand_query ? expanded_key : key;
+            queries.emplace_back(actual_key, now_ts_us);
         }
 
         umutex.unlock();
@@ -90,7 +93,7 @@ void QueryAnalytics::compact_user_queries(uint64_t now_ts_us) {
                                    (queries[i + 1].timestamp - queries[i].timestamp);
 
             if(diff_micros > QUERY_FINALIZATION_INTERVAL_MICROS) {
-                add(queries[i].query, false, "");
+                add(queries[i].query, queries[i].query, false, "");
                 last_consolidated_index = i;
             }
         }
@@ -115,4 +118,8 @@ std::unordered_map<std::string, std::vector<QueryAnalytics::QWithTimestamp>> Que
 tsl::htrie_map<char, uint32_t> QueryAnalytics::get_local_counts() {
     std::unique_lock lk(lmutex);
     return local_counts;
+}
+
+void QueryAnalytics::set_expand_query(bool expand_query) {
+    this->expand_query = expand_query;
 }

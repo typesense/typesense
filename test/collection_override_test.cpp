@@ -56,6 +56,8 @@ protected:
 };
 
 TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
+    Config::get_instance().set_enable_search_analytics(true);
+
     nlohmann::json override_json = {
             {"id",   "exclude-rule"},
             {
@@ -207,6 +209,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_EQ(4, results["found"].get<uint32_t>());
 
     coll_mul_fields->remove_override("include-rule");
+    Config::get_instance().set_enable_search_analytics(false);
 }
 
 TEST_F(CollectionOverrideTest, OverrideJSONValidation) {
@@ -272,8 +275,8 @@ TEST_F(CollectionOverrideTest, OverrideJSONValidation) {
 
     parse_op = override_t::parse(include_json2, "", override2);
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_STREQ("Must contain one of: `includes`, `excludes`, `filter_by`, `sort_by`, `remove_matched_tokens`, `replace_query`.",
-                 parse_op.error().c_str());
+    ASSERT_STREQ("Must contain one of: `includes`, `excludes`, `metadata`, `filter_by`, `sort_by`, "
+                 "`remove_matched_tokens`, `replace_query`.", parse_op.error().c_str());
 
     include_json2["includes"] = nlohmann::json::array();
     include_json2["includes"][0] = 100;
@@ -3891,20 +3894,37 @@ TEST_F(CollectionOverrideTest, MetadataValidation) {
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("The `metadata` must be a JSON object.", op.error());
 
+    // don't allow empty rule without any action
+    override_json1 = R"({
+       "id": "ov-1",
+       "rule": {
+            "query": "queryA",
+            "match": "exact"
+        }
+    })"_json;
+
+    override_t override2;
+    op = override_t::parse(override_json1, "ov-2", override2);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Must contain one of: `includes`, `excludes`, `metadata`, `filter_by`, `sort_by`, "
+              "`remove_matched_tokens`, `replace_query`.", op.error());
+
+    // should allow only metadata to be present as action
+
     override_json1 = R"({
        "id": "ov-1",
        "rule": {
             "query": "queryA",
             "match": "exact"
         },
-        "filter_by": "category: kids",
         "metadata": {"foo": "bar"}
     })"_json;
 
-    op = override_t::parse(override_json1, "ov-1", override1);
+    override_t override3;
+    op = override_t::parse(override_json1, "ov-3", override3);
     ASSERT_TRUE(op.ok());
 
-    coll1->add_override(override1);
+    coll1->add_override(override3);
 
     collectionManager.drop_collection("coll1");
 }

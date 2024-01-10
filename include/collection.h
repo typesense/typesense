@@ -449,22 +449,23 @@ public:
 
     static void remove_reference_helper_fields(nlohmann::json& document);
 
-    static Option<bool> include_references(nlohmann::json& doc,
-                                           const std::string& ref_collection_name,
-                                           Collection *const ref_collection,
-                                           const std::string& alias,
-                                           const reference_filter_result_t& references,
-                                           const tsl::htrie_set<char>& ref_include_fields_full,
-                                           const tsl::htrie_set<char>& ref_exclude_fields_full,
-                                           const std::string& error_prefix, const bool& is_reference_array,
-                                           const bool& nest_ref_doc);
+    static Option<bool> prune_ref_doc(nlohmann::json& doc,
+                                      const reference_filter_result_t& references,
+                                      const tsl::htrie_set<char>& ref_include_fields_full,
+                                      const tsl::htrie_set<char>& ref_exclude_fields_full,
+                                      const bool& is_reference_array,
+                                      const ref_include_exclude_fields& ref_include_exclude);
+
+    static Option<bool> include_references(nlohmann::json& doc, const uint32_t& seq_id, Collection *const collection,
+                                           const std::map<std::string, reference_filter_result_t>& reference_filter_results,
+                                           const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
 
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
                                   size_t depth = 0,
                                   const std::map<std::string, reference_filter_result_t>& reference_filter_results = {},
                                   Collection *const collection = nullptr, const uint32_t& seq_id = 0,
-                                  const std::vector<ref_include_fields>& ref_include_fields_vec = {});
+                                  const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
 
     const Index* _get_index() const;
 
@@ -569,7 +570,7 @@ public:
                                   const size_t remote_embedding_num_tries = 2,
                                   const std::string& stopwords_set="",
                                   const std::vector<std::string>& facet_return_parent = {},
-                                  const std::vector<ref_include_fields>& ref_include_fields_vec = {},
+                                  const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {},
                                   const std::string& drop_tokens_mode = "right_to_left",
                                   const bool prioritize_num_matching_fields = true,
                                   const bool group_missing_values = true,
@@ -695,6 +696,10 @@ public:
     friend class filter_result_iterator_t;
 
     std::shared_mutex& get_lifecycle_mutex();
+
+    void expand_search_query(const string& raw_query, size_t offset, size_t total, const search_args* search_params,
+                             const std::vector<std::vector<KV*>>& result_group_kvs,
+                             const std::vector<std::string>& raw_search_fields, string& first_q) const;
 };
 
 template<class T>
