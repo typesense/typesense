@@ -2710,3 +2710,62 @@ TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
     ASSERT_EQ(0, results["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
     ASSERT_EQ(0, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
 }
+
+TEST_F(CollectionSpecificMoreTest, SkipTypoToleranceOnDigits) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "XYZ-123";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "XYZ-223";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "1124532";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "1124542";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "112abcd";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "112acbd";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // with num_typos
+
+    auto res_op = coll1->search("XYZ-123", {"title"}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                "<mark>", "</mark>");
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["hits"].size());
+
+    res_op = coll1->search("1124532", {"title"}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                "<mark>", "</mark>");
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["hits"].size());
+
+    res_op = coll1->search("112a", {"title"}, "", {}, {}, {2}, 10, 1,
+                           FREQUENCY, {true},
+                           0, spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                           "<mark>", "</mark>");
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(2, res_op.get()["hits"].size());
+}
