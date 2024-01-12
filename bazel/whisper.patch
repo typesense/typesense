@@ -1,0 +1,247 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 567a58d..349cc4d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -203,6 +203,9 @@ if (WHISPER_BLAS)
+     endif ()
+ endif ()
+ 
++
++add_compile_definitions(GGML_USE_CUBLAS)
++
+ if (WHISPER_CUBLAS)
+     cmake_minimum_required(VERSION 3.17)
+ 
+@@ -214,9 +217,7 @@ if (WHISPER_CUBLAS)
+         enable_language(CUDA)
+ 
+         set(GGML_SOURCES_CUDA ggml-cuda.cu ggml-cuda.h)
+-
+-        add_compile_definitions(GGML_USE_CUBLAS)
+-
++        
+         if (WHISPER_STATIC)
+             if (WIN32)
+                 # As of 12.3.1 CUDA Tookit for Windows does not offer a static cublas library
+@@ -483,6 +484,12 @@ add_library(${TARGET}
+ 
+ include(DefaultTargetOptions)
+ 
++target_compile_options(${TARGET} PRIVATE
++    -Wno-unused-function
++    -Wimplicit-int
++    -Wint-conversion
++)
++
+ target_include_directories(${TARGET} PUBLIC
+     .
+     )
+diff --git a/ggml-backend.c b/ggml-backend.c
+index 53e741c..4756a85 100644
+--- a/ggml-backend.c
++++ b/ggml-backend.c
+@@ -286,8 +286,12 @@ static void ggml_backend_registry_init(void) {
+ 
+     // add forward decls here to avoid including the backend headers
+ #ifdef GGML_USE_CUBLAS
+-    extern void ggml_backend_cuda_reg_devices(void);
+-    ggml_backend_cuda_reg_devices();
++    if (cuda_handle) {
++        void (*ggml_backend_cuda_reg_devices)(void) = dlsym(cuda_handle, "ggml_backend_cuda_reg_devices");
++        if (ggml_backend_cuda_reg_devices) {
++            ggml_backend_cuda_reg_devices();
++        }
++    }
+ #endif
+ 
+ #ifdef GGML_USE_METAL
+diff --git a/ggml-cuda.cu b/ggml-cuda.cu
+index 7578d21..bb02610 100644
+--- a/ggml-cuda.cu
++++ b/ggml-cuda.cu
+@@ -9,6 +9,7 @@
+ #include <stdint.h>
+ #include <stdio.h>
+ #include <vector>
++#include <iostream>
+ 
+ 
+ #if defined(GGML_USE_HIPBLAS)
+@@ -6806,6 +6807,8 @@ bool ggml_cublas_loaded(void) {
+ void ggml_init_cublas() {
+     static bool initialized = false;
+ 
++    std::cout << "Initializing CUDA" << std::endl;
++
+     if (!initialized) {
+ 
+ #ifdef __HIP_PLATFORM_AMD__
+@@ -6816,6 +6819,7 @@ void ggml_init_cublas() {
+ #endif
+ 
+         if (cudaGetDeviceCount(&g_device_count) != cudaSuccess) {
++            std::cout << "ERROR: " << cudaGetErrorString(cudaGetLastError()) << std::endl;
+             initialized = true;
+             g_cublas_loaded = false;
+             return;
+@@ -6883,7 +6887,7 @@ void ggml_init_cublas() {
+ 
+         // configure logging to stdout
+         // CUBLAS_CHECK(cublasLoggerConfigure(1, 1, 0, nullptr));
+-
++        std::cout << "CUDA initialized" << std::endl;
+         initialized = true;
+         g_cublas_loaded = true;
+     }
+@@ -9433,16 +9437,13 @@ void ggml_cuda_free_scratch() {
+ 
+ bool ggml_cuda_compute_forward(struct ggml_compute_params * params, struct ggml_tensor * tensor) {
+     if (!g_cublas_loaded) return false;
+-
+     ggml_cuda_func_t func;
+     const bool any_on_device = tensor->backend == GGML_BACKEND_GPU
+         || (tensor->src[0] != nullptr && (tensor->src[0]->backend == GGML_BACKEND_GPU || tensor->src[0]->backend == GGML_BACKEND_GPU_SPLIT))
+         || (tensor->src[1] != nullptr && tensor->src[1]->backend == GGML_BACKEND_GPU);
+-
+     if (!any_on_device && tensor->op != GGML_OP_MUL_MAT && tensor->op != GGML_OP_MUL_MAT_ID) {
+         return false;
+     }
+-
+     if (tensor->op == GGML_OP_MUL_MAT) {
+         if (tensor->src[0]->ne[3] != tensor->src[1]->ne[3]) {
+ #ifndef NDEBUG
+diff --git a/ggml-cuda.h b/ggml-cuda.h
+index cdb0c0c..18ba59a 100644
+--- a/ggml-cuda.h
++++ b/ggml-cuda.h
+@@ -21,7 +21,7 @@ extern "C" {
+ GGML_API void   ggml_init_cublas(void);
+ 
+ // Returns `true` if there are available CUDA devices and cublas loads successfully; otherwise, it returns `false`.
+-GGML_API bool   ggml_cublas_loaded(void);
++GGML_API  bool   ggml_cublas_loaded(void);
+ 
+ GGML_API void * ggml_cuda_host_malloc(size_t size);
+ GGML_API void   ggml_cuda_host_free(void * ptr);
+diff --git a/ggml.c b/ggml.c
+index b124f14..332e837 100644
+--- a/ggml.c
++++ b/ggml.c
+@@ -109,6 +109,7 @@ typedef void * thread_ret_t;
+ 
+ #include <sys/wait.h>
+ 
++
+ void ggml_print_backtrace(void) {
+     /*
+     #include <execinfo.h>
+@@ -2261,7 +2262,17 @@ struct ggml_context * ggml_init(struct ggml_init_params params) {
+         }
+ 
+ #if defined(GGML_USE_CUBLAS)
+-        ggml_init_cublas();
++        cuda_handle = dlopen("libwhisper_cuda_shared.so", RTLD_LAZY);
++        if(cuda_handle) {
++            // load ggml_init_cublas from libwhisper_cuda_shared.so
++            void (*init_cublas)(void) = dlsym(cuda_handle, "ggml_init_cublas");
++            if(init_cublas) {
++                init_cublas();
++            }
++        } else {
++            GGML_PRINT("WARNING: libwhisper_cuda_shared.so not found, CUDA won't be used for Whisper\n");
++            GGML_PRINT("WARNING: %s\n", dlerror());
++        }
+ #elif defined(GGML_USE_CLBLAST)
+         ggml_cl_init();
+ #endif
+@@ -14425,9 +14436,12 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
+     }
+ 
+ #ifdef GGML_USE_CUBLAS
+-    bool skip_cpu = ggml_cuda_compute_forward(params, tensor);
+-    if (skip_cpu) {
+-        return;
++    if(cuda_handle) {
++        bool(*cuda_compute_forward)(const struct ggml_compute_params *, struct ggml_tensor *) = dlsym(cuda_handle, "ggml_cuda_compute_forward");
++        bool skip_cpu = cuda_compute_forward(params, tensor);
++        if (skip_cpu) {
++            return;
++        }
+     }
+     GGML_ASSERT(tensor->src[0] == NULL || tensor->src[0]->backend == GGML_BACKEND_CPU);
+     GGML_ASSERT(tensor->src[1] == NULL || tensor->src[1]->backend == GGML_BACKEND_CPU);
+@@ -16303,9 +16317,12 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
+                 //printf("nr0 = %8d, nr1 = %8d, nr0*nr1 = %8d, n_tasks%d\n", nr0, nr1, nr0*nr1, n_tasks);
+ 
+ #if defined(GGML_USE_CUBLAS)
+-                if (ggml_cuda_can_mul_mat(node->src[0], node->src[1], node)) {
+-                    n_tasks = 1; // TODO: this actually is doing nothing
+-                                 //       the threads are still spinning
++                if(cuda_handle) {
++                    bool (*cuda_can_mul_mat)(struct ggml_tensor * a, struct ggml_tensor * b, struct ggml_tensor * c) = dlsym(cuda_handle, "ggml_cuda_can_mul_mat");
++                    if (cuda_can_mul_mat(node->src[0], node->src[1], node)) {
++                        n_tasks = 1; // TODO: this actually is doing nothing
++                                    //       the threads are still spinning
++                    }
+                 }
+ #elif defined(GGML_USE_CLBLAST)
+                 if (ggml_cl_can_mul_mat(node->src[0], node->src[1], node)) {
+diff --git a/ggml.h b/ggml.h
+index 64f4e45..85fb039 100644
+--- a/ggml.h
++++ b/ggml.h
+@@ -246,7 +246,6 @@
+         if (!(x)) { \
+             fflush(stdout); \
+             fprintf(stderr, "GGML_ASSERT: %s:%d: %s\n", __FILE__, __LINE__, #x); \
+-            ggml_print_backtrace(); \
+             abort(); \
+         } \
+     } while (0)
+@@ -261,6 +260,11 @@
+ #define GGML_UNREACHABLE() ((void) 0)
+ #endif
+ 
++#ifdef GGML_USE_CUBLAS
++    #include <dlfcn.h>
++    static void* cuda_handle;
++#endif
++
+ // used to copy the number of elements and stride in bytes of tensors into local variables.
+ // main purpose is to reduce code duplication and improve readability.
+ //
+@@ -635,8 +639,6 @@ extern "C" {
+     GGML_API int64_t ggml_cycles(void);
+     GGML_API int64_t ggml_cycles_per_ms(void);
+ 
+-    GGML_API void    ggml_print_backtrace(void);
+-
+     GGML_API void    ggml_numa_init(void); // call once for better performance on NUMA systems
+     GGML_API bool    ggml_is_numa(void); // true if init detected that system has >1 NUMA node
+ 
+diff --git a/whisper.cpp b/whisper.cpp
+index f6ba822..5279268 100644
+--- a/whisper.cpp
++++ b/whisper.cpp
+@@ -10,6 +10,7 @@
+ 
+ #ifdef GGML_USE_CUBLAS
+ #include "ggml-cuda.h"
++#include <dlfcn.h>
+ #endif
+ 
+ #ifdef WHISPER_USE_OPENVINO
+@@ -1058,8 +1059,12 @@ static ggml_backend_t whisper_backend_init(const whisper_context_params & params
+ 
+     // initialize the backends
+ #ifdef GGML_USE_CUBLAS
+-    if (params.use_gpu && ggml_cublas_loaded()) {
++    // load ggml_cublas_loaded() function from the shared library
++    auto ggml_cublas_loaded = (bool (*)()) dlsym(cuda_handle, "ggml_cublas_loaded");
++    if (cuda_handle && params.use_gpu && ggml_cublas_loaded()) {
+         WHISPER_LOG_INFO("%s: using CUDA backend\n", __func__);
++        // load ggml_backend_cuda_init() function from the shared library
++        auto ggml_backend_cuda_init = (ggml_backend_t (*)(int)) dlsym(cuda_handle, "ggml_backend_cuda_init");
+         backend_gpu = ggml_backend_cuda_init(0);
+         if (!backend_gpu) {
+             WHISPER_LOG_ERROR("%s: ggml_backend_cuda_init() failed\n", __func__);
