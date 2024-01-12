@@ -25,6 +25,7 @@
 #include "stopwords_manager.h"
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
+#include "vq_model_manager.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -565,6 +566,9 @@ int run_server(const Config & config, const std::string & version, void (*master
     delete server;
 
     LOG(INFO) << "CollectionManager dispose, this might take some time...";
+
+    // We have to delete the models here, before CUDA driver is unloaded.
+    VQModelManager::get_instance().delete_all_models();
 
     CollectionManager::get_instance().dispose();
 

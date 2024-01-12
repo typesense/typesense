@@ -138,6 +138,30 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     }
 
     LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
+    std::shared_ptr<VQModel> model = nullptr;
+    if(collection_meta.count(Collection::COLLECTION_VOICE_QUERY_MODEL) != 0) {
+        const nlohmann::json& voice_query_model = collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL];
+
+        if(!voice_query_model.is_object()) {
+            LOG(ERROR) << "Parameter `voice_query_model` must be an object.";
+        }
+
+        if(voice_query_model.count("model_name") == 0) {
+            LOG(ERROR) << "Parameter `voice_query_model.model_name` is missing.";
+        }
+
+        if(!voice_query_model["model_name"].is_string() || voice_query_model["model_name"].get<std::string>().empty()) {
+            LOG(ERROR) << "Parameter `voice_query_model.model_name` is invalid.";
+        }
+
+        std::string model_name = voice_query_model["model_name"].get<std::string>();
+        auto model_res = VQModelManager::get_instance().validate_and_init_model(model_name);
+        if(!model_res.ok()) {
+            LOG(ERROR) << "Error while loading voice query model: " << model_res.error();
+        } else {
+            model = model_res.get();
+        }
+    }
 
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
@@ -150,7 +174,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             fallback_field_type,
                                             symbols_to_index,
                                             token_separators,
-                                            enable_nested_fields);
+                                            enable_nested_fields, model);
 
     return collection;
 }
@@ -418,7 +442,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::string& fallback_field_type,
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
-                                                         const bool enable_nested_fields) {
+                                                         const bool enable_nested_fields, std::shared_ptr<VQModel> model) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -456,6 +480,11 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
     collection_meta[Collection::COLLECTION_ENABLE_NESTED_FIELDS] = enable_nested_fields;
 
+    if(model != nullptr) {
+        collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL] = nlohmann::json::object();
+        collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL]["model_name"] = model->get_model_name();
+    }
+
     rocksdb::WriteBatch batch;
     batch.Put(Collection::get_next_seq_id_key(name), StringUtils::serialize_uint32_t(0));
     batch.Put(Collection::get_meta_key(name), collection_meta.dump());
@@ -472,7 +501,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 default_sorting_field,
                                                 this->max_memory_ratio, fallback_field_type,
                                                 symbols_to_index, token_separators,
-                                                enable_nested_fields);
+                                                enable_nested_fields, model);
 
     add_to_collections(new_collection);
 
@@ -1360,6 +1389,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *PRIORITIZE_NUM_MATCHING_FIELDS = "prioritize_num_matching_fields";
     const char *OVERRIDE_TAGS = "override_tags";
 
+    const char *VOICE_QUERY = "voice_query";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -1411,7 +1442,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     // check presence of mandatory params here
 
-    if(req_params.count(QUERY) == 0) {
+    if(req_params.count(QUERY) == 0 && req_params.count(VOICE_QUERY) == 0) {
         return Option<bool>(400, std::string("Parameter `") + QUERY + "` is required.");
     }
 
@@ -1489,6 +1520,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool prioritize_num_matching_fields = true;
     std::string override_tags;
 
+    std::string voice_query;
+
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -1530,6 +1563,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {DROP_TOKENS_MODE, &drop_tokens_mode_str},
         {OVERRIDE_TAGS, &override_tags},
         {CONVERSATION_MODEL_ID, &conversation_model_id},
+        {VOICE_QUERY, &voice_query},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -1754,7 +1788,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           conversation,
                                                           conversation_model_id,
                                                           conversation_id,
-                                                          override_tags);
+                                                          override_tags,
+                                                          voice_query);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
@@ -1924,6 +1959,32 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
         return Option<Collection*>(parse_op.code(), parse_op.error());
     }
 
+    std::shared_ptr<VQModel> model = nullptr;
+    if(req_json.count(Collection::COLLECTION_VOICE_QUERY_MODEL) != 0) {
+        const nlohmann::json& voice_query_model = req_json[Collection::COLLECTION_VOICE_QUERY_MODEL];
+
+        if(!voice_query_model.is_object()) {
+            return Option<Collection*>(400, "Parameter `voice_query_model` must be an object.");
+        }
+
+        if(voice_query_model.count("model_name") == 0) {
+            return Option<Collection*>(400, "Parameter `voice_query_model.model_name` is required.");
+        }
+
+        if(!voice_query_model["model_name"].is_string() || voice_query_model["model_name"].get<std::string>().empty()) {
+            return Option<Collection*>(400, "Parameter `voice_query_model.model_name` must be a non-empty string.");
+        }
+
+        const std::string& model_name = voice_query_model["model_name"].get<std::string>();
+        auto model_res = VQModelManager::get_instance().validate_and_init_model(model_name);
+        if(!model_res.ok()) {
+            LOG(ERROR) << "Error while loading voice query model: " << model_res.error();
+            return Option<Collection*>(model_res.code(), model_res.error());
+        } else {
+            model = model_res.get();
+        }
+    }
+
 
     const auto created_at = static_cast<uint64_t>(std::time(nullptr));
 
@@ -1932,7 +1993,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
-                                                                req_json[ENABLE_NESTED_FIELDS]);
+                                                                req_json[ENABLE_NESTED_FIELDS], model);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
@@ -2190,7 +2251,7 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     auto coll_create_op = create_collection(new_name, DEFAULT_NUM_MEMORY_SHARDS, existing_coll->get_fields(),
                               existing_coll->get_default_sorting_field(), static_cast<uint64_t>(std::time(nullptr)),
                               existing_coll->get_fallback_field_type(), symbols_to_index, token_separators,
-                              existing_coll->get_enable_nested_fields());
+                              existing_coll->get_enable_nested_fields(), existing_coll->get_vq_model());
 
     lock.lock();
 
