@@ -2751,7 +2751,7 @@ TEST_F(CollectionSpecificMoreTest, DisableTyposForNumericalTokens) {
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(1, res_op.get()["hits"].size());
 
-    res_op = coll1->search("XYZ-123", {"title"}, "", {},
+    res_op = coll1->search("XYZ-12345678", {"title"}, "", {},
                                 {}, {2}, 10, 1,FREQUENCY, {true},
                                 Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "",
