@@ -1499,10 +1499,6 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, unsigned 
     // a) key_len < query_len: "pltninum" (query) on "pst" (key)
     // b) query_len < key_len: "pst" (query) on "pltninum" (key)
 
-    if(std::isdigit(c) && key_index < query_len-1) {
-        max_cost = 0;
-    }
-
     bool last_key_char = (c == '\0');
     int key_len = last_key_char ? key_index : key_index + 1;
 

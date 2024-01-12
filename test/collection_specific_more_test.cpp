@@ -2711,87 +2711,51 @@ TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
     ASSERT_EQ(0, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
 }
 
-TEST_F(CollectionSpecificMoreTest, SkipTypoToleranceOnDigits) {
+TEST_F(CollectionSpecificMoreTest, DisableTyposForNumericalTokens) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"}
-        ]
+        ],
+         "token_separators": ["-"]
     })"_json;
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
     nlohmann::json doc;
-    doc["title"] = "XYZ-123";
+    doc["title"] = "XYZ-12345678";
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
-    doc["title"] = "XYZ-223";
+    doc["title"] = "XYZ-22345678";
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
-    doc["title"] = "1324532";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    // with disabling typos for numerical tokens
 
-    doc["title"] = "1324542";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    doc["title"] = "112abcd";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    doc["title"] = "112acbd";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    doc["title"] = "abc123xyz";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    doc["title"] = "abc113xyz";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    // with num_typos
-
-    auto res_op = coll1->search("XYZ-123", {"title"}, "", {}, {}, {2}, 10, 1,
-                                FREQUENCY, {true},
-                                0, spp::sparse_hash_set<std::string>(),
-                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                                "<mark>", "</mark>");
+    auto res_op = coll1->search("XYZ-12345678", {"title"}, "", {},
+                                {}, {2}, 10, 1,FREQUENCY, {true},
+                                Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "",
+                                30, 4, "", 40,
+                                {}, {}, {}, 0,"<mark>",
+                                "</mark>", {}, 1000,true,
+                                false, true, "", false,
+                                6000*1000, 4, 7, fallback, 4,
+                                {off}, INT16_MAX, INT16_MAX,2,
+                                2, false, "", true,
+                                0, max_score, 100, 0, 0,
+                                HASH, 30000, 2, "",
+                                {},{}, "right_to_left", true,
+                                true, false, "", "", "",
+                                "", true);
 
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(1, res_op.get()["hits"].size());
 
-    res_op = coll1->search("1324532", {"title"}, "", {}, {}, {2}, 10, 1,
-                                FREQUENCY, {true},
-                                0, spp::sparse_hash_set<std::string>(),
-                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                                "<mark>", "</mark>");
-
-    ASSERT_TRUE(res_op.ok());
-    ASSERT_EQ(1, res_op.get()["hits"].size());
-
-    res_op = coll1->search("112a", {"title"}, "", {}, {}, {2}, 10, 1,
-                           FREQUENCY, {true},
-                           0, spp::sparse_hash_set<std::string>(),
-                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                           "<mark>", "</mark>");
-
-    ASSERT_TRUE(res_op.ok());
-    ASSERT_EQ(2, res_op.get()["hits"].size());
-
-    res_op = coll1->search("abc123xyz", {"title"}, "", {}, {}, {2}, 10, 1,
-                           FREQUENCY, {true},
-                           0, spp::sparse_hash_set<std::string>(),
-                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                           "<mark>", "</mark>");
-
-    ASSERT_TRUE(res_op.ok());
-    ASSERT_EQ(1, res_op.get()["hits"].size());
-
-    doc["title"] = "abc123xyw";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    res_op = coll1->search("abc123xyz", {"title"}, "", {}, {}, {2}, 10, 1,
-                           FREQUENCY, {true},
-                           0, spp::sparse_hash_set<std::string>(),
-                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                           "<mark>", "</mark>");
+    res_op = coll1->search("XYZ-123", {"title"}, "", {},
+                                {}, {2}, 10, 1,FREQUENCY, {true},
+                                Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "",
+                                30, 4, "", 400);
 
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(2, res_op.get()["hits"].size());
