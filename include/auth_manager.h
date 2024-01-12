@@ -47,7 +47,6 @@ struct api_key_t {
         description = key_obj["description"].get<std::string>();
         actions = key_obj["actions"].get<std::vector<std::string>>();
         collections = key_obj["collections"].get<std::vector<std::string>>();
-        autodelete = key_obj["autodelete"].get<bool>();
 
         // handle optional fields
 
@@ -55,6 +54,12 @@ struct api_key_t {
             expires_at = key_obj["expires_at"];
         } else {
             expires_at = FAR_FUTURE_TIMESTAMP;
+        }
+
+        if(key_obj.count("autodelete") != 0) {
+            autodelete = key_obj["autodelete"].get<bool>();
+        } else {
+            autodelete = false;
         }
 
         return Option<bool>(true);
