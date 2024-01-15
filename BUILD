@@ -90,8 +90,6 @@ ASAN_COPTS = [
     "-DASAN_BUILD"
 ]
 
-
-
 cc_binary(
     name = "typesense-server",
     srcs = [
@@ -102,7 +100,7 @@ cc_binary(
         "TYPESENSE_VERSION=\\\"$(TYPESENSE_VERSION)\\\""
     ],
     linkopts = select({
-        "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc"],
+        "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc", "-fuse-ld=lld"],
         "//conditions:default": [],
     }),
     copts = COPTS + select({
@@ -199,7 +197,10 @@ cc_test(
         "ROOT_DIR="
     ],
     linkopts = select({
-       ":asan_mode": ["-fsanitize=address"],
+       ":asan_mode": ["-fsanitize=address", "-fuse-ld=lld"],
        "//conditions:default": []
+    }) +  select({
+       "@platforms//os:linux": ["-fuse-ld=lld"],
+       "//conditions:default": [],
    })
 )
