@@ -26,7 +26,6 @@ cc_library(
     includes = ["include"],
 )
 
-
 config_setting(
     name = "with_cuda",
     define_values = { "use_cuda": "on" }
@@ -63,10 +62,8 @@ cc_library(
         "@clip_tokenizer//:clip",
         "@whisper.cpp//:whisper",
         "@whisper.cpp//:whisper_headers",
-        "//:cuda_deps",
         # "@zip",
-    ],
-)
+    ])
 
 cc_library(
     name = "linux_deps",
@@ -93,23 +90,6 @@ ASAN_COPTS = [
     "-DASAN_BUILD"
 ]
 
-
-load("@cuda_home_repo//:cuda_home.bzl", "CUDA_HOME")
-load("@cuda_home_repo//:cudnn_home.bzl", "CUDNN_HOME")
-
-cc_library(
-    name = "cuda_deps",
-    linkopts = select({
-        ":with_cuda": [
-            "-lcudart",
-            "-lcublas",
-            "-lcuda",
-            "-L" + CUDA_HOME + "/lib64",
-        ],
-        "//conditions:default": [],
-    }),
-)
-
 cc_binary(
     name = "typesense-server",
     srcs = [
@@ -120,7 +100,7 @@ cc_binary(
         "TYPESENSE_VERSION=\\\"$(TYPESENSE_VERSION)\\\""
     ],
     linkopts = select({
-        "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc"],
+        "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc", "-fuse-ld=lld"],
         "//conditions:default": [],
     }),
     copts = COPTS + select({
@@ -212,13 +192,15 @@ cc_test(
     deps = [
         ":common_deps",
         "@com_google_googletest//:gtest",
-        ":cuda_deps",
     ],
     defines = [
         "ROOT_DIR="
     ],
     linkopts = select({
-       ":asan_mode": ["-fsanitize=address"],
+       ":asan_mode": ["-fsanitize=address", "-fuse-ld=lld"],
        "//conditions:default": []
+    }) +  select({
+       "@platforms//os:linux": ["-fuse-ld=lld"],
+       "//conditions:default": [],
    })
 )
