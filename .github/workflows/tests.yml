@@ -34,6 +34,10 @@ jobs:
           sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
           sudo update-alternatives --set c++ /usr/bin/g++
 
+      - name: Setup lld
+        run: |
+          sudo apt-get install -y lld
+
       - name: Set up Bazel
         uses: bazelbuild/setup-bazelisk@v2
 
