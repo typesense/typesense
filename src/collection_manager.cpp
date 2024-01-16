@@ -1391,6 +1391,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *VOICE_QUERY = "voice_query";
 
+    const char *ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -1505,6 +1507,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
+    bool enable_typos_for_numerical_tokens = false;
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
@@ -1576,6 +1579,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {CONVERSATION, &conversation},
         {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
         {GROUP_MISSING_VALUES, &group_missing_values},
+        {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1789,7 +1793,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           conversation_model_id,
                                                           conversation_id,
                                                           override_tags,
-                                                          voice_query);
+                                                          voice_query,
+                                                          enable_typos_for_numerical_tokens);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

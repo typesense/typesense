@@ -2320,7 +2320,7 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
-                               facet_index_type_t facet_index_type) {
+                               facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens) {
     return search(search_params->field_query_tokens,
            search_params->search_fields,
            search_params->match_type,
@@ -2360,7 +2360,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->facet_sample_threshold,
            collection_name,
            search_params->drop_tokens_mode,
-           facet_index_type
+           facet_index_type,
+           enable_typos_for_numerical_tokens
            );
 }
 
@@ -2449,7 +2450,7 @@ bool Index::static_filter_query_eval(const override_t* override,
 bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const bool exact_rule_match,
                              const std::vector<std::string>& query_tokens,
                              token_ordering token_order, std::set<std::string>& absorbed_tokens,
-                             std::string& filter_by_clause) const {
+                             std::string& filter_by_clause, bool enable_typos_for_numerical_tokens) const {
 
     bool resolved_override = false;
     size_t i = 0, j = 0;
@@ -2492,7 +2493,7 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
                 std::vector<std::string> field_absorbed_tokens;
                 resolved_override &= check_for_overrides(token_order, field_name, slide_window,
                                                          exact_rule_match, matched_tokens, absorbed_tokens,
-                                                         field_absorbed_tokens);
+                                                         field_absorbed_tokens, enable_typos_for_numerical_tokens);
 
                 if(!resolved_override) {
                     goto RETURN_EARLY;
@@ -2543,7 +2544,8 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                                      token_ordering token_order,
                                      filter_node_t*& filter_tree_root,
                                      std::vector<const override_t*>& matched_dynamic_overrides,
-                                     nlohmann::json& override_metadata) const {
+                                     nlohmann::json& override_metadata,
+                                     bool enable_typos_for_numerical_tokens) const {
     std::shared_lock lock(mutex);
 
     for (auto& override : filter_overrides) {
@@ -2579,7 +2581,8 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
 
             std::set<std::string> absorbed_tokens;
             bool resolved_override = resolve_override(rule_parts, exact_rule_match, query_tokens,
-                                                      token_order, absorbed_tokens, filter_by_clause);
+                                                      token_order, absorbed_tokens, filter_by_clause,
+                                                      enable_typos_for_numerical_tokens);
 
             if (resolved_override) {
                 if(override_metadata.empty()) {
@@ -2636,7 +2639,8 @@ void Index::remove_matched_tokens(std::vector<std::string>& tokens, const std::s
 bool Index::check_for_overrides(const token_ordering& token_order, const string& field_name, const bool slide_window,
                                 bool exact_rule_match, std::vector<std::string>& tokens,
                                 std::set<std::string>& absorbed_tokens,
-                                std::vector<std::string>& field_absorbed_tokens) const {
+                                std::vector<std::string>& field_absorbed_tokens,
+                                bool enable_typos_for_numerical_tokens) const {
 
     for(size_t window_len = tokens.size(); window_len > 0; window_len--) {
         for(size_t start_index = 0; start_index+window_len-1 < tokens.size(); start_index++) {
@@ -2669,7 +2673,8 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
             search_field(0, window_tokens, nullptr, 0, num_toks_dropped, field_it.value(), field_name,
                          nullptr, 0, {}, sort_fields, -1, 0, searched_queries, topster, groups_processed,
                          &result_ids, result_ids_len, field_num_results, 0, group_by_fields,
-                         true, false, 4, query_hashes, token_order, false, 0, 0, false, -1, 3, 7, 4);
+                         true, false, 4, query_hashes, token_order, false, 0, 0, false, -1, 3, 7, 4,
+                         enable_typos_for_numerical_tokens);
 
             if(result_ids_len != 0) {
                 // we need to narraw onto the exact matches
@@ -2829,8 +2834,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    size_t facet_sample_percent, size_t facet_sample_threshold,
                    const std::string& collection_name,
                    const drop_tokens_param_t drop_tokens_mode,
-                   facet_index_type_t facet_index_type
-                   ) const {
+                   facet_index_type_t facet_index_type,
+                   bool enable_typos_for_numerical_tokens) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
@@ -3195,7 +3200,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                           typo_tokens_threshold, exhaustive_search,
                                                           max_candidates, min_len_1typo, min_len_2typo,
                                                           syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
-                                                          collection_name);
+                                                          collection_name, enable_typos_for_numerical_tokens);
         if (!fuzzy_search_fields_op.ok()) {
             return fuzzy_search_fields_op;
         }
@@ -3598,7 +3603,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         std::vector<facet_info_t> facet_infos(facets.size());
         compute_facet_infos(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
                             group_by_fields, group_limit, is_wildcard_no_filter_query,
-                            max_candidates, facet_infos, facet_index_type);
+                            max_candidates, facet_infos, facet_index_type, enable_typos_for_numerical_tokens);
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
         std::vector<facet> value_facets;
@@ -3727,7 +3732,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     compute_facet_infos(facets, facet_query, facet_query_num_typos,
                         &included_ids_vec[0], included_ids_vec.size(), group_by_fields,
                         group_limit, is_wildcard_no_filter_query,
-                        max_candidates, facet_infos, facet_index_type);
+                        max_candidates, facet_infos, facet_index_type, enable_typos_for_numerical_tokens);
     do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
               facet_infos, group_limit, group_by_fields, group_missing_values, &included_ids_vec[0], 
               included_ids_vec.size(), max_facet_values, is_wildcard_no_filter_query,
@@ -3929,7 +3934,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         const int* sort_order,
                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                         const std::vector<size_t>& geopoint_indices,
-                                        const std::string& collection_name) const {
+                                        const std::string& collection_name,
+                                        bool enable_typos_for_numerical_tokens) const {
 
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
@@ -3943,7 +3949,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
 
         std::vector<int> all_costs;
         // This ensures that we don't end up doing a cost of 1 for a single char etc.
-        int bounded_cost = get_bounded_typo_cost(2, token.length(), min_len_1typo, min_len_2typo);
+        int bounded_cost = get_bounded_typo_cost(2, token , token.length(), min_len_1typo, min_len_2typo,
+                                                 enable_typos_for_numerical_tokens);
 
         for(int cost = 0; cost <= bounded_cost; cost++) {
             all_costs.push_back(cost);
@@ -5683,7 +5690,8 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                                 const std::vector<std::string>& group_by_fields,
                                 const size_t group_limit, const bool is_wildcard_no_filter_query,
                                 const size_t max_candidates,
-                                std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type) const {
+                                std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type,
+                                bool enable_typos_for_numerical_tokens) const {
 
     if(all_result_ids_len == 0) {
         return;
@@ -5750,7 +5758,8 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                          facet_field, facet_field.faceted_name(),
                          all_result_ids, all_result_ids_len, {}, sort_fields, -1, facet_query_num_typos, searched_queries, topster,
                          groups_processed, &field_result_ids, field_result_ids_len, field_num_results, 0, group_by_fields,
-                         true, false, 4, query_hashes, MAX_SCORE, true, 0, 1, false, -1, 3, 1000, max_candidates);
+                         true, false, 4, query_hashes, MAX_SCORE, true, 0, 1, false, -1, 3, 1000, max_candidates,
+                         enable_typos_for_numerical_tokens);
 
             //LOG(INFO) << "searched_queries.size: " << searched_queries.size();
 
@@ -6169,7 +6178,8 @@ void Index::search_field(const uint8_t & field_id,
                          int syn_orig_num_tokens,
                          size_t min_len_1typo,
                          size_t min_len_2typo,
-                         const size_t max_candidates) const {
+                         const size_t max_candidates,
+                         bool enable_typos_for_numerical_tokens) const {
 
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
@@ -6190,7 +6200,8 @@ void Index::search_field(const uint8_t & field_id,
 
         std::vector<int> all_costs;
         // This ensures that we don't end up doing a cost of 1 for a single char etc.
-        int bounded_cost = get_bounded_typo_cost(max_cost, token.length(), min_len_1typo, min_len_2typo);
+        int bounded_cost = get_bounded_typo_cost(max_cost, token, token.length(), min_len_1typo, min_len_2typo,
+                                                 enable_typos_for_numerical_tokens);
 
         for(int cost = 0; cost <= bounded_cost; cost++) {
             all_costs.push_back(cost);
@@ -6316,14 +6327,20 @@ void Index::search_field(const uint8_t & field_id,
     }
 }
 
-int Index::get_bounded_typo_cost(const size_t max_cost, const size_t token_len,
-                                 const size_t min_len_1typo, const size_t min_len_2typo) {
-    if(token_len < min_len_1typo) {
+int Index::get_bounded_typo_cost(const size_t max_cost, const std::string& token, const size_t token_len,
+                                 const size_t min_len_1typo, const size_t min_len_2typo,
+                                 bool enable_typos_for_numerical_tokens) {
+
+    if(enable_typos_for_numerical_tokens && std::all_of(token.begin(), token.end(), ::isdigit)) {
+        return 0;
+    }
+
+    if (token_len < min_len_1typo) {
         // typo correction is disabled for small tokens
         return 0;
     }
 
-    if(token_len < min_len_2typo) {
+    if (token_len < min_len_2typo) {
         // 2-typos are enabled only at token length of 7 chars
         return std::min<int>(max_cost, 1);
     }
