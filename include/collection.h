@@ -279,7 +279,7 @@ private:
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids,
                                   nlohmann::json& override_metadata,
-                                  bool disable_typos_for_numerical_tokens=false) const;
+                                  bool enable_typos_for_numerical_tokens=false) const;
 
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type) const;
 
@@ -580,7 +580,7 @@ public:
                                   std::string conversation_id = "",
                                   const std::string& override_tags_str = "",
                                   const std::string& voice_query = "",
-                                  bool disable_typos_for_numerical_tokens = false) const;
+                                  bool enable_typos_for_numerical_tokens = false) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
