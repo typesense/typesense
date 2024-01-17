@@ -1742,12 +1742,12 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
           {"name": "value.g", "type": "int32", "optional": false, "facet": true },
           {"name": "value.b", "type": "int32", "optional": false, "facet": true }
         ],
-        "metadata": {}
+        "metadata": "abc"
     })"_json;
 
     auto op = collectionManager.create_collection(schema1);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("The `metadata` value should be non empty object.", op.error());
+    ASSERT_EQ("The `metadata` value should be an object.", op.error());
 
     nlohmann::json schema2 = R"({
         "name": "collection_meta",

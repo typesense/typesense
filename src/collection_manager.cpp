@@ -487,7 +487,6 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     }
 
     if(!metadata.is_null()) {
-        collection_meta[Collection::COLLECTION_METADATA] = nlohmann::json::object();
         collection_meta[Collection::COLLECTION_METADATA] = metadata;
     }
 
@@ -1957,8 +1956,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     nlohmann::json metadata = nullptr;
     if(req_json.count("metadata") != 0) {
-        if(req_json["metadata"].empty() || !req_json["metadata"].is_object()) {
-            return Option<Collection *>(400, "The `metadata` value should be non empty object.");
+        if(!req_json["metadata"].is_object()) {
+            return Option<Collection *>(400, "The `metadata` value should be an object.");
         }
         metadata = req_json["metadata"];
     }
