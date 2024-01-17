@@ -442,7 +442,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::string& fallback_field_type,
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
-                                                         const bool enable_nested_fields, std::shared_ptr<VQModel> model) {
+                                                         const bool enable_nested_fields, std::shared_ptr<VQModel> model,
+                                                         const nlohmann::json& metadata) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -483,6 +484,11 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     if(model != nullptr) {
         collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL] = nlohmann::json::object();
         collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL]["model_name"] = model->get_model_name();
+    }
+
+    if(!metadata.is_null()) {
+        collection_meta[Collection::COLLECTION_METADATA] = nlohmann::json::object();
+        collection_meta[Collection::COLLECTION_METADATA] = metadata;
     }
 
     rocksdb::WriteBatch batch;
@@ -1949,6 +1955,14 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                      "`name`, `type` and optionally, `facet` properties.");
     }
 
+    nlohmann::json metadata = nullptr;
+    if(req_json.count("metadata") != 0) {
+        if(req_json["metadata"].empty() || !req_json["metadata"].is_object()) {
+            return Option<Collection *>(400, "The `metadata` value should be non empty object.");
+        }
+        metadata = req_json["metadata"];
+    }
+
     const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
 
     if(default_sorting_field == "id") {
@@ -1998,7 +2012,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
-                                                                req_json[ENABLE_NESTED_FIELDS], model);
+                                                                req_json[ENABLE_NESTED_FIELDS],
+                                                                model, metadata);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
