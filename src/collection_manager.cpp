@@ -486,7 +486,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL]["model_name"] = model->get_model_name();
     }
 
-    if(!metadata.is_null()) {
+    if(!metadata.empty()) {
         collection_meta[Collection::COLLECTION_METADATA] = metadata;
     }
 
@@ -1874,6 +1874,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     const char* TOKEN_SEPARATORS = "token_separators";
     const char* ENABLE_NESTED_FIELDS = "enable_nested_fields";
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
+    const char* METADATA = "metadata";
 
     // validate presence of mandatory fields
 
@@ -1954,12 +1955,12 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                      "`name`, `type` and optionally, `facet` properties.");
     }
 
-    nlohmann::json metadata = nullptr;
-    if(req_json.count("metadata") != 0) {
-        if(!req_json["metadata"].is_object()) {
+    if(req_json.count(METADATA) != 0) {
+        if(!req_json[METADATA].is_object()) {
             return Option<Collection *>(400, "The `metadata` value should be an object.");
         }
-        metadata = req_json["metadata"];
+    } else {
+        req_json[METADATA] = {};
     }
 
     const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
@@ -2012,7 +2013,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
                                                                 req_json[ENABLE_NESTED_FIELDS],
-                                                                model, metadata);
+                                                                model, req_json[METADATA]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
