@@ -372,6 +372,8 @@ public:
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
     static constexpr const char* COLLECTION_VOICE_QUERY_MODEL = "voice_query_model";
 
+    static constexpr const char* COLLECTION_METADATA = "metadata";
+
     // methods
 
     Collection() = delete;
