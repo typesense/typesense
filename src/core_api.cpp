@@ -1171,13 +1171,13 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         //response_stream << import_summary_json << "\n";
 
         for (size_t i = 0; i < json_lines.size(); i++) {
-            bool res_final = req->last_chunk_aggregate && (i == json_lines.size()-1);
+            bool res_start = (res->status_code == 0) && (i == 0);
 
-            if(res_final) {
-                // indicates last record of last batch
+            if(res_start) {
+                // indicates first import result to be streamed
                 response_stream << json_lines[i];
             } else {
-                response_stream << json_lines[i] << "\n";
+                response_stream << "\n" << json_lines[i];
             }
         }
     }
