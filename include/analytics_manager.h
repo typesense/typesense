@@ -56,47 +56,6 @@ struct counter_event_t {
     std::map<std::string, uint16_t> event_weight_map;
 };
 
-struct query_hits_count_t {
-    std::string query;
-    uint64_t timestamp;
-    std::string user_id;
-    uint64_t hits_count;
-
-    query_hits_count_t() = delete;
-
-    ~query_hits_count_t() = default;
-
-    query_hits_count_t(std::string q, uint64_t ts, std::string uid, uint64_t count) {
-        query = q;
-        timestamp = ts;
-        user_id = uid;
-        hits_count = count;
-    }
-
-    query_hits_count_t &operator=(query_hits_count_t &other) {
-        if (this != &other) {
-            query = other.query;
-            timestamp = other.timestamp;
-            user_id = other.user_id;
-            hits_count = other.hits_count;
-            return *this;
-        }
-    }
-
-    void to_json(nlohmann::json &obj) const {
-        obj["query"] = query;
-        obj["timestamp"] = timestamp;
-        obj["user_id"] = user_id;
-        obj["hits_count"] = hits_count;
-    }
-};
-
-struct query_hits_count_comp {
-    bool operator()(const query_hits_count_t& a, const query_hits_count_t& b) const {
-        return a.query < b.query;
-    }
-};
-
 struct event_cache_t {
     uint64_t last_update_time;
     uint64_t count;
@@ -159,11 +118,7 @@ private:
     //query collection => events
     std::unordered_map<std::string, std::vector<event_t>> query_collection_events;
 
-    //query collection => query hits count
-    std::unordered_map<std::string, std::set<query_hits_count_t, query_hits_count_comp>> query_collection_hits_count;
-
     Store* store = nullptr;
-    Store* analytics_store = nullptr;
     std::ofstream  analytics_logs;
 
     bool isRateLimitEnabled = false;
@@ -180,9 +135,6 @@ private:
 public:
 
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
-    static constexpr const char* CLICK_EVENT = "$CE";
-    static constexpr const char* QUERY_HITS_COUNT = "$QH";
-    static constexpr const char* PURCHASE_EVENT = "$PE";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
     static constexpr const char* COUNTER_TYPE = "counter";
@@ -215,8 +167,6 @@ public:
 
     void dispose();
 
-    Store* get_analytics_store();
-
     void persist_query_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
@@ -232,23 +182,10 @@ public:
 
     std::unordered_map<std::string, counter_event_t> get_popular_clicks();
 
-    Option<bool> write_events_to_store(nlohmann::json& event_jsons);
-
     void add_nohits_query(const std::string& query_collection,
                           const std::string& query, bool live_query, const std::string& user_id);
 
     std::unordered_map<std::string, QueryAnalytics*> get_nohits_queries();
 
     void resetToggleRateLimit(bool toggle);
-
-    void add_query_hits_count(const std::string& query_collection, const std::string& query, const std::string& user_id,
-                                            uint64_t hits_count);
-
-    nlohmann::json get_query_hits_counts();
-
-    void checkEventsExpiry();
-
-    uint64_t get_current_time_us();
-
-    void resetAnalyticsStore();
 };

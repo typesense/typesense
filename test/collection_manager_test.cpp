@@ -18,7 +18,6 @@ protected:
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
-        std::string analytics_db_path = "/tmp/typesense_test/analytics_db";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -26,7 +25,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        AnalyticsManager::get_instance().init(store, analytics_db_path);
+        AnalyticsManager::get_instance().init(store);
 
         schema = R"({
             "name": "collection1",
@@ -63,7 +62,6 @@ protected:
             collectionManager.drop_collection("collection1");
             collectionManager.dispose();
             delete store;
-            AnalyticsManager::get_instance().stop();
         }
     }
 };
