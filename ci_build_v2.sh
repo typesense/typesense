@@ -28,6 +28,7 @@ bazel build @com_google_protobuf//:protoc
 # Build whisper
 if [[ "$@" == *"--with-cuda"* ]]; then
   bazel build @whisper.cpp//:whisper_cuda_shared $CUDA_FLAGS --experimental_cc_shared_library
+  /bin/cp -f $PROJECT_DIR/$BUILD_DIR/external/whisper.cpp/libwhisper_cuda_shared.so $PROJECT_DIR/$BUILD_DIR/
 fi
 
 # Finally build Typesense
@@ -49,6 +50,6 @@ if [[ "$@" == *"--package-binary"* ]]; then
     echo "Built binary successfully: $PROJECT_DIR/$BUILD_DIR/$RELEASE_NAME.tar.gz"
 
     GPU_DEPS_NAME=typesense-gpu-deps-$TYPESENSE_VERSION-$OS_FAMILY-$ARCH_NAME
-    tar -cvzf $PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz -C $PROJECT_DIR/$BUILD_DIR libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so
+    tar -cvzf $PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz -C $PROJECT_DIR/$BUILD_DIR libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so libwhisper_cuda_shared.so
     echo "Built binary successfully: $PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz"
 fi
