@@ -24,6 +24,7 @@
 #include "logger.h"
 #include "validator.h"
 #include <collection_manager.h>
+#include <libstemmer.h>
 
 #define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
                   std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
@@ -547,7 +548,8 @@ void Index::validate_and_preprocess(Index *index,
     }
 }
 
-size_t Index::batch_memory_index(Index *index,
+size_t Index::
+batch_memory_index(Index *index,
                                  std::vector<index_record>& iter_batch,
                                  const std::string & default_sorting_field,
                                  const tsl::htrie_map<char, field> & actual_search_schema,
@@ -1160,6 +1162,12 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
         if(token.size() > 100) {
             token.erase(100);
         }
+        
+        if(a_field.is_stemming()) {
+            auto stemmer = field::get_stemmer();
+            auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
+            token = std::string(reinterpret_cast<const char*>(stemmed_token));
+        }
 
         token_to_offsets[token].push_back(token_index + 1);
         last_token = token;
@@ -1193,6 +1201,12 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
 
             if(token.size() > 100) {
                 token.erase(100);
+            }
+
+            if(a_field.is_stemming()) {
+                auto stemmer = field::get_stemmer();
+                auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
+                token = std::string(reinterpret_cast<const char*>(stemmed_token));
             }
 
             token_to_offsets[token].push_back(token_index + 1);

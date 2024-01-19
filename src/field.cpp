@@ -80,6 +80,19 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         field_json[fields::reference] = "";
     }
 
+    if(field_json.count(fields::stemming) != 0) {
+        if(!field_json.at(fields::stemming).is_boolean()) {
+            return Option<bool>(400, std::string("The `stemming` property of the field `") +
+                                     field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+        }
+
+        if(field_json[fields::stemming] && field_json[fields::type] != field_types::STRING && field_json[fields::type] != field_types::STRING_ARRAY) {
+            return Option<bool>(400, std::string("The `stemming` property is only allowed for string and string[] fields."));
+        }
+    } else {
+        field_json[fields::stemming] = false;
+    }
+
     if (field_json.count(fields::range_index) != 0) {
         if (!field_json.at(fields::range_index).is_boolean()) {
             return Option<bool>(400, std::string("The `range_index` property of the field `") +
@@ -338,7 +351,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
-                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], field_json[fields::store])
+                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], field_json[fields::store], field_json[fields::stemming])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
