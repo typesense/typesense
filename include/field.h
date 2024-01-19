@@ -295,7 +295,7 @@ struct field {
         return stemmer;
     }
 
-    static std::mutex get_stemmer_mutex() {
+    static std::mutex& get_stemmer_mutex() {
         return stemmer_mutex;
     }
 
