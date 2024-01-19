@@ -25,6 +25,7 @@ class StemmerManager {
     private:
         std::unordered_map<std::string, std::shared_ptr<Stemmer>> stemmers;
         StemmerManager() {}
+        std::mutex mutex;
     public:
         static StemmerManager& get_instance() {
             static StemmerManager instance;

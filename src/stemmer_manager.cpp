@@ -27,6 +27,7 @@ StemmerManager::~StemmerManager() {
 }
 
 std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language) {
+    std::unique_lock<std::mutex> lock(mutex);
     // use english as default language
     const std::string language_ = language.empty() ? "english" : language;
     if (stemmers.find(language_) == stemmers.end()) {
@@ -36,6 +37,7 @@ std::shared_ptr<Stemmer> StemmerManager::get_stemmer(const std::string& language
 }
 
 void StemmerManager::delete_stemmer(const std::string& language) {
+    std::unique_lock<std::mutex> lock(mutex);
     if (stemmers.find(language) != stemmers.end()) {
         stemmers.erase(language);
     }
