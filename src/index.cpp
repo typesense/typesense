@@ -1166,7 +1166,9 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
         if(a_field.is_stemming()) {
             auto stemmer = field::get_stemmer();
             if(stemmer) {
+                std::unique_lock<std::mutex> lock(field::get_stemmer_mutex());
                 auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
+                lock.unlock();
                 token = std::string(reinterpret_cast<const char*>(stemmed_token));
             } else {
                 LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
@@ -1210,7 +1212,9 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
             if(a_field.is_stemming()) {
                 auto stemmer = field::get_stemmer();
                 if(stemmer) {
+                    std::unique_lock<std::mutex> lock(field::get_stemmer_mutex());
                     auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
+                    lock.unlock();
                     token = std::string(reinterpret_cast<const char*>(stemmed_token));
                 } else {
                     LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
