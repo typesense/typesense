@@ -18,7 +18,6 @@ protected:
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
-        std::string analytics_db_path = "/tmp/typesense_test/analytics_db";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -26,7 +25,7 @@ protected:
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        AnalyticsManager::get_instance().init(store, analytics_db_path);
+        AnalyticsManager::get_instance().init(store);
 
         schema = R"({
             "name": "collection1",
@@ -63,7 +62,6 @@ protected:
             collectionManager.drop_collection("collection1");
             collectionManager.dispose();
             delete store;
-            AnalyticsManager::get_instance().stop();
         }
     }
 };
@@ -1728,4 +1726,130 @@ TEST_F(CollectionManagerTest, ReferencedInBacklog) {
     get_reference_field_op = create_op.get()->get_referenced_in_field_with_lock("foo");
     ASSERT_FALSE(get_reference_field_op.ok());
     ASSERT_EQ("Could not find any field in `Products` referencing the collection `foo`.", get_reference_field_op.error());
+}
+
+TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
+    CollectionManager & collectionManager3 = CollectionManager::get_instance();
+
+    nlohmann::json schema1 = R"({
+        "name": "collection_meta",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "value.color", "type": "string", "optional": false, "facet": true },
+          {"name": "value.r", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.g", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.b", "type": "int32", "optional": false, "facet": true }
+        ],
+        "metadata": "abc"
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema1);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("The `metadata` value should be an object.", op.error());
+
+    nlohmann::json schema2 = R"({
+        "name": "collection_meta",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "value.color", "type": "string", "optional": false, "facet": true },
+          {"name": "value.r", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.g", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.b", "type": "int32", "optional": false, "facet": true }
+        ],
+        "metadata": {
+            "batch_job":"",
+            "indexed_from":"2023-04-20T00:00:00.000Z",
+            "total_docs": 0
+        }
+    })"_json;
+
+    op = collectionManager.create_collection(schema2);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+
+    std::string collection_meta_json;
+    nlohmann::json collection_meta;
+    std::string next_seq_id;
+    std::string next_collection_id;
+
+    store->get(Collection::get_meta_key("collection_meta"), collection_meta_json);
+    store->get(Collection::get_next_seq_id_key("collection_meta"), next_seq_id);
+
+    //LOG(INFO) << collection_meta_json;
+
+    nlohmann::json expected_meta_json = R"(
+        {
+            "created_at":1705482381,
+            "default_sorting_field":"",
+            "enable_nested_fields":true,
+            "fallback_field_type":"",
+            "fields":[
+                {
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.color",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":false,
+                    "store":true,
+                    "type":"string"
+                },
+                {
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.r",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":true,
+                    "store":true,
+                    "type":"int32"
+                },{
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.g",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":true,
+                    "store":true,
+                    "type":"int32"
+                },{
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.b",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":true,
+                    "store":true,
+                    "type":"int32"
+                }
+            ],
+            "id":1,
+            "metadata":{
+                "batch_job":"",
+                "indexed_from":"2023-04-20T00:00:00.000Z",
+                "total_docs":0
+            },
+            "name":"collection_meta",
+            "num_memory_shards":4,
+            "symbols_to_index":[],
+            "token_separators":[]
+    })"_json;
+
+    auto actual_json = nlohmann::json::parse(collection_meta_json);
+    expected_meta_json["created_at"] = actual_json["created_at"];
+
+    ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
 }

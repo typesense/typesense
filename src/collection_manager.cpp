@@ -442,7 +442,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::string& fallback_field_type,
                                                          const std::vector<std::string>& symbols_to_index,
                                                          const std::vector<std::string>& token_separators,
-                                                         const bool enable_nested_fields, std::shared_ptr<VQModel> model) {
+                                                         const bool enable_nested_fields, std::shared_ptr<VQModel> model,
+                                                         const nlohmann::json& metadata) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -483,6 +484,10 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     if(model != nullptr) {
         collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL] = nlohmann::json::object();
         collection_meta[Collection::COLLECTION_VOICE_QUERY_MODEL]["model_name"] = model->get_model_name();
+    }
+
+    if(!metadata.empty()) {
+        collection_meta[Collection::COLLECTION_METADATA] = metadata;
     }
 
     rocksdb::WriteBatch batch;
@@ -1391,6 +1396,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *VOICE_QUERY = "voice_query";
 
+    const char *ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -1505,6 +1512,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
+    bool enable_typos_for_numerical_tokens = false;
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
@@ -1576,6 +1584,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {CONVERSATION, &conversation},
         {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
         {GROUP_MISSING_VALUES, &group_missing_values},
+        {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1789,7 +1798,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           conversation_model_id,
                                                           conversation_id,
                                                           override_tags,
-                                                          voice_query);
+                                                          voice_query,
+                                                          enable_typos_for_numerical_tokens);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
@@ -1811,11 +1821,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
             AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
                                                             true, req_params["x-typesense-user-id"]);
-#ifdef ENABLE_QUERY_HITS
-            AnalyticsManager::get_instance().add_query_hits_count(orig_coll_name, analytics_query,
-                                                                  req_params["x-typesense-user-id"],
-                                                                  result["found"].get<size_t>());
-#endif
         } else if(result.contains("found") == 0 && result["found"].get<size_t>() == 0) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
             AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
@@ -1864,6 +1869,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     const char* TOKEN_SEPARATORS = "token_separators";
     const char* ENABLE_NESTED_FIELDS = "enable_nested_fields";
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
+    const char* METADATA = "metadata";
 
     // validate presence of mandatory fields
 
@@ -1944,6 +1950,14 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                      "`name`, `type` and optionally, `facet` properties.");
     }
 
+    if(req_json.count(METADATA) != 0) {
+        if(!req_json[METADATA].is_object()) {
+            return Option<Collection *>(400, "The `metadata` value should be an object.");
+        }
+    } else {
+        req_json[METADATA] = {};
+    }
+
     const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
 
     if(default_sorting_field == "id") {
@@ -1993,7 +2007,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
                                                                 req_json[TOKEN_SEPARATORS],
-                                                                req_json[ENABLE_NESTED_FIELDS], model);
+                                                                req_json[ENABLE_NESTED_FIELDS],
+                                                                model, req_json[METADATA]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,

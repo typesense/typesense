@@ -1539,6 +1539,47 @@ TEST_F(CollectionSchemaChangeTest, AlterShouldBeAbleToHandleFieldValueCoercion) 
     ASSERT_TRUE(alter_op.ok());
 }
 
+TEST_F(CollectionSchemaChangeTest, AlterValidationShouldNotRejectBadValues) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "info", "type": "object"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc = R"(
+        {"info": {"year": 1999}}
+     )"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::COERCE_OR_DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    doc = R"(
+        {"info": {"year": "2001"}, "description": "test"}
+     )"_json;
+
+    add_op = coll1->add(doc.dump(), CREATE, "1", DIRTY_VALUES::COERCE_OR_DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    // add a new field
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "description", "type": "string", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    auto res_op = coll1->search("test", {"description"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true});
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+}
+
 TEST_F(CollectionSchemaChangeTest, GeoFieldSchemaAddition) {
     nlohmann::json schema = R"({
         "name": "coll1",

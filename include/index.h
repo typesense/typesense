@@ -461,12 +461,14 @@ private:
     bool resolve_override(const std::vector<std::string>& rule_tokens, bool exact_rule_match,
                           const std::vector<std::string>& query_tokens,
                           token_ordering token_order, std::set<std::string>& absorbed_tokens,
-                          std::string& filter_by_clause) const;
+                          std::string& filter_by_clause,
+                          bool enable_typos_for_numerical_tokens) const;
 
     bool check_for_overrides(const token_ordering& token_order, const string& field_name, bool slide_window,
                              bool exact_rule_match, std::vector<std::string>& tokens,
                              std::set<std::string>& absorbed_tokens,
-                             std::vector<std::string>& field_absorbed_tokens) const;
+                             std::vector<std::string>& field_absorbed_tokens,
+                             bool enable_typos_for_numerical_tokens) const;
 
     static void aggregate_topster(Topster* agg_topster, Topster* index_topster);
 
@@ -498,7 +500,8 @@ private:
                       int syn_orig_num_tokens,
                       size_t min_len_1typo,
                       size_t min_len_2typo,
-                      size_t max_candidates) const;
+                      size_t max_candidates,
+                      bool enable_typos_for_numerical_tokens) const;
 
     Option<bool> search_all_candidates(const size_t num_search_fields,
                                        const text_match_type_t match_type,
@@ -681,8 +684,8 @@ public:
 
     facet_index_t* _get_facet_index() const;
 
-    static int get_bounded_typo_cost(const size_t max_cost, const size_t token_len,
-                                     size_t min_len_1typo, size_t min_len_2typo);
+    static int get_bounded_typo_cost(const size_t max_cost, const std::string& token, const size_t token_len,
+                                     size_t min_len_1typo, size_t min_len_2typo,  bool enable_typos_for_numerical_tokens=false);
 
     static int64_t float_to_int64_t(float n);
 
@@ -706,7 +709,7 @@ public:
     // Public operations
 
     Option<bool> run_search(search_args* search_params, const std::string& collection_name,
-                            facet_index_type_t facet_index_type);
+                            facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens);
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
@@ -735,7 +738,8 @@ public:
                 const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
                 const std::string& collection_name,
                 const drop_tokens_param_t drop_tokens_mode,
-                facet_index_type_t facet_index_type = DETECT
+                facet_index_type_t facet_index_type = DETECT,
+                bool enable_typos_for_numerical_tokens = false
                 ) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
@@ -841,7 +845,8 @@ public:
                              const std::vector<std::string>& group_by_fields,
                              size_t group_limit, bool is_wildcard_no_filter_query,
                              size_t max_candidates,
-                             std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type) const;
+                             std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type,
+                             bool enable_typos_for_numerical_tokens) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
                                 std::vector<std::vector<std::string>>& resolved_queries) const;
@@ -956,7 +961,8 @@ public:
                                                    const int* sort_order,
                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                    const std::vector<size_t>& geopoint_indices,
-                                                   const std::string& collection_name = "") const;
+                                                   const std::string& collection_name = "",
+                                                   bool enable_typos_for_numerical_tokens = false) const;
 
     void find_across_fields(const token_t& previous_token,
                             const std::string& previous_token_str,
@@ -1026,7 +1032,8 @@ public:
                                   token_ordering token_order,
                                   filter_node_t*& filter_tree_root,
                                   std::vector<const override_t*>& matched_dynamic_overrides,
-                                  nlohmann::json& override_metadata) const;
+                                  nlohmann::json& override_metadata,
+                                  bool enable_typos_for_numerical_tokens) const;
 
     Option<bool> compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,
