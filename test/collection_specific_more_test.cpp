@@ -2710,3 +2710,46 @@ TEST_F(CollectionSpecificMoreTest, HybridSearchTextMatchInfo) {
     ASSERT_EQ(0, results["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
     ASSERT_EQ(0, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
 }
+
+TEST_F(CollectionSpecificMoreTest, TestStemming) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string", "stemming": true}
+        ]
+    })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+
+    schema = R"({
+        "name": "test2",
+        "fields": [
+            {"name": "name", "type": "string", "stemming": false}
+        ]
+    })"_json;
+
+    auto coll_no_stem_res = collectionManager.create_collection(schema);
+    LOG(INFO) << coll_no_stem_res.error();
+    ASSERT_TRUE(coll_no_stem_res.ok());
+
+    auto coll_no_stem = coll_no_stem_res.get();
+
+    nlohmann::json doc;
+
+    doc["name"] = "running";
+    ASSERT_TRUE(coll_stem->add(doc.dump()).ok());
+    ASSERT_TRUE(coll_no_stem->add(doc.dump()).ok());
+
+    auto stem_res = coll_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
+    ASSERT_TRUE(stem_res.ok());
+    ASSERT_EQ(1, stem_res.get()["hits"].size());
+    ASSERT_EQ("running", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+
+    auto no_stem_res = coll_no_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
+    ASSERT_TRUE(no_stem_res.ok());
+    ASSERT_EQ(0, no_stem_res.get()["hits"].size());
+    
+}

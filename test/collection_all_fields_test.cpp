@@ -1708,3 +1708,28 @@ TEST_F(CollectionAllFieldsTest, StoreInvalidInput) {
     ASSERT_FALSE(obj_coll_op.ok());
     ASSERT_EQ("The `store` property of the field `age` should be a boolean.", obj_coll_op.error());
 }
+
+TEST_F(CollectionAllFieldsTest, InvalidStemmingValue) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string", "stemming": "qwerty"}
+        ]
+    })"_json;
+    
+    auto obj_coll_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(obj_coll_op.ok());
+    ASSERT_EQ("The `stemming` property of the field `name` should be a boolean.", obj_coll_op.error());
+
+    schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "int32", "stemming": true}
+        ]
+    })"_json;
+
+    obj_coll_op = collectionManager.create_collection(schema);
+    ASSERT_FALSE(obj_coll_op.ok());
+    ASSERT_EQ("The `stemming` property is only allowed for string and string[] fields.", obj_coll_op.error());
+}
+
