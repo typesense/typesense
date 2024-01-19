@@ -234,23 +234,17 @@ void SystemMetrics::linux_get_network_data(const std::string & stat_path,
     }
 }
 
-int64_t SystemMetrics::linux_get_swap_used_bytes() {
-    //LOG(INFO) << "Current PID " << ::getpid();
-    std::string command = "cat /proc/" + std::to_string(::getpid()) + "/status | grep -i swap | cut -d ':' -f2";
-
-    FILE *pipe = popen(command.c_str(), "re");
-
-    if (!pipe) {
-       //LOG(ERROR)<< "Could not open pipe for output.";
-        return -1;
+uint64_t SystemMetrics::linux_get_swap_used_bytes() {
+    std::string filename = "/proc/" + std::to_string(::getpid()) + "/status";
+    std::string token;
+    std::ifstream file(filename);
+    while(file >> token) {
+        if(token == "VmSwap:") {
+            uint64_t mem_kB;
+            if(file >> mem_kB) {
+                return mem_kB * 1024;
+            }
+        }
     }
-    char output[512];
-    fgets(output, 512, pipe);
-
-    //LOG(INFO) << output;
-
-    if (pclose(pipe) != 0) {
-        //LOG(ERROR) <<" Error: Failed to close command stream.";
-    }
-    return atoi(output)*1024;
+    return 0;
 }
