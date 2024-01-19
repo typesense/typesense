@@ -5397,8 +5397,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
     }
     // populate topster
-    for(size_t i = 0; i < std::min<size_t>(10000, all_result_ids_len) &&
-                                            filter_result_iterator->validity == filter_result_iterator_t::valid; i++) {
+    for(size_t i = 0; i < all_result_ids_len && filter_result_iterator->validity == filter_result_iterator_t::valid; i++) {
         auto seq_id = filter_result_iterator->seq_id;
         auto references = std::move(filter_result_iterator->reference);
         filter_result_iterator->next();
