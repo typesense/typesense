@@ -1,5 +1,4 @@
 #include "system_metrics.h"
-#include "logger.h"
 
 #include <sys/resource.h>
 #include <sys/statvfs.h>
@@ -235,22 +234,22 @@ void SystemMetrics::linux_get_network_data(const std::string & stat_path,
 }
 
 int64_t SystemMetrics::linux_get_swap_used_bytes() {
-    LOG(INFO) << "Current PID " << ::getpid();
+    //LOG(INFO) << "Current PID " << ::getpid();
     std::string command = "cat /proc/" + std::to_string(::getpid()) + "/status | grep -i swap | cut -d ':' -f2";
 
     FILE *pipe = popen(command.c_str(), "re");
 
     if (!pipe) {
-       LOG(ERROR)<< "Could not open pipe for output.";
+       //LOG(ERROR)<< "Could not open pipe for output.";
         return -1;
     }
     char output[512];
     fgets(output, 512, pipe);
 
-    LOG(INFO) << output;
+    //LOG(INFO) << output;
 
     if (pclose(pipe) != 0) {
-        LOG(ERROR) <<" Error: Failed to close command stream.";
+        //LOG(ERROR) <<" Error: Failed to close command stream.";
     }
     return atoi(output)*1024;
 }
