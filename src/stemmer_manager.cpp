@@ -44,6 +44,7 @@ void StemmerManager::delete_stemmer(const std::string& language) {
 }
 
 void StemmerManager::delete_all_stemmers() {
+    std::unique_lock<std::mutex> lock(mutex);
     stemmers.clear();
 }
 
