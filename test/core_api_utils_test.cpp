@@ -7,7 +7,6 @@
 #include "raft_server.h"
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
-#include <analytics_manager.h>
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -18,11 +17,9 @@ protected:
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
 
-    AnalyticsManager& analyticsManager = AnalyticsManager::get_instance();
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/core_api_utils";
-        std::string analytics_db_path = "/tmp/typesense_test/analytics_db2";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -32,7 +29,6 @@ protected:
 
         ConversationModelManager::init(store);
         ConversationManager::get_instance().init(store);
-        analyticsManager.init(store, analytics_db_path);
     }
 
     virtual void SetUp() {
@@ -42,7 +38,6 @@ protected:
     virtual void TearDown() {
         collectionManager.dispose();
         delete store;
-        analyticsManager.stop();
     }
 };
 

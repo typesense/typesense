@@ -2796,31 +2796,3 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     res->set_200(model.dump());
     return true;
 }
-
-bool post_replicate_events(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    nlohmann::json req_json;
-
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
-    auto op = AnalyticsManager::get_instance().write_events_to_store(req_json);
-    if(!op.ok()) {
-        res->set_body(op.code(), op.error());
-        return false;
-    }
-
-    res->set_200("event wrote to DB.");
-    return true;
-}
-
-bool get_query_hits_counts(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto query_hits_counts = AnalyticsManager::get_instance().get_query_hits_counts();
-
-    res->set_200(query_hits_counts.dump());
-    return true;
-}
