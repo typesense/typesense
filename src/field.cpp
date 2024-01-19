@@ -6,6 +6,7 @@
 #include <collection_manager.h>
 #include <regex>
 
+
 Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::json& field_json,
                                         std::vector<field>& the_fields,
                                         string& fallback_field_type, size_t& num_auto_detect_fields) {
@@ -88,6 +89,18 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
         if(field_json[fields::stemming] && field_json[fields::type] != field_types::STRING && field_json[fields::type] != field_types::STRING_ARRAY) {
             return Option<bool>(400, std::string("The `stemming` property is only allowed for string and string[] fields."));
+        }
+
+        if(field_json[fields::stemming].get<bool>()) {
+            std::string locale;
+            if(field_json.count(fields::locale) != 0) {
+                locale = field_json[fields::locale].get<std::string>();
+            }
+            auto stemming_validation = StemmerManager::get_instance().validate_language(locale);
+            if(!stemming_validation) {
+                return Option<bool>(400, std::string("The `locale` value of the field `") +
+                                         field_json[fields::name].get<std::string>() + std::string("` is not supported for stemming."));
+            }
         }
     } else {
         field_json[fields::stemming] = false;

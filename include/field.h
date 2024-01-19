@@ -12,8 +12,8 @@
 #include "json.hpp"
 #include "embedder_manager.h"
 #include "vector_query_ops.h"
-#include <libstemmer.h>
 #include <mutex>
+#include "stemmer_manager.h"
 
 namespace field_types {
     // first field value indexed will determine the type
@@ -116,8 +116,7 @@ struct field {
     bool is_reference_helper = false;
 
     bool stemming = false;
-    static inline sb_stemmer* stemmer = nullptr;
-    static inline std::mutex stemmer_mutex;
+    std::shared_ptr<Stemmer> stemmer;
 
     field() {}
 
@@ -133,15 +132,8 @@ struct field {
 
         auto const suffix = std::string(fields::REFERENCE_HELPER_FIELD_SUFFIX);
         is_reference_helper = name.size() > suffix.size() && name.substr(name.size() - suffix.size()) == suffix;
-
-        {
-            std::unique_lock<std::mutex> lock(stemmer_mutex);
-            if(stemming && stemmer == nullptr) {
-                stemmer = sb_stemmer_new("english", 0);
-                if(stemmer == nullptr) {
-                    LOG(ERROR) << "Failed to initialize stemmer for field " << name;
-                }
-            }
+        if (stemming) {
+            stemmer = StemmerManager::get_instance().get_stemmer(locale);
         }
     }
 
@@ -290,15 +282,10 @@ struct field {
         return (facet && !is_string()) ? "_fstr_" + name : name;
     }
 
-    static sb_stemmer* get_stemmer() {
-        std::unique_lock<std::mutex> lock(stemmer_mutex);
+    std::shared_ptr<Stemmer> get_stemmer() const {
         return stemmer;
     }
-
-    static std::mutex& get_stemmer_mutex() {
-        return stemmer_mutex;
-    }
-
+    
     static bool get_type(const nlohmann::json& obj, std::string& field_type) {
         if(obj.is_array()) {
             if(obj.empty()) {

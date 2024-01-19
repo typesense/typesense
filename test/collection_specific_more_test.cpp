@@ -2770,6 +2770,7 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     })"_json;
 
     auto coll_stem_res = collectionManager.create_collection(schema);
+    LOG(INFO) << coll_stem_res.error();
     ASSERT_TRUE(coll_stem_res.ok());
 
     auto coll_stem = coll_stem_res.get();

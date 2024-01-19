@@ -24,7 +24,6 @@
 #include "logger.h"
 #include "validator.h"
 #include <collection_manager.h>
-#include <libstemmer.h>
 
 #define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
                   std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
@@ -1164,12 +1163,9 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
         }
         
         if(a_field.is_stemming()) {
-            auto stemmer = field::get_stemmer();
+            auto stemmer = a_field.get_stemmer();
             if(stemmer) {
-                std::unique_lock<std::mutex> lock(field::get_stemmer_mutex());
-                auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
-                lock.unlock();
-                token = std::string(reinterpret_cast<const char*>(stemmed_token));
+                token = stemmer->stem(token);
             } else {
                 LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
             }
@@ -1210,12 +1206,9 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
             }
 
             if(a_field.is_stemming()) {
-                auto stemmer = field::get_stemmer();
+                auto stemmer = a_field.get_stemmer();
                 if(stemmer) {
-                    std::unique_lock<std::mutex> lock(field::get_stemmer_mutex());
-                    auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
-                    lock.unlock();
-                    token = std::string(reinterpret_cast<const char*>(stemmed_token));
+                    token = stemmer->stem(token);
                 } else {
                     LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
                 }
