@@ -1165,8 +1165,12 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
         
         if(a_field.is_stemming()) {
             auto stemmer = field::get_stemmer();
-            auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
-            token = std::string(reinterpret_cast<const char*>(stemmed_token));
+            if(stemmer) {
+                auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
+                token = std::string(reinterpret_cast<const char*>(stemmed_token));
+            } else {
+                LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
+            }
         }
 
         token_to_offsets[token].push_back(token_index + 1);
@@ -1205,8 +1209,12 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
 
             if(a_field.is_stemming()) {
                 auto stemmer = field::get_stemmer();
-                auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
-                token = std::string(reinterpret_cast<const char*>(stemmed_token));
+                if(stemmer) {
+                    auto stemmed_token = sb_stemmer_stem(stemmer, reinterpret_cast<const sb_symbol*>(token.c_str()), token.size());
+                    token = std::string(reinterpret_cast<const char*>(stemmed_token));
+                } else {
+                    LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
+                }
             }
 
             token_to_offsets[token].push_back(token_index + 1);
