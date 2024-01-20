@@ -1162,7 +1162,7 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
             token.erase(100);
         }
         
-        if(a_field.is_stemming()) {
+        if(a_field.is_stem()) {
             auto stemmer = a_field.get_stemmer();
             if(stemmer) {
                 token = stemmer->stem(token);
@@ -1205,7 +1205,7 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
                 token.erase(100);
             }
 
-            if(a_field.is_stemming()) {
+            if(a_field.is_stem()) {
                 auto stemmer = a_field.get_stemmer();
                 if(stemmer) {
                     token = stemmer->stem(token);

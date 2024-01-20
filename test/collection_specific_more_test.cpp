@@ -2765,7 +2765,7 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     nlohmann::json schema = R"({
         "name": "test",
         "fields": [
-            {"name": "name", "type": "string", "stemming": true}
+            {"name": "name", "type": "string", "stem": true}
         ]
     })"_json;
 
@@ -2778,7 +2778,7 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     schema = R"({
         "name": "test2",
         "fields": [
-            {"name": "name", "type": "string", "stemming": false}
+            {"name": "name", "type": "string", "stem": false}
         ]
     })"_json;
 

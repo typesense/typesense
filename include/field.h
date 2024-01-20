@@ -64,7 +64,7 @@ namespace fields {
     static const std::string from = "from";
     static const std::string model_name = "model_name";
     static const std::string range_index = "range_index";
-    static const std::string stemming = "stemming";
+    static const std::string stem = "stem";
 
     // Some models require additional parameters to be passed to the model during indexing/querying
     // For e.g. e5-small model requires prefix "passage:" for indexing and "query:" for querying
@@ -115,7 +115,7 @@ struct field {
 
     bool is_reference_helper = false;
 
-    bool stemming = false;
+    bool stem = false;
     std::shared_ptr<Stemmer> stemmer;
 
     field() {}
@@ -123,16 +123,16 @@ struct field {
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
-          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false, const bool store = true, const bool stemming = false) :
+          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false, const bool store = true, const bool stem = false) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), stemming(stemming) {
+            embed(embed), range_index(range_index), store(store), stem(stem) {
 
         set_computed_defaults(sort, infix);
 
         auto const suffix = std::string(fields::REFERENCE_HELPER_FIELD_SUFFIX);
         is_reference_helper = name.size() > suffix.size() && name.substr(name.size() - suffix.size()) == suffix;
-        if (stemming) {
+        if (stem) {
             stemmer = StemmerManager::get_instance().get_stemmer(locale);
         }
     }
@@ -265,8 +265,8 @@ struct field {
         return is_num_sortable() || is_str_sortable();
     }
 
-    bool is_stemming() const {
-        return stemming;
+    bool is_stem() const {
+        return stem;
     }
 
     bool has_valid_type() const {

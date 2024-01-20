@@ -81,29 +81,29 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         field_json[fields::reference] = "";
     }
 
-    if(field_json.count(fields::stemming) != 0) {
-        if(!field_json.at(fields::stemming).is_boolean()) {
-            return Option<bool>(400, std::string("The `stemming` property of the field `") +
+    if(field_json.count(fields::stem) != 0) {
+        if(!field_json.at(fields::stem).is_boolean()) {
+            return Option<bool>(400, std::string("The `stem` property of the field `") +
                                      field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
         }
 
-        if(field_json[fields::stemming] && field_json[fields::type] != field_types::STRING && field_json[fields::type] != field_types::STRING_ARRAY) {
-            return Option<bool>(400, std::string("The `stemming` property is only allowed for string and string[] fields."));
+        if(field_json[fields::stem] && field_json[fields::type] != field_types::STRING && field_json[fields::type] != field_types::STRING_ARRAY) {
+            return Option<bool>(400, std::string("The `stem` property is only allowed for string and string[] fields."));
         }
 
-        if(field_json[fields::stemming].get<bool>()) {
+        if(field_json[fields::stem].get<bool>()) {
             std::string locale;
             if(field_json.count(fields::locale) != 0) {
                 locale = field_json[fields::locale].get<std::string>();
             }
-            auto stemming_validation = StemmerManager::get_instance().validate_language(locale);
-            if(!stemming_validation) {
+            auto stem_validation = StemmerManager::get_instance().validate_language(locale);
+            if(!stem_validation) {
                 return Option<bool>(400, std::string("The `locale` value of the field `") +
-                                         field_json[fields::name].get<std::string>() + std::string("` is not supported for stemming."));
+                                         field_json[fields::name].get<std::string>() + std::string("` is not supported for stem."));
             }
         }
     } else {
-        field_json[fields::stemming] = false;
+        field_json[fields::stem] = false;
     }
 
     if (field_json.count(fields::range_index) != 0) {
@@ -364,7 +364,7 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
-                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], field_json[fields::store], field_json[fields::stemming])
+                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], field_json[fields::store], field_json[fields::stem])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {
