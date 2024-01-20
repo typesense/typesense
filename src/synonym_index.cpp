@@ -113,6 +113,7 @@ Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, cons
         if(!rem_op.ok()) {
             return rem_op;
         }
+	write_lock.lock();
     }
 
     synonym_definitions[synonym.id] = synonym;
