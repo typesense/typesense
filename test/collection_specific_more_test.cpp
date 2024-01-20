@@ -2760,3 +2760,46 @@ TEST_F(CollectionSpecificMoreTest, DisableTyposForNumericalTokens) {
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(2, res_op.get()["hits"].size());
 }
+
+TEST_F(CollectionSpecificMoreTest, TestStemming) {
+    nlohmann::json schema = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string", "stem": true}
+        ]
+    })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    LOG(INFO) << coll_stem_res.error();
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+
+    schema = R"({
+        "name": "test2",
+        "fields": [
+            {"name": "name", "type": "string", "stem": false}
+        ]
+    })"_json;
+
+    auto coll_no_stem_res = collectionManager.create_collection(schema);
+    LOG(INFO) << coll_no_stem_res.error();
+    ASSERT_TRUE(coll_no_stem_res.ok());
+
+    auto coll_no_stem = coll_no_stem_res.get();
+
+    nlohmann::json doc;
+
+    doc["name"] = "running";
+    ASSERT_TRUE(coll_stem->add(doc.dump()).ok());
+    ASSERT_TRUE(coll_no_stem->add(doc.dump()).ok());
+
+    auto stem_res = coll_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
+    ASSERT_TRUE(stem_res.ok());
+    ASSERT_EQ(1, stem_res.get()["hits"].size());
+    ASSERT_EQ("running", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+
+    auto no_stem_res = coll_no_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
+    ASSERT_TRUE(no_stem_res.ok());
+    ASSERT_EQ(0, no_stem_res.get()["hits"].size());
+}
