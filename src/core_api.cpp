@@ -2416,9 +2416,15 @@ bool get_limit_exceed_counts(const std::shared_ptr<http_req>& req, const std::sh
 }
 
 Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata) {
-        // format <length of api_key>:<api_key><ip>
+    // format <length of api_key>:<api_key><ip>
     // length of api_key is a uint32_t
     if(metadata.size() < 10) {
+        if(metadata.size() >= 2 && metadata[0] == '0' && metadata[1] == ':') {
+            // e.g. "0:0.0.0.0" (when api key is not provided at all)
+            std::string ip = metadata.substr(metadata.find(":") + 1);
+            return Option<std::pair<std::string,std::string>>(std::make_pair("", ip));
+        }
+
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
@@ -2426,15 +2432,17 @@ Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string&
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    if(!StringUtils::is_uint32_t(metadata.substr(0, metadata.find(":")))) {
+    std::string key_len_str = metadata.substr(0, metadata.find(":"));
+
+    if(!StringUtils::is_uint32_t(key_len_str)) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    if(metadata.size() < std::stoul(metadata.substr(0, metadata.find(":"))) + metadata.find(":") + 7) {
+    uint32_t api_key_length = static_cast<uint32_t>(std::stoul(key_len_str));
+
+    if(metadata.size() < api_key_length + metadata.find(":") + 7) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
-
-    uint32_t api_key_length = static_cast<uint32_t>(std::stoul(metadata.substr(0, metadata.find(":"))));
 
     std::string api_key = metadata.substr(metadata.find(":") + 1, api_key_length);
     std::string ip = metadata.substr(metadata.find(":") + 1 + api_key_length);
