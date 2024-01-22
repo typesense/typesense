@@ -10,8 +10,6 @@
 LRU::Cache<std::string, event_cache_t> events_cache;
 #define EVENTS_RATE_LIMIT_SEC 60
 #define EVENTS_RATE_LIMIT_COUNT 5
-const std::string AnalyticsManager::QUERY_CLICK = "query_click";
-const std::string AnalyticsManager::QUERY_PURCHASE = "query_purchase";
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*

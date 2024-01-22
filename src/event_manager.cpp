@@ -84,8 +84,8 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
             }
 
             const std::string& query = event_data_val["q"].get<std::string>();
-            const std::string user_id = event_data_val["user_id"].get<std::string>();
-            const std::string doc_id = event_data_val["doc_id"].get<std::string>();
+            const std::string& user_id = event_data_val["user_id"].get<std::string>();
+            const std::string& doc_id = event_data_val["doc_id"].get<std::string>();
             uint64_t position = event_data_val["position"].get<uint64_t>();
             const std::string& collection = event_data_val["collection"].get<std::string>();
 
