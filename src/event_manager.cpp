@@ -44,10 +44,10 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
             }
 
             for(const auto& coll: event_data_val["collections"]) {
-                std::string query = event_data_query_it.get<std::string>();
+                const std::string& query = event_data_query_it.get<std::string>();
                 AnalyticsManager::get_instance().add_suggestion(coll.get<std::string>(), query, query, false, "");
             }
-        } else if(event_type == "query_click" || event_type == "query_purchase") {
+        } else if(event_type == AnalyticsManager::QUERY_CLICK || event_type == AnalyticsManager::QUERY_PURCHASE) {
             if (!event.contains("data")) {
                 return Option<bool>(404, "key `data` not found.");
             }
@@ -83,9 +83,9 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
                 return Option<bool>(500, "`collection` value should be string.");
             }
 
-            const std::string query = event_data_val["q"].get<std::string>();
-            const std::string user_id = event_data_val["user_id"].get<std::string>();
-            const std::string doc_id = event_data_val["doc_id"].get<std::string>();
+            const std::string& query = event_data_val["q"].get<std::string>();
+            const std::string& user_id = event_data_val["user_id"].get<std::string>();
+            const std::string& doc_id = event_data_val["doc_id"].get<std::string>();
             uint64_t position = event_data_val["position"].get<uint64_t>();
             const std::string& collection = event_data_val["collection"].get<std::string>();
 

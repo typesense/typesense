@@ -121,7 +121,9 @@ private:
     Store* store = nullptr;
     std::ofstream  analytics_logs;
 
-    bool isRateLimitEnabled = false;
+    bool isRateLimitTestEnabled = false;
+    uint64_t analytics_logs_count = 0;
+
     AnalyticsManager() {}
 
     ~AnalyticsManager();
@@ -138,6 +140,8 @@ public:
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
     static constexpr const char* COUNTER_TYPE = "counter";
+    static constexpr const char* QUERY_CLICK = "query_click";
+    static constexpr const char* QUERY_PURCHASE = "query_purchase";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;

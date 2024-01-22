@@ -10,7 +10,6 @@
 LRU::Cache<std::string, event_cache_t> events_cache;
 #define EVENTS_RATE_LIMIT_SEC 60
 #define EVENTS_RATE_LIMIT_COUNT 5
-#define EVENTS_TTL_INTERVAL_US 2592000000000 //30days
 
 Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert, bool write_to_disk) {
     /*
@@ -303,7 +302,7 @@ Option<bool> AnalyticsManager::add_event(const std::string& event_type, const st
         auto &events_vec= query_collection_events[query_collection];
 
 #ifdef TEST_BUILD
-        if (isRateLimitEnabled) {
+        if (isRateLimitTestEnabled) {
 #endif
             auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
@@ -334,17 +333,19 @@ Option<bool> AnalyticsManager::add_event(const std::string& event_type, const st
         event_t event(query, event_type, now_ts_useconds, user_id, doc_id, position);
         events_vec.emplace_back(event);
 
-        auto counter_events_it = counter_events.find(query_collection);
-        if(counter_events_it != counter_events.end()) {
-            auto event_weight_map_it = counter_events_it->second.event_weight_map.find(event_type);
-            if(event_weight_map_it != counter_events_it->second.event_weight_map.end()) {
-                auto inc_val = event_weight_map_it->second;
-                counter_events_it->second.docid_counts[doc_id]+= inc_val;
+        if(!counter_events.empty()) {
+            auto counter_events_it = counter_events.find(query_collection);
+            if (counter_events_it != counter_events.end()) {
+                auto event_weight_map_it = counter_events_it->second.event_weight_map.find(event_type);
+                if (event_weight_map_it != counter_events_it->second.event_weight_map.end()) {
+                    auto inc_val = event_weight_map_it->second;
+                    counter_events_it->second.docid_counts[doc_id] += inc_val;
+                } else {
+                    LOG(ERROR) << "event_type " << event_type << " not defined in analytic rule for counter events.";
+                }
             } else {
-                LOG(ERROR) << "event_type " << event_type << " not defined in analytic rule for counter events.";
+                LOG(ERROR) << "collection " << query_collection << " not found in analytics rule.";
             }
-        } else {
-            LOG(ERROR) << "collection " << query_collection << " not found in analytics rule.";
         }
 
         return Option<bool>(true);
@@ -492,17 +493,27 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
 
 void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // lock is held by caller
-      for (const auto &events_collection_it: query_collection_events) {
+    for (const auto &events_collection_it: query_collection_events) {
         for (const auto &event: events_collection_it.second) {
-            if(analytics_logs.is_open()) {
+            if (analytics_logs.is_open()) {
                 //store events to log file
-                char event_type_short = event.event_type == "query_click" ? 'C' : 'P';
-
-                analytics_logs << event.timestamp << "\t" << event.user_id << "\t"
-                    << event_type_short << "\t" << event.query << "\t" << event.doc_id << "\n";
+                const auto collection = events_collection_it.first;
+                if (event.event_type == QUERY_CLICK) {
+                    analytics_logs << event.timestamp << "\t" << event.user_id << "\t"
+                                   << 'C' << "\t" << event.doc_id << "\t"
+                                   << collection << event.query << "\t" << "\n";
+                } else if (event.event_type == QUERY_PURCHASE) {
+                    analytics_logs << event.timestamp << "\t" << event.user_id << "\t"
+                                   << 'P' << "\t" << event.doc_id << "\t" << collection << "\n";
+                }
+                ++analytics_logs_count;
+                if(analytics_logs_count % 10 == 0) {
+                    analytics_logs << std::flush;
+                }
             }
         }
     }
+    query_collection_events.clear();
 }
 
 void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
@@ -534,6 +545,7 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
             send_http_response(doc.dump(), coll);
         }
     }
+    counter_events.clear();
 }
 
 void AnalyticsManager::stop() {
@@ -604,5 +616,5 @@ nlohmann::json AnalyticsManager::get_events(const std::string& coll, const std::
 
 void AnalyticsManager::resetToggleRateLimit(bool toggle) {
     events_cache.clear();
-    isRateLimitEnabled = toggle;
+    isRateLimitTestEnabled = toggle;
 }
