@@ -1,5 +1,5 @@
 #!/bin/bash
-# TYPESENSE_VERSION=nightly TYPESENSE_TARGET=typesense-server|typesense-test bash ci_build.sh
+# TYPESENSE_VERSION=nightly TYPESENSE_TARGET=typesense-server|typesense-test bash ci_build_v2.sh
 
 set -ex
 PROJECT_DIR=`dirname $0 | while read a; do cd $a && pwd && break; done`
@@ -19,6 +19,19 @@ if [[ "$@" == *"--with-cuda"* ]]; then
   CUDA_FLAGS="--define use_cuda=on --action_env=CUDA_HOME=/usr/local/cuda --action_env=CUDNN_HOME=/usr/local/cuda"
 fi
 
+# First build protobuf
+bazel build @com_google_protobuf//:protobuf_headers
+bazel build @com_google_protobuf//:protobuf_lite
+bazel build @com_google_protobuf//:protobuf
+bazel build @com_google_protobuf//:protoc
+
+# Build whisper
+if [[ "$@" == *"--with-cuda"* ]]; then
+  bazel build @whisper.cpp//:whisper_cuda_shared $CUDA_FLAGS --experimental_cc_shared_library
+  /bin/cp -f $PROJECT_DIR/$BUILD_DIR/external/whisper.cpp/libwhisper_cuda_shared.so $PROJECT_DIR/$BUILD_DIR/
+fi
+
+# Finally build Typesense
 bazel build --verbose_failures --jobs=6 $CUDA_FLAGS \
   --define=TYPESENSE_VERSION=\"$TYPESENSE_VERSION\" //:$TYPESENSE_TARGET
 
@@ -37,6 +50,6 @@ if [[ "$@" == *"--package-binary"* ]]; then
     echo "Built binary successfully: $PROJECT_DIR/$BUILD_DIR/$RELEASE_NAME.tar.gz"
 
     GPU_DEPS_NAME=typesense-gpu-deps-$TYPESENSE_VERSION-$OS_FAMILY-$ARCH_NAME
-    tar -cvzf $PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz -C $PROJECT_DIR/$BUILD_DIR libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so
+    tar -cvzf $PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz -C $PROJECT_DIR/$BUILD_DIR libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so libwhisper_cuda_shared.so
     echo "Built binary successfully: $PROJECT_DIR/$BUILD_DIR/$GPU_DEPS_NAME.tar.gz"
 fi

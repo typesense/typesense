@@ -62,6 +62,8 @@ cc_library(
         "@clip_tokenizer//:clip",
         "@whisper.cpp//:whisper",
         "@whisper.cpp//:whisper_headers",
+        "@snowball",
+        "@snowball//:snowball_headers",
         # "@zip",
     ])
 
