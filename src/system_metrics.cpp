@@ -74,9 +74,7 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 
 #ifdef __linux__
     auto swap_bytes = linux_get_swap_used_bytes();
-    if(swap_bytes >= 0) {
-        result["system_memory_used_swap_bytes"] = std::to_string(swap_bytes);
-    }
+    result["system_memory_used_swap_bytes"] = std::to_string(swap_bytes);
 #endif
     // CPU and Network metrics
 #if __linux__
