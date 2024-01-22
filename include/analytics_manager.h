@@ -122,7 +122,7 @@ private:
     std::ofstream  analytics_logs;
 
     bool isRateLimitTestEnabled = false;
-    uint64_t analyitcs_logs_count = 0;
+    uint64_t analytics_logs_count = 0;
 
     AnalyticsManager() {}
 

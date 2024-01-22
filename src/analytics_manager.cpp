@@ -506,8 +506,8 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
                     analytics_logs << event.timestamp << "\t" << event.user_id << "\t"
                                    << 'P' << "\t" << event.doc_id << "\t" << collection << "\n";
                 }
-                ++analyitcs_logs_count;
-                if(analyitcs_logs_count % 10 == 0) {
+                ++analytics_logs_count;
+                if(analytics_logs_count % 10 == 0) {
                     analytics_logs << std::flush;
                 }
             }
