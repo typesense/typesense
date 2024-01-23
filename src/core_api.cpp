@@ -289,6 +289,10 @@ bool get_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     nlohmann::json result;
     bool alive = server->is_alive();
     result["ok"] = alive;
+    const auto resource_error = cached_resource_stat_t::get_instance().get_out_of_resource_error();
+    if(!resource_error.empty()) {
+        result["resource_error"] = resource_error;
+    }
 
     if(alive) {
         res->set_body(200, result.dump());

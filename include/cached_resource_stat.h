@@ -18,6 +18,11 @@ private:
 
     uint64_t last_checked_ts = 0;
 
+    static constexpr const char* out_of_memory_str = "OUT_OF_MEMORY";
+    static constexpr const char* out_of_disk_str = "OUT_OF_DISK";
+
+    std::string out_of_resource_error="";
+
     cached_resource_stat_t() = default;
 
     ~cached_resource_stat_t() = default;
@@ -39,4 +44,6 @@ public:
     resource_check_t has_enough_resources(const std::string& data_dir_path,
                                           const int disk_used_max_percentage,
                                           const int memory_used_max_percentage);
+
+    const std::string get_out_of_resource_error() const;
 };

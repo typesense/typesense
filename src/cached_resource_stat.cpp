@@ -65,6 +65,8 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
     if(disk_used_percentage > disk_used_max_percentage) {
         LOG(INFO) << "disk_total_bytes: " << disk_total_bytes << ", disk_used_bytes: " << disk_used_bytes
                   << ", disk_used_percentage: " << disk_used_percentage;
+
+        out_of_resource_error = out_of_disk_str;
         return cached_resource_stat_t::OUT_OF_DISK;
     }
 
@@ -77,6 +79,7 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
     uint64_t all_memory_used = (memory_total_bytes - memory_available_bytes) + (swap_total_bytes - swap_free_bytes);
 
     if(all_memory_used >= memory_total_bytes) {
+        out_of_resource_error = out_of_memory_str;
         return cached_resource_stat_t::OUT_OF_MEMORY;
     }
 
@@ -89,8 +92,13 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
         LOG(INFO) << "memory_total: " << memory_total_bytes << ", memory_available: " << memory_available_bytes
                   << ", all_memory_used: " << all_memory_used << ", free_mem: " << free_mem
                   << ", memory_free_min: " << memory_free_min_bytes;
+        out_of_resource_error = out_of_memory_str;
         return cached_resource_stat_t::OUT_OF_MEMORY;
     }
 
     return cached_resource_stat_t::OK;
+}
+
+const std::string cached_resource_stat_t::get_out_of_resource_error() const {
+    return out_of_resource_error;
 }
