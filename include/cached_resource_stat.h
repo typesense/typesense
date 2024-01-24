@@ -42,5 +42,5 @@ public:
                                           const int disk_used_max_percentage,
                                           const int memory_used_max_percentage);
 
-    const std::string get_out_of_resource_error() const;
+    const resource_check_t get_out_of_resource_error() const;
 };

@@ -1,7 +1,6 @@
 #include "cached_resource_stat.h"
 #include <fstream>
 #include "logger.h"
-#include "magic_enum.hpp"
 
 cached_resource_stat_t::resource_check_t
 cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
@@ -101,6 +100,6 @@ cached_resource_stat_t::has_enough_resources(const std::string& data_dir_path,
     return cached_resource_stat_t::OK;
 }
 
-const std::string cached_resource_stat_t::get_out_of_resource_error() const {
-    return std::string(magic_enum::enum_name(resource_error));
+const cached_resource_stat_t::resource_check_t cached_resource_stat_t::get_out_of_resource_error() const {
+    return resource_error;
 }
