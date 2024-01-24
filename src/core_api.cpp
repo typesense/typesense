@@ -290,6 +290,11 @@ bool get_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     bool alive = server->is_alive();
     result["ok"] = alive;
 
+    auto resource_error = cached_resource_stat_t::get_instance().get_out_of_resource_error();
+    if (resource_error != cached_resource_stat_t::resource_check_t::OK) {
+        result["resource_error"] = std::string(magic_enum::enum_name(resource_error));
+    }
+
     if(alive) {
         res->set_body(200, result.dump());
     } else {
