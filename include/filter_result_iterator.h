@@ -261,10 +261,11 @@ private:
     /// Performs OR on the subtrees of operator.
     void or_filter_iterators();
 
-    /// Advance all the token iterators that are at seq_id.
+    /// Advances all the token iterators that are at seq_id and finds the next intersection.
     void advance_string_filter_token_iterators();
 
-    /// Finds the first match for a filter on string field.
+    /// Finds the first match for a filter on string field. Only used in `init()` and `reset()`. Handles `!` in string
+    /// filter.
     void get_string_filter_first_match(const bool& field_is_array);
 
     /// Finds the next match for a filter on string field.
