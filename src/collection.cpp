@@ -3585,7 +3585,7 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
 }
 
 bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
-                                       const nlohmann::json &document, std::string &value) const {
+                                       nlohmann::json &document, std::string &value) const {
 
     if(document.count(a_facet.field_name) == 0) {
         // check for field exists
@@ -3608,6 +3608,14 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
             LOG(ERROR) << "Actual document: " << document;
             return false;
         }
+    }
+
+    auto coerce_op = validator_t::coerce_element(search_schema.at(a_facet.field_name), document,
+                                                 document[a_facet.field_name], fallback_field_type,
+                                                 DIRTY_VALUES::COERCE_OR_REJECT);
+    if(!coerce_op.ok()) {
+        LOG(ERROR) << "Bad type for field " << a_facet.field_name << ", document: " << document;
+        return false;
     }
 
     if(search_schema.at(a_facet.field_name).type == field_types::STRING) {

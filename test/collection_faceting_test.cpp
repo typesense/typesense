@@ -3026,3 +3026,33 @@ TEST_F(CollectionFacetingTest, RangeFacetAlphanumericLabels) {
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][2]["count"]);
     ASSERT_EQ("10thAD", results["facet_counts"][0]["counts"][2]["value"]);
 }
+
+TEST_F(CollectionFacetingTest, FacetingWithCoercedString) {
+    std::vector<field> fields = {field("years", field_types::INT64_ARRAY, true)};
+
+    Collection* coll1 = collectionManager.create_collection(
+            "coll1", 1, fields, "", 0, "",
+            {},{}).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["years"] = {2000, 2010, 2020};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "years", "drop": true},
+            {"name": "years", "type": "string[]", "facet": true}
+        ]
+    })"_json;
+
+    // schema change will not change the data on disk, so we have to account for this during hash based faceting
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    auto results = coll1->search("*", {}, "", {"years"}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"]);
+}

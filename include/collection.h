@@ -472,7 +472,7 @@ public:
 
     const Index* _get_index() const;
 
-    bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
+    bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, nlohmann::json &document,
                                std::string &value) const;
 
     nlohmann::json get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const;
