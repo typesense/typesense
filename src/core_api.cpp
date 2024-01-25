@@ -1330,6 +1330,7 @@ bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::sha
         req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
     }
 
+    search_stop_us = UINT64_MAX; // Filtering shouldn't timeout during update operation.
     auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM]);
     if(update_op.ok()) {
         res->set_200(update_op.get().dump());
@@ -1484,6 +1485,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
+        search_stop_us = UINT64_MAX; // Filtering shouldn't timeout during delete operation.
         filter_result_t filter_result;
         auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result);
 

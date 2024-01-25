@@ -1820,13 +1820,13 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
         return filter_init_op;
     }
 
-    if (filter_result_iterator.reference.empty()) {
-        filter_result.count = filter_result_iterator.to_filter_id_array(filter_result.docs);
+    filter_result_iterator.compute_result();
+    if (filter_result_iterator.approx_filter_ids_length == 0) {
         return Option(true);
     }
 
-    filter_result_iterator.compute_result();
-    if (filter_result_iterator.approx_filter_ids_length == 0) {
+    if (filter_result_iterator.reference.empty()) {
+        filter_result.count = filter_result_iterator.to_filter_id_array(filter_result.docs);
         return Option(true);
     }
 
