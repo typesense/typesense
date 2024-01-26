@@ -501,15 +501,13 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
                 if (event.event_type == QUERY_CLICK) {
                     analytics_logs << event.timestamp << "\t" << event.user_id << "\t"
                                    << 'C' << "\t" << event.doc_id << "\t"
-                                   << collection << event.query << "\t" << "\n";
+                                   << collection << "\t" << event.query << "\n";
                 } else if (event.event_type == QUERY_PURCHASE) {
                     analytics_logs << event.timestamp << "\t" << event.user_id << "\t"
                                    << 'P' << "\t" << event.doc_id << "\t" << collection << "\n";
                 }
-                ++analytics_logs_count;
-                if(analytics_logs_count % 10 == 0) {
-                    analytics_logs << std::flush;
-                }
+
+                analytics_logs << std::flush;
             }
         }
     }
@@ -593,25 +591,6 @@ std::unordered_map<std::string, QueryAnalytics*> AnalyticsManager::get_nohits_qu
 std::unordered_map<std::string, counter_event_t> AnalyticsManager::get_popular_clicks() {
     std::unique_lock lk(mutex);
     return counter_events;
-}
-
-nlohmann::json AnalyticsManager::get_events(const std::string& coll, const std::string& event_type) {
-    std::unique_lock lk(mutex);
-    nlohmann::json event_json;
-    nlohmann::json result_json = nlohmann::json::array();
-
-    auto query_collection_events_it = query_collection_events.find(coll);
-    if (query_collection_events_it != query_collection_events.end()) {
-        auto events = query_collection_events_it->second;
-        for (const auto &event: events) {
-            if(event.event_type == event_type) {
-                event.to_json(event_json);
-                result_json.push_back(event_json);
-            }
-        }
-    }
-
-    return result_json;
 }
 
 void AnalyticsManager::resetToggleRateLimit(bool toggle) {
