@@ -922,7 +922,7 @@ Option<bool> add_unsigned_int_param(const std::string& param_name, const std::st
         return Option<bool>(400, "Parameter `" + std::string(param_name) + "` must be an unsigned integer.");
     }
 
-    *int_val = std::stoi(str_val);
+    *int_val = std::stoul(str_val);
     return Option<bool>(true);
 }
 
@@ -934,7 +934,7 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
 
     for(auto& str : str_vals) {
         if(StringUtils::is_uint32_t(str)) {
-            int_vals->push_back((uint32_t)std::stoi(str));
+            int_vals->push_back((uint32_t)std::stoul(str));
         } else {
             return Option<bool>(400, "Parameter `" + param_name + "` is malformed.");
         }

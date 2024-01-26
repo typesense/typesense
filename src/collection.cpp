@@ -4466,7 +4466,7 @@ Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const 
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
     if(status == StoreStatus::FOUND) {
-        uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
+        uint32_t seq_id = std::stoul(seq_id_str);
         return Option<uint32_t>(seq_id);
     }
 
