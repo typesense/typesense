@@ -298,60 +298,59 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection,
 Option<bool> AnalyticsManager::add_event(const std::string& event_type, const std::string &query_collection, const std::string &query, const std::string &user_id,
                                        std::string doc_id, uint64_t position, const std::string& client_ip) {
     std::unique_lock lock(mutex);
-    if(analytics_logs.is_open()) {
-        auto &events_vec= query_collection_events[query_collection];
-
-#ifdef TEST_BUILD
-        if (isRateLimitTestEnabled) {
-#endif
-            auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count();
-            auto events_cache_it = events_cache.find(client_ip);
-
-            if (events_cache_it != events_cache.end()) {
-                //event found in events cache
-                if ((now_ts_seconds - events_cache_it->second.last_update_time) < EVENTS_RATE_LIMIT_SEC) {
-                    if (events_cache_it->second.count >= EVENTS_RATE_LIMIT_COUNT) {
-                        return Option<bool>(500, "event rate limit reached.");
-                    } else {
-                        events_cache_it->second.count++;
-                    }
-                } else {
-                    events_cache_it->second.last_update_time = now_ts_seconds;
-                    events_cache_it->second.count = 1;
-                }
-            } else {
-                event_cache_t eventCache{(uint64_t) now_ts_seconds, 1};
-                events_cache.insert(client_ip, eventCache);
-            }
-#ifdef TEST_BUILD
-        }
-#endif
-        auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-
-        event_t event(query, event_type, now_ts_useconds, user_id, doc_id, position);
-        events_vec.emplace_back(event);
-
-        if(!counter_events.empty()) {
-            auto counter_events_it = counter_events.find(query_collection);
-            if (counter_events_it != counter_events.end()) {
-                auto event_weight_map_it = counter_events_it->second.event_weight_map.find(event_type);
-                if (event_weight_map_it != counter_events_it->second.event_weight_map.end()) {
-                    auto inc_val = event_weight_map_it->second;
-                    counter_events_it->second.docid_counts[doc_id] += inc_val;
-                } else {
-                    LOG(ERROR) << "event_type " << event_type << " not defined in analytic rule for counter events.";
-                }
-            } else {
-                LOG(ERROR) << "collection " << query_collection << " not found in analytics rule.";
-            }
-        }
-
+    if(!analytics_logs.is_open()) {
         return Option<bool>(true);
     }
 
-    LOG(ERROR) << "Analytics Directory not provided.";
+    auto &events_vec= query_collection_events[query_collection];
+
+#ifdef TEST_BUILD
+    if (isRateLimitTestEnabled) {
+#endif
+        auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto events_cache_it = events_cache.find(client_ip);
+
+        if (events_cache_it != events_cache.end()) {
+            //event found in events cache
+            if ((now_ts_seconds - events_cache_it->second.last_update_time) < EVENTS_RATE_LIMIT_SEC) {
+                if (events_cache_it->second.count >= EVENTS_RATE_LIMIT_COUNT) {
+                    return Option<bool>(500, "event rate limit reached.");
+                } else {
+                    events_cache_it->second.count++;
+                }
+            } else {
+                events_cache_it->second.last_update_time = now_ts_seconds;
+                events_cache_it->second.count = 1;
+            }
+        } else {
+            event_cache_t eventCache{(uint64_t) now_ts_seconds, 1};
+            events_cache.insert(client_ip, eventCache);
+        }
+#ifdef TEST_BUILD
+    }
+#endif
+    auto now_ts_useconds = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    event_t event(query, event_type, now_ts_useconds, user_id, doc_id, position);
+    events_vec.emplace_back(event);
+
+    if(!counter_events.empty()) {
+        auto counter_events_it = counter_events.find(query_collection);
+        if (counter_events_it != counter_events.end()) {
+            auto event_weight_map_it = counter_events_it->second.event_weight_map.find(event_type);
+            if (event_weight_map_it != counter_events_it->second.event_weight_map.end()) {
+                auto inc_val = event_weight_map_it->second;
+                counter_events_it->second.docid_counts[doc_id] += inc_val;
+            } else {
+                LOG(ERROR) << "event_type " << event_type << " not defined in analytic rule for counter events.";
+            }
+        } else {
+            LOG(ERROR) << "collection " << query_collection << " not found in analytics rule.";
+        }
+    }
+
     return Option<bool>(true);
 }
 
