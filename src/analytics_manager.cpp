@@ -4,10 +4,8 @@
 #include "tokenizer.h"
 #include "http_client.h"
 #include "collection_manager.h"
-#include "lru/lru.hpp"
 #include "string_utils.h"
 
-LRU::Cache<std::string, event_cache_t> events_cache;
 #define EVENTS_RATE_LIMIT_SEC 60
 #define EVENTS_RATE_LIMIT_COUNT 5
 
@@ -305,14 +303,14 @@ Option<bool> AnalyticsManager::add_event(const std::string& event_type, const st
     auto &events_vec= query_collection_events[query_collection];
 
 #ifdef TEST_BUILD
-    if (isRateLimitTestEnabled) {
+    if (isRateLimitEnabled) {
 #endif
         auto now_ts_seconds = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
         auto events_cache_it = events_cache.find(client_ip);
 
         if (events_cache_it != events_cache.end()) {
-            //event found in events cache
+            // event found in events cache
             if ((now_ts_seconds - events_cache_it->second.last_update_time) < EVENTS_RATE_LIMIT_SEC) {
                 if (events_cache_it->second.count >= EVENTS_RATE_LIMIT_COUNT) {
                     return Option<bool>(500, "event rate limit reached.");
@@ -572,8 +570,8 @@ void AnalyticsManager::init(Store* store, const std::string& analytics_dir) {
 
     if(!analytics_dir.empty()) {
         const auto analytics_log_path = analytics_dir + "/analytics_events.tsv";
-
         analytics_logs.open(analytics_log_path, std::ofstream::out | std::ofstream::app);
+        events_cache.capacity(1024);
     }
 }
 
@@ -593,6 +591,7 @@ std::unordered_map<std::string, counter_event_t> AnalyticsManager::get_popular_c
 }
 
 void AnalyticsManager::resetToggleRateLimit(bool toggle) {
+    std::unique_lock lk(mutex);
     events_cache.clear();
-    isRateLimitTestEnabled = toggle;
+    isRateLimitEnabled = toggle;
 }

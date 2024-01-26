@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <shared_mutex>
+#include "lru/lru.hpp"
 
 struct event_t {
     std::string query;
@@ -118,10 +119,13 @@ private:
     //query collection => events
     std::unordered_map<std::string, std::vector<event_t>> query_collection_events;
 
+    // per_ip cache for rate limiting
+    LRU::Cache<std::string, event_cache_t> events_cache;
+
     Store* store = nullptr;
     std::ofstream  analytics_logs;
 
-    bool isRateLimitTestEnabled = false;
+    bool isRateLimitEnabled = true;
 
     AnalyticsManager() {}
 

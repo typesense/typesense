@@ -28,6 +28,7 @@ protected:
         collectionManager.load(8, 1000);
 
         analyticsManager.init(store, state_dir_path);
+        analyticsManager.resetToggleRateLimit(false);
     }
 
     virtual void SetUp() {
