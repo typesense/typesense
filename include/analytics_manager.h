@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <shared_mutex>
+#include "lru/lru.hpp"
 
 struct event_t {
     std::string query;
@@ -118,10 +119,14 @@ private:
     //query collection => events
     std::unordered_map<std::string, std::vector<event_t>> query_collection_events;
 
+    // per_ip cache for rate limiting
+    LRU::Cache<std::string, event_cache_t> events_cache;
+
     Store* store = nullptr;
     std::ofstream  analytics_logs;
 
-    bool isRateLimitEnabled = false;
+    bool isRateLimitEnabled = true;
+
     AnalyticsManager() {}
 
     ~AnalyticsManager();
@@ -138,6 +143,8 @@ public:
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
     static constexpr const char* COUNTER_TYPE = "counter";
+    static constexpr const char* QUERY_CLICK = "query_click";
+    static constexpr const char* QUERY_PURCHASE = "query_purchase";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -177,8 +184,6 @@ public:
     void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     void persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
-
-    nlohmann::json get_events(const std::string& coll, const std::string& event_type);
 
     std::unordered_map<std::string, counter_event_t> get_popular_clicks();
 

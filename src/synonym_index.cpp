@@ -94,6 +94,7 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
 
 void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
                                    std::vector<std::vector<std::string>>& results) const {
+    std::shared_lock lock(mutex);
     if(synonym_definitions.empty()) {
         return;
     }
@@ -104,15 +105,17 @@ void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
 
 Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, const synonym_t& synonym,
                                        bool write_to_store) {
+    std::unique_lock write_lock(mutex);
     if(synonym_definitions.count(synonym.id) != 0) {
+        write_lock.unlock();
         // first we have to delete existing entries so we can upsert
         Option<bool> rem_op = remove_synonym(collection_name, synonym.id);
         if(!rem_op.ok()) {
             return rem_op;
         }
+	write_lock.lock();
     }
 
-    std::unique_lock write_lock(mutex);
     synonym_definitions[synonym.id] = synonym;
 
     if(!synonym.root.empty()) {

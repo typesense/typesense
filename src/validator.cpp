@@ -10,10 +10,13 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
     bool array_ele_erased = false;
     nlohmann::json::iterator dummy_iter;
 
-    if(a_field.type == field_types::STRING && !doc_ele.is_string()) {
-        Option<uint32_t> coerce_op = coerce_string(dirty_values, fallback_field_type, a_field, document, field_name, dummy_iter, false, array_ele_erased);
-        if(!coerce_op.ok()) {
-            return coerce_op;
+    if(a_field.type == field_types::STRING) {
+        if(!doc_ele.is_string()) {
+            Option<uint32_t> coerce_op = coerce_string(dirty_values, fallback_field_type, a_field, document,
+                                                       field_name, dummy_iter, false, array_ele_erased);
+            if(!coerce_op.ok()) {
+                return coerce_op;
+            }
         }
     } else if(a_field.type == field_types::INT32) {
         if(!doc_ele.is_number_integer()) {
@@ -22,21 +25,27 @@ Option<uint32_t> validator_t::coerce_element(const field& a_field, nlohmann::jso
                 return coerce_op;
             }
         }
-    } else if(a_field.type == field_types::INT64 && !doc_ele.is_number_integer()) {
-        Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
-        if(!coerce_op.ok()) {
-            return coerce_op;
+    } else if(a_field.type == field_types::INT64) {
+        if(!doc_ele.is_number_integer()) {
+            Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
+            if(!coerce_op.ok()) {
+                return coerce_op;
+            }
         }
-    } else if(a_field.type == field_types::FLOAT && !doc_ele.is_number()) {
-        // using `is_number` allows integer to be passed to a float field
-        Option<uint32_t> coerce_op = coerce_float(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
-        if(!coerce_op.ok()) {
-            return coerce_op;
+    } else if(a_field.type == field_types::FLOAT) {
+        if(!doc_ele.is_number()) {
+            // using `is_number` allows integer to be passed to a float field
+            Option<uint32_t> coerce_op = coerce_float(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
+            if(!coerce_op.ok()) {
+                return coerce_op;
+            }
         }
-    } else if(a_field.type == field_types::BOOL && !doc_ele.is_boolean()) {
-        Option<uint32_t> coerce_op = coerce_bool(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
-        if(!coerce_op.ok()) {
-            return coerce_op;
+    } else if(a_field.type == field_types::BOOL) {
+        if(!doc_ele.is_boolean()) {
+            Option<uint32_t> coerce_op = coerce_bool(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
+            if(!coerce_op.ok()) {
+                return coerce_op;
+            }
         }
     } else if(a_field.type == field_types::GEOPOINT) {
         if(!doc_ele.is_array() || doc_ele.size() != 2) {

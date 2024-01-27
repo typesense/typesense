@@ -290,6 +290,11 @@ bool get_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     bool alive = server->is_alive();
     result["ok"] = alive;
 
+    auto resource_error = cached_resource_stat_t::get_instance().get_out_of_resource_error();
+    if (resource_error != cached_resource_stat_t::resource_check_t::OK) {
+        result["resource_error"] = std::string(magic_enum::enum_name(resource_error));
+    }
+
     if(alive) {
         res->set_body(200, result.dump());
     } else {
@@ -1325,6 +1330,7 @@ bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::sha
         req->params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
     }
 
+    search_stop_us = UINT64_MAX; // Filtering shouldn't timeout during update operation.
     auto update_op = collection->update_matching_filter(filter_query, req->body, req->params[DIRTY_VALUES_PARAM]);
     if(update_op.ok()) {
         res->set_200(update_op.get().dump());
@@ -1479,6 +1485,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         // destruction of data is managed by req destructor
         req->data = deletion_state;
 
+        search_stop_us = UINT64_MAX; // Filtering shouldn't timeout during delete operation.
         filter_result_t filter_result;
         auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result);
 
@@ -2416,9 +2423,15 @@ bool get_limit_exceed_counts(const std::shared_ptr<http_req>& req, const std::sh
 }
 
 Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string& metadata) {
-        // format <length of api_key>:<api_key><ip>
+    // format <length of api_key>:<api_key><ip>
     // length of api_key is a uint32_t
     if(metadata.size() < 10) {
+        if(metadata.size() >= 2 && metadata[0] == '0' && metadata[1] == ':') {
+            // e.g. "0:0.0.0.0" (when api key is not provided at all)
+            std::string ip = metadata.substr(metadata.find(":") + 1);
+            return Option<std::pair<std::string,std::string>>(std::make_pair("", ip));
+        }
+
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
@@ -2426,15 +2439,17 @@ Option<std::pair<std::string,std::string>> get_api_key_and_ip(const std::string&
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    if(!StringUtils::is_uint32_t(metadata.substr(0, metadata.find(":")))) {
+    std::string key_len_str = metadata.substr(0, metadata.find(":"));
+
+    if(!StringUtils::is_uint32_t(key_len_str)) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
 
-    if(metadata.size() < std::stoul(metadata.substr(0, metadata.find(":"))) + metadata.find(":") + 7) {
+    uint32_t api_key_length = static_cast<uint32_t>(std::stoul(key_len_str));
+
+    if(metadata.size() < api_key_length + metadata.find(":") + 7) {
         return Option<std::pair<std::string,std::string>>(400, "Invalid metadata");
     }
-
-    uint32_t api_key_length = static_cast<uint32_t>(std::stoul(metadata.substr(0, metadata.find(":"))));
 
     std::string api_key = metadata.substr(metadata.find(":") + 1, api_key_length);
     std::string ip = metadata.substr(metadata.find(":") + 1 + api_key_length);

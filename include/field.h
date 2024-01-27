@@ -119,7 +119,7 @@ struct field {
 
     bool stem = false;
     std::shared_ptr<Stemmer> stemmer;
-
+  
     nlohmann::json hnsw_params;
 
     field() {}
