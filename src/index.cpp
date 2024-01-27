@@ -7608,7 +7608,6 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         }
 
         EmbedderManager& embedder_manager = EmbedderManager::get_instance();
-        LOG(INFO) << "Embedding " << values.size() << " values for field " << field.name;
         if(is_image_embedding) {
             auto embedder_op = embedder_manager.get_image_embedder(field.embed[fields::model_config]);
             if(!embedder_op.ok()) {
