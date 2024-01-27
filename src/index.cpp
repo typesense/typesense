@@ -68,7 +68,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         }
 
         if(a_field.num_dim > 0) {
-            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 1024, a_field.vec_dist);
+            auto hnsw_index = new hnsw_index_t(a_field.num_dim, a_field.hnsw_params["num_elements"].get< unsigned int>(), a_field.vec_dist, a_field.hnsw_params["M"].get< unsigned int>(), a_field.hnsw_params["ef_construction"].get< unsigned int>());
             vector_index.emplace(a_field.name, hnsw_index);
             continue;
         }
@@ -1209,6 +1209,7 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
                 auto stemmer = a_field.get_stemmer();
                 if(stemmer) {
                     token = stemmer->stem(token);
+                    LOG(INFO) << "Stemmed token: " << token;
                 } else {
                     LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
                 }
@@ -3045,6 +3046,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 VectorFilterFunctor filterFunctor(filter_result_iterator);
 
                 std::vector<std::pair<float, size_t>> pairs;
+                field_vector_index->vecdex->setEf(vector_query.ef);
+                LOG(INFO) << "ef: " << vector_query.ef << " k: " << k;
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());
                     hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
@@ -3420,7 +3423,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 // use k as 100 by default for ensuring results stability in pagination
                 size_t default_k = 100;
                 auto k = vector_query.k == 0 ? std::max<size_t>(fetch_size, default_k) : vector_query.k;
-
+                field_vector_index->vecdex->setEf(vector_query.ef);
+                LOG(INFO) << "ef: " << vector_query.ef << " k: " << k;
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());
                     hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
@@ -7109,7 +7113,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
         search_schema.emplace(new_field.name, new_field);
 
         if(new_field.type == field_types::FLOAT_ARRAY && new_field.num_dim > 0) {
-            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 1024, new_field.vec_dist);
+            auto hnsw_index = new hnsw_index_t(new_field.num_dim, new_field.hnsw_params["num_elements"].get< unsigned int>(), new_field.vec_dist, new_field.hnsw_params["M"].get< unsigned int>(), new_field.hnsw_params["ef_construction"].get< unsigned int>());
             vector_index.emplace(new_field.name, hnsw_index);
             continue;
         }
@@ -7604,6 +7608,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         }
 
         EmbedderManager& embedder_manager = EmbedderManager::get_instance();
+        LOG(INFO) << "Embedding " << values.size() << " values for field " << field.name;
         if(is_image_embedding) {
             auto embedder_op = embedder_manager.get_image_embedder(field.embed[fields::model_config]);
             if(!embedder_op.ok()) {
