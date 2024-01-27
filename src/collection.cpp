@@ -101,7 +101,8 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
 
 Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
                                                      const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
-                                                     tsl::htrie_set<char>& object_reference_helper_fields) {
+                                                     tsl::htrie_set<char>& object_reference_helper_fields,
+                                                     const bool& is_update) {
     tsl::htrie_set<char> flat_fields;
     if (!reference_fields.empty() && document.contains(".flat")) {
         for (const auto &item: document[".flat"].get<std::vector<std::string>>()) {
@@ -113,7 +114,9 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
     for (auto const& pair: reference_fields) {
         auto field_name = pair.first;
         auto optional = schema.at(field_name).optional;
-        if (!optional && document.count(field_name) != 1) {
+        // Strict checking for presence of non-optional reference field during indexing operation.
+        auto is_required = !is_update && !optional;
+        if (is_required && document.count(field_name) != 1) {
             return Option<bool>(400, "Missing the required reference field `" + field_name
                                              + "` in the document.");
         } else if (document.count(field_name) != 1) {
@@ -5898,7 +5901,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     }
 
     auto add_reference_helper_fields_op = add_reference_helper_fields(document, schema, reference_fields,
-                                                                      object_reference_helper_fields);
+                                                                      object_reference_helper_fields, is_update);
     if (!add_reference_helper_fields_op.ok()) {
         return add_reference_helper_fields_op;
     }

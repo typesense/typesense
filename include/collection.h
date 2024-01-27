@@ -431,7 +431,8 @@ public:
 
     static Option<bool> add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
                                                     const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
-                                                    tsl::htrie_set<char>& object_reference_helper_fields);
+                                                    tsl::htrie_set<char>& object_reference_helper_fields,
+                                                    const bool& is_update);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
