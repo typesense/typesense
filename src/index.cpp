@@ -1209,7 +1209,6 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
                 auto stemmer = a_field.get_stemmer();
                 if(stemmer) {
                     token = stemmer->stem(token);
-                    LOG(INFO) << "Stemmed token: " << token;
                 } else {
                     LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
                 }
@@ -1821,13 +1820,13 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
         return filter_init_op;
     }
 
-    if (filter_result_iterator.reference.empty()) {
-        filter_result.count = filter_result_iterator.to_filter_id_array(filter_result.docs);
+    filter_result_iterator.compute_result();
+    if (filter_result_iterator.approx_filter_ids_length == 0) {
         return Option(true);
     }
 
-    filter_result_iterator.compute_result();
-    if (filter_result_iterator.approx_filter_ids_length == 0) {
+    if (filter_result_iterator.reference.empty()) {
+        filter_result.count = filter_result_iterator.to_filter_id_array(filter_result.docs);
         return Option(true);
     }
 
@@ -5420,8 +5419,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
     }
     // populate topster
-    for(size_t i = 0; i < std::min<size_t>(10000, all_result_ids_len) &&
-                                            filter_result_iterator->validity == filter_result_iterator_t::valid; i++) {
+    for(size_t i = 0; i < all_result_ids_len && filter_result_iterator->validity == filter_result_iterator_t::valid; i++) {
         auto seq_id = filter_result_iterator->seq_id;
         auto references = std::move(filter_result_iterator->reference);
         filter_result_iterator->next();
@@ -6074,6 +6072,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
             std::chrono::high_resolution_clock::now() - beginF).count();
     LOG(INFO) << "Time for raw scoring: " << timeMillisF;*/
 
+    filter_result_iterator->reset();
     if (filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
         auto partial_result = new filter_result_t();
         std::unique_ptr<filter_result_t> partial_result_guard(partial_result);
@@ -6083,8 +6082,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
         all_result_ids_len = partial_result->count;
         all_result_ids = partial_result->docs;
         partial_result->docs = nullptr;
-    } else {
-        filter_result_iterator->reset();
+    } else if (filter_result_iterator->validity == filter_result_iterator_t::valid) {
         all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
         search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
     }

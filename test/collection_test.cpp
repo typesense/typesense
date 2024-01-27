@@ -589,6 +589,17 @@ TEST_F(CollectionTest, WildcardQuery) {
     results_op = collection->search("the", {}, "", {}, sort_fields, {0}, 3, 1, FREQUENCY, {false});
     ASSERT_FALSE(results_op.ok());
     ASSERT_STREQ("No search fields specified for the query.", results_op.error().c_str());
+
+    Collection* empty_coll;
+    std::vector<field> fields = {field("title", field_types::STRING, false)};
+
+    empty_coll = collectionManager.get_collection("empty_coll").get();
+    if(empty_coll == nullptr) {
+        empty_coll = collectionManager.create_collection("empty_coll", 1, fields).get();
+    }
+    results = empty_coll->search("*", {}, "title:!= foo", {}, {}, {0}, 3, 1).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"]);
 }
 
 TEST_F(CollectionTest, PrefixSearching) {

@@ -431,7 +431,8 @@ public:
 
     static Option<bool> add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
                                                     const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
-                                                    tsl::htrie_set<char>& object_reference_helper_fields);
+                                                    tsl::htrie_set<char>& object_reference_helper_fields,
+                                                    const bool& is_update);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
@@ -472,7 +473,7 @@ public:
 
     const Index* _get_index() const;
 
-    bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
+    bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, nlohmann::json &document,
                                std::string &value) const;
 
     nlohmann::json get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const;
