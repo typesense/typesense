@@ -150,6 +150,11 @@ filegroup(
     ]),
 )
 
+filegroup(
+    name = "asan_suppressions",
+    srcs = ["asan.supp"],
+)
+
 TEST_COPTS = [
     "-Wall",
     "-Wextra",
@@ -188,6 +193,7 @@ cc_test(
     }),
     data = [
         ":test_data_files",
+        ":asan_suppressions",
         "@libart//:data",
         "@token_offsets//file",
     ],
