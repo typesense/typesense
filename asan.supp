@@ -1,4 +1,3 @@
-leak:rocksdb::*
 leak:AnalyticsManager::init*
 leak:*onnx*
 leak:CollectionManager::init_collection*
