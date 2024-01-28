@@ -4031,3 +4031,38 @@ TEST_F(CollectionVectorTest, TestInvalidHNSWParams) {
     ASSERT_TRUE(results.ok());
     
 }
+
+TEST_F(CollectionVectorTest, TestHNSWParamsSummaryJSON) {
+    nlohmann::json schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": 100,
+                    "M": 16
+                }
+            }
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto collection = collection_create_op.get();
+
+    auto summary = collection->get_summary_json();
+
+    ASSERT_TRUE(summary["fields"][1]["hnsw_params"].is_object());
+    ASSERT_EQ(100, summary["fields"][1]["hnsw_params"]["ef_construction"].get<uint32_t>());
+    ASSERT_EQ(16, summary["fields"][1]["hnsw_params"]["M"].get<uint32_t>());
+    ASSERT_EQ(0, summary["fields"][0].count("hnsw_params"));
+}

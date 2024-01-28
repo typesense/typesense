@@ -330,10 +330,13 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             return Option<bool>(400, "Property `" + fields::hnsw_params + ".M` must be a positive integer.");
         }
 
-        // remove unrelated properties except for max_elements, ef_construction, M and ef
-        for(auto& hnsw_param: field_json[fields::hnsw_params].items()) {
-            if(hnsw_param.key() != "ef_construction" && hnsw_param.key() != "M") {
-                field_json[fields::hnsw_params].erase(hnsw_param.key());
+        // remove unrelated properties except for m ef_construction and M
+        auto it = field_json[fields::hnsw_params].begin();
+        while(it != field_json[fields::hnsw_params].end()) {
+            if(it.key() != "max_elements" && it.key() != "ef_construction" && it.key() != "M" && it.key() != "ef") {
+                it = field_json[fields::hnsw_params].erase(it);
+            } else {
+                ++it;
             }
         }
 
