@@ -3422,7 +3422,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 size_t default_k = 100;
                 auto k = vector_query.k == 0 ? std::max<size_t>(fetch_size, default_k) : vector_query.k;
                 field_vector_index->vecdex->setEf(vector_query.ef);
-                LOG(INFO) << "ef: " << vector_query.ef << " k: " << k;
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());
                     hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
