@@ -68,7 +68,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         }
 
         if(a_field.num_dim > 0) {
-            auto hnsw_index = new hnsw_index_t(a_field.num_dim, a_field.hnsw_params["num_elements"].get< unsigned int>(), a_field.vec_dist, a_field.hnsw_params["M"].get< unsigned int>(), a_field.hnsw_params["ef_construction"].get< unsigned int>());
+            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 1024, a_field.vec_dist, a_field.hnsw_params["M"].get< unsigned int>(), a_field.hnsw_params["ef_construction"].get< unsigned int>());
             vector_index.emplace(a_field.name, hnsw_index);
             continue;
         }
@@ -3046,7 +3046,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 std::vector<std::pair<float, size_t>> pairs;
                 field_vector_index->vecdex->setEf(vector_query.ef);
-                LOG(INFO) << "ef: " << vector_query.ef << " k: " << k;
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());
                     hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
@@ -7111,7 +7110,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
         search_schema.emplace(new_field.name, new_field);
 
         if(new_field.type == field_types::FLOAT_ARRAY && new_field.num_dim > 0) {
-            auto hnsw_index = new hnsw_index_t(new_field.num_dim, new_field.hnsw_params["num_elements"].get< unsigned int>(), new_field.vec_dist, new_field.hnsw_params["M"].get< unsigned int>(), new_field.hnsw_params["ef_construction"].get< unsigned int>());
+            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 1024, new_field.vec_dist, new_field.hnsw_params["M"].get< unsigned int>(), new_field.hnsw_params["ef_construction"].get< unsigned int>());
             vector_index.emplace(new_field.name, hnsw_index);
             continue;
         }

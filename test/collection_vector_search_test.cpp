@@ -3851,3 +3851,183 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQuery) {
     ASSERT_FALSE(results.ok());
     ASSERT_EQ("Invalid audio format. Please provide a 16-bit 16kHz wav file.", results.error());
 }
+
+TEST_F(CollectionVectorTest, TestInvalidHNSWParams) {
+    nlohmann::json schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": "aaa",
+                    "M": 16
+                }
+            }
+        ]
+    })"_json;
+
+
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+
+    ASSERT_EQ("Property `hnsw_params.ef_construction` must be a positive integer.", collection_create_op.error());
+
+    schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": -100,
+                    "M": 16
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+
+    ASSERT_EQ("Property `hnsw_params.ef_construction` must be a positive integer.", collection_create_op.error());
+
+
+    schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": 100,
+                    "M": "aaa"
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("Property `hnsw_params.M` must be a positive integer.", collection_create_op.error());
+
+
+    schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": 100,
+                    "M": -100
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("Property `hnsw_params.M` must be a positive integer.", collection_create_op.error());
+
+
+    schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": 100,
+                    "M": 16
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto collection = collection_create_op.get();
+
+
+    auto results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "vector:([], ef:aaa)");
+    
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Malformed vector query string: `ef` parameter must be a positive integer.", results.error());
+
+    results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "vector:([], ef:-100)");
+
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Malformed vector query string: `ef` parameter must be a positive integer.", results.error());
+
+    results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "vector:([], ef:0)");
+    
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Malformed vector query string: `ef` parameter must be a positive integer.", results.error());
+
+    results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "vector:([], ef:100)");
+    
+    ASSERT_TRUE(results.ok());
+    
+}

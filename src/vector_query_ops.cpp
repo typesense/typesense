@@ -183,8 +183,8 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                 }
 
                 if(param_kv[0] == "ef") {
-                    if(!StringUtils::is_uint32_t(param_kv[1])) {
-                        return Option<bool>(400, "Malformed vector query string: `ef` parameter must be an integer.");
+                    if(!StringUtils::is_uint32_t(param_kv[1]) || std::stoul(param_kv[1]) == 0) {
+                        return Option<bool>(400, "Malformed vector query string: `ef` parameter must be a positive integer.");
                     }
 
                     vector_query.ef = std::stoul(param_kv[1]);

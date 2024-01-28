@@ -318,12 +318,6 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             return Option<bool>(400, "Property `" + fields::hnsw_params + "` must be an object.");
         }
 
-        if(field_json[fields::hnsw_params].count("num_elements") != 0 &&
-           (!field_json[fields::hnsw_params]["num_elements"].is_number_unsigned() ||
-            field_json[fields::hnsw_params]["num_elements"] == 0)) {
-            return Option<bool>(400, "Property `" + fields::hnsw_params + ".max_elements` must be a positive integer.");
-        }
-
         if(field_json[fields::hnsw_params].count("ef_construction") != 0 &&
            (!field_json[fields::hnsw_params]["ef_construction"].is_number_unsigned() ||
             field_json[fields::hnsw_params]["ef_construction"] == 0)) {
@@ -338,13 +332,20 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
 
         // remove unrelated properties except for max_elements, ef_construction, M and ef
         for(auto& hnsw_param: field_json[fields::hnsw_params].items()) {
-            if(hnsw_param.key() != "num_elements" && hnsw_param.key() != "ef_construction" && hnsw_param.key() != "M") {
+            if(hnsw_param.key() != "ef_construction" && hnsw_param.key() != "M") {
                 field_json[fields::hnsw_params].erase(hnsw_param.key());
             }
         }
+
+        if(field_json[fields::hnsw_params].count("ef_construction") == 0) {
+            field_json[fields::hnsw_params]["ef_construction"] = 200;
+        }
+
+        if(field_json[fields::hnsw_params].count("M") == 0) {
+            field_json[fields::hnsw_params]["M"] = 16;
+        }
     } else {
         field_json[fields::hnsw_params] = R"({
-                                            "num_elements": 1024,
                                             "M": 16,
                                             "ef_construction": 200
                                         })"_json;
