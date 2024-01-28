@@ -2761,6 +2761,37 @@ TEST_F(CollectionSpecificMoreTest, DisableTyposForNumericalTokens) {
     ASSERT_EQ(2, res_op.get()["hits"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, DisableHighlightForLongFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "description", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::string description;
+    for(size_t i = 0; i < 100*1000; i++) {
+        description += StringUtils::randstring(4) + " ";
+    }
+
+    description += "foobar";
+
+    nlohmann::json doc;
+    doc["description"] = description;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("foobar", {"description"}, "", {},
+                                {}, {2}, 10, 1,FREQUENCY, {true},
+                                Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "");
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["hits"].size());
+    ASSERT_EQ(0, res_op.get()["hits"][0]["highlight"].size());
+}
+
 TEST_F(CollectionSpecificMoreTest, TestStemming) {
     nlohmann::json schema = R"({
         "name": "test",
