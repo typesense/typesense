@@ -101,7 +101,8 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
 
 Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
                                                      const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
-                                                     tsl::htrie_set<char>& object_reference_helper_fields) {
+                                                     tsl::htrie_set<char>& object_reference_helper_fields,
+                                                     const bool& is_update) {
     tsl::htrie_set<char> flat_fields;
     if (!reference_fields.empty() && document.contains(".flat")) {
         for (const auto &item: document[".flat"].get<std::vector<std::string>>()) {
@@ -113,7 +114,9 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
     for (auto const& pair: reference_fields) {
         auto field_name = pair.first;
         auto optional = schema.at(field_name).optional;
-        if (!optional && document.count(field_name) != 1) {
+        // Strict checking for presence of non-optional reference field during indexing operation.
+        auto is_required = !is_update && !optional;
+        if (is_required && document.count(field_name) != 1) {
             return Option<bool>(400, "Missing the required reference field `" + field_name
                                              + "` in the document.");
         } else if (document.count(field_name) != 1) {
@@ -3585,7 +3588,7 @@ Option<bool> Collection::get_reference_filter_ids(const std::string & filter_que
 }
 
 bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
-                                       const nlohmann::json &document, std::string &value) const {
+                                       nlohmann::json &document, std::string &value) const {
 
     if(document.count(a_facet.field_name) == 0) {
         // check for field exists
@@ -3608,6 +3611,14 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
             LOG(ERROR) << "Actual document: " << document;
             return false;
         }
+    }
+
+    auto coerce_op = validator_t::coerce_element(search_schema.at(a_facet.field_name), document,
+                                                 document[a_facet.field_name], fallback_field_type,
+                                                 DIRTY_VALUES::COERCE_OR_REJECT);
+    if(!coerce_op.ok()) {
+        LOG(ERROR) << "Bad type for field " << a_facet.field_name << ", document: " << document;
+        return false;
     }
 
     if(search_schema.at(a_facet.field_name).type == field_types::STRING) {
@@ -4056,7 +4067,8 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
         // ensures that the `snippet_start_offset` is always from a matched token, and not from query suggestion
         bool match_offset_found = (found_first_match && token_already_found) ||
                                   (match_offset_index <= last_valid_offset_index &&
-                                   match.offsets[match_offset_index].offset == raw_token_index);
+                                   match.offsets[match_offset_index].offset == raw_token_index &&
+                                   text_len/4 < 64000);
 
         // Token might not appear in the best matched window, which is limited to a size of 10.
         // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
@@ -4458,7 +4470,7 @@ Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const 
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
     if(status == StoreStatus::FOUND) {
-        uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
+        uint32_t seq_id = std::stoul(seq_id_str);
         return Option<uint32_t>(seq_id);
     }
 
@@ -5890,7 +5902,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     }
 
     auto add_reference_helper_fields_op = add_reference_helper_fields(document, schema, reference_fields,
-                                                                      object_reference_helper_fields);
+                                                                      object_reference_helper_fields, is_update);
     if (!add_reference_helper_fields_op.ok()) {
         return add_reference_helper_fields_op;
     }

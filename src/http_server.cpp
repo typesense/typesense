@@ -310,12 +310,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     std::string metric_identifier = http_method + " " + path_without_query;
     AppMetrics::get_instance().increment_count(metric_identifier, 1);
 
-    std::string client_ip = "0.0.0.0";
-
-    if(Config::get_instance().get_enable_access_logging() ||
-       Config::get_instance().get_log_slow_requests_time_ms() >= 0) {
-        client_ip = http_req::get_ip_addr(req).ip;
-    }
+    std::string client_ip = http_req::get_ip_addr(req).ip;
 
     if(Config::get_instance().get_enable_access_logging()) {
         uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(

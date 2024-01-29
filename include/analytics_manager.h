@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <shared_mutex>
+#include "lru/lru.hpp"
 
 struct event_t {
     std::string query;
@@ -118,11 +119,13 @@ private:
     //query collection => events
     std::unordered_map<std::string, std::vector<event_t>> query_collection_events;
 
+    // per_ip cache for rate limiting
+    LRU::Cache<std::string, event_cache_t> events_cache;
+
     Store* store = nullptr;
     std::ofstream  analytics_logs;
 
-    bool isRateLimitTestEnabled = false;
-    uint64_t analytics_logs_count = 0;
+    bool isRateLimitEnabled = true;
 
     AnalyticsManager() {}
 
@@ -181,8 +184,6 @@ public:
     void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     void persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
-
-    nlohmann::json get_events(const std::string& coll, const std::string& event_type);
 
     std::unordered_map<std::string, counter_event_t> get_popular_clicks();
 

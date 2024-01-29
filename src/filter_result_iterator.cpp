@@ -552,7 +552,7 @@ void apply_not_equals(uint32_t*&& all_ids,
 void filter_result_iterator_t::get_string_filter_first_match(const bool& field_is_array) {
     get_string_filter_next_match(field_is_array);
 
-    if (filter_node->filter_exp.apply_not_equals) {
+    if (filter_node->filter_exp.apply_not_equals && index->seq_ids->num_ids() > 0) {
         // filter didn't match any id. So by applying not equals, every id in the index is a match.
         if (!validity) {
             validity = valid;

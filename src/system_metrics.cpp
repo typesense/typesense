@@ -72,6 +72,10 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     result["system_memory_total_bytes"] = std::to_string(get_memory_total_bytes());
     result["system_memory_used_bytes"] = std::to_string(get_memory_used_bytes());
 
+#ifdef __linux__
+    auto swap_bytes = linux_get_swap_used_bytes();
+    result["system_memory_used_swap_bytes"] = std::to_string(swap_bytes);
+#endif
     // CPU and Network metrics
 #if __linux__
     const std::vector<cpu_stat_t>& cpu_stats = get_cpu_stats();
@@ -226,4 +230,19 @@ void SystemMetrics::linux_get_network_data(const std::string & stat_path,
             break;
         }
     }
+}
+
+uint64_t SystemMetrics::linux_get_swap_used_bytes() {
+    std::string filename = "/proc/" + std::to_string(::getpid()) + "/status";
+    std::string token;
+    std::ifstream file(filename);
+    while(file >> token) {
+        if(token == "VmSwap:") {
+            uint64_t mem_kB;
+            if(file >> mem_kB) {
+                return mem_kB * 1024;
+            }
+        }
+    }
+    return 0;
 }
