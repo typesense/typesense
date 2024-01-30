@@ -47,49 +47,47 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
                 const std::string& query = event_data_query_it.get<std::string>();
                 AnalyticsManager::get_instance().add_suggestion(coll.get<std::string>(), query, query, false, "");
             }
-        } else if(event_type == AnalyticsManager::QUERY_CLICK || event_type == AnalyticsManager::QUERY_PURCHASE) {
-            if (!event.contains("data")) {
+        } else if(event_type == AnalyticsManager::CLICK_EVENT || event_type == AnalyticsManager::CONVERSION_EVENT
+            || event_type == AnalyticsManager::VISIT_EVENT || event_type == AnalyticsManager::CUSTOM_EVENT) {
+            if (!event.contains(EVENT_DATA)) {
                 return Option<bool>(404, "key `data` not found.");
             }
 
             const auto &event_data_val = event[EVENT_DATA];
 
+            if (!event.contains(EVENT_NAME)) {
+                return Option<bool>(404, "key `name` not found.");
+            }
+            const auto &event_name = event[EVENT_NAME];
             if (!event_data_val.is_object()) {
                 return Option<bool>(500, "event_data_val is not object.");
             }
 
-            if (!event_data_val.contains("q") || !event_data_val.contains("doc_id") || !event_data_val.contains("user_id")
-                || !event_data_val.contains("position") || !event_data_val.contains("collection")) {
-                return Option<bool>(500, "event json data fields should contain `q`, `doc_id`, `position`, `user_id`, and `collection`.");
+            if(event_type != AnalyticsManager::CUSTOM_EVENT) {
+                //visit event might not contain query so exclude check
+                if(event_type != AnalyticsManager::VISIT_EVENT && !event_data_val.contains("q")) {
+                    return Option<bool>(500,"event json data fields should contain `q`.");
+                }
+
+                if (event_data_val.contains("q") && !event_data_val["q"].is_string()) {
+                    return Option<bool>(500, "`q` value should be string.");
+                }
+
+                if (!event_data_val.contains("doc_id") || !event_data_val.contains("user_id")) {
+                    return Option<bool>(500,
+                                        "event json data fields should contain `doc_id`, `user_id`.");
+                }
+
+                if (!event_data_val["doc_id"].is_string()) {
+                    return Option<bool>(500, "`doc_id` value should be string.");
+                }
+
+                if (!event_data_val["user_id"].is_string()) {
+                    return Option<bool>(500, "`user_id` value should be string.");
+                }
             }
 
-            if (!event_data_val["q"].is_string()) {
-                return Option<bool>(500, "`q` value should be string.");
-            }
-
-            if(!event_data_val["doc_id"].is_string()) {
-                return Option<bool>(500, "`doc_id` value should be string.");
-            }
-
-            if(!event_data_val["user_id"].is_string()) {
-                return Option<bool>(500, "`user_id` value should be string.");
-            }
-
-            if(!event_data_val["position"].is_number_unsigned()){
-                return Option<bool>(500, "`position` value should be unsigned int.");
-            }
-
-            if(!event_data_val["collection"].is_string()) {
-                return Option<bool>(500, "`collection` value should be string.");
-            }
-
-            const std::string& query = event_data_val["q"].get<std::string>();
-            const std::string& user_id = event_data_val["user_id"].get<std::string>();
-            const std::string& doc_id = event_data_val["doc_id"].get<std::string>();
-            uint64_t position = event_data_val["position"].get<uint64_t>();
-            const std::string& collection = event_data_val["collection"].get<std::string>();
-
-            auto op = AnalyticsManager::get_instance().add_event(event_type, collection, query, user_id, doc_id, position, client_ip);
+            auto op = AnalyticsManager::get_instance().add_event(client_ip, event_type, event_name, event_data_val);
             if(!op.ok()) {
                 return Option<bool>(op.code(), op.error());
             }

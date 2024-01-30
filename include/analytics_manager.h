@@ -8,25 +8,33 @@
 #include <shared_mutex>
 #include "lru/lru.hpp"
 
+struct event_type_collection {
+    std::string event_type;
+    std::string collection;
+};
+
 struct event_t {
     std::string query;
     std::string event_type;
     uint64_t timestamp;
     std::string user_id;
     std::string doc_id;
-    uint64_t position;
+    std::string name;
+    std::vector<std::pair<std::string, std::string>> data;
 
     event_t() = delete;
 
     ~event_t() = default;
 
-    event_t(std::string q, std::string type, uint64_t ts, std::string uid, std::string id, uint64_t pos) {
+    event_t(const std::string& q, const std::string& type, uint64_t ts, const std::string& uid, const std::string& id,
+            const std::string& event_name, const std::vector<std::pair<std::string, std::string>> datavec) {
         query = q;
         event_type = type;
         timestamp = ts;
         user_id = uid;
         doc_id = id;
-        position = pos;
+        name = event_name;
+        data = datavec;
     }
 
     event_t& operator=(event_t& other) {
@@ -36,18 +44,25 @@ struct event_t {
             timestamp = other.timestamp;
             user_id = other.user_id;
             doc_id = other.doc_id;
-            position = other.position;
+            name = other.name;
+            data = other.data;
             return *this;
         }
     }
 
     void to_json(nlohmann::json& obj) const {
         obj["query"] = query;
-        obj["event_type"] = event_type;
+        obj["type"] = event_type;
         obj["timestamp"] = timestamp;
         obj["user_id"] = user_id;
         obj["doc_id"] = doc_id;
-        obj["position"] = position;
+        obj["name"] = name;
+
+        if(event_type == "custom") {
+            for(const auto& kv : data) {
+                obj[kv.first] = kv.second;
+            }
+        }
     }
 };
 
@@ -119,6 +134,9 @@ private:
     //query collection => events
     std::unordered_map<std::string, std::vector<event_t>> query_collection_events;
 
+    //event_name  => collection
+    std::unordered_map<std::string, event_type_collection> event_collection_map;
+
     // per_ip cache for rate limiting
     LRU::Cache<std::string, event_cache_t> events_cache;
 
@@ -137,14 +155,22 @@ private:
                               bool upsert,
                               bool write_to_disk);
 
+    std::string get_sub_event_type(const std::string& event_type);
+
 public:
 
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
     static constexpr const char* COUNTER_TYPE = "counter";
-    static constexpr const char* QUERY_CLICK = "query_click";
-    static constexpr const char* QUERY_PURCHASE = "query_purchase";
+    static constexpr const char* CLICKS_TYPE = "clicks";
+    static constexpr const char* CONVERSIONS_TYPE = "conversions";
+    static constexpr const char* VISITS_TYPE = "visits";
+    static constexpr const char* CUSTOM_EVENTS_TYPE = "custom_events";
+    static constexpr const char* CLICK_EVENT = "click";
+    static constexpr const char* CONVERSION_EVENT = "conversion";
+    static constexpr const char* VISIT_EVENT = "visit";
+    static constexpr const char* CUSTOM_EVENT = "custom";
 
     static AnalyticsManager& get_instance() {
         static AnalyticsManager instance;
@@ -166,6 +192,8 @@ public:
 
     Option<bool> remove_rule(const std::string& name);
 
+    Option<bool> remove_all_rules();
+
     void add_suggestion(const std::string& query_collection,
                         const std::string& query, const std::string& expanded_query,
                         bool live_query, const std::string& user_id);
@@ -178,8 +206,8 @@ public:
 
     std::unordered_map<std::string, QueryAnalytics*> get_popular_queries();
 
-    Option<bool> add_event(const std::string& event_type, const std::string& query_collection, const std::string& query, const std::string& user_id,
-                            std::string doc_id, uint64_t position, const std::string& client_ip);
+    Option<bool> add_event(const std::string& client_ip, const std::string& event_type,
+                           const std::string& event_name, const nlohmann::json& event_data);
 
     void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
