@@ -312,7 +312,6 @@ struct hnsw_index_t {
 
     // ensures that this index is not dropped when it's being repaired
     std::mutex repair_m;
-    std::mutex search_m;
 
     hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type, size_t M = 16, size_t ef_construction = 200) :
         space(new hnswlib::InnerProductSpace(num_dim)),
