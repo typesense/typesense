@@ -4,8 +4,6 @@ build --define=TYPESENSE_VERSION=\"nightly\"
 build --cxxopt="-std=c++17"
 build --strip=never
 build --define=BRPC_WITH_GLOG=true
-build --fission=yes
-build --experimental_google_legacy_api
 build --jobs=6
 
 test --jobs=6

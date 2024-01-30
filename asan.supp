@@ -1,3 +1,2 @@
-leak:AnalyticsManager::init*
-leak:*onnx*
 leak:CollectionManager::init_collection*
+leak:*array_utils_test.cpp*
