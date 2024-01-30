@@ -8,7 +8,6 @@ build --jobs=6
 
 test --jobs=6
 test --define=BRPC_WITH_GLOG=true
-test --test_timeout=900
 test --cache_test_results=no
 test --test_env=LSAN_OPTIONS=suppressions=asan.supp
 
