@@ -24,6 +24,7 @@
 #include "logger.h"
 #include "validator.h"
 #include <collection_manager.h>
+#include "hnsw_index_rebuilder.h"
 
 #define RETURN_CIRCUIT_BREAKER if((std::chrono::duration_cast<std::chrono::microseconds>( \
                   std::chrono::system_clock::now().time_since_epoch()).count() - search_begin_us) > search_stop_us) { \
@@ -975,7 +976,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
                     num_queued++;
 
-                    thread_pool->enqueue([thread_id, &afield, &vec_index, &records = iter_batch,
+                    thread_pool->enqueue([this, thread_id, &afield, &vec_index, &records = iter_batch,
                                           result_index, batch_len, &num_processed, &m_process, &cv_process]() {
 
                         size_t batch_counter = 0;
@@ -995,8 +996,14 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                                         std::vector<float> normalized_vals(afield.num_dim);
                                         hnsw_index_t::normalize_vector(float_vals, normalized_vals);
                                         vec_index->addPoint(normalized_vals.data(), (size_t)record.seq_id, true);
+                                        if(vector_index_rebuilders.count(afield.name) != 0) {
+                                            vector_index_rebuilders.at(afield.name)->addPoint(normalized_vals.data(), (size_t)record.seq_id);
+                                        }
                                     } else {
                                         vec_index->addPoint(float_vals.data(), (size_t)record.seq_id, true);
+                                        if(vector_index_rebuilders.count(afield.name) != 0) {
+                                            vector_index_rebuilders.at(afield.name)->addPoint(float_vals.data(), (size_t)record.seq_id);
+                                        }
                                     }
                                 }
                             } catch(const std::exception &e) {
@@ -6928,6 +6935,9 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
         if(!is_update) {
             // since vector index supports upsert natively, we should not attempt to delete for update
             vector_index[search_field.name]->vecdex->markDelete(seq_id);
+            if(vector_index_rebuilders.count(search_field.name) != 0) {
+                vector_index_rebuilders[search_field.name]->markDelete(seq_id);
+            }
         }
     } else if(search_field.is_float()) {
         const std::vector<float>& values = search_field.is_single_float() ?
@@ -7737,6 +7747,48 @@ Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collec
     }
 
     return Option<uint32_t>(sort_index.at(field_name)->at(seq_id));
+}
+
+
+Option<bool> Index::rebuild_hnsw_index(const std::string& field_name) {
+    if(vector_index.count(field_name) == 0) {
+        return Option<bool>(400, "Field `" + field_name + "` does not have a vector index.");
+    }
+
+    auto hnsw_index = vector_index[field_name];
+    
+    auto rebuilder = new HNSWIndexRebuilder(hnsw_index);
+    vector_index_rebuilders.emplace(field_name, rebuilder);
+
+    thread_pool->enqueue([this, field_name] {
+        auto& rebuilder = vector_index_rebuilders.at(field_name);
+        auto new_index = rebuilder->rebuild();
+        delete vector_index[field_name];
+        vector_index.emplace(field_name, new_index);
+        vector_index[field_name]->last_rebuild_time = std::chrono::system_clock::now();
+        vector_index_rebuilders.erase(field_name);
+    });
+
+    return Option<bool>(true);
+}
+
+void Index::rebuild_hnsw_indexes() {
+    std::unordered_set<std::string> fields_to_rebuild;
+    for(auto& kv: vector_index) {
+        auto& hnsw_index = kv.second;
+        if(hnsw_index->rebuild_index_interval > 0) {
+            auto last_rebuild_time = hnsw_index->last_rebuild_time;
+            auto now = std::chrono::system_clock::now();
+            auto diff = std::chrono::duration_cast<std::chrono::seconds>(now - last_rebuild_time);
+            if(diff.count() >= hnsw_index->rebuild_index_interval) {
+                fields_to_rebuild.emplace(kv.first);
+            }
+        }
+    }
+
+    for(auto& field_name: fields_to_rebuild) {
+        rebuild_hnsw_index(field_name);
+    }
 }
 
 /*

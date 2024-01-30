@@ -330,10 +330,16 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
             return Option<bool>(400, "Property `" + fields::hnsw_params + ".M` must be a positive integer.");
         }
 
+        if(field_json[fields::hnsw_params].count("rebuild_index_interval") != 0 &&
+           (!field_json[fields::hnsw_params]["rebuild_index_interval"].is_number_unsigned() ||
+            field_json[fields::hnsw_params]["rebuild_index_interval"] == 0)) {
+            return Option<bool>(400, "Property `" + fields::hnsw_params + ".rebuild_index_interval` must be a positive integer.");
+        }
+
         // remove unrelated properties except for m ef_construction and M
         auto it = field_json[fields::hnsw_params].begin();
         while(it != field_json[fields::hnsw_params].end()) {
-            if(it.key() != "max_elements" && it.key() != "ef_construction" && it.key() != "M" && it.key() != "ef") {
+            if(it.key() != "max_elements" && it.key() != "ef_construction" && it.key() != "M" && it.key() != "rebuild_index_interval") {
                 it = field_json[fields::hnsw_params].erase(it);
             } else {
                 ++it;
@@ -347,10 +353,15 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         if(field_json[fields::hnsw_params].count("M") == 0) {
             field_json[fields::hnsw_params]["M"] = 16;
         }
+
+        if(field_json[fields::hnsw_params].count("rebuild_index_interval") == 0) {
+            field_json[fields::hnsw_params]["rebuild_index_interval"] = 0;
+        }
     } else {
         field_json[fields::hnsw_params] = R"({
                                             "M": 16,
-                                            "ef_construction": 200
+                                            "ef_construction": 200,
+                                            "rebuild_index_interval": 0
                                         })"_json;
     }
 

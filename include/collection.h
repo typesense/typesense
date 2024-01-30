@@ -705,6 +705,12 @@ public:
     void expand_search_query(const string& raw_query, size_t offset, size_t total, const search_args* search_params,
                              const std::vector<std::vector<KV*>>& result_group_kvs,
                              const std::vector<std::string>& raw_search_fields, string& first_q) const;
+    
+    Option<bool> rebuild_vector_index(const std::string& field_name);
+
+    void rebuild_vector_indexes() {
+        index->rebuild_hnsw_indexes();
+    }
 };
 
 template<class T>

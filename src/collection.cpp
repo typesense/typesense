@@ -4945,6 +4945,33 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
 
     std::string this_fallback_field_type;
 
+    if(alter_payload.count("rebuild_vector_index") != 0) {
+        if(!alter_payload["rebuild_vector_index"].is_array()) {
+            return Option<bool>(400, "Invalid format for `rebuild_vector_index`.");
+        }
+
+        for(const auto& field_name: alter_payload["rebuild_vector_index"]) {
+            if(!field_name.is_string()) {
+                return Option<bool>(400, "Invalid format for `rebuild_vector_index`.");
+            }
+
+            if(search_schema.count(field_name.get<std::string>()) == 0) {
+                return Option<bool>(400, "Field `" + field_name.get<std::string>() + "` does not exist.");
+            }
+
+            if(search_schema[field_name.get<std::string>()].num_dim == 0) {
+                return Option<bool>(400, "Field `" + field_name.get<std::string>() + "` is not a vector field.");
+            }
+        }
+
+        for(const auto& field_name: alter_payload["rebuild_vector_index"]) {
+            auto res = rebuild_vector_index(field_name.get<std::string>());
+            if(!res.ok()) {
+                return res;
+            }
+        }
+    }
+
     auto validate_op = validate_alter_payload(alter_payload, addition_fields, reindex_fields,
                                               del_fields, this_fallback_field_type);
     if(!validate_op.ok()) {
@@ -6594,4 +6621,9 @@ Option<bool> Collection::parse_and_validate_vector_query(const std::string& vect
 
 std::shared_ptr<VQModel> Collection::get_vq_model() {
     return vq_model;
+}
+
+
+Option<bool> Collection::rebuild_vector_index(const std::string& field_name) {
+    return index->rebuild_hnsw_index(field_name);
 }

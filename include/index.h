@@ -308,16 +308,20 @@ struct hnsw_index_t {
     hnswlib::InnerProductSpace* space;
     hnswlib::HierarchicalNSW<float>* vecdex;
     size_t num_dim;
+    size_t M, ef_construction;
     vector_distance_type_t distance_type;
+
+    size_t rebuild_index_interval = 0;
+    std::chrono::time_point<std::chrono::system_clock> last_rebuild_time = std::chrono::system_clock::now();
 
     // ensures that this index is not dropped when it's being repaired
     std::mutex repair_m;
 
-    hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type, size_t M = 16, size_t ef_construction = 200) :
+    hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type, size_t M = 16, size_t ef_construction = 200, size_t rebuild_index_interval = 0):
         space(new hnswlib::InnerProductSpace(num_dim)),
         vecdex(new hnswlib::HierarchicalNSW<float>(space, init_size, M, ef_construction, 100, true)),
-        num_dim(num_dim), distance_type(distance_type) {
-
+        num_dim(num_dim), distance_type(distance_type), M(M), ef_construction(ef_construction),
+        rebuild_index_interval(rebuild_index_interval) {
     }
 
     ~hnsw_index_t() {
@@ -356,6 +360,8 @@ struct pair_hash {
         return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
     }
 };
+
+class HNSWIndexRebuilder;
 
 class Index {
 private:
@@ -409,6 +415,8 @@ private:
 
     // vector field => vector index
     spp::sparse_hash_map<std::string, hnsw_index_t*> vector_index;
+
+    spp::sparse_hash_map<std::string, HNSWIndexRebuilder*> vector_index_rebuilders;
 
     // this is used for wildcard queries
     id_list_t* seq_ids;
@@ -1076,6 +1084,10 @@ public:
     friend class filter_result_iterator_t;
 
     void repair_hnsw_index();
+    
+    Option<bool> rebuild_hnsw_index(const std::string& field_name);
+
+    void rebuild_hnsw_indexes();
 
     void aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const;
 };

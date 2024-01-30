@@ -26,6 +26,7 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "vq_model_manager.h"
+#include "hnsw_index_rebuilder.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -488,6 +489,12 @@ int run_server(const Config & config, const std::string & version, void (*master
             LOG(INFO) << "Conversation garbage collector thread started.";
             ConversationManager::get_instance().run();
         });
+
+        hnsw_index_rebuilder_thread rebuilder_thread;
+        std::thread hnsw_index_rebuilder_([&rebuilder_thread]() {
+            LOG(INFO) << "HNSW index rebuilder thread started.";
+            rebuilder_thread.run();
+        });
           
         HouseKeeper::get_instance().init(config.get_housekeeping_interval());
         std::thread housekeeping_thread([]() {
@@ -523,6 +530,10 @@ int run_server(const Config & config, const std::string & version, void (*master
 
         LOG(INFO) << "Waiting for conversation garbage collector thread to be done...";
         conversation_garbage_collector_thread.join();
+
+        LOG(INFO) << "Shutting down HNSW index rebuilder thread...";
+        rebuilder_thread.stop();
+        hnsw_index_rebuilder_.join();
 
         LOG(INFO) << "Waiting for housekeeping thread to be done...";
         HouseKeeper::get_instance().stop();
