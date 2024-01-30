@@ -182,6 +182,14 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     vector_query.alpha = std::stof(param_kv[1]);
                 }
 
+                if(param_kv[0] == "ef") {
+                    if(!StringUtils::is_uint32_t(param_kv[1]) || std::stoul(param_kv[1]) == 0) {
+                        return Option<bool>(400, "Malformed vector query string: `ef` parameter must be a positive integer.");
+                    }
+
+                    vector_query.ef = std::stoul(param_kv[1]);
+                }
+
                 if(param_kv[0] == "queries") {
                     if(param_kv[1].front() != '[' || param_kv[1].back() != ']') {
                         return Option<bool>(400, "Malformed vector query string: "

@@ -313,6 +313,47 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
         }
     }
 
+    if(field_json.count(fields::hnsw_params) != 0) {
+        if(!field_json[fields::hnsw_params].is_object()) {
+            return Option<bool>(400, "Property `" + fields::hnsw_params + "` must be an object.");
+        }
+
+        if(field_json[fields::hnsw_params].count("ef_construction") != 0 &&
+           (!field_json[fields::hnsw_params]["ef_construction"].is_number_unsigned() ||
+            field_json[fields::hnsw_params]["ef_construction"] == 0)) {
+            return Option<bool>(400, "Property `" + fields::hnsw_params + ".ef_construction` must be a positive integer.");
+        }
+
+        if(field_json[fields::hnsw_params].count("M") != 0 &&
+           (!field_json[fields::hnsw_params]["M"].is_number_unsigned() ||
+            field_json[fields::hnsw_params]["M"] == 0)) {
+            return Option<bool>(400, "Property `" + fields::hnsw_params + ".M` must be a positive integer.");
+        }
+
+        // remove unrelated properties except for m ef_construction and M
+        auto it = field_json[fields::hnsw_params].begin();
+        while(it != field_json[fields::hnsw_params].end()) {
+            if(it.key() != "max_elements" && it.key() != "ef_construction" && it.key() != "M" && it.key() != "ef") {
+                it = field_json[fields::hnsw_params].erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        if(field_json[fields::hnsw_params].count("ef_construction") == 0) {
+            field_json[fields::hnsw_params]["ef_construction"] = 200;
+        }
+
+        if(field_json[fields::hnsw_params].count("M") == 0) {
+            field_json[fields::hnsw_params]["M"] = 16;
+        }
+    } else {
+        field_json[fields::hnsw_params] = R"({
+                                            "M": 16,
+                                            "ef_construction": 200
+                                        })"_json;
+    }
+
     if(field_json.count(fields::optional) == 0) {
         // dynamic type fields are always optional
         bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
@@ -364,7 +405,8 @@ Option<bool> field::json_field_to_field(bool enable_nested_fields, nlohmann::jso
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
                   field_json[fields::nested_array], field_json[fields::num_dim], vec_dist,
-                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], field_json[fields::store], field_json[fields::stem])
+                  field_json[fields::reference], field_json[fields::embed], field_json[fields::range_index], 
+                  field_json[fields::store], field_json[fields::stem], field_json[fields::hnsw_params])
     );
 
     if (!field_json[fields::reference].get<std::string>().empty()) {

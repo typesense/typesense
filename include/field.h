@@ -77,6 +77,8 @@ namespace fields {
     static const std::string REFERENCE_HELPER_FIELD_SUFFIX = "_sequence_id";
 
     static const std::string store = "store";
+    
+    static const std::string hnsw_params = "hnsw_params";
 }
 
 enum vector_distance_type_t {
@@ -117,16 +119,18 @@ struct field {
 
     bool stem = false;
     std::shared_ptr<Stemmer> stemmer;
+  
+    nlohmann::json hnsw_params;
 
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
           int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine,
-          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false, const bool store = true, const bool stem = false) :
+          std::string reference = "", const nlohmann::json& embed = nlohmann::json(), const bool range_index = false, const bool store = true, const bool stem = false, const nlohmann::json hnsw_params = nlohmann::json()) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
             nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist), reference(reference),
-            embed(embed), range_index(range_index), store(store), stem(stem) {
+            embed(embed), range_index(range_index), store(store), stem(stem), hnsw_params(hnsw_params) {
 
         set_computed_defaults(sort, infix);
 
