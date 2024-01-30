@@ -4071,7 +4071,8 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
         // ensures that the `snippet_start_offset` is always from a matched token, and not from query suggestion
         bool match_offset_found = (found_first_match && token_already_found) ||
                                   (match_offset_index <= last_valid_offset_index &&
-                                   match.offsets[match_offset_index].offset == raw_token_index);
+                                   match.offsets[match_offset_index].offset == raw_token_index &&
+                                   text_len/4 < 64000);
 
         // Token might not appear in the best matched window, which is limited to a size of 10.
         // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
