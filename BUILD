@@ -104,15 +104,28 @@ cc_binary(
     linkopts = select({
         "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc", "-fuse-ld=lld"],
         "//conditions:default": [],
+        ":asan_mode": ["-fsanitize=address", "-fuse-ld=lld"],
     }),
     copts = COPTS + select({
         "@platforms//os:linux": ["-DBACKWARD_HAS_DW=1", "-DBACKWARD_HAS_UNWIND=1"],
         "//conditions:default": [],
+        ":asan_mode": ["-O0"] + ASAN_COPTS,
     }),
     deps = [":common_deps"] +  select({
         "@platforms//os:linux": [":linux_deps"],
         "//conditions:default": [],
     }),
+    data = select({
+        ":asan_mode": [
+            ":asan_suppressions",
+        ]
+    }),
+    env = select({
+        ":asan_mode": {
+            "TYPESENSE_DATA_DIR": "/tmp",
+            "TYPESENSE_API_KEY": "test"
+        }
+    })
 )
 
 cc_binary(
