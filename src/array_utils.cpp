@@ -7,7 +7,6 @@ size_t ArrayUtils::and_scalar(const uint32_t *A, const size_t lenA,
     return 0;
   }
 
-  delete [] *results;
   *results = new uint32_t[std::min(lenA, lenB)];
   uint32_t *out = *results;
 
