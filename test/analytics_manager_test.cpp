@@ -197,6 +197,24 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
     ASSERT_EQ("There's already another configuration for this destination collection.", create_op.error());
 
     analytics_rule = R"({
+        "name": "top_search_queries3",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": [241, 2353]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Must contain a valid list of source collection names.", create_op.error());
+
+    analytics_rule = R"({
         "name": "top_search_queries2",
         "type": "popular_queries",
         "params": {
