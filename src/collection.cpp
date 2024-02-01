@@ -3198,10 +3198,12 @@ void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_s
         info["best_field_score"] = std::to_string(extract_bits(match_score, 11, 48));
         info["best_field_weight"] = extract_bits(match_score, 3, 8);
         info["num_tokens_dropped"] = total_tokens - tokens_matched;
+        info["typo_prefix_score"] = 255 - extract_bits(match_score, 35, 8);
     } else {
         info["best_field_weight"] = extract_bits(match_score, 51, 8);
         info["best_field_score"] = std::to_string(extract_bits(match_score, 3, 48));
         info["num_tokens_dropped"] = total_tokens - tokens_matched;
+        info["typo_prefix_score"] = 255 - extract_bits(match_score, 27, 8);
     }
 }
 
