@@ -114,6 +114,7 @@ TEST(SortedArrayTest, OrScalarWithEitherArrayAsNull) {
 
     delete[] results;
     results = nullptr;
+    delete[] arr1;
 }
 
 TEST(SortedArrayTest, FilterArray) {
@@ -155,6 +156,7 @@ TEST(SortedArrayTest, FilterArray) {
     results_size = ArrayUtils::exclude_scalar(arr1, size1, arr2, vec2.size(), &results);
     ASSERT_EQ(0, results_size);
 
+    delete[] results;
     // on a larger array
     results = nullptr;
     
