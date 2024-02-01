@@ -210,5 +210,8 @@ cc_test(
     }) +  select({
        "@platforms//os:linux": ["-fuse-ld=lld"],
        "//conditions:default": [],
-   })
+   }),
+   env = {
+       'LSAN_OPTIONS': 'suppressions=asan.supp'
+   }
 )
