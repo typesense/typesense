@@ -1106,6 +1106,7 @@ void filter_result_iterator_t::init() {
             std::string str_token;
             size_t token_index = 0;
             std::vector<std::string> str_tokens;
+            auto approx_filter_value_match = UINT32_MAX;
 
             while (tokenizer.next(str_token, token_index)) {
                 if (str_token.size() > 100) {
@@ -1119,7 +1120,8 @@ void filter_result_iterator_t::init() {
                     continue;
                 }
 
-                approx_filter_ids_length += posting_t::num_ids(leaf->values);
+                // Tokens of a filter value get AND.
+                approx_filter_value_match = std::min(posting_t::num_ids(leaf->values), approx_filter_value_match);
                 raw_posting_lists.push_back(leaf->values);
             }
 
@@ -1135,10 +1137,15 @@ void filter_result_iterator_t::init() {
             for (auto const& plist: plists) {
                 posting_list_iterators.back().push_back(plist->new_iterator());
             }
+
+            // Multiple filter values get OR.
+            approx_filter_ids_length += approx_filter_value_match;
         }
 
-        if (a_filter.apply_not_equals && approx_filter_ids_length == 0) {
-            approx_filter_ids_length = index->seq_ids->num_ids();
+        if (a_filter.apply_not_equals && approx_filter_ids_length < 20000) {
+            // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
+            compute_result();
+            return;
         }
 
         get_string_filter_first_match(f.is_array());
