@@ -479,32 +479,31 @@ void filter_result_iterator_t::next() {
 
     if (f.is_string()) {
         if (filter_node->filter_exp.apply_not_equals) {
-            if (++seq_id < result_index) {
-                return;
-            }
-
-            uint32_t previous_match;
             do {
-                previous_match = seq_id;
-                advance_string_filter_token_iterators();
-                get_string_filter_next_match(f.is_array());
-            } while (validity && previous_match + 1 == seq_id);
+                if (++seq_id >= result_index) {
+                    uint32_t previous_match;
+                    do {
+                        previous_match = seq_id;
+                        advance_string_filter_token_iterators();
+                        get_string_filter_next_match(f.is_array());
+                    } while (validity && previous_match + 1 == seq_id);
 
-            if (!validity) {
-                // We've reached the end of the index, no possible matches pending.
-                if (previous_match >= index->seq_ids->last_id()) {
-                    return;
+                    if (!validity) {
+                        // We've reached the end of the index, no possible matches pending.
+                        if (previous_match >= index->seq_ids->last_id()) {
+                            return;
+                        }
+
+                        // (previous_match, last_doc_id] are a match for not equals.
+                        validity = valid;
+                        result_index = index->seq_ids->last_id() + 1;
+                        seq_id = previous_match + 1;
+                    } else {
+                        result_index = seq_id;
+                        seq_id = previous_match + 1;
+                    }
                 }
-
-                validity = valid;
-                result_index = index->seq_ids->last_id() + 1;
-                seq_id = previous_match + 1;
-                return;
-            }
-
-            result_index = seq_id;
-            seq_id = previous_match + 1;
-            return;
+            } while (!index->seq_ids->contains(seq_id)); // Deleted id should not be considered a match.
         }
 
         advance_string_filter_token_iterators();
@@ -558,6 +557,10 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
             validity = valid;
             seq_id = 0;
             result_index = index->seq_ids->last_id() + 1;
+
+            if (!index->seq_ids->contains(seq_id)) { // Deleted id should not be considered a match.
+                next();
+            }
             return;
         }
 
@@ -565,6 +568,10 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
         if (seq_id > 0) {
             result_index = seq_id;
             seq_id = 0;
+
+            if (!index->seq_ids->contains(seq_id)) { // Deleted id should not be considered a match.
+                next();
+            }
             return;
         }
 
@@ -582,14 +589,23 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
                 return;
             }
 
+            // (previous_match, last_doc_id] are a match for not equals.
             validity = valid;
             result_index = index->seq_ids->last_id() + 1;
             seq_id = previous_match + 1;
+
+            if (!index->seq_ids->contains(seq_id)) { // Deleted id should not be considered a match.
+                next();
+            }
             return;
         }
 
         result_index = seq_id;
         seq_id = previous_match + 1;
+
+        if (!index->seq_ids->contains(seq_id)) { // Deleted id should not be considered a match.
+            next();
+        }
     }
 }
 
