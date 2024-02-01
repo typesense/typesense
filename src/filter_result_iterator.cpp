@@ -504,6 +504,7 @@ void filter_result_iterator_t::next() {
                     }
                 }
             } while (!index->seq_ids->contains(seq_id)); // Deleted id should not be considered a match.
+            return;
         }
 
         advance_string_filter_token_iterators();
@@ -1158,7 +1159,12 @@ void filter_result_iterator_t::init() {
             approx_filter_ids_length += approx_filter_value_match;
         }
 
-        if (a_filter.apply_not_equals && approx_filter_ids_length < 20000) {
+#ifdef TEST_BUILD
+        constexpr uint16_t filter_ids_threshold = 3;
+#else
+        constexpr uint16_t filter_ids_threshold = 20'000;
+#endif
+        if (a_filter.apply_not_equals && approx_filter_ids_length < filter_ids_threshold) {
             // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
             compute_result();
             return;
