@@ -123,7 +123,8 @@ cc_binary(
     env = select({
         ":asan_mode": {
             "TYPESENSE_DATA_DIR": "/tmp",
-            "TYPESENSE_API_KEY": "test"
+            "TYPESENSE_API_KEY": "test",
+            "LSAN_OPTIONS": "suppressions=asan.supp"
         }
     })
 )
