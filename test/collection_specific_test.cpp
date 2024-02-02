@@ -1083,7 +1083,9 @@ TEST_F(CollectionSpecificTest, CrossFieldMatchingExactMatchOnSingleField) {
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
 
     results = coll1->search("john vegatable farmer", {"name", "description"},
                             "", {}, {}, {1, 1}, 10,
@@ -1094,7 +1096,9 @@ TEST_F(CollectionSpecificTest, CrossFieldMatchingExactMatchOnSingleField) {
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
 
     collectionManager.drop_collection("coll1");
 }
