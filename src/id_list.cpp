@@ -126,6 +126,26 @@ id_list_t::iterator_t::~iterator_t() {
     ids = nullptr;
 }
 
+id_list_t::iterator_t& id_list_t::iterator_t::operator=(id_list_t::iterator_t&& obj) noexcept {
+    if (&obj == this) {
+        return *this;
+    }
+
+    delete [] ids;
+    ids = obj.ids;
+    obj.ids = nullptr;
+
+    curr_block = obj.curr_block;
+    curr_index = obj.curr_index;
+
+    end_block = obj.end_block;
+    id_block_map = obj.id_block_map;
+
+    reverse = obj.reverse;
+
+    return *this;
+}
+
 id_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     curr_block = rhs.curr_block;
     curr_index = rhs.curr_index;

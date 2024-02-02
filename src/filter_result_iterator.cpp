@@ -503,7 +503,8 @@ void filter_result_iterator_t::next() {
                         seq_id = previous_match + 1;
                     }
                 }
-            } while (!index->seq_ids->contains(seq_id)); // Deleted id should not be considered a match.
+                all_seq_ids_iter.skip_to(seq_id);
+            } while (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id); // Deleted id should not be considered a match.
             return;
         }
 
@@ -559,7 +560,8 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
             seq_id = 0;
             result_index = index->seq_ids->last_id() + 1;
 
-            if (!index->seq_ids->contains(seq_id)) { // Deleted id should not be considered a match.
+            all_seq_ids_iter.skip_to(seq_id);
+            if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
                 next();
             }
             return;
@@ -570,7 +572,8 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
             result_index = seq_id;
             seq_id = 0;
 
-            if (!index->seq_ids->contains(seq_id)) { // Deleted id should not be considered a match.
+            all_seq_ids_iter.skip_to(seq_id);
+            if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
                 next();
             }
             return;
@@ -595,7 +598,8 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
             result_index = index->seq_ids->last_id() + 1;
             seq_id = previous_match + 1;
 
-            if (!index->seq_ids->contains(seq_id)) { // Deleted id should not be considered a match.
+            all_seq_ids_iter.skip_to(seq_id);
+            if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
                 next();
             }
             return;
@@ -604,7 +608,8 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
         result_index = seq_id;
         seq_id = previous_match + 1;
 
-        if (!index->seq_ids->contains(seq_id)) { // Deleted id should not be considered a match.
+        all_seq_ids_iter.skip_to(seq_id);
+        if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
             next();
         }
     }
@@ -1159,15 +1164,12 @@ void filter_result_iterator_t::init() {
             approx_filter_ids_length += approx_filter_value_match;
         }
 
-#ifdef TEST_BUILD
-        constexpr uint16_t filter_ids_threshold = 3;
-#else
-        constexpr uint16_t filter_ids_threshold = 20'000;
-#endif
-        if (a_filter.apply_not_equals && approx_filter_ids_length < filter_ids_threshold) {
+        if (a_filter.apply_not_equals && approx_filter_ids_length < not_equals_filter_ids_threshold) {
             // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
             compute_result();
             return;
+        } else if (a_filter.apply_not_equals) {
+            all_seq_ids_iter = index->seq_ids->new_iterator();
         }
 
         get_string_filter_first_match(f.is_array());
@@ -1476,6 +1478,10 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
             for (auto const& plist: plists) {
                 posting_list_iterators[i].push_back(plist->new_iterator());
             }
+        }
+
+        if (a_filter.apply_not_equals && approx_filter_ids_length >= not_equals_filter_ids_threshold) {
+            all_seq_ids_iter = index->seq_ids->new_iterator();
         }
 
         get_string_filter_first_match(f.is_array());
