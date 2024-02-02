@@ -2864,4 +2864,12 @@ TEST_F(CollectionSpecificMoreTest, NumDroppedTokensTest) {
     ASSERT_EQ("3", res["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("delta epsilon", res["hits"][1]["document"]["title"]);
     ASSERT_EQ(2, res["hits"][1]["text_match_info"]["num_tokens_dropped"]);
+
+    drop_tokens_threshold = 1;
+    res = coll1->search("alpha beta gamma", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                        drop_tokens_threshold).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha beta", res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(1, res["hits"][0]["text_match_info"]["num_tokens_dropped"]);
 }
