@@ -11,6 +11,7 @@ private:
 
     static constexpr char* EVENT_TYPE = "type";
     static constexpr char* EVENT_DATA = "data";
+    static constexpr char* EVENT_NAME = "name";
 
 public:
     static EventManager& get_instance() {
