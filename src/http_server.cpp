@@ -458,17 +458,45 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
-    const std::string & body = std::string(req->entity.base, req->entity.len);
+    const std::string& body = std::string(req->entity.base, req->entity.len);
     std::vector<nlohmann::json> embedded_params_vec;
-
 
     if(RateLimitManager::getInstance()->is_rate_limited({RateLimitedEntityType::api_key, api_auth_key_sent}, {RateLimitedEntityType::ip, client_ip})) {
         std::string message = "{ \"message\": \"Rate limit exceeded or blocked\"}";
         return send_response(req, 429, message);
     }
 
+    bool is_multi_search_query = (root_resource == "multi_search");
 
-    if(root_resource != "multi_search") {
+    if(Config::get_instance().get_enable_search_logging()) {
+        std::string query_string = "?";
+        bool is_search_query = (is_multi_search_query ||
+                                StringUtils::ends_with(path_without_query, "/documents/search"));
+
+        if(is_search_query) {
+            std::string search_payload;
+
+            if(is_multi_search_query) {
+                search_payload = body;
+                StringUtils::erase_char(search_payload, '\n');
+            } else {
+                // ignore params map of multi_search since it is mutated for every search object in the POST body
+                for(const auto& kv: query_map) {
+                    if(kv.first != http_req::AUTH_HEADER) {
+                        query_string += kv.first + "=" + kv.second + "&";
+                    }
+                }
+            }
+
+            std::string full_url_path = metric_identifier + query_string;
+
+            // NOTE: we log the `body` ONLY for multi-search query
+            LOG(INFO) << "event=search_request" << ", client_ip=" << client_ip << ", endpoint=" << full_url_path
+                      << ", body=" << (is_multi_search_query ? search_payload : "");
+        }
+    }
+
+    if(!is_multi_search_query) {
         // multi_search needs to be handled later because the API key could be part of request body and
         // the whole request body might not be available right now.
         bool authenticated = h2o_handler->http_server->auth_handler(query_map, embedded_params_vec, body, *rpath,

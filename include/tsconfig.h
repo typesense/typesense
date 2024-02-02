@@ -74,6 +74,8 @@ private:
 
     uint32_t db_compaction_interval;
 
+    bool enable_search_logging;
+
 protected:
 
     Config() {
@@ -103,6 +105,8 @@ protected:
         this->analytics_flush_interval = 3600;  // in seconds
         this->housekeeping_interval = 1800;     // in seconds
         this->db_compaction_interval = 0;     // in seconds, disabled
+
+        this->enable_search_logging = false;
     }
 
     Config(Config const&) {
@@ -332,6 +336,10 @@ public:
         return this->enable_search_analytics;
     }
 
+    bool get_enable_search_logging() const {
+        return this->enable_search_logging;
+    }
+
     int get_disk_used_max_percentage() const {
         return this->disk_used_max_percentage;
     }
@@ -474,6 +482,7 @@ public:
 
         this->enable_access_logging = ("TRUE" == get_env("TYPESENSE_ENABLE_ACCESS_LOGGING"));
         this->enable_search_analytics = ("TRUE" == get_env("TYPESENSE_ENABLE_SEARCH_ANALYTICS"));
+        this->enable_search_logging = ("TRUE" == get_env("TYPESENSE_ENABLE_SEARCH_LOGGING"));
 
         if(!get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE").empty()) {
             this->disk_used_max_percentage = std::stoi(get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE"));
@@ -651,6 +660,11 @@ public:
         if(reader.Exists("server", "enable-search-analytics")) {
             auto enable_search_analytics_str = reader.Get("server", "enable-search-analytics", "false");
             this->enable_search_analytics = (enable_search_analytics_str == "true");
+        }
+
+        if(reader.Exists("server", "enable-search-logging")) {
+            auto enable_search_logging_str = reader.Get("server", "enable-search-logging", "false");
+            this->enable_search_logging = (enable_search_logging_str == "true");
         }
 
         if(reader.Exists("server", "disk-used-max-percentage")) {
@@ -833,6 +847,9 @@ public:
             this->enable_search_analytics = options.get<bool>("enable-search-analytics");
         }
 
+        if(options.exist("enable-search-logging")) {
+            this->enable_search_logging = options.get<bool>("enable-search-logging");
+        }
     }
 
     void set_cors_domains(std::string& cors_domains_value) {
@@ -844,6 +861,10 @@ public:
 
     void set_enable_search_analytics(bool enable_search_analytics) {
         this->enable_search_analytics = enable_search_analytics;
+    }
+
+    void set_enable_search_logging(bool enable_search_logging) {
+        this->enable_search_logging = enable_search_logging;
     }
 
     // validation

@@ -100,6 +100,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
 
     options.add<bool>("enable-access-logging", '\0', "Enable access logging.", false, false);
+    options.add<bool>("enable-search-logging", '\0', "Enable search logging.", false, false);
     options.add<bool>("enable-search-analytics", '\0', "Enable search analytics.", false, false);
     options.add<int>("disk-used-max-percentage", '\0', "Reject writes when used disk space exceeds this percentage. Default: 100 (never reject).", false, 100);
     options.add<int>("memory-used-max-percentage", '\0', "Reject writes when memory usage exceeds this percentage. Default: 100 (never reject).", false, 100);
