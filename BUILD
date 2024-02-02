@@ -107,9 +107,10 @@ cc_binary(
         ":asan_mode": ["-fsanitize=address", "-fuse-ld=lld"],
     }),
     copts = COPTS + select({
-        "@platforms//os:linux": ["-DBACKWARD_HAS_DW=1", "-DBACKWARD_HAS_UNWIND=1"],
         "//conditions:default": [],
         ":asan_mode": ["-O0"] + ASAN_COPTS,
+    }) + select({
+        "@platforms//os:linux": ["-DBACKWARD_HAS_DW=1", "-DBACKWARD_HAS_UNWIND=1"]
     }),
     deps = [":common_deps"] +  select({
         "@platforms//os:linux": [":linux_deps"],
@@ -123,7 +124,7 @@ cc_binary(
     env = select({
         ":asan_mode": {
             "TYPESENSE_DATA_DIR": "/tmp",
-            "TYPESENSE_API_KEY": "test",
+            "TYPESENSE_API_KEY": "typesense_api_key",
             "LSAN_OPTIONS": "suppressions=asan.supp"
         }
     })
