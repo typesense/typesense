@@ -53,12 +53,26 @@ Option<bool> Config::update_config(const nlohmann::json& req_json) {
             return Option<bool>(400, "Configuration `healthy-write-lag` must be an integer.");
         }
 
-        size_t write_lag = req_json["healthy-write-lag"].get<int>();
+        int write_lag = req_json["healthy-write-lag"].get<int>();
         if(write_lag <= 0) {
             return Option<bool>(400, "Configuration `healthy-write-lag` must be a positive integer.");
         }
 
         set_healthy_write_lag(write_lag);
+        found_config = true;
+    }
+
+    if(req_json.count("cache-num-entries") != 0) {
+        if(!req_json["cache-num-entries"].is_number_integer()) {
+            return Option<bool>(400, "Configuration `cache-num-entries` must be an integer.");
+        }
+
+        int cache_entries_num = req_json["cache-num-entries"].get<int>();
+        if(cache_entries_num <= 0) {
+            return Option<bool>(400, "Configuration `cache-num-entries` must be a positive integer.");
+        }
+
+        set_cache_num_entries(cache_entries_num);
         found_config = true;
     }
 

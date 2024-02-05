@@ -58,7 +58,7 @@ private:
     int disk_used_max_percentage;
     int memory_used_max_percentage;
 
-    uint32_t cache_num_entries = 1000;
+    std::atomic<uint32_t> cache_num_entries = 1000;
 
     std::atomic<bool> skip_writes;
 
@@ -183,6 +183,10 @@ public:
 
     void set_healthy_write_lag(size_t healthy_write_lag) {
         this->healthy_write_lag = healthy_write_lag;
+    }
+
+    void set_cache_num_entries(uint32_t cache_num_entries) {
+        this->cache_num_entries = cache_num_entries;
     }
 
     void set_skip_writes(bool skip_writes) {
