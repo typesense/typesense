@@ -4336,7 +4336,7 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
     StoreStatus seq_id_status = store->get(get_doc_id_key(id), seq_id_str);
 
     if(seq_id_status == StoreStatus::NOT_FOUND) {
-        return Option<std::string>(404, "Could not find a document with id: " + id);
+        return Option<std::string>(id);
     }
 
     if(seq_id_status == StoreStatus::ERROR) {
