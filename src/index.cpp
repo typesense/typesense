@@ -2870,6 +2870,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return Option(true);
     }
 
+    if (filter_result_iterator->approx_filter_ids_length < 25'000) {
+        filter_result_iterator->compute_result();
+    }
+
     size_t fetch_size = offset + per_page;
 
     std::set<uint32_t> curated_ids;

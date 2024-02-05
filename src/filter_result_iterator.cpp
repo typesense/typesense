@@ -1164,6 +1164,11 @@ void filter_result_iterator_t::init() {
             approx_filter_ids_length += approx_filter_value_match;
         }
 
+        if (a_filter.values.size() > 10) {
+            compute_result();
+            return;
+        }
+
         if (a_filter.apply_not_equals && approx_filter_ids_length < not_equals_filter_ids_threshold) {
             // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
             compute_result();
