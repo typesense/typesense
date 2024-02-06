@@ -4066,3 +4066,85 @@ TEST_F(CollectionVectorTest, TestHNSWParamsSummaryJSON) {
     ASSERT_EQ(16, summary["fields"][1]["hnsw_params"]["M"].get<uint32_t>());
     ASSERT_EQ(0, summary["fields"][0].count("hnsw_params"));
 }
+
+TEST_F(CollectionVectorTest, TestUpdatingSameDocument){
+    nlohmann::json schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "vector", "type": "float[]", "num_dim": 10}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto collection = collection_create_op.get();
+
+    std::mt19937 rng;
+    std::uniform_real_distribution<float> dist;
+
+    // generate 100 random documents
+    for (int i = 0; i < 100; i++) {
+        std::vector<float> vector(10);
+        std::generate(vector.begin(), vector.end(), [&](){ return dist(rng); });
+
+        nlohmann::json doc = {
+            {"vector", vector}
+        };
+        auto op = collection->add(doc.dump());
+        ASSERT_TRUE(op.ok());
+    }
+
+    std::vector<float> query_vector(10);
+    std::generate(query_vector.begin(), query_vector.end(), [&](){ return dist(rng); });
+    std::string query_vector_str = "vector:([";
+    for (int i = 0; i < 10; i++) {
+        query_vector_str += std::to_string(query_vector[i]);
+        if (i != 9) {
+            query_vector_str += ", ";
+        }
+    }
+    query_vector_str += "], k:10)";
+
+    auto results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, query_vector_str);
+    ASSERT_TRUE(results.ok());
+    auto results_json = results.get();
+    ASSERT_EQ(results_json["found"].get<size_t>(), results_json["hits"].size());
+
+    // delete half of the documents
+    for (int i = 50; i < 99; i++) {
+        auto op = collection->remove(std::to_string(i));
+        ASSERT_TRUE(op.ok());
+    }
+
+    // update document with id 11 for 100 times
+    for (int i = 0; i < 100; i++) {
+        std::vector<float> vector(10);
+        std::generate(vector.begin(), vector.end(), [&](){ return dist(rng); });
+
+        nlohmann::json doc = {
+            {"vector", vector}
+        };
+        auto op = collection->add(doc.dump(), index_operation_t::UPDATE, "11");
+        ASSERT_TRUE(op.ok());
+    }
+
+
+    results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>{"vector"}, 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, query_vector_str);
+    ASSERT_TRUE(results.ok());
+
+    results_json = results.get();
+    ASSERT_EQ(results_json["found"].get<size_t>(), results_json["hits"].size());
+}
