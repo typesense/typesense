@@ -533,6 +533,44 @@ TEST_F(FilterTest, FilterTreeIterator) {
     delete filter_tree_root;
 
     filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags:= bronze", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_equals_test.init_status().ok());
+    ASSERT_TRUE(iter_string_equals_test._get_is_filter_result_initialized());
+
+    expected = {2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_equals_test.validity);
+        ASSERT_EQ(i, iter_string_equals_test.seq_id);
+        iter_string_equals_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_equals_test.validity);
+
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_equals_test_2.init_status().ok());
+    ASSERT_FALSE(iter_string_equals_test_2._get_is_filter_result_initialized());
+
+    expected = {0, 2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_equals_test_2.validity);
+        ASSERT_EQ(i, iter_string_equals_test_2.seq_id);
+        iter_string_equals_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_equals_test_2.validity);
+
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("tags: != gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
@@ -552,15 +590,14 @@ TEST_F(FilterTest, FilterTreeIterator) {
     delete filter_tree_root;
 
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != bronze", coll->get_schema(), store, doc_id_prefix,
+    filter_op = filter::parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
-
     auto iter_string_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_string_not_equals_test_2.init_status().ok());
     ASSERT_TRUE(iter_string_not_equals_test_2._get_is_filter_result_initialized());
 
-    expected = {0, 1, 3, 5, 6};
+    expected = {1, 5, 6};
     for (auto const& i : expected) {
         ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test_2.validity);
         ASSERT_EQ(i, iter_string_not_equals_test_2.seq_id);

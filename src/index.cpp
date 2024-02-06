@@ -2870,9 +2870,17 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return Option(true);
     }
 
+#ifdef TEST_BUILD
+
+    if (filter_result_iterator->approx_filter_ids_length > 20) {
+        filter_result_iterator->compute_result();
+    }
+#else
+
     if (filter_result_iterator->approx_filter_ids_length < 25'000) {
         filter_result_iterator->compute_result();
     }
+#endif
 
     size_t fetch_size = offset + per_page;
 
