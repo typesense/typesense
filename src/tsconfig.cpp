@@ -16,6 +16,24 @@ Option<bool> Config::update_config(const nlohmann::json& req_json) {
         found_config = true;
     }
 
+    if(req_json.count("log-slow-searches-time-ms") != 0) {
+        if(!req_json["log-slow-searches-time-ms"].is_number_integer()) {
+            return Option<bool>(400, "Configuration `log-slow-searches-time-ms` must be an integer.");
+        }
+
+        set_log_slow_searches_time_ms(req_json["log-slow-searches-time-ms"].get<int>());
+        found_config = true;
+    }
+
+    if(req_json.count("enable-search-logging") != 0) {
+        if(!req_json["enable-search-logging"].is_boolean()) {
+            return Option<bool>(400, "Configuration `enable-search-logging` must be a boolean.");
+        }
+
+        set_enable_search_logging(req_json["enable-search-logging"].get<bool>());
+        found_config = true;
+    }
+
     if(req_json.count("healthy-read-lag") != 0) {
         if(!req_json["healthy-read-lag"].is_number_integer()) {
             return Option<bool>(400, "Configuration `healthy-read-lag` must be a positive integer.");
@@ -35,12 +53,26 @@ Option<bool> Config::update_config(const nlohmann::json& req_json) {
             return Option<bool>(400, "Configuration `healthy-write-lag` must be an integer.");
         }
 
-        size_t write_lag = req_json["healthy-write-lag"].get<int>();
+        int write_lag = req_json["healthy-write-lag"].get<int>();
         if(write_lag <= 0) {
             return Option<bool>(400, "Configuration `healthy-write-lag` must be a positive integer.");
         }
 
         set_healthy_write_lag(write_lag);
+        found_config = true;
+    }
+
+    if(req_json.count("cache-num-entries") != 0) {
+        if(!req_json["cache-num-entries"].is_number_integer()) {
+            return Option<bool>(400, "Configuration `cache-num-entries` must be an integer.");
+        }
+
+        int cache_entries_num = req_json["cache-num-entries"].get<int>();
+        if(cache_entries_num <= 0) {
+            return Option<bool>(400, "Configuration `cache-num-entries` must be a positive integer.");
+        }
+
+        set_cache_num_entries(cache_entries_num);
         found_config = true;
     }
 

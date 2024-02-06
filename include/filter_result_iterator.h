@@ -7,6 +7,7 @@
 #include <memory>
 #include "option.h"
 #include "posting_list.h"
+#include "id_list.h"
 
 class Index;
 struct filter_node_t;
@@ -212,8 +213,10 @@ struct filter_result_t {
 
 #ifdef TEST_BUILD
     constexpr uint16_t function_call_modulo = 10;
+    constexpr uint16_t string_filter_ids_threshold = 3;
 #else
-    constexpr uint16_t function_call_modulo = 16384;
+    constexpr uint16_t function_call_modulo = 16'384;
+    constexpr uint16_t string_filter_ids_threshold = 20'000;
 #endif
 
 struct filter_result_iterator_timeout_info {
@@ -247,6 +250,12 @@ private:
     std::vector<std::vector<posting_list_t*>> posting_lists;
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
+
+    /// Used in case of a not equals string filter.
+    /// The iterative logic to find not equals match is to return the ids that occur in between the equals match. This
+    /// might lead to returning some ids that are deleted. So we use this iterator to check and return only the ids that
+    /// exist in `index->seq_ids`.
+    id_list_t::iterator_t all_seq_ids_iter = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
 
     bool delete_filter_node = false;
 
@@ -356,4 +365,8 @@ public:
 
     static void add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
                                uint32_t* phrase_result_ids, const uint32_t& phrase_result_count);
+
+    bool _get_is_filter_result_initialized() const {
+        return is_filter_result_initialized;
+    }
 };

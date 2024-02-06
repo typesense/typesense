@@ -479,31 +479,32 @@ void filter_result_iterator_t::next() {
 
     if (f.is_string()) {
         if (filter_node->filter_exp.apply_not_equals) {
-            if (++seq_id < result_index) {
-                return;
-            }
-
-            uint32_t previous_match;
             do {
-                previous_match = seq_id;
-                advance_string_filter_token_iterators();
-                get_string_filter_next_match(f.is_array());
-            } while (validity && previous_match + 1 == seq_id);
+                if (++seq_id >= result_index) {
+                    uint32_t previous_match;
+                    do {
+                        previous_match = seq_id;
+                        advance_string_filter_token_iterators();
+                        get_string_filter_next_match(f.is_array());
+                    } while (validity && previous_match + 1 == seq_id);
 
-            if (!validity) {
-                // We've reached the end of the index, no possible matches pending.
-                if (previous_match >= index->seq_ids->last_id()) {
-                    return;
+                    if (!validity) {
+                        // We've reached the end of the index, no possible matches pending.
+                        if (previous_match >= index->seq_ids->last_id()) {
+                            return;
+                        }
+
+                        // (previous_match, last_doc_id] are a match for not equals.
+                        validity = valid;
+                        result_index = index->seq_ids->last_id() + 1;
+                        seq_id = previous_match + 1;
+                    } else {
+                        result_index = seq_id;
+                        seq_id = previous_match + 1;
+                    }
                 }
-
-                validity = valid;
-                result_index = index->seq_ids->last_id() + 1;
-                seq_id = previous_match + 1;
-                return;
-            }
-
-            result_index = seq_id;
-            seq_id = previous_match + 1;
+                all_seq_ids_iter.skip_to(seq_id);
+            } while (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id); // Deleted id should not be considered a match.
             return;
         }
 
@@ -558,6 +559,11 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
             validity = valid;
             seq_id = 0;
             result_index = index->seq_ids->last_id() + 1;
+
+            all_seq_ids_iter.skip_to(seq_id);
+            if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
+                next();
+            }
             return;
         }
 
@@ -565,6 +571,11 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
         if (seq_id > 0) {
             result_index = seq_id;
             seq_id = 0;
+
+            all_seq_ids_iter.skip_to(seq_id);
+            if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
+                next();
+            }
             return;
         }
 
@@ -582,14 +593,25 @@ void filter_result_iterator_t::get_string_filter_first_match(const bool& field_i
                 return;
             }
 
+            // (previous_match, last_doc_id] are a match for not equals.
             validity = valid;
             result_index = index->seq_ids->last_id() + 1;
             seq_id = previous_match + 1;
+
+            all_seq_ids_iter.skip_to(seq_id);
+            if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
+                next();
+            }
             return;
         }
 
         result_index = seq_id;
         seq_id = previous_match + 1;
+
+        all_seq_ids_iter.skip_to(seq_id);
+        if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
+            next();
+        }
     }
 }
 
@@ -1106,6 +1128,7 @@ void filter_result_iterator_t::init() {
             std::string str_token;
             size_t token_index = 0;
             std::vector<std::string> str_tokens;
+            auto approx_filter_value_match = UINT32_MAX;
 
             while (tokenizer.next(str_token, token_index)) {
                 if (str_token.size() > 100) {
@@ -1119,7 +1142,8 @@ void filter_result_iterator_t::init() {
                     continue;
                 }
 
-                approx_filter_ids_length += posting_t::num_ids(leaf->values);
+                // Tokens of a filter value get AND.
+                approx_filter_value_match = std::min(posting_t::num_ids(leaf->values), approx_filter_value_match);
                 raw_posting_lists.push_back(leaf->values);
             }
 
@@ -1135,10 +1159,26 @@ void filter_result_iterator_t::init() {
             for (auto const& plist: plists) {
                 posting_list_iterators.back().push_back(plist->new_iterator());
             }
+
+            // Multiple filter values get OR.
+            approx_filter_ids_length += approx_filter_value_match;
         }
 
-        if (a_filter.apply_not_equals && approx_filter_ids_length == 0) {
-            approx_filter_ids_length = index->seq_ids->num_ids();
+        if (a_filter.values.size() > 10) {
+            compute_result();
+            return;
+        }
+
+        if (a_filter.apply_not_equals &&
+                            index->seq_ids->num_ids() - approx_filter_ids_length < string_filter_ids_threshold) {
+            // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
+            compute_result();
+            return;
+        } else if (a_filter.apply_not_equals) {
+            all_seq_ids_iter = index->seq_ids->new_iterator();
+        } else if (approx_filter_ids_length < string_filter_ids_threshold) {
+            compute_result();
+            return;
         }
 
         get_string_filter_first_match(f.is_array());
@@ -1447,6 +1487,11 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
             for (auto const& plist: plists) {
                 posting_list_iterators[i].push_back(plist->new_iterator());
             }
+        }
+
+        if (a_filter.apply_not_equals &&
+                                (index->seq_ids->num_ids() - approx_filter_ids_length) >= string_filter_ids_threshold) {
+            all_seq_ids_iter = index->seq_ids->new_iterator();
         }
 
         get_string_filter_first_match(f.is_array());

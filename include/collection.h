@@ -281,7 +281,8 @@ private:
                                   nlohmann::json& override_metadata,
                                   bool enable_typos_for_numerical_tokens=false) const;
 
-    void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type) const;
+    void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
+                                  const size_t total_tokens) const;
 
     bool handle_highlight_text(std::string& text, bool normalise, const field &search_field,
                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,

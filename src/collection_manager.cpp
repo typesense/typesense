@@ -70,6 +70,25 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         if(field_obj.count(fields::model_config) == 0) {
             field_obj[fields::model_config] = nlohmann::json::object();
         }
+
+        if(field_obj.count(fields::hnsw_params) == 0) {
+            field_obj[fields::hnsw_params] = nlohmann::json::object();
+            field_obj[fields::hnsw_params]["ef_construction"] = 200;
+            field_obj[fields::hnsw_params]["M"] = 16;
+        }
+
+        if(field_obj.count(fields::stem) == 0) {
+            field_obj[fields::stem] = false;
+        }
+
+        if(field_obj.count(fields::range_index) == 0) {
+            field_obj[fields::range_index] = false;
+        }
+
+        if(field_obj.count(fields::store) == 0) {
+            field_obj[fields::store] = true;
+        }
+
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
         if(field_obj.count(fields::vec_dist) != 0) {
@@ -97,7 +116,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed]);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed], field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::hnsw_params]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {

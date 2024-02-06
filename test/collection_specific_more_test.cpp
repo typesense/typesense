@@ -2834,3 +2834,73 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     ASSERT_TRUE(no_stem_res.ok());
     ASSERT_EQ(0, no_stem_res.get()["hits"].size());
 }
+
+TEST_F(CollectionSpecificMoreTest, NumDroppedTokensTest) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "alpha beta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "beta gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "gamma delta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "delta epsilon";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "epsilon alpha";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    bool exhaustive_search = false;
+    size_t drop_tokens_threshold = 5;
+
+    auto res = coll1->search("alpha zeta gamma", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                             drop_tokens_threshold).get();
+
+    ASSERT_EQ(4, res["hits"].size());
+    ASSERT_EQ("4", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("epsilon alpha", res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["num_tokens_dropped"]);
+
+    ASSERT_EQ("2", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("gamma delta", res["hits"][1]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][1]["text_match_info"]["num_tokens_dropped"]);
+
+    ASSERT_EQ("1", res["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("beta gamma", res["hits"][2]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][2]["text_match_info"]["num_tokens_dropped"]);
+
+    ASSERT_EQ("0", res["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha beta", res["hits"][3]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][3]["text_match_info"]["num_tokens_dropped"]);
+
+    res = coll1->search("zeta theta epsilon", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                        drop_tokens_threshold).get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("4", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("epsilon alpha", res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["num_tokens_dropped"]);
+
+    ASSERT_EQ("3", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("delta epsilon", res["hits"][1]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][1]["text_match_info"]["num_tokens_dropped"]);
+
+    drop_tokens_threshold = 1;
+    res = coll1->search("alpha beta gamma", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                        drop_tokens_threshold).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha beta", res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(1, res["hits"][0]["text_match_info"]["num_tokens_dropped"]);
+}

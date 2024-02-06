@@ -3276,9 +3276,10 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
-
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
 
     // changing weights to favor artist still favors title because it contains all tokens of the query
 
@@ -3289,7 +3290,9 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
                             "<mark>", "</mark>", {1, 4}).get();
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
 
     // use same weights
 
@@ -3300,7 +3303,10 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
                             "<mark>", "</mark>", {1, 1}).get();
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
+
 
     // add weights to favor artist without all tokens in a query being found in a field
 
@@ -3311,7 +3317,9 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
                             "<mark>", "</mark>", {1, 4}).get();
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
 
     collectionManager.drop_collection("coll1");
 }
@@ -3400,7 +3408,9 @@ TEST_F(CollectionTest, MultiFieldRelevance3) {
     ASSERT_EQ(2, results["hits"].size());
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
 
     results = coll1->search("swift",
                             {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
@@ -3412,7 +3422,9 @@ TEST_F(CollectionTest, MultiFieldRelevance3) {
     ASSERT_EQ(2, results["hits"].size());
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
 
     collectionManager.drop_collection("coll1");
 }

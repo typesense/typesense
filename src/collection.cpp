@@ -435,6 +435,10 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
         field_json[fields::stem] = coll_field.stem;
+        // no need to sned hnsw_params for text fields
+        if(coll_field.num_dim > 0) {
+            field_json[fields::hnsw_params] = coll_field.hnsw_params;
+        }
         if(coll_field.embed.count(fields::from) != 0) {
             field_json[fields::embed] = coll_field.embed;
 
@@ -2655,7 +2659,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 wrapper_doc["text_match"] = field_order_kv->text_match_score;
                 wrapper_doc["text_match_info"] = nlohmann::json::object();
                 populate_text_match_info(wrapper_doc["text_match_info"],
-                                        field_order_kv->text_match_score, match_type);
+                                        field_order_kv->text_match_score, match_type,
+                                         field_query_tokens[0].q_include_tokens.size());
                 if(!vector_query.field_name.empty()) {
                     wrapper_doc["hybrid_search_info"] = nlohmann::json::object();
                     wrapper_doc["hybrid_search_info"]["rank_fusion_score"] = Index::int64_t_to_float(field_order_kv->scores[field_order_kv->match_score_index]);
@@ -3179,7 +3184,8 @@ uint64_t Collection::extract_bits(uint64_t value, unsigned lsb_offset, unsigned 
 }
 
 void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_score,
-                                          const text_match_type_t match_type) const {
+                                          const text_match_type_t match_type,
+                                          const size_t total_tokens) const {
 
     // MAX_SCORE
     // [ sign | tokens_matched | max_field_score | max_field_weight | num_matching_fields ]
@@ -3189,18 +3195,22 @@ void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_s
     // [ sign | tokens_matched | max_field_weight | max_field_score  | num_matching_fields ]
     // [   1  |        4       |        8         |      48          |         3           ]  (64 bits)
 
+    auto tokens_matched = extract_bits(match_score, 59, 4);
+
     info["score"] = std::to_string(match_score);
+    info["tokens_matched"] = tokens_matched;
+    info["fields_matched"] = extract_bits(match_score, 0, 3);
 
     if(match_type == max_score) {
-        info["tokens_matched"] = extract_bits(match_score, 59, 4);
         info["best_field_score"] = std::to_string(extract_bits(match_score, 11, 48));
         info["best_field_weight"] = extract_bits(match_score, 3, 8);
-        info["fields_matched"] = extract_bits(match_score, 0, 3);
+        info["num_tokens_dropped"] = total_tokens - tokens_matched;
+        info["typo_prefix_score"] = 255 - extract_bits(match_score, 35, 8);
     } else {
-        info["tokens_matched"] = extract_bits(match_score, 59, 4);
         info["best_field_weight"] = extract_bits(match_score, 51, 8);
         info["best_field_score"] = std::to_string(extract_bits(match_score, 3, 48));
-        info["fields_matched"] = extract_bits(match_score, 0, 3);
+        info["num_tokens_dropped"] = total_tokens - tokens_matched;
+        info["typo_prefix_score"] = 255 - extract_bits(match_score, 27, 8);
     }
 }
 
