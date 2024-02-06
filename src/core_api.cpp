@@ -1376,6 +1376,7 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
 
     if (!doc_option.ok()) {
         if (doc_option.code() == 404) {
+            res->set_200(R"({"ok": true})");
             return true;
         }
 
@@ -1387,6 +1388,7 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
 
     if (!deleted_id_op.ok()) {
         if (doc_option.code() == 404) {
+            res->set_200(R"({"ok": true})");
             return true;
         }
 
