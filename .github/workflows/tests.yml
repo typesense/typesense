@@ -53,12 +53,16 @@ jobs:
 
       - name: Uncompress bazel cache
         run: |
-          unzip bazel-cache.zip
-          mkdir -p ~/.cache/bazel
-          tar_file="bazel-cache.tar.gz" && \
+          if [ -f "bazel-cache.zip" ]; then
+            unzip bazel-cache.zip
+            mkdir -p ~/.cache/bazel
+            tar_file="bazel-cache.tar.gz" && \
             [ -f "$tar_file" ] && \
             tar -xzvf "$tar_file" -C ~/.cache/bazel && \
             rm bazel-cache.tar.gz
+          else
+            echo "bazel-cache.zip does not exist. Continuing..."
+          fi
           exit 0
 
       - name: Build protobuf deps
