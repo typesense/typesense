@@ -1365,6 +1365,11 @@ bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_
 bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string doc_id = req->params["id"];
 
+    bool ignore_not_found = false;
+    if((req->params.count("ignore_not_found") != 0) && (req->params["ignore_not_found"] == "true")) {
+        ignore_not_found = true;
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
     if(collection == nullptr) {
@@ -1374,20 +1379,35 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
 
     Option<nlohmann::json> doc_option = collection->get(doc_id);
 
-    if(!doc_option.ok()) {
+    if (!doc_option.ok()) {
+        if (ignore_not_found && doc_option.code() == 404) {
+            nlohmann::json resp;
+            resp["id"] = doc_id;
+            res->set_200(resp.dump());
+            return true;
+        }
+
         res->set(doc_option.code(), doc_option.error());
         return false;
     }
 
     Option<std::string> deleted_id_op = collection->remove(doc_id);
 
-    if(!deleted_id_op.ok()) {
+    if (!deleted_id_op.ok()) {
+        if (ignore_not_found && doc_option.code() == 404) {
+            nlohmann::json resp;
+            resp["id"] = doc_id;
+            res->set_200(resp.dump());
+            return true;
+        }
+
         res->set(deleted_id_op.code(), deleted_id_op.error());
         return false;
     }
 
     nlohmann::json doc = doc_option.get();
     res->set_200(doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+
     return true;
 }
 
