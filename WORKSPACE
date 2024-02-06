@@ -179,7 +179,7 @@ new_git_repository(
 new_git_repository(
     name = "hnsw",
     build_file = "//bazel:hnsw.BUILD",
-    commit = "5100d3fe41da45601875b3f395f508398cb12b8a",
+    commit = "687d981753f8bafcd16421cbd2a166d0b62bc520",
     remote = "https://github.com/typesense/hnswlib.git",
 )
 
