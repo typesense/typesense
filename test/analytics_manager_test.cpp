@@ -274,80 +274,6 @@ TEST_F(AnalyticsManagerTest, GetAndDeleteSuggestions) {
     missing_rule_op = analyticsManager.get_rule("top_search_queries2");
     ASSERT_FALSE(missing_rule_op.ok());
 }
-TEST_F(AnalyticsManagerTest, SuggestionConfigRule) {
-    //clear all rules first
-    analyticsManager.remove_all_rules();
-
-    nlohmann::json titles_schema = R"({
-            "name": "titles",
-            "fields": [
-                {"name": "title", "type": "string"}
-            ]
-        })"_json;
-
-    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
-
-
-    // create a collection to store suggestions
-    nlohmann::json suggestions_schema = R"({
-        "name": "top_queries",
-        "fields": [
-          {"name": "q", "type": "string" },
-          {"name": "count", "type": "int32" }
-        ]
-      })"_json;
-
-    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
-
-    //add popular quries rule
-    nlohmann::json analytics_rule = R"({
-        "name": "top_search_queries",
-        "type": "popular_queries",
-        "params": {
-            "limit": 100,
-            "source": {
-                "collections": ["titles"]
-            },
-            "destination": {
-                "collection": "top_queries"
-            }
-        }
-    })"_json;
-
-    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
-    ASSERT_TRUE(create_op.ok());
-
-    //add nohits rule
-    analytics_rule = R"({
-        "name": "search_queries",
-        "type": "nohits_queries",
-        "params": {
-            "limit": 100,
-            "source": {
-                "collections": ["titles"]
-            },
-            "destination": {
-                "collection": "top_queries"
-            }
-        }
-    })"_json;
-
-    create_op = analyticsManager.create_rule(analytics_rule, false, true);
-    ASSERT_TRUE(create_op.ok());
-
-    auto rules = analyticsManager.list_rules().get()["rules"];
-    ASSERT_EQ(2, rules.size());
-    ASSERT_EQ("search_queries", rules[0]["name"]);
-    ASSERT_EQ("nohits_queries", rules[0]["type"]);
-    ASSERT_EQ("top_search_queries", rules[1]["name"]);
-    ASSERT_EQ("popular_queries", rules[1]["type"]);
-
-    //try deleting rules
-    ASSERT_TRUE(analyticsManager.remove_rule("search_queries").ok());
-    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
-    rules = analyticsManager.list_rules().get()["rules"];
-    ASSERT_EQ(0, rules.size());
-}
 
 TEST_F(AnalyticsManagerTest, EventsValidation) {
     nlohmann::json titles_schema = R"({
@@ -658,6 +584,81 @@ TEST_F(AnalyticsManagerTest, NoresultsQueries) {
 
     noresults_queries = analyticsManager.get_nohits_queries();
     ASSERT_EQ(0, noresults_queries.size());
+}
+
+TEST_F(AnalyticsManagerTest, SuggestionConfigRule) {
+    //clear all rules first
+    analyticsManager.remove_all_rules();
+
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+
+    // create a collection to store suggestions
+    nlohmann::json suggestions_schema = R"({
+        "name": "top_queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    //add popular quries rule
+    nlohmann::json analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    //add nohits rule
+    analytics_rule = R"({
+        "name": "search_queries",
+        "type": "nohits_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "top_queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    auto rules = analyticsManager.list_rules().get()["rules"];
+    ASSERT_EQ(2, rules.size());
+    ASSERT_EQ("search_queries", rules[0]["name"]);
+    ASSERT_EQ("nohits_queries", rules[0]["type"]);
+    ASSERT_EQ("top_search_queries", rules[1]["name"]);
+    ASSERT_EQ("popular_queries", rules[1]["type"]);
+
+    //try deleting rules
+    ASSERT_TRUE(analyticsManager.remove_rule("search_queries").ok());
+    ASSERT_TRUE(analyticsManager.remove_rule("top_search_queries").ok());
+    rules = analyticsManager.list_rules().get()["rules"];
+    ASSERT_EQ(0, rules.size());
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScore) {

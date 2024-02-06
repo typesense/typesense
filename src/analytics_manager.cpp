@@ -276,8 +276,10 @@ Option<bool> AnalyticsManager::remove_rule(const std::string &name) {
 Option<bool> AnalyticsManager::remove_all_rules() {
     std::unique_lock lock(mutex);
 
-    for(auto suggestion_config : suggestion_configs) {
-        remove_index(suggestion_config.first);
+    for(auto it =suggestion_configs.begin(), next_it = it; it != suggestion_configs.end();
+        it = next_it) {
+        ++next_it;
+        remove_index(it->first);
     }
 
     return Option<bool>(true);
@@ -315,9 +317,10 @@ Option<bool> AnalyticsManager::remove_index(const std::string &name) {
         query_collection_events.erase(suggestion_collection);
     }
 
+    auto rule_name = name;
     suggestion_configs.erase(name);
 
-    auto suggestion_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
+    auto suggestion_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + rule_name;
     bool erased = store->remove(suggestion_key);
     if(!erased) {
         return Option<bool>(500, "Error while deleting from disk.");
