@@ -1519,8 +1519,14 @@ TEST_F(CoreAPIUtilsTest, DeleteNonExistingDoc) {
 
     req->params["collection"] = "coll1";
     req->params["id"] = "9";
-    ASSERT_TRUE(del_remove_document(req, res));
+    del_remove_document(req, res);
+    ASSERT_EQ(200, res->status_code);
 
     req->params["id"] = "10";
-    ASSERT_TRUE(del_remove_document(req, res));
+    del_remove_document(req, res);
+    ASSERT_EQ(404, res->status_code);
+
+    req->params["ignore_not_found"] = "true";
+    del_remove_document(req, res);
+    ASSERT_EQ(200, res->status_code);
 }
