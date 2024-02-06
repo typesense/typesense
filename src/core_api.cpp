@@ -1381,7 +1381,9 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
 
     if (!doc_option.ok()) {
         if (ignore_not_found && doc_option.code() == 404) {
-            res->set_200(R"({"ok": true})");
+            nlohmann::json resp;
+            resp["id"] = doc_id;
+            res->set_200(resp.dump());
             return true;
         }
 
@@ -1393,7 +1395,9 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
 
     if (!deleted_id_op.ok()) {
         if (ignore_not_found && doc_option.code() == 404) {
-            res->set_200(R"({"ok": true})");
+            nlohmann::json resp;
+            resp["id"] = doc_id;
+            res->set_200(resp.dump());
             return true;
         }
 
