@@ -1164,12 +1164,21 @@ void filter_result_iterator_t::init() {
             approx_filter_ids_length += approx_filter_value_match;
         }
 
-        if (a_filter.apply_not_equals && approx_filter_ids_length < not_equals_filter_ids_threshold) {
+        if (a_filter.values.size() > 10) {
+            compute_result();
+            return;
+        }
+
+        if (a_filter.apply_not_equals &&
+                            index->seq_ids->num_ids() - approx_filter_ids_length < string_filter_ids_threshold) {
             // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
             compute_result();
             return;
         } else if (a_filter.apply_not_equals) {
             all_seq_ids_iter = index->seq_ids->new_iterator();
+        } else if (approx_filter_ids_length < string_filter_ids_threshold) {
+            compute_result();
+            return;
         }
 
         get_string_filter_first_match(f.is_array());
@@ -1480,7 +1489,8 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
             }
         }
 
-        if (a_filter.apply_not_equals && approx_filter_ids_length >= not_equals_filter_ids_threshold) {
+        if (a_filter.apply_not_equals &&
+                                (index->seq_ids->num_ids() - approx_filter_ids_length) >= string_filter_ids_threshold) {
             all_seq_ids_iter = index->seq_ids->new_iterator();
         }
 

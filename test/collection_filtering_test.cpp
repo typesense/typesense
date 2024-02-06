@@ -2291,3 +2291,40 @@ TEST_F(CollectionFilteringTest, NonIndexedFiltering) {
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Cannot filter on non-indexed field `non_index`.", search_op.error());
 }
+
+TEST_F(CollectionFilteringTest, ComputeFilterResult) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    for(size_t i=0; i<50; i++) {
+        nlohmann::json doc;
+
+        doc["title"] = i < 10 ? "foo" : "bar";
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto res_op = coll1->search("*", {}, "title: foo",
+                                {}, {}, {0}, 10, 1, FREQUENCY, {true});
+
+    auto results = res_op.get();
+
+    ASSERT_EQ(10, results["found"]);
+
+    res_op = coll1->search("*", {}, "title: bar",
+                                {}, {}, {0}, 10, 1, FREQUENCY, {true});
+
+    results = res_op.get();
+
+    ASSERT_EQ(40, results["found"]);
+
+    collectionManager.drop_collection("coll1");
+}

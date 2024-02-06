@@ -213,10 +213,10 @@ struct filter_result_t {
 
 #ifdef TEST_BUILD
     constexpr uint16_t function_call_modulo = 10;
-    constexpr uint16_t not_equals_filter_ids_threshold = 3;
+    constexpr uint16_t string_filter_ids_threshold = 3;
 #else
     constexpr uint16_t function_call_modulo = 16'384;
-    constexpr uint16_t not_equals_filter_ids_threshold = 20'000;
+    constexpr uint16_t string_filter_ids_threshold = 20'000;
 #endif
 
 struct filter_result_iterator_timeout_info {
