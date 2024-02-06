@@ -276,8 +276,14 @@ Option<bool> AnalyticsManager::remove_rule(const std::string &name) {
 Option<bool> AnalyticsManager::remove_all_rules() {
     std::unique_lock lock(mutex);
 
-    for(auto suggestion_config : suggestion_configs) {
-        remove_index(suggestion_config.first);
+    std::vector<std::string> rules_list;
+    //populate rules to delete later
+    for(const auto& suggestion_config_it : suggestion_configs) {
+        rules_list.emplace_back(suggestion_config_it.first);
+    }
+
+    for(const auto& rule : rules_list) {
+        remove_index(rule);
     }
 
     return Option<bool>(true);
