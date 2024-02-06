@@ -1374,22 +1374,28 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
 
     Option<nlohmann::json> doc_option = collection->get(doc_id);
 
-    if(!doc_option.ok() && (doc_option.code()!=404)) {
+    if (!doc_option.ok()) {
+        if (doc_option.code() == 404) {
+            return true;
+        }
+
         res->set(doc_option.code(), doc_option.error());
         return false;
     }
 
-    if(doc_option.ok()) {
-        Option<std::string> deleted_id_op = collection->remove(doc_id);
+    Option<std::string> deleted_id_op = collection->remove(doc_id);
 
-        if (!deleted_id_op.ok()) {
-            res->set(deleted_id_op.code(), deleted_id_op.error());
-            return false;
+    if (!deleted_id_op.ok()) {
+        if (doc_option.code() == 404) {
+            return true;
         }
 
-        nlohmann::json doc = doc_option.get();
-        res->set_200(doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+        res->set(deleted_id_op.code(), deleted_id_op.error());
+        return false;
     }
+
+    nlohmann::json doc = doc_option.get();
+    res->set_200(doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
 
     return true;
 }

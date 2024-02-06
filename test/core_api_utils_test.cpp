@@ -1492,3 +1492,35 @@ TEST_F(CoreAPIUtilsTest, TestInvalidConversationModels) {
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Property `model_name` is not provided or not a string.", nlohmann::json::parse(resp->body)["message"]);
 }
+
+TEST_F(CoreAPIUtilsTest, DeleteNonExistingDoc) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
+    }
+
+    for(size_t i=0; i<10; i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+
+        coll1->add(doc.dump());
+    }
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "coll1";
+    req->params["id"] = "9";
+    ASSERT_TRUE(del_remove_document(req, res));
+
+    req->params["id"] = "10";
+    ASSERT_TRUE(del_remove_document(req, res));
+}
