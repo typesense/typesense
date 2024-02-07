@@ -72,3 +72,54 @@ TEST(NumTreeTest, EraseFullList) {
     tree.search(NUM_COMPARATOR::EQUALS, 0, &ids, ids_len);
     ASSERT_EQ(nullptr, ids);
 }
+
+TEST(NumTreeTest, Iterator) {
+    num_tree_t tree;
+    tree.insert(-1200, 0);
+    tree.insert(-1750, 1);
+    tree.insert(0, 2);
+    tree.insert(100, 3);
+    tree.insert(2000, 4);
+
+    tree.insert(-1200, 5);
+    tree.insert(100, 6);
+
+    auto iterator = num_tree_t::iterator_t(&tree, EQUALS, 1);
+    ASSERT_FALSE(iterator.is_valid);
+    iterator.reset();
+    ASSERT_FALSE(iterator.is_valid);
+
+    iterator = num_tree_t::iterator_t(&tree, EQUALS, 0);
+    std::vector<uint32_t> expected_ids = {2};
+
+    for (const auto& id: expected_ids) {
+        ASSERT_TRUE(iterator.is_valid);
+        ASSERT_EQ(id, iterator.seq_id);
+        iterator.next();
+    }
+    ASSERT_FALSE(iterator.is_valid);
+    iterator.reset();
+    for (const auto& id: expected_ids) {
+        ASSERT_TRUE(iterator.is_valid);
+        ASSERT_EQ(id, iterator.seq_id);
+        iterator.next();
+    }
+    ASSERT_FALSE(iterator.is_valid);
+
+    iterator = num_tree_t::iterator_t(&tree, EQUALS, -1200);
+    expected_ids = {0, 5};
+
+    for (const auto& id: expected_ids) {
+        ASSERT_TRUE(iterator.is_valid);
+        ASSERT_EQ(id, iterator.seq_id);
+        iterator.next();
+    }
+    ASSERT_FALSE(iterator.is_valid);
+    iterator.reset();
+    for (const auto& id: expected_ids) {
+        ASSERT_TRUE(iterator.is_valid);
+        ASSERT_EQ(id, iterator.seq_id);
+        iterator.next();
+    }
+    ASSERT_FALSE(iterator.is_valid);
+}
