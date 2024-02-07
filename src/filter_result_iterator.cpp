@@ -429,7 +429,7 @@ void filter_result_iterator_t::next() {
         return;
     }
 
-    // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
+    // No need to traverse iterator tree if there's only one filter or compute_string_components() has been called.
     if (is_filter_result_initialized) {
         if (++result_index >= filter_result.count) {
             validity = invalid;
@@ -629,7 +629,7 @@ void filter_result_iterator_t::init() {
             approx_filter_ids_length = std::max(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
         }
 
-        // Rearranging the subtree in hope to reduce computation if/when compute_result() is called.
+        // Rearranging the subtree in hope to reduce computation if/when compute_string_components() is called.
         if (left_it->approx_filter_ids_length > right_it->approx_filter_ids_length) {
             std::swap(left_it, right_it);
         }
@@ -1165,19 +1165,19 @@ void filter_result_iterator_t::init() {
         }
 
         if (a_filter.values.size() > 10) {
-            compute_result();
+            compute_string_components();
             return;
         }
 
         if (a_filter.apply_not_equals &&
                             index->seq_ids->num_ids() - approx_filter_ids_length < string_filter_ids_threshold) {
             // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
-            compute_result();
+            compute_string_components();
             return;
         } else if (a_filter.apply_not_equals) {
             all_seq_ids_iter = index->seq_ids->new_iterator();
         } else if (approx_filter_ids_length < string_filter_ids_threshold) {
-            compute_result();
+            compute_string_components();
             return;
         }
 
@@ -1191,7 +1191,7 @@ void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout
         return;
     }
 
-    // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
+    // No need to traverse iterator tree if there's only one filter or compute_string_components() has been called.
     if (is_filter_result_initialized) {
         ArrayUtils::skip_index_to_id(result_index, filter_result.docs, filter_result.count, id);
 
@@ -1306,7 +1306,7 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
         return -1;
     }
 
-    // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
+    // No need to traverse iterator tree if there's only one filter or compute_string_components() has been called.
     if (is_filter_result_initialized) {
         skip_to(id);
         return validity ? (seq_id == id ? 1 : 0) : -1;
@@ -1436,7 +1436,7 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
         return;
     }
 
-    // No need to traverse iterator tree if there's only one filter or compute_result() has been called.
+    // No need to traverse iterator tree if there's only one filter or compute_string_components() has been called.
     if (is_filter_result_initialized) {
         if (filter_result.count == 0) {
             validity = invalid;
@@ -1589,7 +1589,7 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
     }
 
     if (!is_filter_result_initialized) {
-        compute_result();
+        compute_string_components();
     }
 
     std::vector<uint32_t> match_indexes;
@@ -1755,7 +1755,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         return get_n_ids(n, result, override_timeout);
     }
 
-    // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_result.
+    // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_string_components.
     if (!is_filter_result_initialized) {
         return;
     }
@@ -1857,7 +1857,7 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
     fit = root_iterator;
 }
 
-void filter_result_iterator_t::compute_result() {
+void filter_result_iterator_t::compute_string_components() {
     if (filter_node == nullptr) {
         validity = invalid;
         is_filter_result_initialized = false;
@@ -1874,8 +1874,8 @@ void filter_result_iterator_t::compute_result() {
     }
 
     if (filter_node->isOperator) {
-        left_it->compute_result();
-        right_it->compute_result();
+        left_it->compute_string_components();
+        right_it->compute_string_components();
 
         if (filter_node->filter_operator == AND) {
             filter_result_t::and_filter_results(left_it->filter_result, right_it->filter_result, filter_result);

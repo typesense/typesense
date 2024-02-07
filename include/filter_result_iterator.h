@@ -322,7 +322,7 @@ public:
     Option<bool> init_status();
 
     /// Recursively computes the result of each node and stores the final result in the root node.
-    void compute_result();
+    void compute_string_components();
 
     /// Returns a tri-state:
     ///     0: id is not valid
