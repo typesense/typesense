@@ -3791,6 +3791,8 @@ TEST_F(CollectionVectorTest, TestVoiceQuery) {
         }
     })"_json;
 
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
 
