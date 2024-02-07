@@ -2319,7 +2319,7 @@ TEST_F(CollectionFilteringTest, ComputeFilterResult) {
 
     ASSERT_EQ(10, results["found"]);
 
-    res_op = coll1->search("*", {}, "title: bar",
+    res_op = coll1->search("*", {}, "title: bar && points:>=10",
                                 {}, {}, {0}, 10, 1, FREQUENCY, {true});
 
     results = res_op.get();
