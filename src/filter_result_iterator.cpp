@@ -1869,6 +1869,10 @@ void filter_result_iterator_t::compute_result() {
         return;
     }
 
+    if (is_filter_result_initialized) {
+        return;
+    }
+
     if (filter_node->isOperator) {
         left_it->compute_result();
         right_it->compute_result();
@@ -1901,7 +1905,7 @@ void filter_result_iterator_t::compute_result() {
     }
 
     // Only string field filter needs to be evaluated.
-    if (is_filter_result_initialized || index->search_index.count(filter_node->filter_exp.field_name) == 0) {
+    if (index->search_index.count(filter_node->filter_exp.field_name) == 0) {
         return;
     }
 
