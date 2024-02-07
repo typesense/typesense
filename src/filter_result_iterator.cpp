@@ -1861,7 +1861,6 @@ void filter_result_iterator_t::compute_string_components() {
     if (filter_node == nullptr) {
         validity = invalid;
         is_filter_result_initialized = false;
-        LOG(ERROR) << "filter_node is null";
         return;
     }
 
