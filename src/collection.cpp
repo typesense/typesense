@@ -3003,10 +3003,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["request_params"] = nlohmann::json::object();
     result["request_params"]["collection_name"] = name;
     result["request_params"]["per_page"] = per_page;
-    if(!raw_query.empty()) {
-        result["request_params"]["q"] = raw_query;
-        result["request_params"]["first_q"] = first_q;
-    }
+    result["request_params"]["q"] = raw_query;
+    result["request_params"]["first_q"] = first_q;
 
     if(!voice_query.empty()) {
         result["request_params"]["voice_query"] = nlohmann::json::object();
