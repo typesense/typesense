@@ -905,6 +905,29 @@ TEST_F(CollectionLocaleTest, SearchInGermanLocaleShouldBeTypoTolerant) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionLocaleTest, HandleSpecialCharsInThai) {
+    nlohmann::json coll_json = R"({
+            "name": "coll1",
+            "fields": [
+                {"name": "title_th", "type": "string", "locale": "th"},
+                {"name": "sku", "type": "string"}
+            ]
+        })"_json;
+
+    auto coll1 = collectionManager.create_collection(coll_json).get();
+
+    nlohmann::json doc;
+    doc["title_th"] = "สวัสดี";
+    doc["sku"] = "12345_";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // query string is parsed using the locale of the first field in the query_by list
+    auto results = coll1->search("12345_", {"title_th", "sku"}, "", {}, {},
+                                 {2, 0}, 10, 1, FREQUENCY, {true, false}, 1).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
 /*
 TEST_F(CollectionLocaleTest, TranslitPad) {
     UErrorCode translit_status = U_ZERO_ERROR;

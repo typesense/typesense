@@ -255,6 +255,12 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("มี.ค", tokens[4]);
 
     tokens.clear();
+    str = "12345_678";
+    Tokenizer(str, false, false, "th").tokenize(tokens);
+    ASSERT_EQ(1, tokens.size());
+    ASSERT_EQ("12345678", tokens[0]);
+
+    tokens.clear();
     Tokenizer("Odd Thomas", false, false, "en").tokenize(tokens);
     ASSERT_EQ(2, tokens.size());
     ASSERT_EQ("Odd", tokens[0]);
