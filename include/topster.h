@@ -125,6 +125,7 @@ struct KV {
 struct Topster {
     const uint32_t MAX_SIZE;
     uint32_t size;
+    size_t K;
 
     KV *data;
     KV** kvs;
@@ -139,7 +140,7 @@ struct Topster {
     explicit Topster(size_t capacity): Topster(capacity, 0) {
     }
 
-    explicit Topster(size_t capacity, size_t distinct): MAX_SIZE(capacity), size(0), distinct(distinct) {
+    explicit Topster(size_t capacity, size_t distinct): MAX_SIZE(capacity), size(0), distinct(distinct), K(10) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
         // we use separate **kvs for easier pointer swaps
         data = new KV[capacity];
@@ -339,5 +340,23 @@ struct Topster {
 
     KV* getKV(uint32_t index) {
         return kvs[index];
+    }
+
+    void process_topK_groups() {
+        std::vector<std::pair<uint64_t, uint32_t>> top_groups;
+
+        for(const auto& kv : group_kv_map) {
+            top_groups.push_back(std::make_pair(kv.first, kv.second->size));
+        }
+
+        auto top_K = std::min(K, top_groups.size());
+        std::nth_element(top_groups.begin(), top_groups.begin() + top_K, top_groups.end(),
+                         [&](const std::pair<uint64_t, uint32_t>& p1, const std::pair<uint64_t, uint32_t>& p2) {
+            return p1.second > p2.second;
+        });
+
+        for(auto i = top_K; i < top_groups.size(); ++i) {
+            group_kv_map.erase(top_groups[i].first);
+        }
     }
 };

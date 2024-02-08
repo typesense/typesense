@@ -3770,6 +3770,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     all_result_ids_len += curated_topster->size;
 
+    topster->process_topK_groups();
+
     delete [] all_result_ids;
 
     //LOG(INFO) << "all_result_ids_len " << all_result_ids_len << " for index " << name;
