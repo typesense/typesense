@@ -59,7 +59,7 @@ public:
     std::pair<int64_t, int64_t> get_min_max(const uint32_t* result_ids, size_t result_ids_len);
 
     class iterator_t {
-        /// If true, `id_list` is initialized otherwise `id_list_iterator` is.
+        /// If true, `id_list_array` is initialized otherwise `id_list_iterator` is.
         bool is_compact_id_list = true;
 
         uint32_t index = 0;
@@ -88,14 +88,13 @@ public:
         /// Returns a tri-state:
         ///     0: id is not valid
         ///     1: id is valid
-        ///    -1: end of iterator / timed out
+        ///    -1: end of iterator
         [[nodiscard]] int is_id_valid(uint32_t id);
 
-        /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
-        /// operation.
+        /// Advances the iterator to get the next seq_id. The iterator may become invalid during this operation.
         void next();
 
-        /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
+        /// Advances the iterator until the seq_id reaches or just overshoots id. The iterator may become invalid during
         /// this operation.
         void skip_to(uint32_t id);
 
