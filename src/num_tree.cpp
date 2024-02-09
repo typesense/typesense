@@ -187,11 +187,12 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
     }
 }
 
-void num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value, uint32_t& ids_len) {
+uint32_t num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value) {
     if (int64map.empty()) {
-        return;
+        return 0;
     }
 
+    uint32_t ids_len = 0;
     if (comparator == EQUALS) {
         const auto& it = int64map.find(value);
         if (it != int64map.end()) {
@@ -203,7 +204,7 @@ void num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value, u
         auto iter_ge_value = int64map.lower_bound(value);
 
         if (iter_ge_value == int64map.end()) {
-            return;
+            return 0;
         }
 
         if (comparator == GREATER_THAN && iter_ge_value->first == value) {
@@ -233,6 +234,8 @@ void num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value, u
             ids_len += val_ids;
         }
     }
+
+    return ids_len;
 }
 
 void num_tree_t::remove(uint64_t value, uint32_t id) {
@@ -373,7 +376,7 @@ num_tree_t::~num_tree_t() {
 }
 
 num_tree_t::iterator_t::iterator_t(num_tree_t* num_tree, NUM_COMPARATOR comparator, int64_t value) {
-    if (num_tree->int64map.empty() || comparator != EQUALS) {
+    if (num_tree == nullptr || num_tree->int64map.empty() || comparator != EQUALS) {
         is_valid = false;
         return;
     }

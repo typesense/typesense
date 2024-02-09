@@ -4,8 +4,8 @@
 #include "sparsepp.h"
 #include "sorted_array.h"
 #include "array_utils.h"
-#include "art.h"
 #include "ids_t.h"
+#include "filter.h"
 
 class num_tree_t {
 private:
@@ -42,7 +42,7 @@ public:
 
     void search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids, size_t& ids_len);
 
-    void approx_search_count(NUM_COMPARATOR comparator, int64_t value, uint32_t& ids_len);
+    uint32_t approx_search_count(NUM_COMPARATOR comparator, int64_t value);
 
     void remove(uint64_t value, uint32_t id);
 

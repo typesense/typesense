@@ -429,7 +429,7 @@ void filter_result_iterator_t::next() {
         return;
     }
 
-    // No need to traverse iterator tree if there's only one filter or compute_string_components() has been called.
+    // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
     if (is_filter_result_initialized) {
         if (++result_index >= filter_result.count) {
             validity = invalid;
@@ -477,7 +477,16 @@ void filter_result_iterator_t::next() {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_string()) {
+    if (f.is_bool()) {
+        bool_iterator.next();
+        if (!bool_iterator.is_valid) {
+            validity = invalid;
+            return;
+        }
+
+        seq_id = bool_iterator.seq_id;
+        return;
+    } else if (f.is_string()) {
         if (filter_node->filter_exp.apply_not_equals) {
             do {
                 if (++seq_id >= result_index) {
@@ -629,7 +638,7 @@ void filter_result_iterator_t::init() {
             approx_filter_ids_length = std::max(left_it->approx_filter_ids_length, right_it->approx_filter_ids_length);
         }
 
-        // Rearranging the subtree in hope to reduce computation if/when compute_string_components() is called.
+        // Rearranging the subtree in hope to reduce computation if/when compute_iterators() is called.
         if (left_it->approx_filter_ids_length > right_it->approx_filter_ids_length) {
             std::swap(left_it, right_it);
         }
@@ -932,6 +941,20 @@ void filter_result_iterator_t::init() {
         } else {
             auto num_tree = index->numerical_index.at(a_filter.field_name);
 
+            // For a boolean filter like `in_stock: true` that could match a large number of ids, we use bool_iterator.
+            if (a_filter.values.size() == 1 && a_filter.comparators[0] == EQUALS && !a_filter.apply_not_equals &&
+                num_tree->approx_search_count(EQUALS, (a_filter.values[0] == "1" ? 1 : 0)) > bool_filter_ids_threshold) {
+                bool_iterator = num_tree_t::iterator_t(num_tree, EQUALS, (a_filter.values[0] == "1" ? 1 : 0));
+                if (!bool_iterator.is_valid) {
+                    validity = invalid;
+                    return;
+                }
+
+                seq_id = bool_iterator.seq_id;
+                approx_filter_ids_length = bool_iterator.approx_filter_ids_length;
+                return;
+            }
+
             size_t value_index = 0;
             for (const std::string& filter_value : a_filter.values) {
                 int64_t bool_int64 = (filter_value == "1") ? 1 : 0;
@@ -1165,19 +1188,19 @@ void filter_result_iterator_t::init() {
         }
 
         if (a_filter.values.size() > 10) {
-            compute_string_components();
+            compute_iterators();
             return;
         }
 
         if (a_filter.apply_not_equals &&
                             index->seq_ids->num_ids() - approx_filter_ids_length < string_filter_ids_threshold) {
             // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
-            compute_string_components();
+            compute_iterators();
             return;
         } else if (a_filter.apply_not_equals) {
             all_seq_ids_iter = index->seq_ids->new_iterator();
         } else if (approx_filter_ids_length < string_filter_ids_threshold) {
-            compute_string_components();
+            compute_iterators();
             return;
         }
 
@@ -1191,7 +1214,7 @@ void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout
         return;
     }
 
-    // No need to traverse iterator tree if there's only one filter or compute_string_components() has been called.
+    // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
     if (is_filter_result_initialized) {
         ArrayUtils::skip_index_to_id(result_index, filter_result.docs, filter_result.count, id);
 
@@ -1233,7 +1256,16 @@ void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_string()) {
+    if (f.is_bool()) {
+        bool_iterator.skip_to(id);
+        if (!bool_iterator.is_valid) {
+            validity = invalid;
+            return;
+        }
+
+        seq_id = bool_iterator.seq_id;
+        return;
+    } else if (f.is_string()) {
         if (filter_node->filter_exp.apply_not_equals) {
             if (id < seq_id) {
                 return;
@@ -1306,7 +1338,7 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
         return -1;
     }
 
-    // No need to traverse iterator tree if there's only one filter or compute_string_components() has been called.
+    // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
     if (is_filter_result_initialized) {
         skip_to(id);
         return validity ? (seq_id == id ? 1 : 0) : -1;
@@ -1436,7 +1468,7 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
         return;
     }
 
-    // No need to traverse iterator tree if there's only one filter or compute_string_components() has been called.
+    // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
     if (is_filter_result_initialized) {
         if (filter_result.count == 0) {
             validity = invalid;
@@ -1479,7 +1511,18 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_string()) {
+    if (f.is_bool()) {
+        auto num_tree = index->numerical_index.at(a_filter.field_name);
+        bool_iterator = num_tree_t::iterator_t(num_tree, EQUALS, (a_filter.values[0] == "1" ? 1 : 0));
+        if (!bool_iterator.is_valid) {
+            validity = invalid;
+            return;
+        }
+
+        seq_id = bool_iterator.seq_id;
+        validity = valid;
+        return;
+    } else if (f.is_string()) {
         for (uint32_t i = 0; i < posting_lists.size(); i++) {
             auto const& plists = posting_lists[i];
 
@@ -1589,7 +1632,7 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
     }
 
     if (!is_filter_result_initialized) {
-        compute_string_components();
+        compute_iterators();
     }
 
     std::vector<uint32_t> match_indexes;
@@ -1755,7 +1798,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         return get_n_ids(n, result, override_timeout);
     }
 
-    // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_string_components.
+    // This method is only called in Index::search_wildcard after filter_result_iterator_t::compute_iterators.
     if (!is_filter_result_initialized) {
         return;
     }
@@ -1824,7 +1867,7 @@ filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t
     if (validity) {
         seq_id = filter_result.docs[result_index];
         is_filter_result_initialized = true;
-        filter_node = new filter_node_t({"dummy", {}, {}});
+        filter_node = new filter_node_t(filter{"dummy", {}, {}});
         delete_filter_node = true;
 
         if (search_stop != UINT64_MAX) {
@@ -1857,7 +1900,7 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
     fit = root_iterator;
 }
 
-void filter_result_iterator_t::compute_string_components() {
+void filter_result_iterator_t::compute_iterators() {
     if (filter_node == nullptr) {
         validity = invalid;
         is_filter_result_initialized = false;
@@ -1873,8 +1916,8 @@ void filter_result_iterator_t::compute_string_components() {
     }
 
     if (filter_node->isOperator) {
-        left_it->compute_string_components();
-        right_it->compute_string_components();
+        left_it->compute_iterators();
+        right_it->compute_iterators();
 
         if (filter_node->filter_operator == AND) {
             filter_result_t::and_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
@@ -1903,67 +1946,86 @@ void filter_result_iterator_t::compute_string_components() {
         return;
     }
 
-    // Only string field filter needs to be evaluated.
     if (index->search_index.count(filter_node->filter_exp.field_name) == 0) {
         return;
     }
 
-    // Resetting posting_list_iterators.
-    for (uint32_t i = 0; i < posting_lists.size(); i++) {
-        auto const& plists = posting_lists[i];
+    const filter a_filter = filter_node->filter_exp;
+    field f = index->search_schema.at(a_filter.field_name);
 
-        posting_list_iterators[i].clear();
-        for (auto const& plist: plists) {
-            posting_list_iterators[i].push_back(plist->new_iterator());
-        }
-    }
+    if (f.is_bool()) {
+        auto num_tree = index->numerical_index.at(a_filter.field_name);
 
-    auto const& a_filter = filter_node->filter_exp;
-    auto const& f = index->search_schema.at(a_filter.field_name);
+        int64_t bool_int64 = (a_filter.values[0] == "1") ? 1 : 0;
+        size_t result_size = 0;
+        num_tree->search(a_filter.comparators[0], bool_int64, &filter_result.docs, result_size);
+        filter_result.count = result_size;
+    } else if (f.is_string()) {
+        // Resetting posting_list_iterators.
+        for (uint32_t i = 0; i < posting_lists.size(); i++) {
+            auto const& plists = posting_lists[i];
 
-    uint32_t* or_ids = nullptr;
-    size_t or_ids_size = 0;
-
-    // aggregates IDs across array of filter values and reduces excessive ORing
-    std::vector<uint32_t> f_id_buff;
-
-    for (uint32_t i = 0; i < posting_lists.size(); i++) {
-        auto& p_list = posting_lists[i];
-        if (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
-            // needs intersection + exact matching (unlike CONTAINS)
-            std::vector<uint32_t> result_id_vec;
-            posting_list_t::intersect(p_list, result_id_vec);
-
-            if (result_id_vec.empty()) {
-                continue;
-            }
-
-            // need to do exact match
-            uint32_t* exact_str_ids = new uint32_t[result_id_vec.size()];
-            size_t exact_str_ids_size = 0;
-            std::unique_ptr<uint32_t[]> exact_str_ids_guard(exact_str_ids);
-
-            posting_list_t::get_exact_matches(posting_list_iterators[i], f.is_array(),
-                                              result_id_vec.data(), result_id_vec.size(),
-                                              exact_str_ids, exact_str_ids_size);
-
-            if (exact_str_ids_size == 0) {
-                continue;
-            }
-
-            for (size_t ei = 0; ei < exact_str_ids_size; ei++) {
-                f_id_buff.push_back(exact_str_ids[ei]);
-            }
-        } else {
-            // CONTAINS
-            size_t before_size = f_id_buff.size();
-            posting_list_t::intersect(p_list, f_id_buff);
-            if (f_id_buff.size() == before_size) {
-                continue;
+            posting_list_iterators[i].clear();
+            for (auto const& plist: plists) {
+                posting_list_iterators[i].push_back(plist->new_iterator());
             }
         }
 
-        if (f_id_buff.size() > 100000 || a_filter.values.size() == 1) {
+        uint32_t* or_ids = nullptr;
+        size_t or_ids_size = 0;
+
+        // aggregates IDs across array of filter values and reduces excessive ORing
+        std::vector<uint32_t> f_id_buff;
+
+        for (uint32_t i = 0; i < posting_lists.size(); i++) {
+            auto& p_list = posting_lists[i];
+            if (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
+                // needs intersection + exact matching (unlike CONTAINS)
+                std::vector<uint32_t> result_id_vec;
+                posting_list_t::intersect(p_list, result_id_vec);
+
+                if (result_id_vec.empty()) {
+                    continue;
+                }
+
+                // need to do exact match
+                uint32_t* exact_str_ids = new uint32_t[result_id_vec.size()];
+                size_t exact_str_ids_size = 0;
+                std::unique_ptr<uint32_t[]> exact_str_ids_guard(exact_str_ids);
+
+                posting_list_t::get_exact_matches(posting_list_iterators[i], f.is_array(),
+                                                  result_id_vec.data(), result_id_vec.size(),
+                                                  exact_str_ids, exact_str_ids_size);
+
+                if (exact_str_ids_size == 0) {
+                    continue;
+                }
+
+                for (size_t ei = 0; ei < exact_str_ids_size; ei++) {
+                    f_id_buff.push_back(exact_str_ids[ei]);
+                }
+            } else {
+                // CONTAINS
+                size_t before_size = f_id_buff.size();
+                posting_list_t::intersect(p_list, f_id_buff);
+                if (f_id_buff.size() == before_size) {
+                    continue;
+                }
+            }
+
+            if (f_id_buff.size() > 100000 || a_filter.values.size() == 1) {
+                gfx::timsort(f_id_buff.begin(), f_id_buff.end());
+                f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+
+                uint32_t* out = nullptr;
+                or_ids_size = ArrayUtils::or_scalar(or_ids, or_ids_size, f_id_buff.data(), f_id_buff.size(), &out);
+                delete[] or_ids;
+                or_ids = out;
+                std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
+            }
+        }
+
+        if (!f_id_buff.empty()) {
             gfx::timsort(f_id_buff.begin(), f_id_buff.end());
             f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
 
@@ -1973,24 +2035,13 @@ void filter_result_iterator_t::compute_string_components() {
             or_ids = out;
             std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
         }
-    }
 
-    if (!f_id_buff.empty()) {
-        gfx::timsort(f_id_buff.begin(), f_id_buff.end());
-        f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+        filter_result.docs = or_ids;
+        filter_result.count = or_ids_size;
 
-        uint32_t* out = nullptr;
-        or_ids_size = ArrayUtils::or_scalar(or_ids, or_ids_size, f_id_buff.data(), f_id_buff.size(), &out);
-        delete[] or_ids;
-        or_ids = out;
-        std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
-    }
-
-    filter_result.docs = or_ids;
-    filter_result.count = or_ids_size;
-
-    if (a_filter.apply_not_equals) {
-        apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(), filter_result.docs, filter_result.count);
+        if (a_filter.apply_not_equals) {
+            apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(), filter_result.docs, filter_result.count);
+        }
     }
 
     if (filter_result.count == 0) {

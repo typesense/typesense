@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 #include <memory>
+#include "num_tree.h"
 #include "option.h"
 #include "posting_list.h"
 #include "id_list.h"
@@ -214,9 +215,11 @@ struct filter_result_t {
 #ifdef TEST_BUILD
     constexpr uint16_t function_call_modulo = 10;
     constexpr uint16_t string_filter_ids_threshold = 3;
+    constexpr uint16_t bool_filter_ids_threshold = 3;
 #else
     constexpr uint16_t function_call_modulo = 16'384;
     constexpr uint16_t string_filter_ids_threshold = 20'000;
+    constexpr uint16_t bool_filter_ids_threshold = 20'000;
 #endif
 
 struct filter_result_iterator_timeout_info {
@@ -256,6 +259,9 @@ private:
     /// might lead to returning some ids that are deleted. So we use this iterator to check and return only the ids that
     /// exist in `index->seq_ids`.
     id_list_t::iterator_t all_seq_ids_iter = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
+
+    /// Used in case of a single boolean filter matching more than `bool_filter_ids_threshold` ids.
+    num_tree_t::iterator_t bool_iterator = num_tree_t::iterator_t(nullptr, NUM_COMPARATOR::EQUALS, 0);
 
     bool delete_filter_node = false;
 
@@ -322,7 +328,7 @@ public:
     Option<bool> init_status();
 
     /// Recursively computes the result of each node and stores the final result in the root node.
-    void compute_string_components();
+    void compute_iterators();
 
     /// Returns a tri-state:
     ///     0: id is not valid
@@ -366,7 +372,7 @@ public:
     static void add_phrase_ids(filter_result_iterator_t*& filter_result_iterator,
                                uint32_t* phrase_result_ids, const uint32_t& phrase_result_count);
 
-    bool _get_is_filter_result_initialized() const {
+    [[nodiscard]] bool _get_is_filter_result_initialized() const {
         return is_filter_result_initialized;
     }
 };

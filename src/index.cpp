@@ -1820,7 +1820,7 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
         return filter_init_op;
     }
 
-    filter_result_iterator.compute_string_components();
+    filter_result_iterator.compute_iterators();
     if (filter_result_iterator.approx_filter_ids_length == 0) {
         return Option(true);
     }
@@ -1880,7 +1880,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         return filter_init_op;
     }
 
-    ref_filter_result_iterator.compute_string_components();
+    ref_filter_result_iterator.compute_iterators();
     if (ref_filter_result_iterator.approx_filter_ids_length == 0) {
         return Option(true);
     }
@@ -2873,12 +2873,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 #ifdef TEST_BUILD
 
     if (filter_result_iterator->approx_filter_ids_length > 20) {
-        filter_result_iterator->compute_string_components();
+        filter_result_iterator->compute_iterators();
     }
 #else
 
     if (filter_result_iterator->approx_filter_ids_length < 25'000) {
-        filter_result_iterator->compute_string_components();
+        filter_result_iterator->compute_iterators();
     }
 #endif
 
@@ -5930,7 +5930,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                                     const std::vector<size_t>& geopoint_indices,
                                     const std::string& collection_name) const {
 
-    filter_result_iterator->compute_string_components();
+    filter_result_iterator->compute_iterators();
     auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
 
     uint32_t token_bits = 0;
