@@ -60,7 +60,7 @@ void QueryAnalytics::serialize_as_docs(std::string& docs) {
         doc["id"] = std::to_string(StringUtils::hash_wy(key_buffer.c_str(), key_buffer.size()));
         doc["q"] = key_buffer;
         doc["$operations"]["increment"]["count"] = it.value();
-        docs += doc.dump() + "\n";
+        docs += doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore) + "\n";
     }
 
     if(!docs.empty()) {
