@@ -62,4 +62,6 @@ public:
     Option<bool> delete_stopword(const std::string&);
 
     void dispose();
+
+    bool stopword_exists(const std::string&);
 };

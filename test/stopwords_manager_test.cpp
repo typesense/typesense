@@ -303,9 +303,21 @@ TEST_F(StopwordsManagerTest, StopwordsBasics) {
     req->params["stopwords"] = "continents";
 
     search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
-    ASSERT_TRUE(search_op.ok());
-    results = nlohmann::json::parse(json_results);
-    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not find the stopword set named `continents`.", search_op.error());
+
+    req->params.clear();
+    json_results.clear();
+
+    //typo while searching with stopword
+    req->params["collection"] = "coll1";
+    req->params["name"] = "the";
+    req->params["query_by"] = "title";
+    req->params["stopwords"] = "article";
+
+    search_op = collectionManager.do_search(req->params, embedded_params, json_results, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Could not find the stopword set named `article`.", search_op.error());
 
     collectionManager.drop_collection("coll1");
 }
