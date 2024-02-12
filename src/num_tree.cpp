@@ -187,11 +187,12 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
     }
 }
 
-void num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value, uint32_t& ids_len) {
+uint32_t num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value) {
     if (int64map.empty()) {
-        return;
+        return 0;
     }
 
+    uint32_t ids_len = 0;
     if (comparator == EQUALS) {
         const auto& it = int64map.find(value);
         if (it != int64map.end()) {
@@ -203,7 +204,7 @@ void num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value, u
         auto iter_ge_value = int64map.lower_bound(value);
 
         if (iter_ge_value == int64map.end()) {
-            return;
+            return 0;
         }
 
         if (comparator == GREATER_THAN && iter_ge_value->first == value) {
@@ -233,6 +234,8 @@ void num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value, u
             ids_len += val_ids;
         }
     }
+
+    return ids_len;
 }
 
 void num_tree_t::remove(uint64_t value, uint32_t id) {
@@ -370,4 +373,146 @@ num_tree_t::~num_tree_t() {
     for(auto& kv: int64map) {
         ids_t::destroy_list(kv.second);
     }
+}
+
+num_tree_t::iterator_t::iterator_t(num_tree_t* num_tree, NUM_COMPARATOR comparator, int64_t value) {
+    if (num_tree == nullptr || num_tree->int64map.empty() || comparator != EQUALS) {
+        is_valid = false;
+        return;
+    }
+
+    const auto& it = num_tree->int64map.find(value);
+    if (it == num_tree->int64map.end()) {
+        is_valid = false;
+        return;
+    }
+
+    auto obj = it->second;
+    is_compact_id_list = IS_COMPACT_IDS(obj);
+    if (is_compact_id_list) {
+        id_list_array_len = ids_t::num_ids(obj);
+        id_list_array = ids_t::uncompress(obj);
+        approx_filter_ids_length = id_list_array_len;
+
+        is_valid = id_list_array_len > index;
+        if (is_valid) {
+            seq_id = id_list_array[index];
+        }
+    } else {
+        id_list = (id_list_t*)(obj);
+        id_list_iterator = id_list->new_iterator();
+        approx_filter_ids_length = id_list->num_ids();
+
+        is_valid = id_list_iterator.valid();
+        if (is_valid) {
+            seq_id = id_list_iterator.id();
+        }
+    }
+}
+
+int num_tree_t::iterator_t::is_id_valid(uint32_t id) {
+    if (!is_valid) {
+        return -1;
+    }
+
+    skip_to(id);
+    return is_valid ? (seq_id == id) : -1;
+}
+
+void num_tree_t::iterator_t::next() {
+    if (!is_valid) {
+        return;
+    }
+
+    if (is_compact_id_list) {
+        if (++index >= id_list_array_len) {
+            is_valid = false;
+            return;
+        }
+
+        seq_id = id_list_array[index];
+    } else {
+        id_list_iterator.next();
+
+        if (!id_list_iterator.valid()) {
+            is_valid = false;
+            return;
+        }
+        seq_id = id_list_iterator.id();
+    }
+}
+
+void num_tree_t::iterator_t::skip_to(uint32_t id) {
+    if (!is_valid) {
+        return;
+    }
+
+    if (is_compact_id_list) {
+        ArrayUtils::skip_index_to_id(index, id_list_array, id_list_array_len, id);
+
+        if (index >= id_list_array_len) {
+            is_valid = false;
+            return;
+        }
+        seq_id = id_list_array[index];
+    } else {
+        id_list_iterator.skip_to(id);
+
+        if (!id_list_iterator.valid()) {
+            is_valid = false;
+            return;
+        }
+        seq_id = id_list_iterator.id();
+    }
+}
+
+void num_tree_t::iterator_t::reset() {
+    if (is_compact_id_list) {
+        index = 0;
+        is_valid = index < id_list_array_len;
+        if (is_valid) {
+            seq_id = id_list_array[index];
+        }
+    } else {
+        id_list_iterator = id_list->new_iterator();
+        is_valid = id_list_iterator.valid();
+        if (is_valid) {
+            seq_id = id_list_iterator.id();
+        }
+    }
+}
+
+num_tree_t::iterator_t::~iterator_t() {
+    if (is_compact_id_list) {
+        delete[] id_list_array;
+    }
+}
+
+num_tree_t::iterator_t& num_tree_t::iterator_t::operator=(num_tree_t::iterator_t&& obj) noexcept {
+    if (&obj == this) {
+        return *this;
+    }
+
+    if (is_compact_id_list) {
+        delete[] id_list_array;
+    }
+
+    if (obj.is_compact_id_list) {
+        is_compact_id_list = true;
+        id_list_array_len = obj.id_list_array_len;
+        id_list_array = obj.id_list_array;
+        index = obj.index;
+
+        obj.id_list_array = nullptr;
+    } else {
+        is_compact_id_list = false;
+        id_list = obj.id_list;
+        id_list_iterator = id_list->new_iterator();
+        id_list_iterator.skip_to(obj.id_list_iterator.id());
+    }
+
+    approx_filter_ids_length = obj.approx_filter_ids_length;
+    is_valid = obj.is_valid;
+    seq_id = obj.seq_id;
+    return *this;
 }

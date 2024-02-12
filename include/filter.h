@@ -3,9 +3,19 @@
 #include <string>
 #include <map>
 #include <tsl/htrie_map.h>
-#include <art.h>
 #include <json.hpp>
 #include "store.h"
+
+enum NUM_COMPARATOR {
+    LESS_THAN,
+    LESS_THAN_EQUALS,
+    EQUALS,
+    NOT_EQUALS,
+    CONTAINS,
+    GREATER_THAN,
+    GREATER_THAN_EQUALS,
+    RANGE_INCLUSIVE
+};
 
 enum FILTER_OPERATOR {
     AND,
