@@ -3360,3 +3360,29 @@ TEST_F(CollectionNestedFieldsTest, HighlightOnFlatFieldWithSnippeting) {
 
     ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
 }
+
+TEST_F(CollectionNestedFieldsTest, NestedObjecEnableSortOnString) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "status", "type": "object"},
+          {"name": "status\\..*", "type": "string", "sort": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "status": {
+            "1": "ACCEPTED"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_TRUE(coll1->get_schema()["status.1"].sort);
+}

@@ -505,7 +505,9 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         flattened_field.optional = true;
         flattened_field.nested = true;
         flattened_field.nested_array = has_obj_array;
-        flattened_field.set_computed_defaults(-1, -1);
+        int sort_op = flattened_field.sort ? 1 : -1;
+        int infix_op = flattened_field.infix ? 1 : -1;
+        flattened_field.set_computed_defaults(sort_op, infix_op);
         flattened_fields[flat_name] = flattened_field;
     }
 
