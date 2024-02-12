@@ -687,6 +687,10 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         nlohmann::json result_docs_arr = nlohmann::json::array();
         int res_index = 0;
         for(const auto& result : response["results"]) {
+            if(result.count("code") != 0) {
+                continue;
+            }
+
             nlohmann::json result_docs = nlohmann::json::array();
 
             std::vector<std::string> vector_fields;
