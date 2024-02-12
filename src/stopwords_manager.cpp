@@ -100,7 +100,7 @@ void StopwordsManager::dispose() {
 }
 
 bool StopwordsManager::stopword_exists(const std::string &stopword) {
-    std::unique_lock lock(mutex);
+    std::shared_lock lock(mutex);
 
     return stopword_configs.find(stopword) != stopword_configs.end();
 }
