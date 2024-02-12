@@ -2712,16 +2712,23 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
         }
 
+        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
+        auto max_docs_token = ConversationModel::max_context_tokens(conversation_model);
+        if(!max_docs_token.ok()) {
+            return Option<nlohmann::json>(max_docs_token.code(), max_docs_token.error());
+        }
+
         // remove document with lowest score until total tokens is less than MAX_TOKENS
-        while(ConversationManager::get_instance().get_token_count(docs_array) > ConversationManager::get_instance().MAX_TOKENS) {
+        while(ConversationManager::get_instance().get_token_count(docs_array) > max_docs_token.get()) {
             try {
+                if(docs_array.empty()) {
+                    break;
+                }
                 docs_array.erase(docs_array.size() - 1);
             } catch(...) {
                 return Option<nlohmann::json>(400, "Failed to remove document from search results.");
             }
         }
-
-        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
 
         bool has_conversation_history = !conversation_id.empty();
         auto qa_op = ConversationModel::get_answer(docs_array.dump(0), raw_query, conversation_model);

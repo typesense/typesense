@@ -728,9 +728,18 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             result_docs_arr.push_back(result_docs);
         }
 
+        const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
+        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
         // We have to pop a document from the search result with max size
         // Until we do not exceed MAX_TOKENS limit
-        while(ConversationManager::get_instance().get_token_count(result_docs_arr) > ConversationManager::get_instance().MAX_TOKENS) {
+        auto max_docs_token = ConversationModel::max_context_tokens(conversation_model);
+        if(!max_docs_token.ok()) {
+            res->set_400(max_docs_token.error());
+            return false;
+        }
+
+        // remove document with lowest score until total tokens is less than MAX_TOKENS
+        while(ConversationManager::get_instance().get_token_count(result_docs_arr) > max_docs_token.get()) {
             // sort the result_docs_arr by size descending
             std::sort(result_docs_arr.begin(), result_docs_arr.end(), [](const auto& a, const auto& b) {
                 return a.size() > b.size();
@@ -750,9 +759,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 result_docs.push_back(doc);
             }
         }
-
-        const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
-        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
 
         auto prompt = req->params["q"];
 

@@ -86,6 +86,18 @@ Option<nlohmann::json> ConversationModel::format_answer(const std::string& messa
     throw Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
+Option<size_t> ConversationModel::max_context_tokens(const nlohmann::json& model_config) {
+    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+
+    if(model_namespace == "openai") {
+        return Option<size_t>(OpenAIConversationModel::max_context_tokens());
+    } else if(model_namespace == "cf") {
+        return Option<size_t>(CFConversationModel::max_context_tokens());
+    }
+
+    throw Option<size_t>(400, "Model namespace " + model_namespace + " is not supported.");
+}
+
 
 Option<bool> OpenAIConversationModel::validate_model(const nlohmann::json& model_config) {
     if(model_config.count("api_key") == 0) {
@@ -402,7 +414,7 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
     message["content"] = INFO_PROMPT;
     req_body["messages"].push_back(message);
     message["role"] = "user";
-    message["content"] = "[INST]Context:\n" + context + "\n\nQuestion:\n" + prompt + "\n\nAnswer:[/INST]";
+    message["content"] = "Context:\n" + context + "\n\nQuestion:\n" + prompt + "\n\nAnswer:";
     req_body["messages"].push_back(message);
 
     std::string res;
@@ -417,7 +429,9 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
         nlohmann::json json_res;
         try {
             json_res = nlohmann::json::parse(res);
-            json_res = nlohmann::json::parse(json_res["response"].get<std::string>());
+            json_res = nlohmann::json::parse(json_res["response"][0].get<std::string>());
+
+            LOG(INFO) << "Cloudflare response: " << json_res.dump(0);
         } catch (const std::exception& e) {
             throw Option<std::string>(400, "Cloudflare API error: " + res);
         }
