@@ -57,7 +57,7 @@ class CFConversationModel : public ConversationModel {
         static const inline std::string STANDALONE_QUESTION_PROMPT = R"(
             Rewrite the follow-up question on top of a human-assistant conversation history as a standalone question that encompasses all pertinent context.Use 1024 characters maximum.
         )";
-        static const inline std::string INFO_PROMPT = "You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know. Use three sentences maximum and keep the answer concise.";
+        static const inline std::string INFO_PROMPT = "You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know. Use three sentences maximum and do not mention provided context directly, act like already knowing the context.";
         // prevent instantiation
         CFConversationModel() = delete;
         static size_t max_context_tokens() {

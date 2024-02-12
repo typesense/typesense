@@ -410,11 +410,17 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
     }
 
     nlohmann::json message = nlohmann::json::object();
-    message["role"] = "system";
-    message["content"] = INFO_PROMPT;
-    req_body["messages"].push_back(message);
     message["role"] = "user";
-    message["content"] = "Context:\n" + context + "\n\nQuestion:\n" + prompt + "\n\nAnswer:";
+    message["content"] = R"(
+    Context information is below.
+    ---------------------
+    )" + context + R"(
+    ---------------------
+    Given the context information and not prior knowledge, answer the query. Context is JSON format, do not return data directly, answer like a human assistant.
+    Query: )" + prompt + R"(
+        
+    Answer:
+    )";
     req_body["messages"].push_back(message);
 
     std::string res;
@@ -430,8 +436,6 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
         try {
             json_res = nlohmann::json::parse(res);
             json_res = nlohmann::json::parse(json_res["response"][0].get<std::string>());
-
-            LOG(INFO) << "Cloudflare response: " << json_res.dump(0);
         } catch (const std::exception& e) {
             throw Option<std::string>(400, "Cloudflare API error: " + res);
         }
