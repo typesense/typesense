@@ -98,3 +98,9 @@ void StopwordsManager::dispose() {
     std::unique_lock lock(mutex);
     stopword_configs.clear();
 }
+
+bool StopwordsManager::stopword_exists(const std::string &stopword) {
+    std::unique_lock lock(mutex);
+
+    return stopword_configs.find(stopword) != stopword_configs.end();
+}

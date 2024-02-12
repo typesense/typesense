@@ -1456,6 +1456,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(stopword_it != req_params.end()) {
         stopwords_set = stopword_it->second;
+
+        if(!StopwordsManager::get_instance().stopword_exists(stopwords_set)) {
+            return Option<bool>(404, "Could not find the stopword set named `" + stopwords_set + "`.");
+        }
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
