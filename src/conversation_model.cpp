@@ -435,6 +435,9 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
         nlohmann::json json_res;
         try {
             json_res = nlohmann::json::parse(res);
+            if(json_res.count("response") == 0 || json_res["response"].size() == 0) {
+                return Option<std::string>(400, "Cloudflare API error: " + res);
+            }
             json_res = nlohmann::json::parse(json_res["response"][0].get<std::string>());
         } catch (const std::exception& e) {
             throw Option<std::string>(400, "Cloudflare API error: " + res);
