@@ -1946,7 +1946,7 @@ void filter_result_iterator_t::compute_iterators() {
         return;
     }
 
-    if (index->search_index.count(filter_node->filter_exp.field_name) == 0) {
+    if (index->search_schema.count(filter_node->filter_exp.field_name) == 0) {
         return;
     }
 

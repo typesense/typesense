@@ -1674,6 +1674,18 @@ TEST_F(CollectionFilteringTest, QueryBoolFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    results = coll_bool->search("*", query_fields, "popular:true", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(7, results["hits"].size());
+
+    ids = {"1", "0", "3", "5", "6", "7", "4"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
     // alternative `:=` syntax
     results = coll_bool->search("the", query_fields, "popular:=true", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
