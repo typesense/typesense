@@ -2256,11 +2256,18 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     } else {
         field_query_tokens.emplace_back(query_tokens_t{});
-        const std::string & field_locale = search_schema.at(weighted_search_fields[0].name).locale;
+        auto most_weighted_field = search_schema.at(weighted_search_fields[0].name);
+        const std::string & field_locale = most_weighted_field.locale;
+
+        std::shared_ptr<Stemmer> stemmer = nullptr;
+        if(most_weighted_field.stem) {
+            stemmer = most_weighted_field.get_stemmer();
+        }
+
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set);
+                           field_locale, pre_segmented_query, stopwords_set, stemmer);
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -3379,7 +3386,7 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
-                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set) const {
+                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set, const std::shared_ptr<Stemmer> stemmer) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -3439,6 +3446,10 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                     // handles front padded phrase query, e.g. " some query"
                     phrase_search_op_prior = true;
                 }
+            }
+
+            if(stemmer) {
+                token = stemmer->stem(token);
             }
 
             // retokenize using collection config (handles hyphens being part of the query)
