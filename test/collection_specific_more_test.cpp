@@ -2904,3 +2904,28 @@ TEST_F(CollectionSpecificMoreTest, NumDroppedTokensTest) {
     ASSERT_EQ("alpha beta", res["hits"][0]["document"]["title"]);
     ASSERT_EQ(1, res["hits"][0]["text_match_info"]["num_tokens_dropped"]);
 }
+
+TEST_F(CollectionSpecificMoreTest, TestStemming2) {
+    nlohmann::json schema = R"({
+         "name": "words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true }
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walk"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walks"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walked"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walking"})"_json.dump()).ok()); 
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walkings"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walker"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walkers"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("Walking", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(7, res["hits"].size());
+}
