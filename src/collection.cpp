@@ -2327,8 +2327,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     topster.sort();
     curated_topster.sort();
 
-    populate_result_kvs(&topster, raw_result_kvs, search_params->groups_processed, sort_fields_std);
-    populate_result_kvs(&curated_topster, override_result_kvs, search_params->groups_processed, sort_fields_std);
+    populate_result_kvs(&topster, raw_result_kvs, search_params->groups_processed, sort_fields_std, search_params->group_kv_map);
+    populate_result_kvs(&curated_topster, override_result_kvs, search_params->groups_processed, sort_fields_std, search_params->group_kv_map);
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
@@ -3499,8 +3499,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 
 void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs,
                                 const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
-                                const std::vector<sort_by>& sort_by_fields) {
-    if(topster->distinct) {
+                                const std::vector<sort_by>& sort_by_fields,
+                                spp::sparse_hash_map<uint64_t, Topster*> group_kv_map) {
+    if(topster->distinct && !topster->kv_map.empty()) {
         // we have to pick top-K groups
         Topster gtopster(topster->MAX_SIZE);
 
@@ -3519,7 +3520,7 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
             }
         }
 
-        for(auto& group_topster: topster->group_kv_map) {
+        for(auto& group_topster:group_kv_map) {
             group_topster.second->sort();
             if(group_topster.second->size != 0) {
                 KV* kv_head = group_topster.second->getKV(0);
@@ -3539,8 +3540,8 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
         for(size_t i = 0; i < gtopster.size; i++) {
             KV* kv = gtopster.getKV(i);
             const std::vector<KV*> group_kvs(
-                topster->group_kv_map[kv->distinct_key]->kvs,
-                topster->group_kv_map[kv->distinct_key]->kvs+topster->group_kv_map[kv->distinct_key]->size
+                group_kv_map[kv->distinct_key]->kvs,
+                group_kv_map[kv->distinct_key]->kvs+group_kv_map[kv->distinct_key]->size
             );
             result_kvs.emplace_back(group_kvs);
         }

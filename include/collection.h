@@ -481,7 +481,8 @@ public:
 
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs, 
                     const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
-                    const std::vector<sort_by>& sort_by_fields);
+                    const std::vector<sort_by>& sort_by_fields,
+                    spp::sparse_hash_map<uint64_t, Topster*> group_kv_map);
 
     void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed,
                      const bool& return_doc, const bool& return_id, const size_t remote_embedding_batch_size = 200,

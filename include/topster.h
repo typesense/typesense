@@ -125,7 +125,6 @@ struct KV {
 struct Topster {
     const uint32_t MAX_SIZE;
     uint32_t size;
-    size_t K;
 
     KV *data;
     KV** kvs;
@@ -134,13 +133,12 @@ struct Topster {
 
     spp::sparse_hash_set<uint64_t> group_doc_seq_ids;
 
-    spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
     size_t distinct;
 
     explicit Topster(size_t capacity): Topster(capacity, 0) {
     }
 
-    explicit Topster(size_t capacity, size_t distinct): MAX_SIZE(capacity), size(0), distinct(distinct), K(10) {
+    explicit Topster(size_t capacity, size_t distinct): MAX_SIZE(capacity), size(0), distinct(distinct) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
         // we use separate **kvs for easier pointer swaps
         data = new KV[capacity];
@@ -159,14 +157,9 @@ struct Topster {
     ~Topster() {
         delete[] data;
         delete[] kvs;
-        for(auto& kv: group_kv_map) {
-            delete kv.second;
-        }
 
         data = nullptr;
         kvs = nullptr;
-
-        group_kv_map.clear();
     }
 
     static inline void swapMe(KV** a, KV** b) {
@@ -179,92 +172,68 @@ struct Topster {
         (*b)->array_index = a_index;
     }
 
-    int add(KV* kv) {
+    int add(KV* kv, bool use_distinct_key=true) {
         /*LOG(INFO) << "kv_map size: " << kv_map.size() << " -- kvs[0]: " << kvs[0]->scores[kvs[0]->match_score_index];
         for(auto& mkv: kv_map) {
             LOG(INFO) << "kv key: " << mkv.first << " => " << mkv.second->scores[mkv.second->match_score_index];
         }*/
 
         int ret = 1;
-       
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
 
-        if(!distinct && less_than_min_heap) {
+        if (!distinct && less_than_min_heap) {
             // for non-distinct, if incoming value is smaller than min-heap ignore
             return 0;
         }
 
         bool SIFT_DOWN = true;
+        uint64_t key = use_distinct_key ? kv->distinct_key : kv->key;
 
-        if(distinct) {
-            const auto& doc_seq_id_exists = 
-                (group_doc_seq_ids.find(kv->key) != group_doc_seq_ids.end());
-        
-            if(doc_seq_id_exists) {
-                ret = 2;
+
+        const auto &found_it = kv_map.find(key);
+        bool is_duplicate_key = (found_it != kv_map.end());
+
+        /*
+           is_duplicate_key: SIFT_DOWN regardless of `size`.
+           Else:
+               Do SIFT_UP if size < max_size
+               Else SIFT_DOWN
+        */
+
+        if (is_duplicate_key) {
+            // Need to check if kv is greater than existing duplicate kv.
+            KV *existing_kv = found_it->second;
+            //LOG(INFO) << "existing_kv: " << existing_kv->key << " -> " << existing_kv->match_score;
+
+            bool smaller_than_existing = is_smaller(kv, existing_kv);
+            if (smaller_than_existing) {
+                return 0;
             }
-            group_doc_seq_ids.emplace(kv->key);
-            
-            // Grouping cannot be a streaming operation, so aggregate the KVs associated with every group.
-            auto kvs_it = group_kv_map.find(kv->distinct_key);
-            if(kvs_it != group_kv_map.end()) {
-                kvs_it->second->add(kv);
+
+            SIFT_DOWN = true;
+
+            // replace existing kv and sift down
+            heap_op_index = existing_kv->array_index;
+            kv_map.erase(kvs[heap_op_index]->key);
+        } else {  // not duplicate
+
+            if (size < MAX_SIZE) {
+                // we just copy to end of array
+                SIFT_DOWN = false;
+                heap_op_index = size;
+                size++;
             } else {
-                Topster* g_topster = new Topster(distinct, 0);
-                g_topster->add(kv);
-                group_kv_map.insert({kv->distinct_key, g_topster});
-            }
-            
-            return ret;
-
-        } else { // not distinct
-            //LOG(INFO) << "Searching for key: " << kv->key;
-
-            const auto& found_it = kv_map.find(kv->key);
-            bool is_duplicate_key = (found_it != kv_map.end());
-
-            /*
-               is_duplicate_key: SIFT_DOWN regardless of `size`.
-               Else:
-                   Do SIFT_UP if size < max_size
-                   Else SIFT_DOWN
-            */
-
-            if(is_duplicate_key) {
-                // Need to check if kv is greater than existing duplicate kv.
-                KV* existing_kv = found_it->second;
-                //LOG(INFO) << "existing_kv: " << existing_kv->key << " -> " << existing_kv->match_score;
-
-                bool smaller_than_existing = is_smaller(kv, existing_kv);
-                if(smaller_than_existing) {
-                    return 0;
-                }
-
+                // kv is guaranteed to be > min heap.
+                // we have to replace min heap element since array is full
                 SIFT_DOWN = true;
-
-                // replace existing kv and sift down
-                heap_op_index = existing_kv->array_index;
+                heap_op_index = 0;
                 kv_map.erase(kvs[heap_op_index]->key);
-            } else {  // not duplicate
-
-                if(size < MAX_SIZE) {
-                    // we just copy to end of array
-                    SIFT_DOWN = false;
-                    heap_op_index = size;
-                    size++;
-                } else {
-                    // kv is guaranteed to be > min heap.
-                    // we have to replace min heap element since array is full
-                    SIFT_DOWN = true;
-                    heap_op_index = 0;
-                    kv_map.erase(kvs[heap_op_index]->key);
-                }
             }
-
-            // kv will be copied into the pointer at heap_op_index
-            kv_map.emplace(kv->key, kvs[heap_op_index]);
         }
+
+        // kv will be copied into the pointer at heap_op_index
+        kv_map.emplace(key, kvs[heap_op_index]);
 
         // we have to replace the existing element in the heap and sift down
         kv->array_index = heap_op_index;
@@ -272,10 +241,10 @@ struct Topster {
 
         // sift up/down to maintain heap property
 
-        if(SIFT_DOWN) {
+        if (SIFT_DOWN) {
             while ((2 * heap_op_index + 1) < size) {
                 uint32_t next = (2 * heap_op_index + 1);  // left child
-                if (next+1 < size && is_greater(kvs[next], kvs[next + 1])) {
+                if (next + 1 < size && is_greater(kvs[next], kvs[next + 1])) {
                     // for min heap we compare with the minimum of children
                     next++;  // right child (2n + 2)
                 }
@@ -290,7 +259,7 @@ struct Topster {
             }
         } else {
             // SIFT UP
-            while(heap_op_index > 0) {
+            while (heap_op_index > 0) {
                 uint32_t parent = (heap_op_index - 1) / 2;
                 if (is_greater(kvs[parent], kvs[heap_op_index])) {
                     swapMe(&kvs[heap_op_index], &kvs[parent]);
@@ -342,21 +311,7 @@ struct Topster {
         return kvs[index];
     }
 
-    void process_topK_groups() {
-        std::vector<std::pair<uint64_t, uint32_t>> top_groups;
-
-        for(const auto& kv : group_kv_map) {
-            top_groups.push_back(std::make_pair(kv.first, kv.second->size));
-        }
-
-        auto top_K = std::min(K, top_groups.size());
-        std::nth_element(top_groups.begin(), top_groups.begin() + top_K, top_groups.end(),
-                         [&](const std::pair<uint64_t, uint32_t>& p1, const std::pair<uint64_t, uint32_t>& p2) {
-            return p1.second > p2.second;
-        });
-
-        for(auto i = top_K; i < top_groups.size(); ++i) {
-            group_kv_map.erase(top_groups[i].first);
-        }
+    bool key_exists(uint64_t distinct_key) const {
+        return kv_map.find(distinct_key) != kv_map.end();
     }
 };

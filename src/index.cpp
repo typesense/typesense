@@ -1347,7 +1347,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                       const bool group_missing_values,
                       const uint32_t* result_ids, size_t results_size, 
                       int max_facet_count, bool is_wildcard_no_filter_query,
-                      facet_index_type_t facet_index_type) const {
+                      facet_index_type_t facet_index_type, const Topster* topster,
+                      spp::sparse_hash_map<uint64_t, Topster*>& group_kv_map) const {
 
     if(results_size == 0) {
         return ;
@@ -1455,7 +1456,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             if (group_limit != 0) {
                 group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
             }
-
             for(size_t i = 0; i < results_size; i++) {
                 // if sampling is enabled, we will skip a portion of the results to speed up things
                 if(estimate_facets) {
@@ -1466,7 +1466,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
                 uint32_t doc_seq_id = result_ids[i];
                 facet_index_it.skip_to(doc_seq_id);
-
                 if(!facet_index_it.valid()) {
                     break;
                 }
@@ -1487,6 +1486,18 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     distinct_id = 1;
                     for(auto& kv : group_by_field_it_vec) {
                         get_distinct_id(kv.it, doc_seq_id, kv.is_array, group_missing_values, distinct_id, false);
+                    }
+                    if(topster->key_exists(distinct_id)) {
+                        int64_t scores[3] = {0};
+                        KV kv(0, doc_seq_id, distinct_id, 0, scores);
+
+                        if(group_kv_map.find(distinct_id) == group_kv_map.end()) {
+                            Topster* g_topster = new Topster(topster->distinct);
+                            g_topster->add(&kv, false);
+                            group_kv_map.insert({kv.distinct_key, g_topster});
+                        } else {
+                            group_kv_map[distinct_id]->add(&kv);
+                        }
                     }
                 }
                 //LOG(INFO) << "facet_hash_count " << facet_hash_count;
@@ -1560,17 +1571,8 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 }
 
 void Index::aggregate_topster(Topster* agg_topster, Topster* index_topster) {
-    if(index_topster->distinct) {
-        for(auto &group_topster_entry: index_topster->group_kv_map) {
-            Topster* group_topster = group_topster_entry.second;
-            for(const auto& map_kv: group_topster->kv_map) {
-                agg_topster->add(map_kv.second);
-            }
-        }
-    } else {
-        for(const auto& map_kv: index_topster->kv_map) {
-            agg_topster->add(map_kv.second);
-        }
+    for (const auto &map_kv: index_topster->kv_map) {
+        agg_topster->add(map_kv.second);
     }
 }
 
@@ -2348,6 +2350,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->included_ids, search_params->excluded_ids,
            search_params->sort_fields_std, search_params->num_typos,
            search_params->topster, search_params->curated_topster,
+           search_params->group_kv_map,
            search_params->per_page, search_params->offset, search_params->token_order,
            search_params->prefixes, search_params->drop_tokens_threshold,
            search_params->all_result_ids_len, search_params->groups_processed,
@@ -2380,8 +2383,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            collection_name,
            search_params->drop_tokens_mode,
            facet_index_type,
-           enable_typos_for_numerical_tokens
-           );
+           enable_typos_for_numerical_tokens);
 }
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
@@ -2416,22 +2418,22 @@ void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
     }
 }
 
-void Index::concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) {
-    if(topster->distinct) {
-        for(auto &group_topster_entry: topster->group_kv_map) {
-            Topster* group_topster = group_topster_entry.second;
-            for(const auto& map_kv: group_topster->kv_map) {
-                topster_ids[map_kv.first].push_back(map_kv.second);
-            }
-        }
-    } else {
-        for(const auto& map_kv: topster->kv_map) {
-            //LOG(INFO) << "map_kv.second.key: " << map_kv.second->key;
-            //LOG(INFO) << "map_kv.first: " << map_kv.first;
-            topster_ids[map_kv.first].push_back(map_kv.second);
-        }
-    }
-}
+//void Index::concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) {
+//    if(topster->distinct) {
+//        for(auto &group_topster_entry: topster->group_kv_map) {
+//            Topster* group_topster = group_topster_entry.second;
+//            for(const auto& map_kv: group_topster->kv_map) {
+//                topster_ids[map_kv.first].push_back(map_kv.second);
+//            }
+//        }
+//    } else {
+//        for(const auto& map_kv: topster->kv_map) {
+//            //LOG(INFO) << "map_kv.second.key: " << map_kv.second->key;
+//            //LOG(INFO) << "map_kv.first: " << map_kv.first;
+//            topster_ids[map_kv.first].push_back(map_kv.second);
+//        }
+//    }
+//}
 
 bool Index::static_filter_query_eval(const override_t* override,
                                      std::vector<std::string>& tokens,
@@ -2833,6 +2835,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                    const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                    const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
+                   spp::sparse_hash_map<uint64_t, Topster*>& group_kv_map,
                    const size_t per_page,
                    const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                    const size_t drop_tokens_threshold, size_t& all_result_ids_len,
@@ -3460,9 +3463,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 std::vector<KV*> kvs;
                 if(group_limit != 0) {
-                    for(auto& kv_map : topster->group_kv_map) {
-                        for(int i = 0; i < kv_map.second->size; i++) {
-                            kvs.push_back(kv_map.second->getKV(i));
+                    for(auto& kv : group_kv_map) {
+                        for(int i = 0; i < kv.second->size; i++) {
+                            kvs.push_back(kv.second->getKV(i));
                         }
                     }
                     
@@ -3636,6 +3639,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             max_candidates, facet_infos, facet_index_type, enable_typos_for_numerical_tokens);
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
+        spp::sparse_hash_map<uint64_t, Topster*> group_kv_map_batches[num_threads];
         std::vector<facet> value_facets;
 
         for(size_t i = 0; i < facets.size(); i++) {
@@ -3687,7 +3691,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          is_wildcard_no_filter_query, no_filters_provided, estimate_facets,
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
-                                         &num_processed, &m_process, &cv_process, facet_index_type]() {
+                                         &num_processed, &m_process, &cv_process, facet_index_type, topster, &group_kv_map_batches]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = false;
@@ -3696,7 +3700,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 do_facets(facet_batches[thread_id], fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields, group_missing_values,
                           batch_result_ids, batch_res_len, max_facet_values,
-                          is_wildcard_no_filter_query, facet_index_type);
+                          is_wildcard_no_filter_query, facet_index_type, topster, group_kv_map_batches[thread_id]);
 
                 std::unique_lock<std::mutex> lock(m_process);
                 num_processed++;
@@ -3718,13 +3722,26 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 auto& acc_facet = facets[this_facet.orig_index];
                 aggregate_facet(group_limit, this_facet, acc_facet);
             }
+            for(const auto& kv : group_kv_map_batches[batch_index]) {
+                for(auto i = 0; i < kv.second->size; ++i) {
+                    auto kvptr = kv.second->getKV(i);
+
+                    if(group_kv_map.find(kv.first) == group_kv_map.end()) {
+                        Topster* g_topster = new Topster(topster->distinct);
+                        g_topster->add(kvptr, false);
+                        group_kv_map.insert({kv.first, g_topster});
+                    } else {
+                        group_kv_map[kv.first]->add(kvptr);
+                    }
+                }
+            }
         }
 
         // do value based faceting which must be single thread on the entire resultset (without batching)
         do_facets(value_facets, facet_query, estimate_facets, facet_sample_percent,
                   facet_infos, group_limit, group_by_fields, group_missing_values,
                   all_result_ids, all_result_ids_len, max_facet_values,
-                  is_wildcard_no_filter_query, facet_index_type);
+                  is_wildcard_no_filter_query, facet_index_type, topster, group_kv_map);
 
         for(auto& this_facet : value_facets) {
             auto& acc_facet = facets[this_facet.orig_index];
@@ -3756,6 +3773,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         /*long long int timeMillisF = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::high_resolution_clock::now() - beginF).count();
         LOG(INFO) << "Time for faceting: " << timeMillisF;*/
+        for(auto& group_kv_map_batch : group_kv_map_batches) {
+            for(const auto& kv : group_kv_map_batch) {
+                delete kv.second;
+            }
+            group_kv_map_batch.clear();
+        }
     }
 
     std::vector<facet_info_t> facet_infos(facets.size());
@@ -3766,11 +3789,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
               facet_infos, group_limit, group_by_fields, group_missing_values, &included_ids_vec[0], 
               included_ids_vec.size(), max_facet_values, is_wildcard_no_filter_query,
-              facet_index_type);
+              facet_index_type, topster, group_kv_map);
 
     all_result_ids_len += curated_topster->size;
-
-    topster->process_topK_groups();
 
     delete [] all_result_ids;
 

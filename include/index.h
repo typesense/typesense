@@ -166,6 +166,7 @@ struct search_args {
     Topster* curated_topster;
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
+    spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
 
     vector_query_t& vector_query;
     size_t facet_sample_percent;
@@ -211,11 +212,17 @@ struct search_args {
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
         curated_topster = new Topster(topster_size, group_limit);
+        group_kv_map.clear();
     }
 
     ~search_args() {
         delete topster;
         delete curated_topster;
+
+        for(const auto& kv : group_kv_map) {
+            delete kv.second;
+        }
+        group_kv_map.clear();
     };
 };
 
@@ -453,7 +460,8 @@ private:
                    const bool group_missing_values,
                    const uint32_t* result_ids, size_t results_size,
                    int max_facet_count, bool is_wildcard_query,
-                   facet_index_type_t facet_index_type) const;
+                   facet_index_type_t facet_index_type, const Topster* topster,
+                   spp::sparse_hash_map<uint64_t, Topster*>& group_kv_map) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   filter_node_t*& filter_tree_root) const;
@@ -641,7 +649,7 @@ public:
 
     ~Index();
 
-    static void concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
+    //static void concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 
     int64_t score_results2(const std::vector<sort_by> & sort_fields, const uint16_t & query_index,
                            const size_t field_id, const bool field_is_array, const uint32_t total_cost,
@@ -718,6 +726,7 @@ public:
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                 const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
+                spp::sparse_hash_map<uint64_t, Topster*>& group_kv_map,
                 const size_t per_page,
                 const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                 const size_t drop_tokens_threshold, size_t& all_result_ids_len,
@@ -739,8 +748,7 @@ public:
                 const std::string& collection_name,
                 const drop_tokens_param_t drop_tokens_mode,
                 facet_index_type_t facet_index_type = DETECT,
-                bool enable_typos_for_numerical_tokens = false
-                ) const;
+                bool enable_typos_for_numerical_tokens = false) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
                       const bool is_update);
