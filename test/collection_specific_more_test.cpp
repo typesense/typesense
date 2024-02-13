@@ -2772,7 +2772,7 @@ TEST_F(CollectionSpecificMoreTest, DisableHighlightForLongFields) {
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
     std::string description;
-    for(size_t i = 0; i < 100*1000; i++) {
+    for(size_t i = 0; i < 70*1000; i++) {
         description += StringUtils::randstring(4) + " ";
     }
 
@@ -2790,6 +2790,30 @@ TEST_F(CollectionSpecificMoreTest, DisableHighlightForLongFields) {
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(1, res_op.get()["hits"].size());
     ASSERT_EQ(0, res_op.get()["hits"][0]["highlight"].size());
+
+    // if token is found within first 64K offsets, we will highlight
+    description = "";
+    for(size_t i = 0; i < 1000; i++) {
+        description += StringUtils::randstring(4) + " ";
+    }
+
+    description += " bazinga ";
+
+    for(size_t i = 0; i < 70*1000; i++) {
+        description += StringUtils::randstring(4) + " ";
+    }
+
+    doc["description"] = description;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    res_op = coll1->search("bazinga", {"description"}, "", {},
+                            {}, {2}, 10, 1,FREQUENCY, {true},
+                            Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "");
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["hits"].size());
+    ASSERT_EQ(1, res_op.get()["hits"][0]["highlight"].size());
 }
 
 TEST_F(CollectionSpecificMoreTest, TestStemming) {
