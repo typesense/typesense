@@ -423,7 +423,7 @@ struct field {
             }
 
             if(!field.is_sort_field() && field.sort) {
-                return Option<bool>(400, "Field `" + field.name + "` cannot be a sortabale field.");
+                return Option<bool>(400, "Field `" + field.name + "` cannot be a sortable field.");
             }
         }
 
