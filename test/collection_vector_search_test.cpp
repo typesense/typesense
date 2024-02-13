@@ -3723,7 +3723,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQueryModel) {
     
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ("Voice query model not found", collection_create_op.error());
+    ASSERT_EQ("Unknown model namespace", collection_create_op.error());
 
     schema_json = R"({
         "name": "test",
@@ -3737,7 +3737,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQueryModel) {
 
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ("Voice query model not found", collection_create_op.error());
+    ASSERT_EQ("Unknown model namespace", collection_create_op.error());
 
     schema_json = R"({
         "name": "test",
@@ -3787,7 +3787,7 @@ TEST_F(CollectionVectorTest, TestVoiceQuery) {
             {"name": "name", "type": "string"}
         ],
         "voice_query_model": {
-            "model_name": "whisper/base.en"
+            "model_name": "ts/whisper/base.en"
         }
     })"_json;
 
@@ -3831,7 +3831,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQuery) {
             {"name": "name", "type": "string"}
         ],
         "voice_query_model": {
-            "model_name": "whisper/base.en"
+            "model_name": "ts/whisper/base.en"
         }
     })"_json;
 

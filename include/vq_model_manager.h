@@ -15,6 +15,7 @@ class VQModelManager {
         static const Option<nlohmann::json> get_config();
         static const std::string get_absolute_model_path(const std::string& model_name);
         static const std::string get_model_namespace(const std::string& model_name);
+        static const std::string get_model_name_without_namespace(const std::string& model_name);
         Option<bool> download_model(const std::string& model_name);
         std::unordered_map<std::string, std::shared_ptr<VQModel>> models;
         VQModelManager() = default;
