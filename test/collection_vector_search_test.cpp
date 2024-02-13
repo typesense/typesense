@@ -3829,7 +3829,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQuery) {
             {"name": "name", "type": "string"}
         ],
         "voice_query_model": {
-            "model_name": "whisper/base.en"
+            "model_name": "ts/whisper/base.en"
         }
     })"_json;
 
