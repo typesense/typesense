@@ -97,16 +97,23 @@ Option<std::shared_ptr<VQModel>> VQModelManager::validate_and_init_model(const s
         return Option<std::shared_ptr<VQModel>>(models[model_name]);
     }
 
-    auto download_res = download_model(model_name);
+    auto model_namespace = get_model_namespace(model_name);
+    if(model_namespace != "ts") {
+        return Option<std::shared_ptr<VQModel>>(400, "Unknown model namespace");
+    }
+    
+    auto model_name_without_namespace = get_model_name_without_namespace(model_name);
+
+    auto download_res = download_model(model_name_without_namespace);
 
     if (!download_res.ok()) {
         return Option<std::shared_ptr<VQModel>>(download_res.code(), download_res.error());
     }
 
-    auto model_path = get_absolute_model_path(model_name);
-    auto model_namespace = get_model_namespace(model_name);
+    auto model_path = get_absolute_model_path(model_name_without_namespace);
+    auto model_inner_namespace = get_model_namespace(model_name_without_namespace);
 
-    if (model_namespace == "whisper") {
+    if (model_inner_namespace == "whisper") {
         auto whisper_ctx = WhisperModel::validate_and_load_model(model_path);
         if (!whisper_ctx) {
             return Option<std::shared_ptr<VQModel>>(400, "Failed to load voice query model");
@@ -152,6 +159,14 @@ void VQModelManager::clear_unused_models() {
         } else {
             it++;
         }
+    }
+}
+
+const std::string VQModelManager::get_model_name_without_namespace(const std::string& model_name) {
+    if(model_name.find("/") != std::string::npos) {
+        return model_name.substr(model_name.find("/") + 1);
+    } else {
+        return model_name;
     }
 }
 
