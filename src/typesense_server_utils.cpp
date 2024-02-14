@@ -245,7 +245,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     if(!nodes_config_op.ok()) {
         LOG(ERROR) << nodes_config_op.error();
-        exit(-1);
+        return -1;
     }
 
     butil::ip_t peering_ip;
