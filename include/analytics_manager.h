@@ -209,7 +209,7 @@ public:
     Option<bool> add_event(const std::string& client_ip, const std::string& event_type,
                            const std::string& event_name, const nlohmann::json& event_data);
 
-    void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_events();
 
     void persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
