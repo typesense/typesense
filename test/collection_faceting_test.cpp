@@ -1999,6 +1999,18 @@ TEST_F(CollectionFacetingTest, SampleFacetCounts) {
 
     ASSERT_FALSE(res["facet_counts"][0]["sampled"].get<bool>());
 
+    // facet sample percent zero is treated as not sampled
+    res = coll1->search("*", {}, "", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                        4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 0, 10).get();
+
+    ASSERT_EQ(1000, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["facet_counts"].size());
+    ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
+    ASSERT_FALSE(res["facet_counts"][0]["sampled"].get<bool>());
+
     // test for sample percent > 100
 
     auto res_op = coll1->search("*", {}, "", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,

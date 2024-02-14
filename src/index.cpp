@@ -1368,6 +1368,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         auto sort_index_it = sort_index.find(a_facet.field_name);
         auto facet_sort_index_it = sort_index.find(a_facet.sort_field);
 
+        if(facet_sample_percent == 0) {
+            facet_sample_percent = 1;
+        }
+
         size_t mod_value = 100 / facet_sample_percent;
 
         auto num_facet_values = facet_index_v4->get_facet_count(facet_field.name);
@@ -3612,7 +3616,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     delete [] exclude_token_ids;
     delete [] excluded_result_ids;
 
-    bool estimate_facets = (facet_sample_percent < 100 && all_result_ids_len > facet_sample_threshold);
+    bool estimate_facets = (facet_sample_percent > 0 && facet_sample_percent < 100 &&
+                            all_result_ids_len > facet_sample_threshold);
     bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && no_filters_provided;
 
     if(!facets.empty()) {
