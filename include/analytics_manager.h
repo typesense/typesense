@@ -70,6 +70,20 @@ struct counter_event_t {
     std::string counter_field;
     std::map<std::string, uint64_t> docid_counts;
     std::map<std::string, uint16_t> event_weight_map;
+
+    void serialize_as_docs(std::string& docs) {
+        for(auto kv : docid_counts) {
+            nlohmann::json doc;
+            doc["id"] = kv.first;
+            doc["$operations"]["increment"][counter_field] = kv.second;
+            docs += doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore) + "\n";
+        }
+
+        if(!docs.empty()) {
+            docs.pop_back();
+        }
+        docid_counts.clear();
+    }
 };
 
 struct event_cache_t {

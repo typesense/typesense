@@ -627,14 +627,9 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
 
     for(auto& counter_event_it : counter_events) {
         auto coll = counter_event_it.first;
-        nlohmann::json doc;
-        auto counter_field = counter_event_it.second.counter_field;
-        for(const auto& counter_event : counter_event_it.second.docid_counts) {
-            doc["id"] = counter_event.first;
-            doc["$operations"]["increment"][counter_field] = counter_event.second;
-            send_http_response(doc.dump(), coll);
-        }
-        counter_event_it.second.docid_counts.clear();
+        std::string docs;
+        counter_event_it.second.serialize_as_docs(docs);
+        send_http_response(docs, coll);
     }
 }
 

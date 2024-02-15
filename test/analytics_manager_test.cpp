@@ -905,25 +905,20 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(6, popular_clicks["products"].docid_counts["1"]);
 
     //trigger persistance event manually
-    for(const auto& popular_clicks_it : popular_clicks) {
-        auto coll = popular_clicks_it.first;
-        nlohmann::json doc;
-        auto counter_field = popular_clicks_it.second.counter_field;
-        req->params["collection"] = "products";
+    for(auto& popular_clicks_it : popular_clicks) {
+        std::string docs;
+        req->params["collection"] = popular_clicks_it.first;
         req->params["action"] = "update";
-        for(const auto& popular_click : popular_clicks_it.second.docid_counts) {
-            doc["id"] = popular_click.first;
-            doc[counter_field] = popular_click.second;
-            req->body = doc.dump();
-            post_import_documents(req, res);
-        }
+        popular_clicks_it.second.serialize_as_docs(docs);
+        req->body = docs;
+        post_import_documents(req, res);
     }
 
     sort_fields = {sort_by("popularity", "DESC")};
     auto results = products_coll->search("*", {}, "", {},
-                              sort_fields, {0}, 10, 1, FREQUENCY,{false},
-                              Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
-                              spp::sparse_hash_set<std::string>()).get();
+                                         sort_fields, {0}, 10, 1, FREQUENCY,{false},
+                                         Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
+                                         spp::sparse_hash_set<std::string>()).get();
 
     ASSERT_EQ(5, results["hits"].size());
 
