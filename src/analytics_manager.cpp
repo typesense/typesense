@@ -630,6 +630,7 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
         std::string docs;
         counter_event_it.second.serialize_as_docs(docs);
         send_http_response(docs, coll);
+        counter_event_it.second.docid_counts.clear();
     }
 }
 
@@ -697,4 +698,17 @@ std::string AnalyticsManager::get_sub_event_type(const std::string &event_type) 
         return AnalyticsManager::CUSTOM_EVENT;
     }
     return "";
+}
+
+void counter_event_t::serialize_as_docs(std::string &docs) {
+    for (auto kv: docid_counts) {
+        nlohmann::json doc;
+        doc["id"] = kv.first;
+        doc["$operations"]["increment"][counter_field] = kv.second;
+        docs += doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore) + "\n";
+    }
+
+    if (!docs.empty()) {
+        docs.pop_back();
+    }
 }
