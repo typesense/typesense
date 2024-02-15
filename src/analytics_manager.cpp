@@ -631,7 +631,7 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
         auto counter_field = counter_event_it.second.counter_field;
         for(const auto& counter_event : counter_event_it.second.docid_counts) {
             doc["id"] = counter_event.first;
-            doc[counter_field] = counter_event.second;
+            doc["$operations"]["increment"][counter_field] = counter_event.second;
             send_http_response(doc.dump(), coll);
         }
         counter_event_it.second.docid_counts.clear();
