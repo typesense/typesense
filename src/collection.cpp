@@ -2382,7 +2382,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::sort(
       override_result_kvs.begin(), override_result_kvs.end(),
       [](const std::vector<KV*>& a, std::vector<KV*>& b) -> bool {
-          return a[0]->distinct_key < b[0]->distinct_key;
+          return a[0]->key < b[0]->key;
       }
     );
 
@@ -2394,7 +2394,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     while(raw_results_index < raw_result_kvs.size()) {
         if(override_kv_index < override_result_kvs.size()) {
             size_t result_position = result_group_kvs.size() + 1;
-            uint64_t override_position = override_result_kvs[override_kv_index][0]->distinct_key;
+            uint64_t override_position = override_result_kvs[override_kv_index][0]->key;
             if(result_position == override_position) {
                 override_result_kvs[override_kv_index][0]->match_score_index = CURATED_RECORD_IDENTIFIER;
                 result_group_kvs.push_back(override_result_kvs[override_kv_index]);
@@ -2689,11 +2689,15 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         if(group_limit) {
             group_hits["group_key"] = group_key;
+            for(const auto& group_kv : search_params->group_kv_map) {
+                if(group_kv.second->key_exists(kv_group[0]->key)) {
+                    const auto &itr = search_params->groups_processed.find(group_kv.first);
 
-            const auto& itr = search_params->groups_processed.find(kv_group[0]->distinct_key);
-            
-            if(itr != search_params->groups_processed.end()) {
-                group_hits["found"] = itr->second;
+                    if (itr != search_params->groups_processed.end()) {
+                        group_hits["found"] = itr->second.size();
+                    }
+                    break;
+                }
             }
             result["grouped_hits"].push_back(group_hits);
         }
@@ -3498,37 +3502,37 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 }
 
 void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs,
-                                const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
+                                const spp::sparse_hash_map<uint64_t, std::set<uint32_t>>& groups_processed,
                                 const std::vector<sort_by>& sort_by_fields,
                                 spp::sparse_hash_map<uint64_t, Topster*> group_kv_map) {
-    if(topster->distinct && !topster->kv_map.empty()) {
+    if(!group_kv_map.empty() && !topster->kv_map.empty()) {
         // we have to pick top-K groups
         Topster gtopster(topster->MAX_SIZE);
 
         int group_count_index = -1;
         int group_sort_order = 1;
 
-        for(int i = 0; i < sort_by_fields.size(); ++i) {
-            if(sort_by_fields[i].name == sort_field_const::group_found) {
+        for (int i = 0; i < sort_by_fields.size(); ++i) {
+            if (sort_by_fields[i].name == sort_field_const::group_found) {
                 group_count_index = i;
-                
-                if(sort_by_fields[i].order == sort_field_const::asc) {
+
+                if (sort_by_fields[i].order == sort_field_const::asc) {
                     group_sort_order *= -1;
-                } 
+                }
 
                 break;
             }
         }
 
-        for(auto& group_topster:group_kv_map) {
+        for (auto &group_topster: group_kv_map) {
             group_topster.second->sort();
-            if(group_topster.second->size != 0) {
-                KV* kv_head = group_topster.second->getKV(0);
-                
-                if(group_count_index >= 0) {
-                    const auto& itr = groups_processed.find(kv_head->distinct_key);
-                    if(itr != groups_processed.end()) {
-                        kv_head->scores[group_count_index] = itr->second * group_sort_order;
+            if (group_topster.second->size != 0) {
+                KV *kv_head = group_topster.second->getKV(0);
+
+                if (group_count_index >= 0) {
+                    const auto &itr = groups_processed.find(group_topster.first);
+                    if (itr != groups_processed.end()) {
+                        kv_head->scores[group_count_index] = itr->second.size() * group_sort_order;
                     }
                 }
                 gtopster.add(kv_head);
@@ -3537,13 +3541,18 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
 
         gtopster.sort();
 
-        for(size_t i = 0; i < gtopster.size; i++) {
-            KV* kv = gtopster.getKV(i);
-            const std::vector<KV*> group_kvs(
-                group_kv_map[kv->distinct_key]->kvs,
-                group_kv_map[kv->distinct_key]->kvs+group_kv_map[kv->distinct_key]->size
-            );
-            result_kvs.emplace_back(group_kvs);
+        for (size_t i = 0; i < gtopster.size; i++) {
+            KV *kv = gtopster.getKV(i);
+            for(const auto& group_topster : group_kv_map) {
+                if(group_topster.second->key_exists(kv->key)) {
+                    const std::vector<KV *> group_kvs(
+                            group_topster.second->kvs,
+                            group_topster.second->kvs + group_topster.second->size
+                    );
+                    result_kvs.emplace_back(group_kvs);
+                    break;
+                }
+            }
         }
     } else {
         for(uint32_t t = 0; t < topster->size; t++) {

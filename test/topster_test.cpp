@@ -36,7 +36,7 @@ TEST(TopsterTest, MaxIntValues) {
         scores[1] = data[i].primary_attr;
         scores[2] = data[i].secondary_attr;
 
-        KV kv(data[i].query_index, data[i].key, data[i].key, 0, scores);
+        KV kv(data[i].query_index, data[i].key, 0, scores);
         topster.add(&kv);
     }
 
@@ -77,7 +77,7 @@ TEST(TopsterTest, StableSorting) {
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
-        KV kv(0, id_score.first, id_score.first, 0, scores);
+        KV kv(0, id_score.first, 0, scores);
         topster1K.add(&kv);
     }
 
@@ -94,7 +94,7 @@ TEST(TopsterTest, StableSorting) {
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
-        KV kv(0, id_score.first, id_score.first, 0, scores);
+        KV kv(0, id_score.first, 0, scores);
         topster250.add(&kv);
     }
 
@@ -109,7 +109,7 @@ TEST(TopsterTest, StableSorting) {
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
-        KV kv(0, id_score.first, id_score.first, 0, scores);
+        KV kv(0, id_score.first, 0, scores);
         topster500.add(&kv);
     }
 
@@ -124,7 +124,7 @@ TEST(TopsterTest, StableSorting) {
 
     for(auto id_score: records) {
         int64_t scores[3] = {id_score.second, 0, 0};
-        KV kv(0, id_score.first, id_score.first, 0, scores);
+        KV kv(0, id_score.first, 0, scores);
         topster750.add(&kv);
     }
 
@@ -165,7 +165,7 @@ TEST(TopsterTest, MaxFloatValues) {
         scores[1] = Index::float_to_int64_t(data[i].primary_attr);
         scores[2] = data[i].secondary_attr;
 
-        KV kv(data[i].query_index, data[i].key, data[i].key, 0, scores);
+        KV kv(data[i].query_index, data[i].key, 0, scores);
         topster.add(&kv);
     }
 
@@ -179,44 +179,44 @@ TEST(TopsterTest, MaxFloatValues) {
 }
 
 TEST(TopsterTest, DistinctIntValues) {
-    Topster dist_topster(5, 2);
-
-    struct {
-        uint16_t query_index;
-        uint64_t distinct_key;
-        uint64_t match_score;
-        int64_t primary_attr;
-        int64_t secondary_attr;
-    } data[14] = {
-        {0, 1, 11, 20, 30},
-        {0, 1, 12, 20, 32},
-        {0, 2, 4, 20, 30},
-        {2, 3, 7, 20, 30},
-        {0, 4, 14, 20, 30},
-        {1, 5, 9, 20, 30},
-        {1, 5, 10, 20, 32},
-        {1, 5, 9, 20, 30},
-        {0, 6, 6, 20, 30},
-        {2, 7, 6, 22, 30},
-        {2, 7, 6, 22, 30},
-        {1, 8, 9, 20, 30},
-        {0, 9, 8, 20, 30},
-        {3, 10,  5, 20, 30},
-    };
-
-    for(int i = 0; i < 14; i++) {
-        int64_t scores[3];
-        scores[0] = int64_t(data[i].match_score);
-        scores[1] = data[i].primary_attr;
-        scores[2] = data[i].secondary_attr;
-
-        KV kv(data[i].query_index, i+100, data[i].distinct_key, 0, scores);
-        dist_topster.add(&kv);
-    }
-
-    dist_topster.sort();
-
-    std::vector<uint64_t> distinct_ids = {4, 1, 8, 5, 9};
+//    Topster dist_topster(5, 2);
+//
+//    struct {
+//        uint16_t query_index;
+//        uint64_t distinct_key;
+//        uint64_t match_score;
+//        int64_t primary_attr;
+//        int64_t secondary_attr;
+//    } data[14] = {
+//        {0, 1, 11, 20, 30},
+//        {0, 1, 12, 20, 32},
+//        {0, 2, 4, 20, 30},
+//        {2, 3, 7, 20, 30},
+//        {0, 4, 14, 20, 30},
+//        {1, 5, 9, 20, 30},
+//        {1, 5, 10, 20, 32},
+//        {1, 5, 9, 20, 30},
+//        {0, 6, 6, 20, 30},
+//        {2, 7, 6, 22, 30},
+//        {2, 7, 6, 22, 30},
+//        {1, 8, 9, 20, 30},
+//        {0, 9, 8, 20, 30},
+//        {3, 10,  5, 20, 30},
+//    };
+//
+//    for(int i = 0; i < 14; i++) {
+//        int64_t scores[3];
+//        scores[0] = int64_t(data[i].match_score);
+//        scores[1] = data[i].primary_attr;
+//        scores[2] = data[i].secondary_attr;
+//
+//        KV kv(data[i].query_index, i+100, data[i].distinct_key, 0, scores);
+//        dist_topster.add(&kv);
+//    }
+//
+//    dist_topster.sort();
+//
+//    std::vector<uint64_t> distinct_ids = {4, 1, 8, 5, 9};
 
 //    for(uint32_t i = 0; i < dist_topster.size; i++) {
 //        EXPECT_EQ(distinct_ids[i], dist_topster.getDistinctKeyAt(i));

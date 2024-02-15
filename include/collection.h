@@ -479,8 +479,8 @@ public:
 
     nlohmann::json get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const;
 
-    static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs, 
-                    const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 
+    static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs,
+                    const spp::sparse_hash_map<uint64_t, std::set<uint32_t>>& groups_processed,
                     const std::vector<sort_by>& sort_by_fields,
                     spp::sparse_hash_map<uint64_t, Topster*> group_kv_map);
 
