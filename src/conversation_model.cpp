@@ -1,3 +1,5 @@
+#include <regex>
+#include <iterator>
 #include "conversation_model.h"
 #include "embedder_manager.h"
 #include "text_embedder_remote.h"
@@ -454,25 +456,24 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
         auto json_res = nlohmann::json::parse(res);
         std::string parsed_response = "";
         std::vector<std::string> lines = json_res["response"].get<std::vector<std::string>>();
+        std::regex data_regex("data: (.*?)\\n\\n");
         for(auto& line : lines) {
-            while(line.find("data:") != std::string::npos) {
-                auto substr_line = line.substr(line.find("data:") + 6);
+            auto begin = std::sregex_iterator(line.begin(), line.end(), data_regex);
+            auto end = std::sregex_iterator();
+            for (std::sregex_iterator i = begin; i != end; ++i) {
+                std::string substr_line = i->str().substr(6, i->str().size() - 8);
                 if(substr_line.find("[DONE]") != std::string::npos) {
                     break;
                 }
                 nlohmann::json json_line;
-                if(substr_line.find("\n") != std::string::npos) {
-                   json_line = nlohmann::json::parse(substr_line.substr(0, substr_line.find("\n")));
-                } else {
-                    json_line = nlohmann::json::parse(substr_line);
-                }
+                json_line = nlohmann::json::parse(substr_line);
                 parsed_response += json_line["response"];
-                line = substr_line;
             }
         }
         return Option<std::string>(parsed_response);
     } catch (const std::exception& e) {
         LOG(ERROR) << e.what();
+        LOG(ERROR) << "Response: " << res;
         return Option<std::string>(400, "Got malformed response from Cloudflare API.");
     }
 }
