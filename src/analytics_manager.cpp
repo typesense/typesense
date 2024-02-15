@@ -581,7 +581,7 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
 
 void AnalyticsManager::persist_events() {
     // lock is held by caller
-    for (const auto &events_collection_it: query_collection_events) {
+    for (auto &events_collection_it: query_collection_events) {
         const auto& collection = events_collection_it.first;
         for (const auto &event: events_collection_it.second) {
             if (analytics_logs.is_open()) {
@@ -598,8 +598,8 @@ void AnalyticsManager::persist_events() {
                 analytics_logs << std::flush;
             }
         }
+        events_collection_it.second.clear();
     }
-    query_collection_events.clear();
 }
 
 void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
@@ -623,7 +623,7 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
         }
     };
 
-    for(const auto& counter_event_it : counter_events) {
+    for(auto& counter_event_it : counter_events) {
         auto coll = counter_event_it.first;
         nlohmann::json doc;
         auto counter_field = counter_event_it.second.counter_field;
@@ -632,8 +632,8 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
             doc[counter_field] = counter_event.second;
             send_http_response(doc.dump(), coll);
         }
+        counter_event_it.second.docid_counts.clear();
     }
-    counter_events.clear();
 }
 
 void AnalyticsManager::stop() {
