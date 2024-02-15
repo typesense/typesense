@@ -604,21 +604,23 @@ void AnalyticsManager::persist_events() {
 
 void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     auto send_http_response = [&](const std::string& import_payload, const std::string& collection) {
-        if(raft_server) {
-            std::string leader_url = raft_server->get_leader_url();
-            if (!leader_url.empty()) {
-                const std::string &base_url = leader_url + "collections/" + collection;
-                std::string res;
+        if (raft_server == nullptr) {
+            return;
+        }
 
-                const std::string &update_url = base_url + "/documents/import?action=update";
-                std::map<std::string, std::string> res_headers;
-                long status_code = HttpClient::post_response(update_url, import_payload,
-                                                             res, res_headers, {}, 10 * 1000, true);
+        std::string leader_url = raft_server->get_leader_url();
+        if (!leader_url.empty()) {
+            const std::string &base_url = leader_url + "collections/" + collection;
+            std::string res;
 
-                if (status_code != 200) {
-                    LOG(ERROR) << "Error while sending popular_clicks events to leader. "
-                               << "Status code: " << status_code << ", response: " << res;
-                }
+            const std::string &update_url = base_url + "/documents/import?action=update";
+            std::map<std::string, std::string> res_headers;
+            long status_code = HttpClient::post_response(update_url, import_payload,
+                                                         res, res_headers, {}, 10 * 1000, true);
+
+            if (status_code != 200) {
+                LOG(ERROR) << "Error while sending popular_clicks events to leader. "
+                           << "Status code: " << status_code << ", response: " << res;
             }
         }
     };
