@@ -497,7 +497,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
         "name": "product_click_events",
         "type": "clicks",
         "params": {
-            "name": "AP",
+            "name": "APC",
             "source": {
                 "collection": "titles"
             }
@@ -509,7 +509,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
 
     nlohmann::json event = R"({
         "type": "click",
-        "name": "AP",
+        "name": "APC",
         "data": {
             "q": "technology",
             "doc_id": "21",
@@ -527,7 +527,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     std::stringstream strbuff(fileOutput.get());
     std::string docid, userid, q, collection, name, timestamp;
     strbuff >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("AP", name);
+    ASSERT_EQ("APC", name);
     ASSERT_EQ("titles", collection);
     ASSERT_EQ("13", userid);
     ASSERT_EQ("21", docid);
@@ -535,7 +535,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
 
     event = R"({
         "type": "click",
-        "name": "AP",
+        "name": "APC",
         "data": {
             "q": "technology",
             "doc_id": "12",
@@ -553,7 +553,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     std::stringstream strbuff2(fileOutput.get());
     timestamp.clear();name.clear();collection.clear();userid.clear();q.clear();
     strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("AP", name);
+    ASSERT_EQ("APC", name);
     ASSERT_EQ("titles", collection);
     ASSERT_EQ("13", userid);
     ASSERT_EQ("21", docid);
@@ -561,7 +561,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
 
     timestamp.clear();name.clear();collection.clear();userid.clear();q.clear();
     strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("AP", name);
+    ASSERT_EQ("APC", name);
     ASSERT_EQ("titles", collection);
     ASSERT_EQ("13", userid);
     ASSERT_EQ("12", docid);
