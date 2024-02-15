@@ -54,6 +54,7 @@ class CFConversationModel : public ConversationModel {
         static Option<std::string> get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config);
         static Option<nlohmann::json> format_question(const std::string& message);
         static Option<nlohmann::json> format_answer(const std::string& message);
+        static Option<std::string> parse_stream_response(const std::string& response);
         static const inline std::string STANDALONE_QUESTION_PROMPT = R"(
             Rewrite the follow-up question on top of a human-assistant conversation history as a standalone question that encompasses all pertinent context.Use 1024 characters maximum.
         )";
