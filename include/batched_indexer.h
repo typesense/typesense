@@ -55,6 +55,10 @@ private:
 
     std::atomic<int64_t> queued_writes = 0;
 
+    std::unordered_map<std::string, std::string> coll_name_to_group_id;
+
+    std::unordered_map<std::string, std::unordered_set<std::string>> group_id_to_collections;
+
     /* ------------------------------------------------------- */
 
     std::chrono::high_resolution_clock::time_point last_gc_run;
@@ -114,4 +118,9 @@ public:
     std::string get_collection_name(const std::shared_ptr<http_req>& req);
 
     std::shared_mutex& get_pause_mutex();
+
+    static void group_related_collections(const std::string& coll_name,
+                                          const std::set<std::string>& referenced_collections,
+                                          std::unordered_map<std::string, std::string>& coll_name_to_group_id,
+                                          std::unordered_map<std::string, std::unordered_set<std::string>>& group_id_to_collections);
 };

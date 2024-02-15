@@ -2,6 +2,7 @@
 #include "core_api.h"
 #include "thread_local_vars.h"
 #include "cached_resource_stat.h"
+#include <collection_manager.h>
 
 BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, const size_t num_threads,
                                const Config& config, const std::atomic<bool>& skip_writes):
@@ -11,6 +12,65 @@ BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_sto
     queues.resize(num_threads);
     qmutuxes = new await_t[num_threads];
     skip_index_iter_upper_bound = new rocksdb::Slice(skip_index_upper_bound_key);
+}
+
+void BatchedIndexer::group_related_collections(const std::string& coll_name,
+                                               const std::set<std::string>& referenced_collections,
+                                               std::unordered_map<std::string, std::string>& coll_name_to_group_id,
+                                               std::unordered_map<std::string, std::unordered_set<std::string>>& group_id_to_collections) {
+    if (referenced_collections.empty() && coll_name_to_group_id.count(coll_name) == 0) {
+        coll_name_to_group_id[coll_name] = coll_name;
+        group_id_to_collections[coll_name] = {coll_name};
+        return;
+    }
+
+    for (const auto& ref_coll_name: referenced_collections) {
+        if (coll_name_to_group_id.count(coll_name) == 0 && coll_name_to_group_id.count(ref_coll_name) == 0) {
+            auto group_id = coll_name + ref_coll_name;
+            coll_name_to_group_id[coll_name] = group_id;
+            coll_name_to_group_id[ref_coll_name] = group_id;
+
+            group_id_to_collections[group_id] = {coll_name, ref_coll_name};
+        } else if (coll_name_to_group_id.count(coll_name) == 0 && coll_name_to_group_id.count(ref_coll_name) != 0) {
+            auto ref_coll_previous_group_id = coll_name_to_group_id[ref_coll_name];
+            auto group_id = coll_name + ref_coll_previous_group_id;
+
+            coll_name_to_group_id[coll_name] = group_id;
+            for (const auto &collection: group_id_to_collections[ref_coll_previous_group_id]) {
+                coll_name_to_group_id[collection] = group_id;
+            }
+            group_id_to_collections[group_id] = std::move(group_id_to_collections[ref_coll_previous_group_id]);
+            group_id_to_collections[group_id].insert(coll_name);
+            group_id_to_collections.erase(ref_coll_previous_group_id);
+        } else if (coll_name_to_group_id.count(coll_name) != 0 && coll_name_to_group_id.count(ref_coll_name) == 0) {
+            auto previous_group_id = coll_name_to_group_id[coll_name];
+            auto group_id = previous_group_id + ref_coll_name;
+
+            coll_name_to_group_id[ref_coll_name] = group_id;
+            for (const auto &collection: group_id_to_collections[previous_group_id]) {
+                coll_name_to_group_id[collection] = group_id;
+            }
+            group_id_to_collections[group_id] = std::move(group_id_to_collections[previous_group_id]);
+            group_id_to_collections[group_id].insert(ref_coll_name);
+            group_id_to_collections.erase(previous_group_id);
+        } else {
+            auto coll_previous_group_id = coll_name_to_group_id[coll_name];
+            auto ref_coll_previous_group_id = coll_name_to_group_id[ref_coll_name];
+            auto group_id = coll_previous_group_id + ref_coll_previous_group_id;
+
+            for (const auto &collection: group_id_to_collections[coll_previous_group_id]) {
+                coll_name_to_group_id[collection] = group_id;
+            }
+            for (const auto &collection: group_id_to_collections[ref_coll_previous_group_id]) {
+                coll_name_to_group_id[collection] = group_id;
+            }
+            group_id_to_collections[group_id] = std::move(group_id_to_collections[coll_previous_group_id]);
+            group_id_to_collections[group_id].insert(group_id_to_collections[ref_coll_previous_group_id].begin(),
+                                                     group_id_to_collections[ref_coll_previous_group_id].end());
+            group_id_to_collections.erase(coll_previous_group_id);
+            group_id_to_collections.erase(ref_coll_previous_group_id);
+        }
+    }
 }
 
 void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -49,18 +109,56 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     bool is_old_serialized_request = (req->start_ts == 0);
     bool read_more_input = (req->_req != nullptr && req->_req->proceed_req);
 
+    std::string coll_name;
+    if (is_coll_create_route(req->route_hash)) {
+        nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
+
+        std::set<std::string> referenced_collections;
+        if (!obj.is_discarded() && obj.is_object() &&
+           obj.count("name") != 0 && obj["name"].is_string()) {
+            coll_name = obj["name"];
+
+            if (obj.contains("fields")) {
+                for (const auto &field: obj["fields"]) {
+                    if (field.contains("reference")) {
+                        std::vector<std::string> split_result;
+                        StringUtils::split(field["reference"], split_result, ".");
+                        referenced_collections.insert(split_result.front());
+                    }
+                }
+            }
+        }
+
+        std::unique_lock lock(mutex);
+        group_related_collections(coll_name, referenced_collections, coll_name_to_group_id,
+                                  group_id_to_collections);
+    }
+
     if(req->last_chunk_aggregate) {
         //LOG(INFO) << "Last chunk for req_id: " << req->start_ts;
         queued_writes += (chunk_sequence + 1);
 
         {
-            const std::string& coll_name = get_collection_name(req);
-            uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
+            if (coll_name.empty()) {
+                coll_name = get_collection_name(req);
+            }
             req->body = "";
 
             {
                 std::unique_lock lk2(mutex);
                 req_res_map[req->start_ts].is_complete = true;
+            }
+
+            uint64_t queue_id;
+            if (is_doc_import_route(req->route_hash) && coll_name_to_group_id.count(coll_name) != 0) {
+                std::unique_lock lock(mutex);
+
+                // Using group id instead of collection name ensures that the related collection imports are put in the
+                // same queue.
+                auto group_id = coll_name_to_group_id[coll_name];
+                queue_id = StringUtils::hash_wy(group_id.c_str(), group_id.size()) % num_threads;
+            } else {
+                queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
             }
 
             {
@@ -103,11 +201,8 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
     std::string& coll_name = req->params["collection"];
 
     if(coll_name.empty()) {
-        route_path* rpath = nullptr;
-        bool route_found = server->get_route(req->route_hash, &rpath);
-
         // ensure that collection creation is sent to the same queue as writes to that collection
-        if(route_found && rpath->handler == post_create_collection) {
+        if(is_coll_create_route(req->route_hash)) {
             nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
 
             if(!obj.is_discarded() && obj.is_object() &&

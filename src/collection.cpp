@@ -4713,7 +4713,7 @@ SynonymIndex* Collection::get_synonym_index() {
     return synonym_index;
 }
 
-spp::sparse_hash_map<std::string, reference_pair> Collection::get_reference_fields() {
+spp::sparse_hash_map<std::string, reference_pair> Collection::get_reference_fields() const {
     std::shared_lock lock(mutex);
     return reference_fields;
 }

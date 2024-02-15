@@ -640,7 +640,7 @@ public:
 
     SynonymIndex* get_synonym_index();
 
-    spp::sparse_hash_map<std::string, reference_pair> get_reference_fields();
+    spp::sparse_hash_map<std::string, reference_pair> get_reference_fields() const;
 
     // highlight ops
 
