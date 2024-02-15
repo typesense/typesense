@@ -477,6 +477,97 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     ASSERT_TRUE(post_create_event(req, res));
 }
 
+TEST_F(AnalyticsManagerTest, EventsPersist) {
+    //remove all rules first
+    analyticsManager.remove_all_rules();
+
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection *titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    auto analytics_rule = R"({
+        "name": "product_click_events",
+        "type": "clicks",
+        "params": {
+            "name": "APC",
+            "source": {
+                "collection": "titles"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    nlohmann::json event = R"({
+        "type": "click",
+        "name": "APC",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    analyticsManager.persist_events();
+
+    auto fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
+
+    std::stringstream strbuff(fileOutput.get());
+    std::string docid, userid, q, collection, name, timestamp;
+    strbuff >> timestamp >> name >> collection >> userid >> docid >> q;
+    ASSERT_EQ("APC", name);
+    ASSERT_EQ("titles", collection);
+    ASSERT_EQ("13", userid);
+    ASSERT_EQ("21", docid);
+    ASSERT_EQ("technology", q);
+
+    event = R"({
+        "type": "click",
+        "name": "APC",
+        "data": {
+            "q": "technology",
+            "doc_id": "12",
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    analyticsManager.persist_events();
+
+    fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
+
+    std::stringstream strbuff2(fileOutput.get());
+    timestamp.clear();name.clear();collection.clear();userid.clear();q.clear();
+    strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
+    ASSERT_EQ("APC", name);
+    ASSERT_EQ("titles", collection);
+    ASSERT_EQ("13", userid);
+    ASSERT_EQ("21", docid);
+    ASSERT_EQ("technology", q);
+
+    timestamp.clear();name.clear();collection.clear();userid.clear();q.clear();
+    strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
+    ASSERT_EQ("APC", name);
+    ASSERT_EQ("titles", collection);
+    ASSERT_EQ("13", userid);
+    ASSERT_EQ("12", docid);
+    ASSERT_EQ("technology", q);
+}
+
 TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
     nlohmann::json titles_schema = R"({
             "name": "titles",
@@ -813,26 +904,21 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ(7, popular_clicks["products"].docid_counts["3"]);
     ASSERT_EQ(6, popular_clicks["products"].docid_counts["1"]);
 
-    //trigger persistance event
-    for(const auto& popular_clicks_it : popular_clicks) {
-        auto coll = popular_clicks_it.first;
-        nlohmann::json doc;
-        auto counter_field = popular_clicks_it.second.counter_field;
-        req->params["collection"] = "products";
+    //trigger persistance event manually
+    for(auto& popular_clicks_it : popular_clicks) {
+        std::string docs;
+        req->params["collection"] = popular_clicks_it.first;
         req->params["action"] = "update";
-        for(const auto& popular_click : popular_clicks_it.second.docid_counts) {
-            doc["id"] = popular_click.first;
-            doc[counter_field] = popular_click.second;
-            req->body = doc.dump();
-            post_import_documents(req, res);
-        }
+        popular_clicks_it.second.serialize_as_docs(docs);
+        req->body = docs;
+        post_import_documents(req, res);
     }
 
     sort_fields = {sort_by("popularity", "DESC")};
     auto results = products_coll->search("*", {}, "", {},
-                              sort_fields, {0}, 10, 1, FREQUENCY,{false},
-                              Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
-                              spp::sparse_hash_set<std::string>()).get();
+                                         sort_fields, {0}, 10, 1, FREQUENCY,{false},
+                                         Index::DROP_TOKENS_THRESHOLD,spp::sparse_hash_set<std::string>(),
+                                         spp::sparse_hash_set<std::string>()).get();
 
     ASSERT_EQ(5, results["hits"].size());
 
@@ -843,6 +929,26 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
     ASSERT_EQ("1", results["hits"][1]["document"]["id"]);
     ASSERT_EQ(6, results["hits"][1]["document"]["popularity"]);
     ASSERT_EQ("Funky trousers", results["hits"][1]["document"]["title"]);
+
+    //after persist should able to add new events
+    analyticsManager.persist_popular_events(nullptr, 0);
+
+    nlohmann::json event5 = R"({
+        "type": "conversion",
+        "name": "YZ",
+        "data": {
+            "q": "shorts",
+            "doc_id": "3",
+            "user_id": "11"
+        }
+    })"_json;
+    req->body = event5.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    popular_clicks = analyticsManager.get_popular_clicks();
+    ASSERT_EQ(1, popular_clicks.size());
+    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
+    ASSERT_EQ(1, popular_clicks["products"].docid_counts.size());
 }
 
 TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {

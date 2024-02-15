@@ -70,6 +70,8 @@ struct counter_event_t {
     std::string counter_field;
     std::map<std::string, uint64_t> docid_counts;
     std::map<std::string, uint16_t> event_weight_map;
+
+    void serialize_as_docs(std::string& docs);
 };
 
 struct event_cache_t {
@@ -209,7 +211,7 @@ public:
     Option<bool> add_event(const std::string& client_ip, const std::string& event_type,
                            const std::string& event_name, const nlohmann::json& event_data);
 
-    void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_events();
 
     void persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 

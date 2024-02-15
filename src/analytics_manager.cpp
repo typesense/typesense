@@ -483,7 +483,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         }
 
         persist_query_events(raft_server, prev_persistence_s);
-        persist_events(raft_server, prev_persistence_s);
+        persist_events();
         persist_popular_events(raft_server, prev_persistence_s);
 
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
@@ -579,9 +579,9 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
     }
 }
 
-void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
+void AnalyticsManager::persist_events() {
     // lock is held by caller
-    for (const auto &events_collection_it: query_collection_events) {
+    for (auto &events_collection_it: query_collection_events) {
         const auto& collection = events_collection_it.first;
         for (const auto &event: events_collection_it.second) {
             if (analytics_logs.is_open()) {
@@ -598,12 +598,16 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
                 analytics_logs << std::flush;
             }
         }
+        events_collection_it.second.clear();
     }
-    query_collection_events.clear();
 }
 
 void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     auto send_http_response = [&](const std::string& import_payload, const std::string& collection) {
+        if (raft_server == nullptr) {
+            return;
+        }
+
         std::string leader_url = raft_server->get_leader_url();
         if (!leader_url.empty()) {
             const std::string &base_url = leader_url + "collections/" + collection;
@@ -621,17 +625,13 @@ void AnalyticsManager::persist_popular_events(ReplicationState *raft_server, uin
         }
     };
 
-    for(const auto& counter_event_it : counter_events) {
+    for(auto& counter_event_it : counter_events) {
         auto coll = counter_event_it.first;
-        nlohmann::json doc;
-        auto counter_field = counter_event_it.second.counter_field;
-        for(const auto& counter_event : counter_event_it.second.docid_counts) {
-            doc["id"] = counter_event.first;
-            doc[counter_field] = counter_event.second;
-            send_http_response(doc.dump(), coll);
-        }
+        std::string docs;
+        counter_event_it.second.serialize_as_docs(docs);
+        send_http_response(docs, coll);
+        counter_event_it.second.docid_counts.clear();
     }
-    counter_events.clear();
 }
 
 void AnalyticsManager::stop() {
@@ -698,4 +698,17 @@ std::string AnalyticsManager::get_sub_event_type(const std::string &event_type) 
         return AnalyticsManager::CUSTOM_EVENT;
     }
     return "";
+}
+
+void counter_event_t::serialize_as_docs(std::string &docs) {
+    for (auto kv: docid_counts) {
+        nlohmann::json doc;
+        doc["id"] = kv.first;
+        doc["$operations"]["increment"][counter_field] = kv.second;
+        docs += doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore) + "\n";
+    }
+
+    if (!docs.empty()) {
+        docs.pop_back();
+    }
 }
