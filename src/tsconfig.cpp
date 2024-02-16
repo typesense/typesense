@@ -98,6 +98,10 @@ Option<std::string> Config::fetch_file_contents(const std::string & file_path) {
     std::string content((std::istreambuf_iterator<char>(infile)), (std::istreambuf_iterator<char>()));
     infile.close();
 
+    if(content.empty()) {
+        return Option<std::string>(400, std::string("Empty file at: ") + file_path);
+    }
+
     return Option<std::string>(content);
 }
 
