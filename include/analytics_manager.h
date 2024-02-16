@@ -147,6 +147,8 @@ private:
 
     bool isRateLimitEnabled = true;
 
+    bool shouldLogToFile = false;
+
     AnalyticsManager() {}
 
     ~AnalyticsManager();
