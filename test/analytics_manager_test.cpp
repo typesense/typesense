@@ -908,26 +908,6 @@ TEST_F(AnalyticsManagerTest, PopularityScore) {
 
     nlohmann::json event5 = R"({
         "type": "conversion",
-        "name": "YZ",
-        "data": {
-            "q": "shorts",
-            "doc_id": "3",
-            "user_id": "11"
-        }
-    })"_json;
-    req->body = event5.dump();
-    ASSERT_TRUE(post_create_event(req, res));
-
-    popular_clicks = analyticsManager.get_popular_clicks();
-    ASSERT_EQ(1, popular_clicks.size());
-    ASSERT_EQ("popularity", popular_clicks["products"].counter_field);
-    ASSERT_EQ(1, popular_clicks["products"].docid_counts.size());
-
-    //after persist should able to add new events
-    analyticsManager.persist_popular_events(nullptr, 0);
-
-    nlohmann::json event5 = R"({
-        "type": "conversion",
         "name": "CNV1",
         "data": {
             "q": "shorts",
