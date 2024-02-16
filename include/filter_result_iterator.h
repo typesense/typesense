@@ -263,6 +263,8 @@ private:
     /// Used in case of a single boolean filter matching more than `bool_filter_ids_threshold` ids.
     num_tree_t::iterator_t bool_iterator = num_tree_t::iterator_t(nullptr, NUM_COMPARATOR::EQUALS, 0);
 
+    bool should_reset = false;
+
     bool delete_filter_node = false;
 
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;

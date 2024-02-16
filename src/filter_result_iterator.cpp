@@ -429,6 +429,8 @@ void filter_result_iterator_t::next() {
         return;
     }
 
+    should_reset = true;
+
     // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
     if (is_filter_result_initialized) {
         if (++result_index >= filter_result.count) {
@@ -1214,6 +1216,8 @@ void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout
         return;
     }
 
+    should_reset = true;
+
     // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
     if (is_filter_result_initialized) {
         ArrayUtils::skip_index_to_id(result_index, filter_result.docs, filter_result.count, id);
@@ -1338,6 +1342,8 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
         return -1;
     }
 
+    should_reset = true;
+
     // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
     if (is_filter_result_initialized) {
         skip_to(id);
@@ -1418,6 +1424,8 @@ Option<bool> filter_result_iterator_t::init_status() {
 }
 
 bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
+    should_reset = true;
+
     if(IS_COMPACT_POSTING(obj)) {
         compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
 
@@ -1460,13 +1468,15 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
 }
 
 void filter_result_iterator_t::reset(const bool& override_timeout) {
-    if (filter_node == nullptr) {
+    if (filter_node == nullptr || !should_reset) {
         return;
     }
 
     if (!override_timeout && timeout_info != nullptr && is_timed_out()) {
         return;
     }
+
+    should_reset = false;
 
     // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
     if (is_filter_result_initialized) {
@@ -1547,6 +1557,8 @@ uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
         return 0;
     }
 
+    should_reset = true;
+
     if (is_filter_result_initialized) {
         filter_array = new uint32_t[filter_result.count];
         std::copy(filter_result.docs, filter_result.docs + filter_result.count, filter_array);
@@ -1569,6 +1581,8 @@ uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t&
     if (validity != valid) {
         return 0;
     }
+
+    should_reset = true;
 
     if (is_filter_result_initialized) {
         return ArrayUtils::and_scalar(A, lenA, filter_result.docs, filter_result.count, &results);
@@ -1601,6 +1615,8 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
     if (validity != valid) {
         return;
     }
+
+    should_reset = true;
 
     if (filter_result.coll_to_references == nullptr) {
         if (is_filter_result_initialized) {
@@ -1765,6 +1781,8 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
         }
     }
 
+    should_reset = true;
+
     auto result_length = result->count = std::min(n, filter_result.count - result_index);
     result->docs = new uint32_t[result_length];
     if (filter_result.coll_to_references != nullptr) {
@@ -1816,6 +1834,8 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
             return;
         }
     }
+
+    should_reset = true;
 
     std::vector<uint32_t> match_indexes;
     for (uint32_t count = 0; count < n && result_index < filter_result.count; result_index++) {
