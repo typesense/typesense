@@ -68,7 +68,7 @@ const std::string RemoteEmbedder::get_model_key(const nlohmann::json& model_conf
     }
 }
 
-OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key) : api_key(api_key), openai_model_path(openai_model_path) {
+OpenAIEmbedder::OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims) : api_key(api_key), openai_model_path(openai_model_path), num_dims(num_dims), has_custom_dims(has_custom_dims) {
 
 }
 
@@ -133,6 +133,10 @@ Option<bool> OpenAIEmbedder::is_model_valid(const nlohmann::json& model_config, 
     // remove "openai/" prefix
     req_body["model"] = model_name_without_namespace;
 
+    if(num_dims > 0) {
+        req_body["dimensions"] = num_dims;
+    }
+
     std::string embedding_res;
     headers["Content-Type"] = "application/json";
     res_code = call_remote_api("POST", OPENAI_CREATE_EMBEDDING, req_body.dump(), embedding_res, res_headers, headers);  
@@ -174,6 +178,9 @@ embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remo
     std::string res;
     nlohmann::json req_body;
     req_body["input"] = std::vector<std::string>{text};
+    if(num_dims > 0 && has_custom_dims) {
+        req_body["dimensions"] = num_dims;
+    }
     // remove "openai/" prefix
     req_body["model"] = EmbedderManager::get_model_name_without_namespace(openai_model_path);
     auto res_code = call_remote_api("POST", OPENAI_CREATE_EMBEDDING, req_body.dump(), res, res_headers, headers);
@@ -202,6 +209,9 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
     }
     nlohmann::json req_body;
     req_body["input"] = inputs;
+    if(num_dims > 0 && has_custom_dims) {
+        req_body["dimensions"] = num_dims;
+    }
     // remove "openai/" prefix
     req_body["model"] = openai_model_path.substr(7);
     std::unordered_map<std::string, std::string> headers;
