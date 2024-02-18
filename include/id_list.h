@@ -52,7 +52,9 @@ public:
         [[nodiscard]] bool valid() const;
         void next();
         void previous();
+        [[nodiscard]] uint32_t last_block_id() const;
         void skip_to(uint32_t id);
+        void reset_cache();
         [[nodiscard]] uint32_t id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
