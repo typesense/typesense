@@ -1,3 +1,4 @@
+#include <collection_manager.h>
 #include "batched_indexer.h"
 #include "core_api.h"
 #include "thread_local_vars.h"
@@ -49,12 +50,82 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     bool is_old_serialized_request = (req->start_ts == 0);
     bool read_more_input = (req->_req != nullptr && req->_req->proceed_req);
 
+    std::string coll_name;
+    if (is_coll_create_route(req->route_hash)) {
+        nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
+
+        std::unordered_set<std::string> referenced_collections;
+        if (!obj.is_discarded() && obj.is_object() &&
+            obj.count("name") != 0 && obj["name"].is_string()) {
+            coll_name = obj["name"];
+
+            if (obj.contains("fields")) {
+                for (const auto &field: obj["fields"]) {
+                    if (field.contains("reference")) {
+                        std::vector<std::string> split_result;
+                        StringUtils::split(field["reference"], split_result, ".");
+                        referenced_collections.insert(split_result.front());
+                    }
+                }
+            }
+        }
+        if (!referenced_collections.empty()) {
+            std::unique_lock lock(mutex);
+            coll_to_references[coll_name] = std::move(referenced_collections);
+        }
+    }
+
     if(req->last_chunk_aggregate) {
+        // When raft logs are replayed on restart, document import requests of related collections might end up
+        // being processed in parallel causing indexing of document having a reference to fail. So we wait until
+        // all the referenced collections complete the document import request.
+        if (!res->is_alive && is_doc_import_route(req->route_hash)) {
+            std::set<uint64_t> waiting_on_ids;
+            coll_name = get_collection_name(req);
+            {
+                std::unique_lock lock(mutex);
+                if (coll_to_references.count(coll_name) != 0) {
+                    for (const auto& ref_coll_name: coll_to_references[coll_name]) {
+                        auto ref_coll_queue_id = StringUtils::hash_wy(ref_coll_name.c_str(), ref_coll_name.size()) % num_threads;
+                        uint64_t ref_req_id;
+                        {
+                            std::lock_guard lock(qmutuxes[ref_coll_queue_id].mcv);
+                            ref_req_id = queues[ref_coll_queue_id].front();
+                        }
+
+                        if (req_res_map.count(ref_req_id) == 0) {
+                            continue;
+                        }
+
+                        auto& ref_req = req_res_map.at(ref_req_id).req;
+                        // Only wait if we're importing docs of referenced collection.
+                        if (get_collection_name(ref_req) == ref_coll_name && is_doc_import_route(ref_req->route_hash)) {
+                            waiting_on_ids.insert(ref_req_id);
+                        }
+                    }
+                }
+            }
+            while(!waiting_on_ids.empty()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                auto waiting_on_ids_copy = waiting_on_ids;
+                std::unique_lock lock(mutex);
+                for (const auto& ref_req_id: waiting_on_ids) {
+                    if (req_res_map.count(ref_req_id) == 0 ||
+                        !is_doc_import_route(req_res_map.at(ref_req_id).req->route_hash)) {
+                        waiting_on_ids_copy.erase(ref_req_id);
+                    }
+                }
+                waiting_on_ids = std::move(waiting_on_ids_copy);
+            }
+        }
+
         //LOG(INFO) << "Last chunk for req_id: " << req->start_ts;
         queued_writes += (chunk_sequence + 1);
 
         {
-            const std::string& coll_name = get_collection_name(req);
+            if (coll_name.empty()) {
+                coll_name = get_collection_name(req);
+            }
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
             req->body = "";
 

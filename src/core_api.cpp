@@ -2235,6 +2235,12 @@ bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     return true;
 }
 
+bool is_coll_create_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == post_create_collection);
+}
+
 bool is_doc_import_route(uint64_t route_hash) {
     route_path* rpath;
     bool found = server->get_route(route_hash, &rpath);
