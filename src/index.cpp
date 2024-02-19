@@ -6365,7 +6365,7 @@ int Index::get_bounded_typo_cost(const size_t max_cost, const std::string& token
                                  const size_t min_len_1typo, const size_t min_len_2typo,
                                  bool enable_typos_for_numerical_tokens) {
 
-    if(enable_typos_for_numerical_tokens && std::all_of(token.begin(), token.end(), ::isdigit)) {
+    if(!enable_typos_for_numerical_tokens && std::all_of(token.begin(), token.end(), ::isdigit)) {
         return 0;
     }
 
