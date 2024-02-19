@@ -279,9 +279,10 @@ private:
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids,
                                   nlohmann::json& override_metadata,
-                                  bool enable_typos_for_numerical_tokens=false) const;
+                                  bool enable_typos_for_numerical_tokens=true) const;
 
-    void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type) const;
+    void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
+                                  const size_t total_tokens) const;
 
     bool handle_highlight_text(std::string& text, bool normalise, const field &search_field,
                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
@@ -431,7 +432,8 @@ public:
 
     static Option<bool> add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
                                                     const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
-                                                    tsl::htrie_set<char>& object_reference_helper_fields);
+                                                    tsl::htrie_set<char>& object_reference_helper_fields,
+                                                    const bool& is_update);
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation,
@@ -490,7 +492,7 @@ public:
     void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
-                            const std::string& locale, const bool already_segmented, const std::string& stopword_set="") const;
+                            const std::string& locale, const bool already_segmented, const std::string& stopword_set="",const std::shared_ptr<Stemmer> stemmer = nullptr) const;
 
     // PUBLIC OPERATIONS
 
@@ -582,7 +584,7 @@ public:
                                   std::string conversation_id = "",
                                   const std::string& override_tags_str = "",
                                   const std::string& voice_query = "",
-                                  bool enable_typos_for_numerical_tokens = false) const;
+                                  bool enable_typos_for_numerical_tokens = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

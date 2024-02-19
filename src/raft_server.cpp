@@ -163,6 +163,12 @@ string ReplicationState::resolve_node_hosts(const string& nodes_config) {
             continue;
         }
 
+        if(node_parts[0].size() > 64) {
+            LOG(ERROR) << "Host name is too long (must be < 64 characters): " << node_parts[0];
+            final_nodes_vec.emplace_back("");
+            continue;
+        }
+
         butil::ip_t ip;
         int status = butil::hostname2ip(node_parts[0].c_str(), &ip);
 

@@ -687,6 +687,10 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         nlohmann::json result_docs_arr = nlohmann::json::array();
         int res_index = 0;
         for(const auto& result : response["results"]) {
+            if(result.count("code") != 0) {
+                continue;
+            }
+
             nlohmann::json result_docs = nlohmann::json::array();
 
             std::vector<std::string> vector_fields;
@@ -728,9 +732,18 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             result_docs_arr.push_back(result_docs);
         }
 
+        const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
+        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
         // We have to pop a document from the search result with max size
         // Until we do not exceed MAX_TOKENS limit
-        while(ConversationManager::get_instance().get_token_count(result_docs_arr) > ConversationManager::get_instance().MAX_TOKENS) {
+        auto max_docs_token = ConversationModel::max_context_tokens(conversation_model);
+        if(!max_docs_token.ok()) {
+            res->set_400(max_docs_token.error());
+            return false;
+        }
+
+        // remove document with lowest score until total tokens is less than MAX_TOKENS
+        while(ConversationManager::get_instance().get_token_count(result_docs_arr) > max_docs_token.get()) {
             // sort the result_docs_arr by size descending
             std::sort(result_docs_arr.begin(), result_docs_arr.end(), [](const auto& a, const auto& b) {
                 return a.size() > b.size();
@@ -750,9 +763,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 result_docs.push_back(doc);
             }
         }
-
-        const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
-        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
 
         auto prompt = req->params["q"];
 
@@ -1365,6 +1375,11 @@ bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_
 bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string doc_id = req->params["id"];
 
+    bool ignore_not_found = false;
+    if((req->params.count("ignore_not_found") != 0) && (req->params["ignore_not_found"] == "true")) {
+        ignore_not_found = true;
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
     if(collection == nullptr) {
@@ -1374,20 +1389,35 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
 
     Option<nlohmann::json> doc_option = collection->get(doc_id);
 
-    if(!doc_option.ok()) {
+    if (!doc_option.ok()) {
+        if (ignore_not_found && doc_option.code() == 404) {
+            nlohmann::json resp;
+            resp["id"] = doc_id;
+            res->set_200(resp.dump());
+            return true;
+        }
+
         res->set(doc_option.code(), doc_option.error());
         return false;
     }
 
     Option<std::string> deleted_id_op = collection->remove(doc_id);
 
-    if(!deleted_id_op.ok()) {
+    if (!deleted_id_op.ok()) {
+        if (ignore_not_found && doc_option.code() == 404) {
+            nlohmann::json resp;
+            resp["id"] = doc_id;
+            res->set_200(resp.dump());
+            return true;
+        }
+
         res->set(deleted_id_op.code(), deleted_id_op.error());
         return false;
     }
 
     nlohmann::json doc = doc_option.get();
     res->set_200(doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+
     return true;
 }
 

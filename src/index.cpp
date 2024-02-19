@@ -68,7 +68,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         }
 
         if(a_field.num_dim > 0) {
-            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 1024, a_field.vec_dist);
+            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 1024, a_field.vec_dist, a_field.hnsw_params["M"].get<uint32_t>(), a_field.hnsw_params["ef_construction"].get<uint32_t>());
             vector_index.emplace(a_field.name, hnsw_index);
             continue;
         }
@@ -1368,6 +1368,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         auto sort_index_it = sort_index.find(a_facet.field_name);
         auto facet_sort_index_it = sort_index.find(a_facet.sort_field);
 
+        if(facet_sample_percent == 0) {
+            facet_sample_percent = 1;
+        }
+
         size_t mod_value = 100 / facet_sample_percent;
 
         auto num_facet_values = facet_index_v4->get_facet_count(facet_field.name);
@@ -1820,7 +1824,7 @@ Option<bool> Index::do_filtering_with_lock(filter_node_t* const filter_tree_root
         return filter_init_op;
     }
 
-    filter_result_iterator.compute_result();
+    filter_result_iterator.compute_iterators();
     if (filter_result_iterator.approx_filter_ids_length == 0) {
         return Option(true);
     }
@@ -1880,7 +1884,7 @@ Option<bool> Index::do_reference_filtering_with_lock(filter_node_t* const filter
         return filter_init_op;
     }
 
-    ref_filter_result_iterator.compute_result();
+    ref_filter_result_iterator.compute_iterators();
     if (ref_filter_result_iterator.approx_filter_ids_length == 0) {
         return Option(true);
     }
@@ -2870,6 +2874,18 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         return Option(true);
     }
 
+#ifdef TEST_BUILD
+
+    if (filter_result_iterator->approx_filter_ids_length > 20) {
+        filter_result_iterator->compute_iterators();
+    }
+#else
+
+    if (filter_result_iterator->approx_filter_ids_length < 25'000) {
+        filter_result_iterator->compute_iterators();
+    }
+#endif
+
     size_t fetch_size = offset + per_page;
 
     std::set<uint32_t> curated_ids;
@@ -3048,9 +3064,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());
                     hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                    pairs = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, &filterFunctor);
+                    pairs = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, vector_query.ef, &filterFunctor);
                 } else {
-                    pairs = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, &filterFunctor);
+                    pairs = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, vector_query.ef, &filterFunctor);
                 }
 
                 std::sort(pairs.begin(), pairs.end(), [](auto& x, auto& y) {
@@ -3420,13 +3436,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 // use k as 100 by default for ensuring results stability in pagination
                 size_t default_k = 100;
                 auto k = vector_query.k == 0 ? std::max<size_t>(fetch_size, default_k) : vector_query.k;
-
                 if(field_vector_index->distance_type == cosine) {
                     std::vector<float> normalized_q(vector_query.values.size());
                     hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, &filterFunctor);
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, vector_query.ef, &filterFunctor);
                 } else {
-                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, &filterFunctor);
+                    dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, vector_query.ef, &filterFunctor);
                 }
                 filter_result_iterator->reset();
                 search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
@@ -3601,7 +3616,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     delete [] exclude_token_ids;
     delete [] excluded_result_ids;
 
-    bool estimate_facets = (facet_sample_percent < 100 && all_result_ids_len > facet_sample_threshold);
+    bool estimate_facets = (facet_sample_percent > 0 && facet_sample_percent < 100 &&
+                            all_result_ids_len > facet_sample_threshold);
     bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && no_filters_provided;
 
     if(!facets.empty()) {
@@ -5919,7 +5935,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
                                     const std::vector<size_t>& geopoint_indices,
                                     const std::string& collection_name) const {
 
-    filter_result_iterator->compute_result();
+    filter_result_iterator->compute_iterators();
     auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
 
     uint32_t token_bits = 0;
@@ -6349,7 +6365,7 @@ int Index::get_bounded_typo_cost(const size_t max_cost, const std::string& token
                                  const size_t min_len_1typo, const size_t min_len_2typo,
                                  bool enable_typos_for_numerical_tokens) {
 
-    if(enable_typos_for_numerical_tokens && std::all_of(token.begin(), token.end(), ::isdigit)) {
+    if(!enable_typos_for_numerical_tokens && std::all_of(token.begin(), token.end(), ::isdigit)) {
         return 0;
     }
 
@@ -7108,7 +7124,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
         search_schema.emplace(new_field.name, new_field);
 
         if(new_field.type == field_types::FLOAT_ARRAY && new_field.num_dim > 0) {
-            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 1024, new_field.vec_dist);
+            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 1024, new_field.vec_dist, new_field.hnsw_params["M"].get<uint32_t>(), new_field.hnsw_params["ef_construction"].get<uint32_t>());
             vector_index.emplace(new_field.name, hnsw_index);
             continue;
         }

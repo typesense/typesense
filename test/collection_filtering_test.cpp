@@ -1674,6 +1674,18 @@ TEST_F(CollectionFilteringTest, QueryBoolFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    results = coll_bool->search("*", query_fields, "popular:true", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(7, results["hits"].size());
+
+    ids = {"1", "0", "3", "5", "6", "7", "4"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_EQ(id, result_id);
+    }
+
     // alternative `:=` syntax
     results = coll_bool->search("the", query_fields, "popular:=true", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
@@ -2290,4 +2302,41 @@ TEST_F(CollectionFilteringTest, NonIndexedFiltering) {
     search_op = coll->search("*", {}, "non_index:= bar", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(search_op.ok());
     ASSERT_EQ("Cannot filter on non-indexed field `non_index`.", search_op.error());
+}
+
+TEST_F(CollectionFilteringTest, ComputeFilterResult) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    for(size_t i=0; i<50; i++) {
+        nlohmann::json doc;
+
+        doc["title"] = i < 10 ? "foo" : "bar";
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto res_op = coll1->search("*", {}, "title: foo",
+                                {}, {}, {0}, 10, 1, FREQUENCY, {true});
+
+    auto results = res_op.get();
+
+    ASSERT_EQ(10, results["found"]);
+
+    res_op = coll1->search("*", {}, "title: bar && points:>=10",
+                                {}, {}, {0}, 10, 1, FREQUENCY, {true});
+
+    results = res_op.get();
+
+    ASSERT_EQ(40, results["found"]);
+
+    collectionManager.drop_collection("coll1");
 }

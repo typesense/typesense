@@ -529,7 +529,240 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     ASSERT_EQ(filter_result_iterator_t::valid, iter_add_phrase_ids_test->validity);
     ASSERT_EQ(6, iter_add_phrase_ids_test->seq_id);
+    delete filter_tree_root;
 
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: [gold]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_multi_value_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_multi_value_test.init_status().ok());
+    ASSERT_FALSE(iter_string_multi_value_test._get_is_filter_result_initialized());
+
+    expected = {0, 2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_multi_value_test.validity);
+        ASSERT_EQ(i, iter_string_multi_value_test.seq_id);
+        iter_string_multi_value_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_multi_value_test.validity);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: [gold, gold, gold, gold, gold, gold, gold, gold, gold, gold, gold]",
+                                                            coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_multi_value_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_multi_value_test_2.init_status().ok());
+    ASSERT_TRUE(iter_string_multi_value_test_2._get_is_filter_result_initialized());
+
+    expected = {0, 2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_multi_value_test_2.validity);
+        ASSERT_EQ(i, iter_string_multi_value_test_2.seq_id);
+        iter_string_multi_value_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_multi_value_test_2.validity);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags:= bronze", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_equals_test.init_status().ok());
+    ASSERT_TRUE(iter_string_equals_test._get_is_filter_result_initialized());
+
+    expected = {2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_equals_test.validity);
+        ASSERT_EQ(i, iter_string_equals_test.seq_id);
+        iter_string_equals_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_equals_test.validity);
+
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_equals_test_2.init_status().ok());
+    ASSERT_FALSE(iter_string_equals_test_2._get_is_filter_result_initialized());
+
+    expected = {0, 2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_equals_test_2.validity);
+        ASSERT_EQ(i, iter_string_equals_test_2.seq_id);
+        iter_string_equals_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_equals_test_2.validity);
+
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: != gold", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_not_equals_test.init_status().ok());
+    ASSERT_FALSE(iter_string_not_equals_test._get_is_filter_result_initialized());
+
+    expected = {1, 3, 5, 6};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test.validity);
+        ASSERT_EQ(i, iter_string_not_equals_test.seq_id);
+        iter_string_not_equals_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test.validity);
+
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+    auto iter_string_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_not_equals_test_2.init_status().ok());
+    ASSERT_TRUE(iter_string_not_equals_test_2._get_is_filter_result_initialized());
+
+    expected = {1, 5, 6};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test_2.validity);
+        ASSERT_EQ(i, iter_string_not_equals_test_2.seq_id);
+        iter_string_not_equals_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test_2.validity);
+
+    coll->remove("0");
+    coll->remove("2");
+
+    doc = R"({
+            "name": "James Rowdy",
+            "age": 16,
+            "years": [2022],
+            "rating": 2.03,
+            "tags": ["FINE PLATINUM"]
+        })"_json;
+    add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: != James Rowdy", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_not_equals_test_3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_not_equals_test_3.init_status().ok());
+    ASSERT_FALSE(iter_string_not_equals_test_3._get_is_filter_result_initialized());
+
+    expected = {1, 3, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test_3.validity);
+        ASSERT_EQ(i, iter_string_not_equals_test_3.seq_id);
+        iter_string_not_equals_test_3.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test_3.validity);
+
+    iter_string_not_equals_test_3.reset();
+
+    expected = {1, 3, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test_3.validity);
+        ASSERT_EQ(i, iter_string_not_equals_test_3.seq_id);
+        iter_string_not_equals_test_3.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test_3.validity);
+    delete filter_tree_root;
+
+    Collection *bool_coll;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("in_stock", field_types::BOOL, false),
+                                 field("points", field_types::INT32, false),};
+
+    bool_coll = collectionManager.get_collection("bool_coll").get();
+    if(bool_coll == nullptr) {
+        bool_coll = collectionManager.create_collection("bool_coll", 1, fields, "points").get();
+    }
+
+    for(size_t i=0; i<10; i++) {
+        nlohmann::json bool_doc;
+
+        bool_doc["title"] = "title_" + std::to_string(i);
+        bool_doc["in_stock"] = (i < 5 || i % 2) ? "true" : "false";
+        bool_doc["points"] = i;
+
+        ASSERT_TRUE(bool_coll->add(bool_doc.dump()).ok());
+    }
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("in_stock: false", bool_coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_boolean_test = filter_result_iterator_t(bool_coll->get_name(), bool_coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_boolean_test.init_status().ok());
+    ASSERT_TRUE(iter_boolean_test._get_is_filter_result_initialized());
+    ASSERT_EQ(2, iter_boolean_test.approx_filter_ids_length);
+
+    expected = {6, 8};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_boolean_test.validity);
+        ASSERT_EQ(i, iter_boolean_test.seq_id);
+        iter_boolean_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_boolean_test.validity);
+    delete filter_tree_root;
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("in_stock: true", bool_coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_boolean_test_2 = filter_result_iterator_t(bool_coll->get_name(), bool_coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_boolean_test_2.init_status().ok());
+    ASSERT_FALSE(iter_boolean_test_2._get_is_filter_result_initialized());
+    ASSERT_EQ(8, iter_boolean_test_2.approx_filter_ids_length);
+
+    expected = {0, 1, 2, 3, 4, 5, 7, 9};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_boolean_test_2.validity);
+        ASSERT_EQ(i, iter_boolean_test_2.seq_id);
+        iter_boolean_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_boolean_test_2.validity);
+
+    iter_boolean_test_2.reset();
+
+    expected = {0, 1, 2, 3, 4, 5, 7, 9};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_boolean_test_2.validity);
+        ASSERT_EQ(i, iter_boolean_test_2.seq_id);
+        iter_boolean_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_boolean_test_2.validity);
+
+    iter_boolean_test_2.reset();
+    iter_boolean_test_2.skip_to(6);
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_boolean_test_2.validity);
+    ASSERT_EQ(7, iter_boolean_test_2.seq_id);
+
+    ASSERT_EQ(0, iter_boolean_test_2.is_valid(8));
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_boolean_test_2.validity);
+    ASSERT_EQ(9, iter_boolean_test_2.seq_id);
+
+    ASSERT_EQ(-1, iter_boolean_test_2.is_valid(10));
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_boolean_test_2.validity);
     delete filter_tree_root;
 }
 

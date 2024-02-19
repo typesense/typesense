@@ -7,6 +7,7 @@
 #include "array.h"
 #include "sorted_array.h"
 #include "filter_result_iterator.h"
+#include "filter.h"
 
 #define IGNORE_PRINTF 1
 
@@ -144,17 +145,6 @@ enum token_ordering {
 
     FREQUENCY,
     MAX_SCORE
-};
-
-enum NUM_COMPARATOR {
-    LESS_THAN,
-    LESS_THAN_EQUALS,
-    EQUALS,
-    NOT_EQUALS,
-    CONTAINS,
-    GREATER_THAN,
-    GREATER_THAN_EQUALS,
-    RANGE_INCLUSIVE
 };
 
 /**

@@ -203,11 +203,12 @@ TEST_F(CollectionSpecificTest, ExactSingleFieldMatch) {
                                  spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30,
                                  4, "title", 10).get();
 
-    LOG(INFO) << results;
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["typo_prefix_score"]);
+    ASSERT_EQ(2, results["hits"][1]["text_match_info"]["typo_prefix_score"]);
 
     // with typo_tokens_threshold = 1, only exact token match is fetched
     results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
@@ -217,6 +218,7 @@ TEST_F(CollectionSpecificTest, ExactSingleFieldMatch) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["typo_prefix_score"]);
 
     collectionManager.drop_collection("coll1");
 }
@@ -253,6 +255,7 @@ TEST_F(CollectionSpecificTest, CheckProgressiveTypoSearching) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, results["hits"][0]["text_match_info"]["typo_prefix_score"]);
 
     // with typo_tokens_threshold = 10, both matches are fetched
     results = coll1->search("convenient", {"title", "description"}, "", {}, {}, {2}, 10,
@@ -263,6 +266,8 @@ TEST_F(CollectionSpecificTest, CheckProgressiveTypoSearching) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, results["hits"][0]["text_match_info"]["typo_prefix_score"]);
+    ASSERT_EQ(4, results["hits"][1]["text_match_info"]["typo_prefix_score"]);
 
     collectionManager.drop_collection("coll1");
 }
@@ -1078,7 +1083,9 @@ TEST_F(CollectionSpecificTest, CrossFieldMatchingExactMatchOnSingleField) {
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
 
     results = coll1->search("john vegatable farmer", {"name", "description"},
                             "", {}, {}, {1, 1}, 10,
@@ -1089,7 +1096,9 @@ TEST_F(CollectionSpecificTest, CrossFieldMatchingExactMatchOnSingleField) {
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["text_match_info"]["num_tokens_dropped"]);
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][1]["text_match_info"]["num_tokens_dropped"]);
 
     collectionManager.drop_collection("coll1");
 }

@@ -10,6 +10,7 @@
 #include "index.h"
 #include "core_api.h"
 #include "vq_model_manager.h"
+#include "conversation_model.h"
 
 class CollectionVectorTest : public ::testing::Test {
 protected:
@@ -3723,7 +3724,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQueryModel) {
     
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ("Voice query model not found", collection_create_op.error());
+    ASSERT_EQ("Unknown model namespace", collection_create_op.error());
 
     schema_json = R"({
         "name": "test",
@@ -3737,7 +3738,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQueryModel) {
 
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_FALSE(collection_create_op.ok());
-    ASSERT_EQ("Voice query model not found", collection_create_op.error());
+    ASSERT_EQ("Unknown model namespace", collection_create_op.error());
 
     schema_json = R"({
         "name": "test",
@@ -3787,9 +3788,11 @@ TEST_F(CollectionVectorTest, TestVoiceQuery) {
             {"name": "name", "type": "string"}
         ],
         "voice_query_model": {
-            "model_name": "whisper/base.en"
+            "model_name": "ts/whisper/base.en"
         }
     })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
 
     auto collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -3829,7 +3832,7 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQuery) {
             {"name": "name", "type": "string"}
         ],
         "voice_query_model": {
-            "model_name": "whisper/base.en"
+            "model_name": "ts/whisper/base.en"
         }
     })"_json;
 
@@ -3851,3 +3854,568 @@ TEST_F(CollectionVectorTest, TestInvalidVoiceQuery) {
     ASSERT_FALSE(results.ok());
     ASSERT_EQ("Invalid audio format. Please provide a 16-bit 16kHz wav file.", results.error());
 }
+
+TEST_F(CollectionVectorTest, TestInvalidHNSWParams) {
+    nlohmann::json schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": "aaa",
+                    "M": 16
+                }
+            }
+        ]
+    })"_json;
+
+
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+
+    ASSERT_EQ("Property `hnsw_params.ef_construction` must be a positive integer.", collection_create_op.error());
+
+    schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": -100,
+                    "M": 16
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+
+    ASSERT_EQ("Property `hnsw_params.ef_construction` must be a positive integer.", collection_create_op.error());
+
+
+    schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": 100,
+                    "M": "aaa"
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("Property `hnsw_params.M` must be a positive integer.", collection_create_op.error());
+
+
+    schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": 100,
+                    "M": -100
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("Property `hnsw_params.M` must be a positive integer.", collection_create_op.error());
+
+
+    schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": 100,
+                    "M": 16
+                }
+            }
+        ]
+    })"_json;
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto collection = collection_create_op.get();
+
+
+    auto results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "vector:([], ef:aaa)");
+    
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Malformed vector query string: `ef` parameter must be a positive integer.", results.error());
+
+    results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "vector:([], ef:-100)");
+
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Malformed vector query string: `ef` parameter must be a positive integer.", results.error());
+
+    results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "vector:([], ef:0)");
+    
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Malformed vector query string: `ef` parameter must be a positive integer.", results.error());
+
+    results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, "vector:([], ef:100)");
+    
+    ASSERT_TRUE(results.ok());
+    
+}
+
+TEST_F(CollectionVectorTest, TestHNSWParamsSummaryJSON) {
+    nlohmann::json schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "ts/e5-small"
+                    }
+                },
+                "hnsw_params": {
+                    "ef_construction": 100,
+                    "M": 16
+                }
+            }
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto collection = collection_create_op.get();
+
+    auto summary = collection->get_summary_json();
+
+    ASSERT_TRUE(summary["fields"][1]["hnsw_params"].is_object());
+    ASSERT_EQ(100, summary["fields"][1]["hnsw_params"]["ef_construction"].get<uint32_t>());
+    ASSERT_EQ(16, summary["fields"][1]["hnsw_params"]["M"].get<uint32_t>());
+    ASSERT_EQ(0, summary["fields"][0].count("hnsw_params"));
+}
+
+TEST_F(CollectionVectorTest, TestUpdatingSameDocument){
+    nlohmann::json schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "vector", "type": "float[]", "num_dim": 10}
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    auto collection = collection_create_op.get();
+
+    std::mt19937 rng;
+    std::uniform_real_distribution<float> dist;
+
+    // generate 100 random documents
+    for (int i = 0; i < 100; i++) {
+        std::vector<float> vector(10);
+        std::generate(vector.begin(), vector.end(), [&](){ return dist(rng); });
+
+        nlohmann::json doc = {
+            {"vector", vector}
+        };
+        auto op = collection->add(doc.dump());
+        ASSERT_TRUE(op.ok());
+    }
+
+    std::vector<float> query_vector(10);
+    std::generate(query_vector.begin(), query_vector.end(), [&](){ return dist(rng); });
+    std::string query_vector_str = "vector:([";
+    for (int i = 0; i < 10; i++) {
+        query_vector_str += std::to_string(query_vector[i]);
+        if (i != 9) {
+            query_vector_str += ", ";
+        }
+    }
+    query_vector_str += "], k:10)";
+
+    auto results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, query_vector_str);
+    ASSERT_TRUE(results.ok());
+    auto results_json = results.get();
+    ASSERT_EQ(results_json["found"].get<size_t>(), results_json["hits"].size());
+
+    // delete half of the documents
+    for (int i = 50; i < 99; i++) {
+        auto op = collection->remove(std::to_string(i));
+        ASSERT_TRUE(op.ok());
+    }
+
+    // update document with id 11 for 100 times
+    for (int i = 0; i < 100; i++) {
+        std::vector<float> vector(10);
+        std::generate(vector.begin(), vector.end(), [&](){ return dist(rng); });
+
+        nlohmann::json doc = {
+            {"vector", vector}
+        };
+        auto op = collection->add(doc.dump(), index_operation_t::UPDATE, "11");
+        ASSERT_TRUE(op.ok());
+    }
+
+
+    results = collection->search("*", {}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>{"vector"}, 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 10000,
+                            4, 7, fallback, 4, {off}, 100, 100, 2, 2, false, query_vector_str);
+    ASSERT_TRUE(results.ok());
+
+    results_json = results.get();
+    ASSERT_EQ(results_json["found"].get<size_t>(), results_json["hits"].size());
+}
+
+TEST_F(CollectionVectorTest, TestCFModelResponseParsing) {
+    std::string res = R"(
+    {
+        "response": [
+            "data: {\"response\":\"0\"}\n\n",
+            "data: {\"response\":\"0\"}\n\n",
+            "data: {\"response\":\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"publish\"}\n\n",
+            "data: {\"response\":\"Date\"}\n\n",
+            "data: {\"response\":\"Year\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \"}\n\n",
+            "data: {\"response\":\"2\"}\n\n",
+            "data: {\"response\":\"0\"}\n\n",
+            "data: {\"response\":\"1\"}\n\n",
+            "data: {\"response\":\"1\"}\n\n",
+            "data: {\"response\":\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"title\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \\\"\"}\n\n",
+            "data: {\"response\":\"S\"}\n\n",
+            "data: {\"response\":\"OP\"}\n\n",
+            "data: {\"response\":\"A\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"top\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" [\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Links\"}\n\n",
+            "data: {\"response\":\" to\"}\n\n",
+            "data: {\"response\":\" x\"}\n\n",
+            "data: {\"response\":\"k\"}\n\n",
+            "data: {\"response\":\"cd\"}\n\n",
+            "data: {\"response\":\".\"}\n\n",
+            "data: {\"response\":\"com\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Apr\"}\n\n",
+            "data: {\"response\":\"il\"}\n\n",
+            "data: {\"response\":\" fool\"}\n\n",
+            "data: {\"response\":\"s\"}\n\n",
+            "data: {\"response\":\"'\"}\n\n",
+            "data: {\"response\":\" com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Inter\"}\n\n",
+            "data: {\"response\":\"active\"}\n\n",
+            "data: {\"response\":\" com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\" with\"}\n\n",
+            "data: {\"response\":\" animation\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Dynamic\"}\n\n",
+            "data: {\"response\":\" com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\" with\"}\n\n",
+            "data: {\"response\":\" audio\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\" ],\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"trans\"}\n\n",
+            "data: {\"response\":\"cript\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \\\"\"}\n\n",
+            "data: {\"response\":\" \\\"\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"},\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"{\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"alt\"}\n\n",
+            "data: {\"response\":\"Title\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \\\"\"}\n\n",
+            "data: {\"response\":\"I\"}\n\n",
+            "data: {\"response\":\"'\"}\n\n",
+            "data: {\"response\":\"m\"}\n\n",
+            "data: {\"response\":\" currently\"}\n\n",
+            "data: {\"response\":\" getting\"}\n\n",
+            "data: {\"response\":\" totally\"}\n\n",
+            "data: {\"response\":\" black\"}\n\n",
+            "data: {\"response\":\"ed\"}\n\n",
+            "data: {\"response\":\" out\"}\n\n",
+            "data: {\"response\":\".\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"id\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \\\"\"}\n\n",
+            "data: {\"response\":\"1\"}\n\n",
+            "data: {\"response\":\"0\"}\n\n",
+            "data: {\"response\":\"0\"}\n\n",
+            "data: {\"response\":\"6\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"image\"}\n\n",
+            "data: {\"response\":\"Url\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \\\"\"}\n\n",
+            "data: {\"response\":\"https\"}\n\n",
+            "data: {\"response\":\"://\"}\n\n",
+            "data: {\"response\":\"im\"}\n\n",
+            "data: {\"response\":\"gs\"}\n\n",
+            "data: {\"response\":\".\"}\n\n",
+            "data: {\"response\":\"x\"}\n\n",
+            "data: {\"response\":\"k\"}\n\n",
+            "data: {\"response\":\"cd\"}\n\n",
+            "data: {\"response\":\".\"}\n\n",
+            "data: {\"response\":\"com\"}\n\n",
+            "data: {\"response\":\"/\"}\n\n",
+            "data: {\"response\":\"com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\"/\"}\n\n",
+            "data: {\"response\":\"black\"}\n\n",
+            "data: {\"response\":\"out\"}\n\n",
+            "data: {\"response\":\".\"}\n\n",
+            "data: {\"response\":\"png\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"publish\"}\n\n",
+            "data: {\"response\":\"Date\"}\n\n",
+            "data: {\"response\":\"Day\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \"}\n\n",
+            "data: {\"response\":\"1\"}\n\n",
+            "data: {\"response\":\"8\"}\n\n",
+            "data: {\"response\":\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"publish\"}\n\n",
+            "data: {\"response\":\"Date\"}\n\n",
+            "data: {\"response\":\"Month\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \"}\n\n",
+            "data: {\"response\":\"1\"}\n\n",
+            "data: {\"response\":\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"publish\"}\n\n",
+            "data: {\"response\":\"Date\"}\n\n",
+            "data: {\"response\":\"Timestamp\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \"}\n\n",
+            "data: {\"response\":\"1\"}\n\n",
+            "data: {\"response\":\"3\"}\n\n",
+            "data: {\"response\":\"2\"}\n\n",
+            "data: {\"response\":\"6\"}\n\n",
+            "data: {\"response\":\"8\"}\n\n",
+            "data: {\"response\":\"6\"}\n\n",
+            "data: {\"response\":\"6\"}\n\n",
+            "data: {\"response\":\"4\"}\n\n",
+            "data: {\"response\":\"0\"}\n\n",
+            "data: {\"response\":\"0\"}\n\n",
+            "data: {\"response\":\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"publish\"}\n\n",
+            "data: {\"response\":\"Date\"}\n\n",
+            "data: {\"response\":\"Year\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \"}\n\n",
+            "data: {\"response\":\"2\"}\n\n",
+            "data: {\"response\":\"0\"}\n\n",
+            "data: {\"response\":\"1\"}\n\n",
+            "data: {\"response\":\"1\"}\n\n",
+            "data: {\"response\":\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"title\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" \\\"\"}\n\n",
+            "data: {\"response\":\"Black\"}\n\n",
+            "data: {\"response\":\"out\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"top\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\"\\\":\"}\n\n",
+            "data: {\"response\":\" [\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Links\"}\n\n",
+            "data: {\"response\":\" to\"}\n\n",
+            "data: {\"response\":\" x\"}\n\n",
+            "data: {\"response\":\"k\"}\n\n",
+            "data: {\"response\":\"cd\"}\n\n",
+            "data: {\"response\":\".\"}\n\n",
+            "data: {\"response\":\"com\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Apr\"}\n\n",
+            "data: {\"response\":\"il\"}\n\n",
+            "data: {\"response\":\" fool\"}\n\n",
+            "data: {\"response\":\"s\"}\n\n",
+            "data: {\"response\":\"'\"}\n\n",
+            "data: {\"response\":\" com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Inter\"}\n\n",
+            "data: {\"response\":\"active\"}\n\n",
+            "data: {\"response\":\" com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\" with\"}\n\n",
+            "data: {\"response\":\" animation\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Dynamic\"}\n\n",
+            "data: {\"response\":\" com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\"\\\",\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"Com\"}\n\n",
+            "data: {\"response\":\"ics\"}\n\n",
+            "data: {\"response\":\" with\"}\n\n",
+            "data: {\"response\":\" audio\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\" ],\"}\n\n",
+            "data: {\"response\":\"\\n\"}\n\n",
+            "data: {\"response\":\"\\\"\"}\n\n",
+            "data: {\"response\":\"\"}\n\ndata: [DONE]\n\n"
+        ]
+    })";
+    auto parsed_string = CFConversationModel::parse_stream_response(res);
+    ASSERT_TRUE(parsed_string.ok());
+    ASSERT_EQ("00,\n\"publishDateYear\": 2011,\n\"title\": \"SOPA\",\n\"topics\": [\n\"Links to xkcd.com\",\n\"April fools' comics\",\n\"Interactive comics\",\n\"Comics with animation\",\n\"Dynamic comics\",\n\"Comics with audio\"\n ],\n\"transcript\": \" \"\n},\n{\n\"altTitle\": \"I'm currently getting totally blacked out.\",\n\"id\": \"1006\",\n\"imageUrl\": \"https://imgs.xkcd.com/comics/blackout.png\",\n\"publishDateDay\": 18,\n\"publishDateMonth\": 1,\n\"publishDateTimestamp\": 1326866400,\n\"publishDateYear\": 2011,\n\"title\": \"Blackout\",\n\"topics\": [\n\"Links to xkcd.com\",\n\"April fools' comics\",\n\"Interactive comics\",\n\"Comics with animation\",\n\"Dynamic comics\",\n\"Comics with audio\"\n ],\n\"", parsed_string.get());
+}
+

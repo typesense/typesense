@@ -160,13 +160,25 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
 
             // `word` can be either a multi-byte unicode sequence or an ASCII character
             // ASCII character can be either a special character or English alphabet
+            size_t orig_word_size = word.size();
 
             if(is_ascii_char(word[0])) {
-
                 if(std::isalnum(word[0])) {
                     // normalize an ascii string and emit word as token
-                    std::transform(word.begin(), word.end(), word.begin(),
-                                   [](unsigned char c){ return std::tolower(c); });
+                    size_t read_index = 0, write_index = 0;
+
+                    while (read_index < word.size()) {
+                        size_t this_stream_mode = get_stream_mode(word[read_index]);
+                        if(this_stream_mode != SKIP) {
+                            word[write_index++] = std::tolower(word[read_index]);
+                        }
+
+                        read_index++;
+                    }
+
+                    // resize to fit new length
+                    word.resize(write_index);
+
                     out += word;
                     emit_token = true;
                 }
@@ -181,8 +193,6 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                         emit_token = true;
                     }
                 }
-
-
             } else {
                 if(locale == "zh" && (word == "，" || word == "─" || word == "。")) {
                     emit_token = false;
@@ -201,7 +211,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
 
             start_index = utf8_start_index;
-            end_index = utf8_start_index + word.size() - 1;
+            end_index = utf8_start_index + orig_word_size - 1;
             utf8_start_index = end_index + 1;
 
             start_pos = end_pos;

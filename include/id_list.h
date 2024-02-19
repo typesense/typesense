@@ -48,10 +48,13 @@ public:
         explicit iterator_t(block_t* start, block_t* end, std::map<last_id_t, block_t*>* id_block_map, bool reverse);
         iterator_t(iterator_t&& rhs) noexcept;
         ~iterator_t();
+        iterator_t& operator=(iterator_t&& obj) noexcept;
         [[nodiscard]] bool valid() const;
         void next();
         void previous();
+        [[nodiscard]] uint32_t last_block_id() const;
         void skip_to(uint32_t id);
+        void reset_cache();
         [[nodiscard]] uint32_t id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;

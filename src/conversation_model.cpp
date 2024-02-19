@@ -1,3 +1,5 @@
+#include <regex>
+#include <iterator>
 #include "conversation_model.h"
 #include "embedder_manager.h"
 #include "text_embedder_remote.h"
@@ -84,6 +86,18 @@ Option<nlohmann::json> ConversationModel::format_answer(const std::string& messa
     }
 
     throw Option<nlohmann::json>(400, "Model namespace " + model_namespace + " is not supported.");
+}
+
+Option<size_t> ConversationModel::max_context_tokens(const nlohmann::json& model_config) {
+    const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
+
+    if(model_namespace == "openai") {
+        return Option<size_t>(OpenAIConversationModel::max_context_tokens());
+    } else if(model_namespace == "cf") {
+        return Option<size_t>(CFConversationModel::max_context_tokens());
+    }
+
+    throw Option<size_t>(400, "Model namespace " + model_namespace + " is not supported.");
 }
 
 
@@ -398,11 +412,17 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
     }
 
     nlohmann::json message = nlohmann::json::object();
-    message["role"] = "system";
-    message["content"] = INFO_PROMPT;
-    req_body["messages"].push_back(message);
     message["role"] = "user";
-    message["content"] = "[INST]Context:\n" + context + "\n\nQuestion:\n" + prompt + "\n\nAnswer:[/INST]";
+    message["content"] = R"(
+    Context information is below.
+    ---------------------
+    )" + context + R"(
+    ---------------------
+    Given the context information and not prior knowledge, answer the query. Context is JSON format, do not return data directly, answer like a human assistant.
+    Query: )" + prompt + R"(
+        
+    Answer:
+    )";
     req_body["messages"].push_back(message);
 
     std::string res;
@@ -417,7 +437,10 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
         nlohmann::json json_res;
         try {
             json_res = nlohmann::json::parse(res);
-            json_res = nlohmann::json::parse(json_res["response"].get<std::string>());
+            if(json_res.count("response") == 0 || json_res["response"].size() == 0) {
+                return Option<std::string>(400, "Cloudflare API error: " + res);
+            }
+            json_res = nlohmann::json::parse(json_res["response"][0].get<std::string>());
         } catch (const std::exception& e) {
             throw Option<std::string>(400, "Cloudflare API error: " + res);
         }
@@ -429,31 +452,8 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
         json_res = json_res["errors"][0];
         return Option<std::string>(400, "Cloudflare API error: " + json_res["message"].get<std::string>());
     }
-    try {
-        auto json_res = nlohmann::json::parse(res);
-        std::string parsed_response = "";
-        std::vector<std::string> lines = json_res["response"].get<std::vector<std::string>>();
-        for(auto& line : lines) {
-            while(line.find("data:") != std::string::npos) {
-                auto substr_line = line.substr(line.find("data:") + 6);
-                if(substr_line.find("[DONE]") != std::string::npos) {
-                    break;
-                }
-                nlohmann::json json_line;
-                if(substr_line.find("\n") != std::string::npos) {
-                   json_line = nlohmann::json::parse(substr_line.substr(0, substr_line.find("\n")));
-                } else {
-                    json_line = nlohmann::json::parse(substr_line);
-                }
-                parsed_response += json_line["response"];
-                line = substr_line;
-            }
-        }
-        return Option<std::string>(parsed_response);
-    } catch (const std::exception& e) {
-        LOG(ERROR) << e.what();
-        return Option<std::string>(400, "Got malformed response from Cloudflare API.");
-    }
+
+    return parse_stream_response(res);
 }
 
 Option<std::string> CFConversationModel::get_standalone_question(const nlohmann::json& conversation_history, 
@@ -551,4 +551,31 @@ Option<nlohmann::json> CFConversationModel::format_answer(const std::string& mes
     nlohmann::json json = nlohmann::json::object();
     json["assistant"] = message;
     return Option<nlohmann::json>(json);
+}
+
+Option<std::string> CFConversationModel::parse_stream_response(const std::string& res) {
+    try {
+        auto json_res = nlohmann::json::parse(res);
+        std::string parsed_response = "";
+        std::vector<std::string> lines = json_res["response"].get<std::vector<std::string>>();
+        std::regex data_regex("data: (.*?)\\n\\n");
+        for(auto& line : lines) {
+            auto begin = std::sregex_iterator(line.begin(), line.end(), data_regex);
+            auto end = std::sregex_iterator();
+            for (std::sregex_iterator i = begin; i != end; ++i) {
+                std::string substr_line = i->str().substr(6, i->str().size() - 8);
+                if(substr_line.find("[DONE]") != std::string::npos) {
+                    break;
+                }
+                nlohmann::json json_line;
+                json_line = nlohmann::json::parse(substr_line);
+                parsed_response += json_line["response"];
+            }
+        }
+        return Option<std::string>(parsed_response);
+    } catch (const std::exception& e) {
+        LOG(ERROR) << e.what();
+        LOG(ERROR) << "Response: " << res;
+        return Option<std::string>(400, "Got malformed response from Cloudflare API.");
+    }
 }

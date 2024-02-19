@@ -101,7 +101,8 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
 
 Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
                                                      const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
-                                                     tsl::htrie_set<char>& object_reference_helper_fields) {
+                                                     tsl::htrie_set<char>& object_reference_helper_fields,
+                                                     const bool& is_update) {
     tsl::htrie_set<char> flat_fields;
     if (!reference_fields.empty() && document.contains(".flat")) {
         for (const auto &item: document[".flat"].get<std::vector<std::string>>()) {
@@ -113,7 +114,9 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
     for (auto const& pair: reference_fields) {
         auto field_name = pair.first;
         auto optional = schema.at(field_name).optional;
-        if (!optional && document.count(field_name) != 1) {
+        // Strict checking for presence of non-optional reference field during indexing operation.
+        auto is_required = !is_update && !optional;
+        if (is_required && document.count(field_name) != 1) {
             return Option<bool>(400, "Missing the required reference field `" + field_name
                                              + "` in the document.");
         } else if (document.count(field_name) != 1) {
@@ -432,6 +435,10 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
         field_json[fields::stem] = coll_field.stem;
+        // no need to sned hnsw_params for text fields
+        if(coll_field.num_dim > 0) {
+            field_json[fields::hnsw_params] = coll_field.hnsw_params;
+        }
         if(coll_field.embed.count(fields::from) != 0) {
             field_json[fields::embed] = coll_field.embed;
 
@@ -2249,11 +2256,18 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     } else {
         field_query_tokens.emplace_back(query_tokens_t{});
-        const std::string & field_locale = search_schema.at(weighted_search_fields[0].name).locale;
+        auto most_weighted_field = search_schema.at(weighted_search_fields[0].name);
+        const std::string & field_locale = most_weighted_field.locale;
+
+        std::shared_ptr<Stemmer> stemmer = nullptr;
+        if(most_weighted_field.stem) {
+            stemmer = most_weighted_field.get_stemmer();
+        }
+
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set);
+                           field_locale, pre_segmented_query, stopwords_set, stemmer);
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -2652,7 +2666,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 wrapper_doc["text_match"] = field_order_kv->text_match_score;
                 wrapper_doc["text_match_info"] = nlohmann::json::object();
                 populate_text_match_info(wrapper_doc["text_match_info"],
-                                        field_order_kv->text_match_score, match_type);
+                                        field_order_kv->text_match_score, match_type,
+                                         field_query_tokens[0].q_include_tokens.size());
                 if(!vector_query.field_name.empty()) {
                     wrapper_doc["hybrid_search_info"] = nlohmann::json::object();
                     wrapper_doc["hybrid_search_info"]["rank_fusion_score"] = Index::int64_t_to_float(field_order_kv->scores[field_order_kv->match_score_index]);
@@ -2704,16 +2719,23 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             }
         }
 
+        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
+        auto max_docs_token = ConversationModel::max_context_tokens(conversation_model);
+        if(!max_docs_token.ok()) {
+            return Option<nlohmann::json>(max_docs_token.code(), max_docs_token.error());
+        }
+
         // remove document with lowest score until total tokens is less than MAX_TOKENS
-        while(ConversationManager::get_instance().get_token_count(docs_array) > ConversationManager::get_instance().MAX_TOKENS) {
+        while(ConversationManager::get_instance().get_token_count(docs_array) > max_docs_token.get()) {
             try {
+                if(docs_array.empty()) {
+                    break;
+                }
                 docs_array.erase(docs_array.size() - 1);
             } catch(...) {
                 return Option<nlohmann::json>(400, "Failed to remove document from search results.");
             }
         }
-
-        auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
 
         bool has_conversation_history = !conversation_id.empty();
         auto qa_op = ConversationModel::get_answer(docs_array.dump(0), raw_query, conversation_model);
@@ -2995,10 +3017,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     result["request_params"] = nlohmann::json::object();
     result["request_params"]["collection_name"] = name;
     result["request_params"]["per_page"] = per_page;
-    if(!raw_query.empty()) {
-        result["request_params"]["q"] = raw_query;
-        result["request_params"]["first_q"] = first_q;
-    }
+    result["request_params"]["q"] = raw_query;
+    result["request_params"]["first_q"] = first_q;
 
     if(!voice_query.empty()) {
         result["request_params"]["voice_query"] = nlohmann::json::object();
@@ -3176,7 +3196,8 @@ uint64_t Collection::extract_bits(uint64_t value, unsigned lsb_offset, unsigned 
 }
 
 void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_score,
-                                          const text_match_type_t match_type) const {
+                                          const text_match_type_t match_type,
+                                          const size_t total_tokens) const {
 
     // MAX_SCORE
     // [ sign | tokens_matched | max_field_score | max_field_weight | num_matching_fields ]
@@ -3186,18 +3207,22 @@ void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_s
     // [ sign | tokens_matched | max_field_weight | max_field_score  | num_matching_fields ]
     // [   1  |        4       |        8         |      48          |         3           ]  (64 bits)
 
+    auto tokens_matched = extract_bits(match_score, 59, 4);
+
     info["score"] = std::to_string(match_score);
+    info["tokens_matched"] = tokens_matched;
+    info["fields_matched"] = extract_bits(match_score, 0, 3);
 
     if(match_type == max_score) {
-        info["tokens_matched"] = extract_bits(match_score, 59, 4);
         info["best_field_score"] = std::to_string(extract_bits(match_score, 11, 48));
         info["best_field_weight"] = extract_bits(match_score, 3, 8);
-        info["fields_matched"] = extract_bits(match_score, 0, 3);
+        info["num_tokens_dropped"] = total_tokens - tokens_matched;
+        info["typo_prefix_score"] = 255 - extract_bits(match_score, 35, 8);
     } else {
-        info["tokens_matched"] = extract_bits(match_score, 59, 4);
         info["best_field_weight"] = extract_bits(match_score, 51, 8);
         info["best_field_score"] = std::to_string(extract_bits(match_score, 3, 48));
-        info["fields_matched"] = extract_bits(match_score, 0, 3);
+        info["num_tokens_dropped"] = total_tokens - tokens_matched;
+        info["typo_prefix_score"] = 255 - extract_bits(match_score, 27, 8);
     }
 }
 
@@ -3361,7 +3386,7 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
-                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set) const {
+                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set, const std::shared_ptr<Stemmer> stemmer) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -3421,6 +3446,10 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                     // handles front padded phrase query, e.g. " some query"
                     phrase_search_op_prior = true;
                 }
+            }
+
+            if(stemmer) {
+                token = stemmer->stem(token);
             }
 
             // retokenize using collection config (handles hyphens being part of the query)
@@ -4066,6 +4095,11 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
                                   (match_offset_index <= last_valid_offset_index &&
                                    match.offsets[match_offset_index].offset == raw_token_index);
 
+        if(match_offset_found && text_len/4 > 64000) {
+            // handle wrap around of token offsets: we will have to verify value of token as well
+            match_offset_found = (qtoken_it != qtoken_leaves.end());
+        }
+
         // Token might not appear in the best matched window, which is limited to a size of 10.
         // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
         // locate all tokens that appear in the query / query candidates
@@ -4466,7 +4500,7 @@ Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const 
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
     if(status == StoreStatus::FOUND) {
-        uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
+        uint32_t seq_id = std::stoul(seq_id_str);
         return Option<uint32_t>(seq_id);
     }
 
@@ -5898,7 +5932,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
     }
 
     auto add_reference_helper_fields_op = add_reference_helper_fields(document, schema, reference_fields,
-                                                                      object_reference_helper_fields);
+                                                                      object_reference_helper_fields, is_update);
     if (!add_reference_helper_fields_op.ok()) {
         return add_reference_helper_fields_op;
     }

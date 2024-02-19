@@ -2746,7 +2746,7 @@ TEST_F(CollectionSpecificMoreTest, DisableTyposForNumericalTokens) {
                                 HASH, 30000, 2, "",
                                 {},{}, "right_to_left", true,
                                 true, false, "", "", "",
-                                "", true);
+                                "", false);
 
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(1, res_op.get()["hits"].size());
@@ -2759,6 +2759,61 @@ TEST_F(CollectionSpecificMoreTest, DisableTyposForNumericalTokens) {
 
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(2, res_op.get()["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, DisableHighlightForLongFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "description", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    std::string description;
+    for(size_t i = 0; i < 70*1000; i++) {
+        description += StringUtils::randstring(4) + " ";
+    }
+
+    description += "foobar";
+
+    nlohmann::json doc;
+    doc["description"] = description;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("foobar", {"description"}, "", {},
+                                {}, {2}, 10, 1,FREQUENCY, {true},
+                                Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "");
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["hits"].size());
+    ASSERT_EQ(0, res_op.get()["hits"][0]["highlight"].size());
+
+    // if token is found within first 64K offsets, we will highlight
+    description = "";
+    for(size_t i = 0; i < 1000; i++) {
+        description += StringUtils::randstring(4) + " ";
+    }
+
+    description += " bazinga ";
+
+    for(size_t i = 0; i < 70*1000; i++) {
+        description += StringUtils::randstring(4) + " ";
+    }
+
+    doc["description"] = description;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    res_op = coll1->search("bazinga", {"description"}, "", {},
+                            {}, {2}, 10, 1,FREQUENCY, {true},
+                            Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "");
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["hits"].size());
+    ASSERT_EQ(1, res_op.get()["hits"][0]["highlight"].size());
 }
 
 TEST_F(CollectionSpecificMoreTest, TestStemming) {
@@ -2802,4 +2857,99 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     auto no_stem_res = coll_no_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
     ASSERT_TRUE(no_stem_res.ok());
     ASSERT_EQ(0, no_stem_res.get()["hits"].size());
+}
+
+TEST_F(CollectionSpecificMoreTest, NumDroppedTokensTest) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection *coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "alpha beta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "beta gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "gamma delta";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "delta epsilon";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "epsilon alpha";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    bool exhaustive_search = false;
+    size_t drop_tokens_threshold = 5;
+
+    auto res = coll1->search("alpha zeta gamma", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                             drop_tokens_threshold).get();
+
+    ASSERT_EQ(4, res["hits"].size());
+    ASSERT_EQ("4", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("epsilon alpha", res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["num_tokens_dropped"]);
+
+    ASSERT_EQ("2", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("gamma delta", res["hits"][1]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][1]["text_match_info"]["num_tokens_dropped"]);
+
+    ASSERT_EQ("1", res["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("beta gamma", res["hits"][2]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][2]["text_match_info"]["num_tokens_dropped"]);
+
+    ASSERT_EQ("0", res["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha beta", res["hits"][3]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][3]["text_match_info"]["num_tokens_dropped"]);
+
+    res = coll1->search("zeta theta epsilon", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                        drop_tokens_threshold).get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ("4", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("epsilon alpha", res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][0]["text_match_info"]["num_tokens_dropped"]);
+
+    ASSERT_EQ("3", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("delta epsilon", res["hits"][1]["document"]["title"]);
+    ASSERT_EQ(2, res["hits"][1]["text_match_info"]["num_tokens_dropped"]);
+
+    drop_tokens_threshold = 1;
+    res = coll1->search("alpha beta gamma", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                        drop_tokens_threshold).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("alpha beta", res["hits"][0]["document"]["title"]);
+    ASSERT_EQ(1, res["hits"][0]["text_match_info"]["num_tokens_dropped"]);
+}
+
+TEST_F(CollectionSpecificMoreTest, TestStemming2) {
+    nlohmann::json schema = R"({
+         "name": "words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true }
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walk"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walks"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walked"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walking"})"_json.dump()).ok()); 
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walkings"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walker"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "Walkers"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("Walking", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(7, res["hits"].size());
 }

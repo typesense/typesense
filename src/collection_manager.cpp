@@ -70,6 +70,25 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         if(field_obj.count(fields::model_config) == 0) {
             field_obj[fields::model_config] = nlohmann::json::object();
         }
+
+        if(field_obj.count(fields::hnsw_params) == 0) {
+            field_obj[fields::hnsw_params] = nlohmann::json::object();
+            field_obj[fields::hnsw_params]["ef_construction"] = 200;
+            field_obj[fields::hnsw_params]["M"] = 16;
+        }
+
+        if(field_obj.count(fields::stem) == 0) {
+            field_obj[fields::stem] = false;
+        }
+
+        if(field_obj.count(fields::range_index) == 0) {
+            field_obj[fields::range_index] = false;
+        }
+
+        if(field_obj.count(fields::store) == 0) {
+            field_obj[fields::store] = true;
+        }
+
         vector_distance_type_t vec_dist_type = vector_distance_type_t::cosine;
 
         if(field_obj.count(fields::vec_dist) != 0) {
@@ -97,7 +116,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
                 -1, field_obj[fields::infix], field_obj[fields::nested], field_obj[fields::nested_array],
-                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed]);
+                field_obj[fields::num_dim], vec_dist_type, field_obj[fields::reference], field_obj[fields::embed], field_obj[fields::range_index], field_obj[fields::store], field_obj[fields::stem], field_obj[fields::hnsw_params]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
@@ -922,7 +941,7 @@ Option<bool> add_unsigned_int_param(const std::string& param_name, const std::st
         return Option<bool>(400, "Parameter `" + std::string(param_name) + "` must be an unsigned integer.");
     }
 
-    *int_val = std::stoi(str_val);
+    *int_val = std::stoul(str_val);
     return Option<bool>(true);
 }
 
@@ -934,7 +953,7 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
 
     for(auto& str : str_vals) {
         if(StringUtils::is_uint32_t(str)) {
-            int_vals->push_back((uint32_t)std::stoi(str));
+            int_vals->push_back((uint32_t)std::stoul(str));
         } else {
             return Option<bool>(400, "Parameter `" + param_name + "` is malformed.");
         }
@@ -1437,6 +1456,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(stopword_it != req_params.end()) {
         stopwords_set = stopword_it->second;
+
+        if(!StopwordsManager::get_instance().stopword_exists(stopwords_set)) {
+            return Option<bool>(404, "Could not find the stopword set named `" + stopwords_set + "`.");
+        }
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -1512,7 +1535,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
-    bool enable_typos_for_numerical_tokens = false;
+    bool enable_typos_for_numerical_tokens = true;
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
