@@ -67,3 +67,23 @@ class CFConversationModel : public ConversationModel {
         static const inline std::vector<std::string> CF_MODEL_NAMES{"mistral/mistral-7b-instruct-v0.1"};
         static const std::string get_model_url(const std::string& model_name, const std::string& account_id);
 };
+
+class vLLMConversationModel : public ConversationModel {
+    public:
+        static Option<std::string> get_answer(const std::string& context, const std::string& prompt, const std::string& system_prompt, const nlohmann::json& model_config);
+        static Option<bool> validate_model(const nlohmann::json& model_config);
+        static Option<std::string> get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config);
+        static Option<nlohmann::json> format_question(const std::string& message);
+        static Option<nlohmann::json> format_answer(const std::string& message);
+        static const inline std::string STANDALONE_QUESTION_PROMPT = R"(
+            Rewrite the follow-up question on top of a human-assistant conversation history as a standalone question that encompasses all pertinent context.
+        )";
+        // prevent instantiation
+        vLLMConversationModel() = delete;
+        static size_t max_context_tokens() {
+            return 1300;
+        }
+    private:
+        static const std::string get_list_models_url(const std::string& url);
+        static const std::string get_chat_completion_url(const std::string& url);
+};
