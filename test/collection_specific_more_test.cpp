@@ -2746,7 +2746,7 @@ TEST_F(CollectionSpecificMoreTest, DisableTyposForNumericalTokens) {
                                 HASH, 30000, 2, "",
                                 {},{}, "right_to_left", true,
                                 true, false, "", "", "",
-                                "", true);
+                                "", false);
 
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(1, res_op.get()["hits"].size());
