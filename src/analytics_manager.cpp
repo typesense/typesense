@@ -206,15 +206,15 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             }
             //store event name to their weights
             //which can be used to keep counter events separate from non counter events
+            bool log_to_file = false;
+            if(event.contains("log_to_file")) {
+             log_to_file = event["log_to_file"].get<bool>();
+            }
             event_weight_map[event["name"]] = event["weight"];
-            event_type_collection ec {event["type"], suggestion_collection};
+            event_type_collection ec {event["type"], suggestion_collection, log_to_file};
             event_collection_map.emplace(event["name"], ec);
         }
         counter_events.emplace(suggestion_collection, counter_event_t{counter_field, {}, event_weight_map});
-
-        if(!shouldLogToFile && params["source"].contains("log_to_file")) {
-            shouldLogToFile = params["source"]["log_to_file"].get<bool>();
-        }
     } else if(is_event_type) {
         //multiple event types can be used with one collection
         //hence if no events are created for collection then only initialize it
@@ -223,9 +223,8 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             query_collection_events.emplace(suggestion_collection, vec);
         }
         auto sub_event_type = get_sub_event_type(payload["type"]);
-        event_type_collection ec {sub_event_type, suggestion_collection};
+        event_type_collection ec {sub_event_type, suggestion_collection, true};
         event_collection_map.emplace(params["name"], ec);
-        shouldLogToFile = true;
     }
 
     if(write_to_disk) {
@@ -438,7 +437,8 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
             doc_id = event_json["doc_id"].get<std::string>();
         }
 
-        event_t event(query, event_type, now_ts_useconds, user_id, doc_id, event_name, custom_data);
+        event_t event(query, event_type, now_ts_useconds, user_id, doc_id,
+                      event_name, event_collection_map[event_name].log_to_file, custom_data);
         events_vec.emplace_back(event);
 
         if (!counter_events.empty()) {
@@ -601,7 +601,7 @@ void AnalyticsManager::persist_events() {
     for (auto &events_collection_it: query_collection_events) {
         const auto& collection = events_collection_it.first;
         for (const auto &event: events_collection_it.second) {
-            if (analytics_logs.is_open() && shouldLogToFile) {
+            if (analytics_logs.is_open() && event.log_to_file) {
                 //store events to log file
                 analytics_logs << event.timestamp << "\t" << event.name << "\t"
                                << collection << "\t" << event.user_id << "\t" << event.doc_id << "\t"
@@ -683,8 +683,6 @@ void AnalyticsManager::dispose() {
     event_collection_map.clear();
 
     events_cache.clear();
-
-    shouldLogToFile = false;
 }
 
 void AnalyticsManager::init(Store* store, const std::string& analytics_dir) {

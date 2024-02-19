@@ -1095,8 +1095,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
         "params": {
             "source": {
                 "collections": ["books"],
-                "events":  [{"type": "click", "weight": 1, "name" : "CLK4"}, {"type": "conversion", "weight": 5, "name": "CNV4"} ],
-                "log_to_file": false
+                 "events":  [{"type": "click", "weight": 1, "name" : "CLK4"}, {"type": "conversion", "weight": 5, "name": "CNV4", "log_to_file" : true} ]
             },
             "destination": {
                 "collection": "books",
@@ -1157,7 +1156,13 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     auto fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
 
     std::stringstream strbuff(fileOutput.get());
-    ASSERT_EQ(0, strbuff.str().size());
+    std::string timestamp, collection, userid, name, q, docid;
+    strbuff >> timestamp >> name >> collection >> userid >> docid >> q;
+    ASSERT_EQ("CNV4", name);
+    ASSERT_EQ("books", collection);
+    ASSERT_EQ("11", userid);
+    ASSERT_EQ("1", docid);
+    ASSERT_EQ("shorts", q);
 
     //now add click event rule
     analytics_rule = R"({
@@ -1193,8 +1198,6 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ(1, popular_clicks["books"].docid_counts.size());
     ASSERT_EQ(5, popular_clicks["books"].docid_counts["1"]);
 
-    //since we've added normal click event rule,
-    // it'll override log_to_file and will log all events to file after adding
     //add another counter event
     event = R"({
         "type": "conversion",
@@ -1220,19 +1223,19 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
 
     std::stringstream strbuff2(fileOutput.get());
-    std::string timestamp, collection, userid, name, q, docid;
-    strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
-    ASSERT_EQ("APC2", name);
-    ASSERT_EQ("books", collection);
-    ASSERT_EQ("13", userid);
-    ASSERT_EQ("21", docid);
-    ASSERT_EQ("technology", q);
-
-    timestamp.clear();name.clear();collection.clear();userid.clear();q.clear();
+    timestamp.clear(), collection.clear(), userid.clear(), name.clear(), q.clear(), docid.clear();
     strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
     ASSERT_EQ("CNV4", name);
     ASSERT_EQ("books", collection);
     ASSERT_EQ("11", userid);
     ASSERT_EQ("1", docid);
     ASSERT_EQ("shorts", q);
+
+    timestamp.clear(), collection.clear(), userid.clear(), name.clear(), q.clear(), docid.clear();
+    strbuff2 >> timestamp >> name >> collection >> userid >> docid >> q;
+    ASSERT_EQ("APC2", name);
+    ASSERT_EQ("books", collection);
+    ASSERT_EQ("13", userid);
+    ASSERT_EQ("21", docid);
+    ASSERT_EQ("technology", q);
 }
