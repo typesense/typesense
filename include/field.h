@@ -739,6 +739,10 @@ struct facet {
 
         auto it = facet_range_map.lower_bound(key);
 
+        if(it != facet_range_map.end() && it->first == key) {
+            it++;
+        }
+
         if(it != facet_range_map.end()) {
             range_pair.first = it->first;
             range_pair.second = it->second;

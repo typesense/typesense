@@ -2775,9 +2775,9 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetsMinMaxRange) {
 
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
-    ASSERT_EQ("small", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("large", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
-    ASSERT_EQ("large", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("small", results["facet_counts"][0]["counts"][1]["value"]);
 
     results = coll1->search("*", {},
                             "", {"inches(small:[,55])"},
@@ -2791,7 +2791,7 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetsMinMaxRange) {
                             2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
 
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("small", results["facet_counts"][0]["counts"][0]["value"]);
 }
 
@@ -2832,6 +2832,6 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetRangeLabelWithSpace) {
                                  2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
 
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("small tvs with display size", results["facet_counts"][0]["counts"][0]["value"]);
 }
