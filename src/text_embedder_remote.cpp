@@ -178,7 +178,7 @@ embedding_res_t OpenAIEmbedder::Embed(const std::string& text, const size_t remo
     std::string res;
     nlohmann::json req_body;
     req_body["input"] = std::vector<std::string>{text};
-    if(num_dims > 0 && has_custom_dims) {
+    if(has_custom_dims) {
         req_body["dimensions"] = num_dims;
     }
     // remove "openai/" prefix
@@ -209,7 +209,7 @@ std::vector<embedding_res_t> OpenAIEmbedder::batch_embed(const std::vector<std::
     }
     nlohmann::json req_body;
     req_body["input"] = inputs;
-    if(num_dims > 0 && has_custom_dims) {
+    if(has_custom_dims) {
         req_body["dimensions"] = num_dims;
     }
     // remove "openai/" prefix
