@@ -706,3 +706,175 @@ Option<std::string> GCPEmbedder::generate_access_token(const std::string& refres
 std::string GCPEmbedder::get_model_key(const nlohmann::json& model_config) {
     return model_config["model_name"].get<std::string>() + ":" + model_config["project_id"].get<std::string>() + ":" + model_config["client_secret"].get<std::string>();
 }
+
+OTEEmbedder::OTEEmbedder(const std::string& url) : url(url) {
+
+}
+
+Option<bool> OTEEmbedder::is_model_valid(const nlohmann::json& model_config, size_t& num_dims) {
+        auto validate_properties = validate_string_properties(model_config, {"model_name", "url"});
+    
+    if (!validate_properties.ok()) {
+        return validate_properties;
+    }
+
+    auto model_name = model_config["model_name"].get<std::string>();
+    auto url = model_config["url"].get<std::string>();
+
+    if(EmbedderManager::get_model_namespace(model_name) != "open-text-embeddings") {
+        return Option<bool>(400, "Invalid open-text-embeddings model name");
+    }
+
+    auto model_name_without_namespace = EmbedderManager::get_model_name_without_namespace(model_name);
+
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    auto req_body = nlohmann::json::object();
+    req_body["input"] = "typesense";
+    req_body["model"] = model_name_without_namespace;
+    headers["Content-Type"] = "application/json";
+    auto res_code = call_remote_api("POST", url + "/v1/embeddings", req_body.dump(), res, res_headers, headers);  
+
+
+    if(res_code == 408) {
+        return Option<bool>(408, "Open-text-embeddings API timeout.");
+    }
+
+    if (res_code != 200) {
+        nlohmann::json json_res;
+        try {
+            json_res = nlohmann::json::parse(res);
+        } catch (const std::exception& e) {
+            return Option<bool>(400, "Open-text-embeddings API error: " + res);
+        }
+        if(json_res.count("error") == 0 || json_res["error"].count("message") == 0) {
+            return Option<bool>(400, "Open-text-embeddings API error: " + res);
+        }
+        return Option<bool>(400, "Open-text-embeddings API error: " + json_res["error"]["message"].get<std::string>());
+    }
+
+    std::vector<float> embedding;
+    try {
+        embedding = nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>();
+    } catch (const std::exception& e) {
+        return Option<bool>(400, "Got malformed response from Open-text-embeddings API.");
+    }
+    num_dims = embedding.size();
+    return Option<bool>(true);
+}
+
+embedding_res_t OTEEmbedder::Embed(const std::string& text, const size_t remote_embedder_timeout_ms, const size_t remote_embedding_num_tries) {
+    std::unordered_map<std::string, std::string> headers;
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    nlohmann::json req_body;
+    req_body["input"] = std::vector<std::string>{text};
+    headers["Content-Type"] = "application/json";
+    headers["timeout_ms"] = std::to_string(remote_embedder_timeout_ms);
+    headers["num_try"] = std::to_string(remote_embedding_num_tries);
+    auto res_code = call_remote_api("POST", url + "/v1/embeddings", req_body.dump(), res, res_headers, headers);
+    if (res_code != 200) {
+        return embedding_res_t(res_code, get_error_json(req_body, res_code, res));
+    }
+    try {
+        return embedding_res_t(nlohmann::json::parse(res)["data"][0]["embedding"].get<std::vector<float>>());
+    } catch (const std::exception& e) {
+        return embedding_res_t(500, get_error_json(req_body, res_code, res));
+    }
+}
+
+std::vector<embedding_res_t> OTEEmbedder::batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size,
+                                                      const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries) {
+    // call recursively if inputs larger than remote_embedding_batch_size
+    if(inputs.size() > remote_embedding_batch_size) {
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i += remote_embedding_batch_size) {
+            auto batch = std::vector<std::string>(inputs.begin() + i, inputs.begin() + std::min(i + remote_embedding_batch_size, inputs.size()));
+            auto batch_outputs = batch_embed(batch, remote_embedding_batch_size, remote_embedding_timeout_ms, remote_embedding_num_tries);
+            outputs.insert(outputs.end(), batch_outputs.begin(), batch_outputs.end());
+        }
+        return outputs;
+    }
+    
+    nlohmann::json req_body;
+    req_body["input"] = inputs;
+    std::unordered_map<std::string, std::string> headers;
+    headers["Content-Type"] = "application/json";
+    headers["timeout_ms"] = std::to_string(remote_embedding_timeout_ms);
+    headers["num_try"] = std::to_string(remote_embedding_num_tries);
+    std::map<std::string, std::string> res_headers;
+    std::string res;
+    auto res_code = call_remote_api("POST", url + "/v1/embeddings", req_body.dump(), res, res_headers, headers);
+
+    if(res_code != 200) {
+        std::vector<embedding_res_t> outputs;
+        nlohmann::json embedding_res = get_error_json(req_body, res_code, res);
+        for(size_t i = 0; i < inputs.size(); i++) {
+            embedding_res["request"]["body"]["input"][0] = inputs[i];
+            outputs.push_back(embedding_res_t(res_code, embedding_res));
+        }
+        return outputs;
+    }
+
+    nlohmann::json res_json;
+
+    try {
+        res_json = nlohmann::json::parse(res);
+    } catch (const std::exception& e) {
+        return std::vector<embedding_res_t>(inputs.size(), embedding_res_t(500, get_error_json(req_body, res_code, res)));
+    }
+
+    if(res_json.count("data") == 0 || !res_json["data"].is_array() || res_json["data"].size() != inputs.size()) {
+        std::vector<embedding_res_t> outputs;
+        for(size_t i = 0; i < inputs.size(); i++) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from Open-text-embeddings API."));
+        }
+        return outputs;
+    }
+
+    std::vector<embedding_res_t> outputs;
+    for(auto& data : res_json["data"]) {
+        if(data.count("embedding") == 0 || !data["embedding"].is_array() || data["embedding"].size() == 0) {
+            outputs.push_back(embedding_res_t(500, "Got malformed response from Open-text-embeddings API."));
+            continue;
+        }
+        outputs.push_back(embedding_res_t(data["embedding"].get<std::vector<float>>()));
+    }
+
+    return outputs;
+}
+
+nlohmann::json OTEEmbedder::get_error_json(const nlohmann::json& req_body, long res_code, const std::string& res_body) {
+    nlohmann::json json_res;
+    try {
+        nlohmann::json json_res = nlohmann::json::parse(res_body);
+    } catch (const std::exception& e) {
+        json_res = nlohmann::json::object();
+        json_res["error"] = "Malformed response from Open-text-embeddings API.";
+    }
+    nlohmann::json embedding_res = nlohmann::json::object();
+    embedding_res["response"] = json_res;
+    embedding_res["request"] = nlohmann::json::object();
+    embedding_res["request"]["url"] = url + "/v1/embeddings";
+    embedding_res["request"]["method"] = "POST";
+    embedding_res["request"]["body"] = req_body;
+    if(embedding_res["request"]["body"].count("input") > 0 && embedding_res["request"]["body"]["input"].get<std::vector<std::string>>().size() > 1) {
+        auto vec = embedding_res["request"]["body"]["input"].get<std::vector<std::string>>();
+        vec.resize(1);
+        embedding_res["request"]["body"]["input"] = vec;
+    }
+    if(json_res.count("error") != 0 && json_res["error"].count("message") != 0) {
+        embedding_res["error"] = "Open-text-embeddings API error: " + json_res["error"]["message"].get<std::string>();
+    }
+    if(res_code == 408) {
+        embedding_res["error"] = "Open-text-embeddings API timeout.";
+    }
+
+    return embedding_res;
+}
+
+std::string OTEEmbedder::get_model_key(const nlohmann::json& model_config) {
+    return model_config["model_name"].get<std::string>() + ":" + model_config["url"].get<std::string>();
+}
+

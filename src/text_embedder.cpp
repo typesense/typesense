@@ -85,6 +85,10 @@ TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, 
         auto client_secret = model_config["client_secret"].get<std::string>();
 
         remote_embedder_ = std::make_unique<GCPEmbedder>(project_id, model_name, access_token, refresh_token, client_id, client_secret);
+    } else if(model_namespace == "open-text-embeddings") {
+        auto url = model_config["url"].get<std::string>();
+        
+        remote_embedder_ = std::make_unique<OTEEmbedder>(url);
     }
 
     num_dim = num_dims;
