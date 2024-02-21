@@ -84,6 +84,9 @@ private:
 
     static std::string get_req_suffix_key(uint64_t req_id);
 
+    void populate_waiting_on_ids(const std::string& coll_name, const uint64_t& request_start_ts,
+                                 std::set<uint64_t>& waiting_on_ids);
+
 public:
 
     static const constexpr char* RAFT_REQ_LOG_PREFIX = "$RL_";
