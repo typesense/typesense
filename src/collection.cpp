@@ -2834,7 +2834,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                 auto facet_range_iter = a_facet.facet_range_map.find(kv.first);
                 if(facet_range_iter != a_facet.facet_range_map.end()){
                     auto & facet_count = kv.second;
-                    facet_value_t facet_value = {facet_range_iter->second, std::string(), facet_count.count};
+                    facet_value_t facet_value = {facet_range_iter->second.range_label, std::string(), facet_count.count};
                     facet_values.emplace_back(facet_value);
                 }
                 else{
@@ -6111,6 +6111,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         std::vector<std::tuple<int64_t, int64_t, std::string>> tupVec;
 
         auto& range_map = a_facet.facet_range_map;
+        range_map.clear();
         for(const auto& range : result){
             //validate each range syntax
             if(!std::regex_match(range, range_pattern)){
@@ -6186,7 +6187,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
                 return Option<bool>(400, error);
             }
 
-            range_map[upper_range] =  range_val;
+            range_map[upper_range] =  range_specs_t{range_val, lower_range};
         }
 
         a_facet.is_range_query = true;

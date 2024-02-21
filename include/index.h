@@ -685,7 +685,7 @@ public:
     facet_index_t* _get_facet_index() const;
 
     static int get_bounded_typo_cost(const size_t max_cost, const std::string& token, const size_t token_len,
-                                     size_t min_len_1typo, size_t min_len_2typo,  bool enable_typos_for_numerical_tokens=false);
+                                     size_t min_len_1typo, size_t min_len_2typo,  bool enable_typos_for_numerical_tokens=true);
 
     static int64_t float_to_int64_t(float n);
 
@@ -739,7 +739,7 @@ public:
                 const std::string& collection_name,
                 const drop_tokens_param_t drop_tokens_mode,
                 facet_index_type_t facet_index_type = DETECT,
-                bool enable_typos_for_numerical_tokens = false
+                bool enable_typos_for_numerical_tokens = true
                 ) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
@@ -962,7 +962,7 @@ public:
                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                    const std::vector<size_t>& geopoint_indices,
                                                    const std::string& collection_name = "",
-                                                   bool enable_typos_for_numerical_tokens = false) const;
+                                                   bool enable_typos_for_numerical_tokens = true) const;
 
     void find_across_fields(const token_t& previous_token,
                             const std::string& previous_token_str,

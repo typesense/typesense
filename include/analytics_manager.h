@@ -11,6 +11,7 @@
 struct event_type_collection {
     std::string event_type;
     std::string collection;
+    bool log_to_file = false;
 };
 
 struct event_t {
@@ -21,19 +22,21 @@ struct event_t {
     std::string doc_id;
     std::string name;
     std::vector<std::pair<std::string, std::string>> data;
+    bool log_to_file;
 
     event_t() = delete;
 
     ~event_t() = default;
 
     event_t(const std::string& q, const std::string& type, uint64_t ts, const std::string& uid, const std::string& id,
-            const std::string& event_name, const std::vector<std::pair<std::string, std::string>> datavec) {
+            const std::string& event_name, bool should_log_to_file, const std::vector<std::pair<std::string, std::string>> datavec) {
         query = q;
         event_type = type;
         timestamp = ts;
         user_id = uid;
         doc_id = id;
         name = event_name;
+        log_to_file = should_log_to_file;
         data = datavec;
     }
 
@@ -70,6 +73,8 @@ struct counter_event_t {
     std::string counter_field;
     std::map<std::string, uint64_t> docid_counts;
     std::map<std::string, uint16_t> event_weight_map;
+
+    void serialize_as_docs(std::string& docs);
 };
 
 struct event_cache_t {
@@ -209,7 +214,7 @@ public:
     Option<bool> add_event(const std::string& client_ip, const std::string& event_type,
                            const std::string& event_name, const nlohmann::json& event_data);
 
-    void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
+    void persist_events();
 
     void persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 

@@ -97,27 +97,49 @@ id_list_t::block_t* id_list_t::iterator_t::block() const {
     return curr_block;
 }
 
+uint32_t id_list_t::iterator_t::last_block_id() const {
+    auto size = curr_block->size();
+    if(size == 0) {
+        return 0;
+    }
+
+    return ids[size - 1];
+}
+
+void id_list_t::iterator_t::reset_cache() {
+    delete [] ids;
+    ids = nullptr;
+    curr_index = 0;
+    curr_block = end_block = nullptr;
+}
+
 void id_list_t::iterator_t::skip_to(uint32_t id) {
-    bool skipped_block = false;
-    while(curr_block != end_block && curr_block->ids.last() < id) {
-        curr_block = curr_block->next;
-        delete [] ids;
-
-        ids = nullptr;
-
-        if(curr_block != end_block) {
-            ids = curr_block->ids.uncompress();
+    // first look to skip within current block
+    if(id <= this->last_block_id()) {
+        while(curr_index < curr_block->size() && this->id() < id) {
+            curr_index++;
         }
 
-        skipped_block = true;
+        return ;
     }
 
-    if(skipped_block) {
-        curr_index = 0;
+    reset_cache();
+
+    const auto it = id_block_map->lower_bound(id);
+    if(it == id_block_map->end()) {
+        return;
     }
 
-    while(curr_block != end_block && curr_index < curr_block->size() && this->id() < id) {
+    curr_block = it->second;
+    curr_index = 0;
+    ids = curr_block->ids.uncompress();
+
+    while(curr_index < curr_block->size() && this->id() < id) {
         curr_index++;
+    }
+
+    if(curr_index == curr_block->size()) {
+        reset_cache();
     }
 }
 

@@ -49,8 +49,10 @@ class OpenAIEmbedder : public RemoteEmbedder {
         std::string openai_model_path;
         static constexpr char* OPENAI_LIST_MODELS = "https://api.openai.com/v1/models";
         static constexpr char* OPENAI_CREATE_EMBEDDING = "https://api.openai.com/v1/embeddings";
+        bool has_custom_dims;
+        size_t num_dims;
     public:
-        OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key);
+        OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims);
         embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,

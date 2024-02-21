@@ -3,6 +3,7 @@
 #include <vector>
 #include <collection_manager.h>
 #include <core_api.h>
+#include <analytics_manager.h>
 #include "core_api_utils.h"
 #include "raft_server.h"
 #include "conversation_model_manager.h"
@@ -1050,8 +1051,6 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFieldsWithFilter) {
 
     collectionManager.drop_collection("coll1");
 }
-
-
 
 TEST_F(CoreAPIUtilsTest, TestProxy) {
     std::string res;

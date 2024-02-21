@@ -29,9 +29,12 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
                                                                  size_t& num_dims) {
     const std::string& model_name = model_config["model_name"].get<std::string>();
     auto model_namespace = EmbedderManager::get_model_namespace(model_name);
-
+    bool has_custom_dims = false;
     if(model_namespace == "openai") {
+        auto num_dims_before = num_dims;
         auto op = OpenAIEmbedder::is_model_valid(model_config, num_dims);
+        // if the dimensions did not change, it means the model has custom dimensions
+        has_custom_dims = num_dims_before == num_dims;
         if(!op.ok()) {
             return op;
         }
@@ -53,7 +56,7 @@ Option<bool> EmbedderManager::validate_and_init_remote_model(const nlohmann::jso
     std::string model_key = is_remote_model(model_name) ? RemoteEmbedder::get_model_key(model_config) : model_name;
     auto text_embedder_it = text_embedders.find(model_key);
     if(text_embedder_it == text_embedders.end()) {
-        text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims));
+        text_embedders.emplace(model_key, std::make_shared<TextEmbedder>(model_config, num_dims, has_custom_dims));
     }
 
     return Option<bool>(true);

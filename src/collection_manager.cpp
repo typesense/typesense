@@ -1535,7 +1535,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t max_extra_suffix = INT16_MAX;
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
-    bool enable_typos_for_numerical_tokens = false;
+    bool enable_typos_for_numerical_tokens = true;
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
@@ -1837,17 +1837,17 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     nlohmann::json result = result_op.get();
 
     if(Config::get_instance().get_enable_search_analytics()) {
-        if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
+        if(result.contains("found")) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
-            const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
-                                                result["request_params"]["first_q"].get<std::string>());
-
-            AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
-                                                            true, req_params["x-typesense-user-id"]);
-        } else if(result.contains("found") == 0 && result["found"].get<size_t>() == 0) {
-            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
-            AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
-                                                              true, req_params["x-typesense-user-id"]);
+            if(result["found"].get<size_t>() != 0) {
+                const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
+                        result["request_params"]["first_q"].get<std::string>());
+                AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
+                                                                true, req_params["x-typesense-user-id"]);
+            } else {
+                AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
+                                                                  true, req_params["x-typesense-user-id"]);
+            }
         }
     }
 

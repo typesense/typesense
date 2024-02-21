@@ -23,6 +23,12 @@ make(
     lib_source = "//:snowball_src",
     out_static_libs = ["libstemmer.a"],
     out_include_dir = "include",
+    env = select({
+        "@platforms//os:macos": {
+            "AR": "/usr/bin/ar",
+        },
+        "//conditions:default": {},
+    }),
     args= ["-j12"],
     tags = ["no-sandbox"],
     targets = [""],

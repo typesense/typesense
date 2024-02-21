@@ -2735,6 +2735,21 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetsFloatRange) {
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("small", results["facet_counts"][0]["counts"][0]["value"]);
+
+    results = coll1->search("*", {},
+                                 "", {"inches(big:[55, 55.6])"},
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true,
+                                 6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                 2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
+
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("big", results["facet_counts"][0]["counts"][0]["value"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, RangeFacetsMinMaxRange) {
@@ -2775,9 +2790,9 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetsMinMaxRange) {
 
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
-    ASSERT_EQ("small", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("large", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
-    ASSERT_EQ("large", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("small", results["facet_counts"][0]["counts"][1]["value"]);
 
     results = coll1->search("*", {},
                             "", {"inches(small:[,55])"},
@@ -2791,7 +2806,7 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetsMinMaxRange) {
                             2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
 
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("small", results["facet_counts"][0]["counts"][0]["value"]);
 }
 
@@ -2832,6 +2847,6 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetRangeLabelWithSpace) {
                                  2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
 
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
-    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("small tvs with display size", results["facet_counts"][0]["counts"][0]["value"]);
 }
