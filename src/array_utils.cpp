@@ -145,7 +145,7 @@ size_t ArrayUtils::exclude_scalar(const uint32_t *A, const size_t lenA,
 
   // shrink fit
   *out = new uint32_t[res_index];
-  memcpy(*out, results, res_index * sizeof(uint32_t));
+  std::copy(results, results + res_index, *out);
   delete[] results;
 
   return res_index;

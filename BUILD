@@ -104,8 +104,12 @@ cc_binary(
     linkopts = select({
         "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc", "-fuse-ld=lld"],
         "//conditions:default": [],
+        ":asan_mode": ["-fsanitize=address", "-fuse-ld=lld"],
     }),
     copts = COPTS + select({
+        "//conditions:default": [],
+        ":asan_mode": ["-O0"] + ASAN_COPTS,
+    }) + select({
         "@platforms//os:linux": ["-DBACKWARD_HAS_DW=1", "-DBACKWARD_HAS_UNWIND=1"],
         "//conditions:default": [],
     }),
@@ -113,6 +117,20 @@ cc_binary(
         "@platforms//os:linux": [":linux_deps"],
         "//conditions:default": [],
     }),
+    data = select({
+        ":asan_mode": [
+            ":asan_suppressions",
+        ],
+        "//conditions:default": [],
+    }),
+    env = select({
+        ":asan_mode": {
+            "TYPESENSE_DATA_DIR": "/tmp",
+            "TYPESENSE_API_KEY": "typesense_api_key",
+            "LSAN_OPTIONS": "suppressions=asan.supp"
+        },
+        "//conditions:default": {}
+    })
 )
 
 cc_binary(
@@ -148,6 +166,11 @@ filegroup(
         "test/**/*.jsonl",
         "test/**/*.gz",
     ]),
+)
+
+filegroup(
+    name = "asan_suppressions",
+    srcs = ["asan.supp"],
 )
 
 TEST_COPTS = [
@@ -188,6 +211,7 @@ cc_test(
     }),
     data = [
         ":test_data_files",
+        ":asan_suppressions",
         "@libart//:data",
         "@token_offsets//file",
     ],
@@ -204,5 +228,8 @@ cc_test(
     }) +  select({
        "@platforms//os:linux": ["-fuse-ld=lld"],
        "//conditions:default": [],
-   })
+   }),
+   env = {
+       'LSAN_OPTIONS': 'suppressions=asan.supp'
+   }
 )
