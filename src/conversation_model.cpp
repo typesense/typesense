@@ -848,5 +848,3 @@ const std::string vLLMConversationModel::get_list_models_url(const std::string& 
 const std::string vLLMConversationModel::get_chat_completion_url(const std::string& vllm_url) {
     return vllm_url.back() == '/' ? vllm_url + "v1/chat/completions" : vllm_url + "/v1/chat/completions";
 }
-
-
