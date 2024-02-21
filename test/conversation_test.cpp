@@ -121,26 +121,34 @@ TEST_F(ConversationTest, TruncateConversation) {
         conversation.push_back(message);
     }
 
-    auto truncated = ConversationManager::get_instance().truncate_conversation(conversation);
+    auto truncated = ConversationManager::get_instance().truncate_conversation(conversation, 100);
     ASSERT_TRUE(truncated.ok());
     ASSERT_TRUE(truncated.get().size() < conversation.size());
+    ASSERT_EQ(truncated.get().size(), 100);
 }
 
 TEST_F(ConversationTest, TruncateConversationEmpty) {
     nlohmann::json conversation = nlohmann::json::array();
-    auto truncated = ConversationManager::get_instance().truncate_conversation(conversation);
+    auto truncated = ConversationManager::get_instance().truncate_conversation(conversation, 100);
     ASSERT_TRUE(truncated.ok());
     ASSERT_TRUE(truncated.get().size() == 0);
 }
 
 TEST_F(ConversationTest, TruncateConversationInvalidType) {
     nlohmann::json conversation = nlohmann::json::object();
-    auto truncated = ConversationManager::get_instance().truncate_conversation(conversation);
+    auto truncated = ConversationManager::get_instance().truncate_conversation(conversation, 100);
     ASSERT_FALSE(truncated.ok());
     ASSERT_EQ(truncated.code(), 400);
     ASSERT_EQ(truncated.error(), "Conversation history is not an array");
 }
 
+TEST_F(ConversationTest, TruncateConversationInvalidLimit) {
+    nlohmann::json conversation = nlohmann::json::array();
+    auto truncated = ConversationManager::get_instance().truncate_conversation(conversation, 0);
+    ASSERT_FALSE(truncated.ok());
+    ASSERT_EQ(truncated.code(), 400);
+    ASSERT_EQ(truncated.error(), "Limit must be positive integer");
+}
 
 TEST_F(ConversationTest, TestConversationExpire) {
     nlohmann::json conversation = nlohmann::json::array();

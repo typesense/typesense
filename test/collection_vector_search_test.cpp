@@ -2871,7 +2871,8 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
     auto api_key = std::string(std::getenv("api_key"));
 
     auto conversation_model_config = R"({
-        "model_name": "openai/gpt-3.5-turbo"
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes: 1000
     })"_json;
 
     conversation_model_config["api_key"] = api_key;
@@ -3317,7 +3318,8 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     auto api_key = std::string(std::getenv("api_key"));
 
     auto conversation_model_config = R"({
-        "model_name": "openai/gpt-3.5-turbo"
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes": 1000
     })"_json;
 
     conversation_model_config["api_key"] = api_key;

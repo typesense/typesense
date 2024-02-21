@@ -22,9 +22,11 @@ class ConversationModel {
         static Option<std::string> get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config);
         static Option<nlohmann::json> format_question(const std::string& message, const nlohmann::json& model_config);
         static Option<nlohmann::json> format_answer(const std::string& message, const nlohmann::json& model_config);
-        // max token count for the context search results
-        static Option<size_t> max_context_tokens(const nlohmann::json& model_config);
-    private:
+        static Option<size_t> get_minimum_required_bytes(const nlohmann::json& model_config);
+    protected:
+        static const inline std::string CONVERSATION_HISTORY = "\n\n<Conversation history>\n";
+        static const inline std::string QUESTION = "\n\n<Question>\n";
+        static const inline std::string STANDALONE_QUESTION_PROMPT = "\n\n<Standalone question>\n";
 };
 
 class OpenAIConversationModel : public ConversationModel {
@@ -34,14 +36,15 @@ class OpenAIConversationModel : public ConversationModel {
         static Option<std::string> get_standalone_question(const nlohmann::json& conversation_history, const std::string& question, const nlohmann::json& model_config);
         static Option<nlohmann::json> format_question(const std::string& message);
         static Option<nlohmann::json> format_answer(const std::string& message);
+        // max_bytes must be greater than or equal to the minimum required bytes
+        static const size_t get_minimum_required_bytes() {
+            return std::string("<Data>\n").size() + std::string("\n\n<Question>\n").size() + std::string("\n\n<Answer>").size();
+        }
         static const inline std::string STANDALONE_QUESTION_PROMPT = R"(
             Rewrite the follow-up question on top of a human-assistant conversation history as a standalone question that encompasses all pertinent context.
         )";
         // prevent instantiation
         OpenAIConversationModel() = delete;
-        static size_t max_context_tokens() {
-            return 3000;
-        }
     private:
         static constexpr char* OPENAI_LIST_MODELS = "https://api.openai.com/v1/models";
         static constexpr char* OPENAI_CHAT_COMPLETION = "https://api.openai.com/v1/chat/completions";
@@ -60,8 +63,17 @@ class CFConversationModel : public ConversationModel {
         static const inline std::string INFO_PROMPT = "You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know. Use three sentences maximum and do not mention provided context directly, act like already knowing the context.";
         // prevent instantiation
         CFConversationModel() = delete;
-        static size_t max_context_tokens() {
-            return 768;
+        static const size_t get_minimum_required_bytes() {
+            return std::string(R"(
+                Context information is below.
+                ---------------------
+                )").size() + std::string(R"(
+                ---------------------
+                Given the context information and not prior knowledge, answer the query. Context is JSON format, do not return data directly, answer like a human assistant.
+                Query: )").size() + std::string(R"(
+        
+                Answer:
+                )").size();
         }
     private:
         static const inline std::vector<std::string> CF_MODEL_NAMES{"mistral/mistral-7b-instruct-v0.1"};
@@ -80,8 +92,9 @@ class vLLMConversationModel : public ConversationModel {
         )";
         // prevent instantiation
         vLLMConversationModel() = delete;
-        static size_t max_context_tokens() {
-            return 1300;
+        // max_bytes must be greater than or equal to the minimum required bytes
+        static const size_t get_minimum_required_bytes() {
+            return std::string("<Data>\n").size() + std::string("\n\n<Question>\n").size() + std::string("\n\n<Answer>").size();
         }
     private:
         static const std::string get_list_models_url(const std::string& url);
