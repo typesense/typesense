@@ -186,7 +186,7 @@ void BatchedIndexer::run() {
 
                 const std::string& req_key_upper_bound = get_req_suffix_key(req_id);  // cannot inline this
                 rocksdb::Slice upper_bound(req_key_upper_bound);
-                rocksdb::Iterator* rocksdb_iter = store->scan(req_key_start_prefix, &upper_bound);
+                rocksdb::Iterator* iter = store->scan(req_key_start_prefix, &upper_bound);
 
                 // used to handle partial JSON documents caused by chunking
                 std::string& prev_body = orig_req_res.prev_req_body;
@@ -199,10 +199,10 @@ void BatchedIndexer::run() {
                 bool route_found = server->get_route(orig_req->route_hash, &found_rpath);
                 bool async_res = false;
 
-                while(rocksdb_iter->Valid() && rocksdb_iter->key().starts_with(req_key_prefix)) {
+                while(iter->Valid() && iter->key().starts_with(req_key_prefix)) {
                     std::shared_lock slk(pause_mutex); // used for snapshot
                     orig_req->body = prev_body;
-                    orig_req->load_from_json(rocksdb_iter->value().ToString());
+                    orig_req->load_from_json(iter->value().ToString());
 
                     // update thread local for reference during a crash
                     write_log_index = orig_req->log_index;
@@ -272,12 +272,12 @@ void BatchedIndexer::run() {
                                         // request since requests of collections other than the referenced collection
                                         // might be present.
                                         for (const auto& ref_req_id: ref_queue) {
-                                            auto iter = req_res_map.find(ref_req_id);
-                                            if (iter == req_res_map.end()) {
+                                            auto ref_req_iter = req_res_map.find(ref_req_id);
+                                            if (ref_req_iter == req_res_map.end()) {
                                                 continue;
                                             }
 
-                                            auto ref_req_res = iter->second;
+                                            auto ref_req_res = ref_req_iter->second;
                                             if (ref_req_res.start_ts > orig_req_res.start_ts) {
                                                 break;
                                             }
@@ -342,14 +342,14 @@ void BatchedIndexer::run() {
 
                     queued_writes--;
                     orig_req_res.next_chunk_index++;
-                    rocksdb_iter->Next();
+                    iter->Next();
 
                     if(quit) {
                         break;
                     }
                 }
 
-                delete rocksdb_iter;
+                delete iter;
 
                 //LOG(INFO) << "Erasing request data from disk and memory for request " << req_id;
 
