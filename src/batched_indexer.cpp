@@ -14,6 +14,26 @@ BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_sto
     skip_index_iter_upper_bound = new rocksdb::Slice(skip_index_upper_bound_key);
 }
 
+void get_coll_and_ref_coll_names(const std::string& body, std::string& coll_name,
+                                 std::unordered_set<std::string>& referenced_collections) {
+    nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
+
+    if (!obj.is_discarded() && obj.is_object() &&
+        obj.count("name") != 0 && obj["name"].is_string()) {
+        coll_name = obj["name"];
+
+        if (obj.contains("fields")) {
+            for (const auto &field: obj["fields"]) {
+                if (field.contains("reference")) {
+                    std::vector<std::string> split_result;
+                    StringUtils::split(field["reference"], split_result, ".");
+                    referenced_collections.insert(split_result.front());
+                }
+            }
+        }
+    }
+}
+
 void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     // Called by the raft write thread: goal is to quickly send the request to a queue and move on
     // NOTE: it's ok to access `req` and `res` in this function without synchronization
@@ -50,82 +70,12 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     bool is_old_serialized_request = (req->start_ts == 0);
     bool read_more_input = (req->_req != nullptr && req->_req->proceed_req);
 
-    std::string coll_name;
-    if (is_coll_create_route(req->route_hash)) {
-        nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
-
-        std::unordered_set<std::string> referenced_collections;
-        if (!obj.is_discarded() && obj.is_object() &&
-            obj.count("name") != 0 && obj["name"].is_string()) {
-            coll_name = obj["name"];
-
-            if (obj.contains("fields")) {
-                for (const auto &field: obj["fields"]) {
-                    if (field.contains("reference")) {
-                        std::vector<std::string> split_result;
-                        StringUtils::split(field["reference"], split_result, ".");
-                        referenced_collections.insert(split_result.front());
-                    }
-                }
-            }
-        }
-        if (!referenced_collections.empty()) {
-            std::unique_lock lock(mutex);
-            coll_to_references[coll_name] = std::move(referenced_collections);
-        }
-    }
-
     if(req->last_chunk_aggregate) {
-        // When raft logs are replayed on restart, document import requests of related collections might end up
-        // being processed in parallel causing indexing of document having a reference to fail. So we wait until
-        // all the referenced collections complete the document import request.
-        if (!res->is_alive && is_doc_import_route(req->route_hash)) {
-            std::set<uint64_t> waiting_on_ids;
-            coll_name = get_collection_name(req);
-            {
-                std::unique_lock lock(mutex);
-                if (coll_to_references.count(coll_name) != 0) {
-                    for (const auto& ref_coll_name: coll_to_references[coll_name]) {
-                        auto ref_coll_queue_id = StringUtils::hash_wy(ref_coll_name.c_str(), ref_coll_name.size()) % num_threads;
-                        uint64_t ref_req_id;
-                        {
-                            std::lock_guard lock(qmutuxes[ref_coll_queue_id].mcv);
-                            ref_req_id = queues[ref_coll_queue_id].front();
-                        }
-
-                        if (req_res_map.count(ref_req_id) == 0) {
-                            continue;
-                        }
-
-                        auto& ref_req = req_res_map.at(ref_req_id).req;
-                        // Only wait if we're importing docs of referenced collection.
-                        if (get_collection_name(ref_req) == ref_coll_name && is_doc_import_route(ref_req->route_hash)) {
-                            waiting_on_ids.insert(ref_req_id);
-                        }
-                    }
-                }
-            }
-            while(!waiting_on_ids.empty()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                auto waiting_on_ids_copy = waiting_on_ids;
-                std::unique_lock lock(mutex);
-                for (const auto& ref_req_id: waiting_on_ids) {
-                    if (req_res_map.count(ref_req_id) == 0 ||
-                        !is_doc_import_route(req_res_map.at(ref_req_id).req->route_hash)) {
-                        waiting_on_ids_copy.erase(ref_req_id);
-                    }
-                }
-                waiting_on_ids = std::move(waiting_on_ids_copy);
-            }
-        }
-
         //LOG(INFO) << "Last chunk for req_id: " << req->start_ts;
         queued_writes += (chunk_sequence + 1);
 
         {
-            if (coll_name.empty()) {
-                coll_name = get_collection_name(req);
-            }
+            auto coll_name = get_collection_name(req);
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
             req->body = "";
 
@@ -213,7 +163,6 @@ void BatchedIndexer::run() {
                 }
 
                 uint64_t req_id = queue.front();
-                queue.pop_front();
                 qlk.unlock();
 
                 std::unique_lock mlk(mutex);
@@ -237,7 +186,7 @@ void BatchedIndexer::run() {
 
                 const std::string& req_key_upper_bound = get_req_suffix_key(req_id);  // cannot inline this
                 rocksdb::Slice upper_bound(req_key_upper_bound);
-                rocksdb::Iterator* iter = store->scan(req_key_start_prefix, &upper_bound);
+                rocksdb::Iterator* rocksdb_iter = store->scan(req_key_start_prefix, &upper_bound);
 
                 // used to handle partial JSON documents caused by chunking
                 std::string& prev_body = orig_req_res.prev_req_body;
@@ -250,10 +199,10 @@ void BatchedIndexer::run() {
                 bool route_found = server->get_route(orig_req->route_hash, &found_rpath);
                 bool async_res = false;
 
-                while(iter->Valid() && iter->key().starts_with(req_key_prefix)) {
+                while(rocksdb_iter->Valid() && rocksdb_iter->key().starts_with(req_key_prefix)) {
                     std::shared_lock slk(pause_mutex); // used for snapshot
                     orig_req->body = prev_body;
-                    orig_req->load_from_json(iter->value().ToString());
+                    orig_req->load_from_json(rocksdb_iter->value().ToString());
 
                     // update thread local for reference during a crash
                     write_log_index = orig_req->log_index;
@@ -292,6 +241,76 @@ void BatchedIndexer::run() {
                                 goto end;
                             }
 
+                            // No need to save reference mapping in case of a live request.
+                            if (!is_live_req && is_coll_create_route(orig_req->route_hash)) {
+                                std::string coll_name;
+                                std::unordered_set<std::string> referenced_collections;
+                                get_coll_and_ref_coll_names(orig_req->body, coll_name, referenced_collections);
+                                if (!referenced_collections.empty()) {
+                                    std::lock_guard lock(mutex);
+                                    coll_to_references[coll_name] = std::move(referenced_collections);
+                                }
+                            }
+
+                            // When raft logs are replayed on restart, document import requests of related collections
+                            // might end up being processed in parallel causing indexing of document having a reference
+                            // to fail. So we wait until all the referenced collections complete the document import
+                            // request.
+                            if (!is_live_req && is_doc_import_route(orig_req->route_hash)) {
+                                std::unique_lock mutex_lock(mutex);
+
+                                std::set<uint64_t> waiting_on_ids;
+                                auto coll_name = get_collection_name(orig_req);
+                                auto coll_to_references_iter = coll_to_references.find(coll_name);
+                                if (coll_to_references_iter != coll_to_references.end()) {
+                                    for (const auto& ref_coll_name: coll_to_references_iter->second) {
+                                        auto ref_coll_queue_id = StringUtils::hash_wy(ref_coll_name.c_str(), ref_coll_name.size()) % num_threads;
+                                        std::lock_guard ref_queue_lock(qmutuxes[ref_coll_queue_id].mcv);
+                                        auto ref_queue = queues[ref_coll_queue_id];
+
+                                        // Checking every request of the ref queue that was enqueued earlier than this
+                                        // request since requests of collections other than the referenced collection
+                                        // might be present.
+                                        for (const auto& ref_req_id: ref_queue) {
+                                            auto iter = req_res_map.find(ref_req_id);
+                                            if (iter == req_res_map.end()) {
+                                                continue;
+                                            }
+
+                                            auto ref_req_res = iter->second;
+                                            if (ref_req_res.start_ts > orig_req_res.start_ts) {
+                                                break;
+                                            }
+
+                                            auto ref_req = ref_req_res.req;
+                                            // Only wait for import docs request of the referenced collection.
+                                            if (get_collection_name(ref_req) == ref_coll_name &&
+                                                is_doc_import_route(ref_req->route_hash)) {
+                                                waiting_on_ids.insert(ref_req_id);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                while(!waiting_on_ids.empty()) {
+                                    mutex_lock.unlock();
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                                    mutex_lock.lock();
+                                    auto waiting_on_ids_copy = waiting_on_ids;
+                                    for (const auto& ref_req_id: waiting_on_ids) {
+                                        if (req_res_map.count(ref_req_id) == 0 ||
+                                            !is_doc_import_route(req_res_map.at(ref_req_id).req->route_hash)) {
+                                            waiting_on_ids_copy.erase(ref_req_id);
+                                        }
+                                    }
+                                    waiting_on_ids = std::move(waiting_on_ids_copy);
+                                }
+
+                                coll_to_references.erase(coll_name);
+                            }
+
                             async_res = found_rpath->async_res;
                             try {
                                 found_rpath->handler(orig_req, orig_res);
@@ -323,22 +342,27 @@ void BatchedIndexer::run() {
 
                     queued_writes--;
                     orig_req_res.next_chunk_index++;
-                    iter->Next();
+                    rocksdb_iter->Next();
 
                     if(quit) {
                         break;
                     }
                 }
 
-                delete iter;
+                delete rocksdb_iter;
 
                 //LOG(INFO) << "Erasing request data from disk and memory for request " << req_id;
 
                 // we can delete the buffered request content
                 store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
 
-                std::unique_lock lk(mutex);
-                req_res_map.erase(req_id);
+                {
+                    std::lock_guard lk(mutex);
+                    req_res_map.erase(req_id);
+                }
+
+                qlk.lock();
+                queue.pop_front();
             }
         });
     }
