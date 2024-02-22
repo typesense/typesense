@@ -103,6 +103,7 @@ cc_binary(
     ],
     linkopts = select({
         "@platforms//os:linux": ["-static-libstdc++", "-static-libgcc", "-fuse-ld=lld"],
+        "@platforms//os:macos": ["-framework Foundation", "-framework Accelerate", "-framework Metal", "-framework MetalKit"],
         "//conditions:default": [],
     }),
     copts = COPTS + select({
