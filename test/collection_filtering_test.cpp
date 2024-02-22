@@ -82,6 +82,10 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     results = coll_array_fields->search("Jeremy", query_fields, "tags : PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
 
+    // no documents contain "white"
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : WHITE", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     // no documents contain both "white" and "platinum", so
     results = coll_array_fields->search("Jeremy", query_fields, "tags : WHITE PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
@@ -1495,6 +1499,10 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     res_op = coll1->search("*", {"artist"}, "artist:!=[`foo`, ``]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Error with filter field `artist`: Filter value cannot be empty.", res_op.error());
+
+    res_op = coll1->search("*", {"artist"}, "artist:!=[]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `artist`: Filter value array cannot be empty.", res_op.error());
 
     collectionManager.drop_collection("coll1");
 }

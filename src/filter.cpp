@@ -629,6 +629,11 @@ Option<bool> toFilter(const std::string expression,
             std::vector<std::string> filter_values;
             StringUtils::split_to_values(
                     raw_value.substr(filter_value_index + 1, raw_value.size() - filter_value_index - 2), filter_values);
+            if (filter_values.empty()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name +
+                                         "`: Filter value array cannot be empty.");
+            }
+
             filter_exp = {field_name, filter_values, {str_comparator}};
         } else {
             filter_exp = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
