@@ -1567,7 +1567,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
     }
 
     // only add vector_distance if it is a semantic search, do not add it for hybrid search
-    if(!found_vector_distance && is_vector_query && is_wildcard_query && sort_fields.size() < 3 && sort_fields_std.size() < 3) {
+    if(!found_vector_distance && is_vector_query && is_wildcard_query && sort_fields_std.size() < 3) {
         sort_fields_std.emplace_back(sort_field_const::vector_distance, sort_field_const::asc);
     }
 
