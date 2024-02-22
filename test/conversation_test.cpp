@@ -124,7 +124,7 @@ TEST_F(ConversationTest, TruncateConversation) {
     auto truncated = ConversationManager::get_instance().truncate_conversation(conversation, 100);
     ASSERT_TRUE(truncated.ok());
     ASSERT_TRUE(truncated.get().size() < conversation.size());
-    ASSERT_EQ(truncated.get().size(), 100);
+    ASSERT_TRUE(truncated.get().dump(0).size() < 100);
 }
 
 TEST_F(ConversationTest, TruncateConversationEmpty) {
