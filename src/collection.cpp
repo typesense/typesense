@@ -2259,15 +2259,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         auto most_weighted_field = search_schema.at(weighted_search_fields[0].name);
         const std::string & field_locale = most_weighted_field.locale;
 
-        std::shared_ptr<Stemmer> stemmer = nullptr;
-        if(most_weighted_field.stem) {
-            stemmer = most_weighted_field.get_stemmer();
-        }
-
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set, stemmer);
+                           field_locale, pre_segmented_query, stopwords_set);
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -3448,9 +3443,6 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 }
             }
 
-            if(stemmer) {
-                token = stemmer->stem(token);
-            }
 
             // retokenize using collection config (handles hyphens being part of the query)
             std::vector<std::string> sub_tokens;

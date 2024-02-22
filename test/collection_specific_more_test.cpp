@@ -2953,3 +2953,33 @@ TEST_F(CollectionSpecificMoreTest, TestStemming2) {
 
     ASSERT_EQ(7, res["hits"].size());
 }
+
+TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
+    nlohmann::json schema = R"({
+         "name": "words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true }
+         ]
+       })"_json;
+    
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+
+    auto coll_stem = coll_stem_res.get();
+    
+    nlohmann::json synonym_json = R"(
+        {
+            "id": "",
+            "synonyms": ["making", "foobar"]
+        }
+    )"_json;
+    auto synonym_op = coll_stem->add_synonym(synonym_json);
+    LOG(INFO) << synonym_op.error();
+    ASSERT_TRUE(synonym_op.ok());
+
+    ASSERT_TRUE(coll_stem->add(R"({"word": "foobar"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("making", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("foobar", res["hits"][0]["document"]["word"].get<std::string>());
+}
