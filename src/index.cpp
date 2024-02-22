@@ -3776,18 +3776,16 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     all_result_ids_len += curated_topster->size;
 
     if(!included_ids_map.empty() && group_limit != 0) {
-        for(auto & acc_facet: facets) {
-            for(auto& facet_kv: acc_facet.result_map) {
-                if(group_limit) {
-                    facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
-                }
+        for (auto &acc_facet: facets) {
+            for (auto &facet_kv: acc_facet.result_map) {
+                facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
 
-                if(estimate_facets) {
+                if (estimate_facets) {
                     facet_kv.second.count = size_t(double(facet_kv.second.count) * (100.0f / facet_sample_percent));
                 }
             }
 
-            if(estimate_facets) {
+            if (estimate_facets) {
                 acc_facet.sampled = true;
             }
         }
