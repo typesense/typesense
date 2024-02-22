@@ -6067,7 +6067,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
             return Option<bool>(400, error);
         }
 
-        facet a_facet(field_name);
+        facet a_facet(field_name, facets.size());
 
         //starting after "(" and excluding ")"
         auto range_string = std::string(facet_field.begin() + startpos + 1, facet_field.end() - 1);
@@ -6217,7 +6217,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         // Collect the fields that match the prefix and are marked as facet.
         for (auto field = pair.first; field != pair.second; field++) {
             if (field->facet) {
-                facets.emplace_back(facet(field->name));
+                facets.emplace_back(facet(field->name, facets.size()));
                 facets.back().is_wildcard_match = true;
             }
         }
@@ -6286,7 +6286,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
            return Option<bool>(400, error);
        }
 
-       facets.emplace_back(facet(facet_field_copy, {}, false, sort_alpha,
+       facets.emplace_back(facet(facet_field_copy, facets.size(), {}, false, sort_alpha,
                                  order, sort_field));
    }
 
