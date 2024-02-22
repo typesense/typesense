@@ -1170,7 +1170,11 @@ void filter_result_iterator_t::init() {
                 raw_posting_lists.push_back(leaf->values);
             }
 
-            if (raw_posting_lists.size() != str_tokens.size()) {
+            if (str_tokens.empty()) {
+                status = Option<bool>(400, "Error with filter field `" + f.name + "`: Filter value cannot be empty.");
+                validity = invalid;
+                return;
+            } else if (raw_posting_lists.size() != str_tokens.size()) {
                 continue;
             }
 

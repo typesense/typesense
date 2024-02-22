@@ -1488,6 +1488,14 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Error with filter field `artist`: Filter value cannot be empty.", res_op.error());
 
+    res_op = coll1->search("*", {"artist"}, "artist:!=``", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `artist`: Filter value cannot be empty.", res_op.error());
+
+    res_op = coll1->search("*", {"artist"}, "artist:!=[`foo`, ``]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `artist`: Filter value cannot be empty.", res_op.error());
+
     collectionManager.drop_collection("coll1");
 }
 
