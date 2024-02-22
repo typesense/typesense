@@ -3198,11 +3198,21 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         std::vector<std::vector<token_t>> q_pos_synonyms;
         std::vector<std::string> q_include_tokens;
         int syn_orig_num_tokens = -1;
-
         for(size_t j = 0; j < field_query_tokens[0].q_include_tokens.size(); j++) {
             q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
         }
         synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
+
+        if (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem) {
+            auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
+            for(auto& q_include_token: q_include_tokens) {
+                q_include_token = stemmer->stem(q_include_token);
+            }
+
+            for(auto& q_token: field_query_tokens[0].q_include_tokens) {
+                q_token.value = stemmer->stem(q_token.value);
+            }
+        }
 
         if(!field_query_tokens[0].q_synonyms.empty()) {
             syn_orig_num_tokens = field_query_tokens[0].q_include_tokens.size();
