@@ -3661,16 +3661,16 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             if(facet_infos[i].use_value_index) {
 #endif
                 // value based faceting on a single thread
-                value_facets.emplace_back(this_facet.field_name, this_facet.facet_range_map,
+                value_facets.emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.facet_range_map,
                                           this_facet.is_range_query, this_facet.is_sort_by_alpha,
-                                          this_facet.sort_order, this_facet.sort_field, i);
+                                          this_facet.sort_order, this_facet.sort_field);
                 continue;
             }
 
             for(size_t j = 0; j < num_threads; j++) {
-                facet_batches[j].emplace_back(this_facet.field_name, this_facet.facet_range_map,
+                facet_batches[j].emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.facet_range_map,
                                               this_facet.is_range_query, this_facet.is_sort_by_alpha,
-                                              this_facet.sort_order, this_facet.sort_field, i);
+                                              this_facet.sort_order, this_facet.sort_field);
             }
         }
 
@@ -3784,6 +3784,22 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
               facet_index_type);
 
     all_result_ids_len += curated_topster->size;
+
+    if(!included_ids_map.empty() && group_limit != 0) {
+        for (auto &acc_facet: facets) {
+            for (auto &facet_kv: acc_facet.result_map) {
+                facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
+
+                if (estimate_facets) {
+                    facet_kv.second.count = size_t(double(facet_kv.second.count) * (100.0f / facet_sample_percent));
+                }
+            }
+
+            if (estimate_facets) {
+                acc_facet.sampled = true;
+            }
+        }
+    }
 
     delete [] all_result_ids;
 
