@@ -4266,7 +4266,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
 
         resume_typo_loop:
 
-        if(!exhaustive_search && all_result_ids_len >= typo_tokens_threshold) {
+        auto results_count = group_limit != 0 ? groups_processed.size() : all_result_ids_len;
+        if(!exhaustive_search && results_count >= typo_tokens_threshold) {
             // if typo threshold is breached, we are done
             return Option<bool>(true);
         }
@@ -6378,9 +6379,10 @@ void Index::search_field(const uint8_t & field_id,
             *all_result_ids = new_all_result_ids;
         }
 
-        if(!exhaustive_search && field_num_results >= typo_tokens_threshold) {
+        auto results_count = group_limit != 0 ? groups_processed.size() : field_num_results;
+        if(!exhaustive_search && results_count >= typo_tokens_threshold) {
             // if typo threshold is breached, we are done
-            return ;
+            return;
         }
 
         n++;
