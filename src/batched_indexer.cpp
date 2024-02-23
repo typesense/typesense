@@ -16,7 +16,7 @@ BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_sto
 
 void get_coll_and_ref_coll_names(const std::string& body, std::string& coll_name,
                                  std::unordered_set<std::string>& referenced_collections) {
-    nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
+    auto const& obj = nlohmann::json::parse(body, nullptr, false);
 
     if (!obj.is_discarded() && obj.is_object() &&
         obj.count("name") != 0 && obj["name"].is_string()) {
@@ -75,7 +75,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
         queued_writes += (chunk_sequence + 1);
 
         {
-            auto coll_name = get_collection_name(req);
+            auto const& coll_name = get_collection_name(req);
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
             req->body = "";
 
@@ -148,7 +148,7 @@ void BatchedIndexer::populate_waiting_on_ids(const std::string& coll_name, const
         for (const auto& ref_coll_name: coll_to_references_iter->second) {
             auto ref_coll_queue_id = StringUtils::hash_wy(ref_coll_name.c_str(), ref_coll_name.size()) % num_threads;
             std::lock_guard ref_queue_lock(qmutuxes[ref_coll_queue_id].mcv);
-            auto ref_queue = queues[ref_coll_queue_id];
+            auto const& ref_queue = queues[ref_coll_queue_id];
 
             // Checking every request of the ref queue that was enqueued earlier than this
             // request since requests of collections other than the referenced collection
@@ -204,6 +204,9 @@ void BatchedIndexer::run() {
                 auto req_res_map_it = req_res_map.find(req_id);
                 if(req_res_map_it == req_res_map.end()) {
                     LOG(ERROR) << "Req ID " << req_id << " not found in req_res_map.";
+
+                    qlk.lock();
+                    queue.pop_front();
                     continue;
                 }
 
