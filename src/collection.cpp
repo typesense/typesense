@@ -1942,7 +1942,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             auto prefix = i < prefixes.size() ? prefixes[i] : prefixes[0];
             auto infix = i < infixes.size() ? infixes[i] : infixes[0];
 
-            processed_search_fields.emplace_back(expanded_search_field, query_weight, num_typo, prefix, infix);
+            processed_search_fields.emplace_back(expanded_search_field, search_field.faceted_name(),
+                                                 query_weight, num_typo, prefix, infix);
             if(!raw_query_by_weights.empty()) {
                 query_by_weights.push_back(query_weight);
             }
