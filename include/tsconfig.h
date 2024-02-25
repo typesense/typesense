@@ -77,6 +77,7 @@ private:
     bool enable_search_logging;
 
     int max_per_page;
+    std::atomic<size_t> default_topster_size;
 
 protected:
 
@@ -110,6 +111,7 @@ protected:
 
         this->enable_search_logging = false;
         this->max_per_page = 250;
+        this->default_topster_size = 250;
     }
 
     Config(Config const&) {
@@ -202,6 +204,10 @@ public:
 
     void set_max_per_page(int max_per_page) {
         this->max_per_page = max_per_page;
+    }
+
+    void set_default_topster_size(size_t default_topster_size) {
+        this->default_topster_size = default_topster_size;
     }
 
     // getters
@@ -375,6 +381,10 @@ public:
         return this->max_per_page;
     }
 
+    size_t get_default_topster_size() const {
+        return this->default_topster_size;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -512,6 +522,10 @@ public:
 
         if(!get_env("TYPESENSE_MAX_PER_PAGE").empty()) {
             this->max_per_page = std::stoi(get_env("TYPESENSE_MAX_PER_PAGE"));
+        }
+
+        if(!get_env("TYPESENSE_DEFAULT_TOPSTER_SIZE").empty()) {
+            this->default_topster_size = std::stoi(get_env("TYPESENSE_DEFAULT_TOPSTER_SIZE"));
         }
     }
 
@@ -708,6 +722,10 @@ public:
             this->max_per_page = reader.GetInteger("server", "max-per-page", 250);
         }
 
+        if(reader.Exists("server", "default-topster-size")) {
+            this->default_topster_size = (size_t) reader.GetInteger("server", "default-topster-size", 250);
+        }
+
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -876,6 +894,10 @@ public:
 
         if(options.exist("max-per-page")) {
             this->max_per_page = options.get<int>("max-per-page");
+        }
+
+        if(options.exist("default-topster-size")) {
+            this->default_topster_size = options.get<size_t>("default-topster-size");
         }
     }
 
