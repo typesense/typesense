@@ -76,6 +76,8 @@ private:
 
     bool enable_search_logging;
 
+    int max_per_page;
+
 protected:
 
     Config() {
@@ -107,6 +109,7 @@ protected:
         this->db_compaction_interval = 0;     // in seconds, disabled
 
         this->enable_search_logging = false;
+        this->max_per_page = 250;
     }
 
     Config(Config const&) {
@@ -195,6 +198,10 @@ public:
 
     void set_reset_peers_on_error(bool reset_peers_on_error) {
         this->reset_peers_on_error = reset_peers_on_error;
+    }
+
+    void set_max_per_page(int max_per_page) {
+        this->max_per_page = max_per_page;
     }
 
     // getters
@@ -364,6 +371,10 @@ public:
         return skip_writes;
     }
 
+    int get_max_per_page() const {
+        return this->max_per_page;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -498,6 +509,10 @@ public:
 
         this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
         this->reset_peers_on_error = ("TRUE" == get_env("TYPESENSE_RESET_PEERS_ON_ERROR"));
+
+        if(!get_env("TYPESENSE_MAX_PER_PAGE").empty()) {
+            this->max_per_page = std::stoi(get_env("TYPESENSE_MAX_PER_PAGE"));
+        }
     }
 
     void load_config_file(cmdline::parser & options) {
@@ -689,6 +704,10 @@ public:
             this->reset_peers_on_error = (reset_peers_on_error_str == "true");
         }
 
+        if(reader.Exists("server", "max-per-page")) {
+            this->max_per_page = reader.GetInteger("server", "max-per-page", 250);
+        }
+
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -853,6 +872,10 @@ public:
 
         if(options.exist("enable-search-logging")) {
             this->enable_search_logging = options.get<bool>("enable-search-logging");
+        }
+
+        if(options.exist("max-per-page")) {
+            this->max_per_page = options.get<int>("max-per-page");
         }
     }
 
