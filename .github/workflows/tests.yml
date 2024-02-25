@@ -76,7 +76,7 @@ jobs:
         run: bazel build //:typesense-server
 
       - name: Run tests
-        run: bazel test //:typesense-test
+        run: bazel test --test_output=all //:typesense-test
 
       - name: Compress bazel cache
         if: always()
