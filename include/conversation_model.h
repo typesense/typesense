@@ -38,7 +38,7 @@ class OpenAIConversationModel : public ConversationModel {
         static Option<nlohmann::json> format_answer(const std::string& message);
         // max_bytes must be greater than or equal to the minimum required bytes
         static const size_t get_minimum_required_bytes() {
-            return std::string("<Data>\n").size() + std::string("\n\n<Question>\n").size() + std::string("\n\n<Answer>").size();
+            return  DATA_STR.size() + QUESTION_STR.size() + ANSWER_STR.size();
         }
         static const inline std::string STANDALONE_QUESTION_PROMPT = R"(
             Rewrite the follow-up question on top of a human-assistant conversation history as a standalone question that encompasses all pertinent context.
@@ -48,6 +48,9 @@ class OpenAIConversationModel : public ConversationModel {
     private:
         static constexpr char* OPENAI_LIST_MODELS = "https://api.openai.com/v1/models";
         static constexpr char* OPENAI_CHAT_COMPLETION = "https://api.openai.com/v1/chat/completions";
+        static const inline std::string DATA_STR = "<Data>\n";
+        static const inline std::string QUESTION_STR = "\n\n<Question>\n";
+        static const inline std::string ANSWER_STR = "\n\n<Answer>";
 };
 
 class CFConversationModel : public ConversationModel {
@@ -65,20 +68,15 @@ class CFConversationModel : public ConversationModel {
         // prevent instantiation
         CFConversationModel() = delete;
         static const size_t get_minimum_required_bytes() {
-            return std::string(R"(
-                Context information is below.
-                ---------------------
-                )").size() + std::string(R"(
-                ---------------------
-                Given the context information and not prior knowledge, answer the query. Context is JSON format, do not return data directly, answer like a human assistant.
-                Query: )").size() + std::string(R"(
-        
-                Answer:
-                )").size();
+            return CONTEXT_INFO.size() + SPLITTER_STR.size() + QUERY_STR.size() + ANSWER_STR.size();
         }
     private:
         static const inline std::vector<std::string> CF_MODEL_NAMES{"mistral/mistral-7b-instruct-v0.1"};
         static const std::string get_model_url(const std::string& model_name, const std::string& account_id);
+        static const inline  std::string CONTEXT_INFO = "Context information is below.\n";
+        static const inline std::string SPLITTER_STR = "---------------------\n";
+        static const inline std::string QUERY_STR = "Given the context information and not prior knowledge, answer the query. Context is JSON format, do not return data directly, answer like a human assistant.\nQuery: ";
+        static const inline std::string ANSWER_STR = "\n\nAnswer:\n";
 };
 
 class vLLMConversationModel : public ConversationModel {
@@ -95,9 +93,12 @@ class vLLMConversationModel : public ConversationModel {
         vLLMConversationModel() = delete;
         // max_bytes must be greater than or equal to the minimum required bytes
         static const size_t get_minimum_required_bytes() {
-            return std::string("<Data>\n").size() + std::string("\n\n<Question>\n").size() + std::string("\n\n<Answer>").size();
+            return  DATA_STR.size() + QUESTION_STR.size() + ANSWER_STR.size();
         }
     private:
         static const std::string get_list_models_url(const std::string& url);
         static const std::string get_chat_completion_url(const std::string& url);
+        static const inline std::string DATA_STR = "<Data>\n";
+        static const inline std::string QUESTION_STR = "\n\n<Question>\n";
+        static const inline std::string ANSWER_STR = "\n\n<Answer>";
 };

@@ -223,7 +223,7 @@ Option<std::string> OpenAIConversationModel::get_answer(const std::string& conte
 
     nlohmann::json message = nlohmann::json::object();
     message["role"] = "user";
-    message["content"] = "<Data>\n" + context + "\n\n<Question>\n" + prompt + "\n\n<Answer>";
+    message["content"] = DATA_STR + context + QUESTION_STR + prompt + ANSWER_STR;
     req_body["messages"].push_back(message);
 
     std::string res;
@@ -249,6 +249,14 @@ Option<std::string> OpenAIConversationModel::get_answer(const std::string& conte
     nlohmann::json json_res;
     try {
         json_res = nlohmann::json::parse(res);
+
+        if(json_res.count("choices") == 0 || json_res["choices"].size() == 0) {
+            return Option<std::string>(400, "Got malformed response from OpenAI API.");
+        }
+
+        if(json_res["choices"][0].count("message") == 0 || json_res["choices"][0]["message"].count("content") == 0) {
+            return Option<std::string>(400, "Got malformed response from OpenAI API.");
+        }
     } catch (const std::exception& e) {
         throw Option<std::string>(400, "Got malformed response from OpenAI API.");
     }
@@ -277,7 +285,9 @@ Option<std::string> OpenAIConversationModel::get_standalone_question(const nlohm
     std::string standalone_question = STANDALONE_QUESTION_PROMPT;
 
     standalone_question += "\n\n<Conversation history>\n";
-    auto truncate_conversation_op = ConversationManager::get_instance().truncate_conversation(conversation_history["conversation"], model_config["max_bytes"].get<size_t>() - min_required_bytes);
+    auto conversation = conversation_history["conversation"];
+    auto max_conversation_length = model_config["max_bytes"].get<size_t>() - min_required_bytes;
+    auto truncate_conversation_op = ConversationManager::get_instance().truncate_conversation(conversation, max_conversation_length);
     if(!truncate_conversation_op.ok()) {
         return Option<std::string>(400, truncate_conversation_op.error());
     }
@@ -323,6 +333,13 @@ Option<std::string> OpenAIConversationModel::get_standalone_question(const nlohm
     nlohmann::json json_res;
     try {
         json_res = nlohmann::json::parse(res);
+        if(json_res.count("choices") == 0 || json_res["choices"].size() == 0) {
+            return Option<std::string>(400, "Got malformed response from OpenAI API.");
+        }
+
+        if(json_res["choices"][0].count("message") == 0 || json_res["choices"][0]["message"].count("content") == 0) {
+            return Option<std::string>(400, "Got malformed response from OpenAI API.");
+        }
     } catch (const std::exception& e) {
         return Option<std::string>(400, "Got malformed response from OpenAI API.");
     }
@@ -440,16 +457,7 @@ Option<std::string> CFConversationModel::get_answer(const std::string& context, 
 
     nlohmann::json message = nlohmann::json::object();
     message["role"] = "user";
-    message["content"] = R"(
-    Context information is below.
-    ---------------------
-    )" + context + R"(
-    ---------------------
-    Given the context information and not prior knowledge, answer the query. Context is JSON format, do not return data directly, answer like a human assistant.
-    Query: )" + prompt + R"(
-        
-    Answer:
-    )";
+    message["content"] = CONTEXT_INFO + SPLITTER_STR + context + QUERY_STR + prompt + ANSWER_STR;
     req_body["messages"].push_back(message);
 
 
@@ -505,8 +513,10 @@ Option<std::string> CFConversationModel::get_standalone_question(const nlohmann:
     std::string res;
     
     std::string standalone_question = STANDALONE_QUESTION_PROMPT;
+    auto conversation = conversation_history["conversation"];
+    auto max_conversation_length = model_config["max_bytes"].get<size_t>() - min_required_bytes;
+    auto truncate_conversation_op = ConversationManager::get_instance().truncate_conversation(conversation, max_conversation_length);
 
-    auto truncate_conversation_op = ConversationManager::get_instance().truncate_conversation(conversation_history["conversation"], model_config["max_bytes"].get<size_t>() - min_required_bytes);
     if(!truncate_conversation_op.ok()) {
         return Option<std::string>(400, "Conversation history is not valid");
     }
@@ -724,7 +734,7 @@ Option<std::string> vLLMConversationModel::get_answer(const std::string& context
 
     nlohmann::json message = nlohmann::json::object();
     message["role"] = "user";
-    message["content"] = "<Data>\n" + context + "\n\n<Question>\n" + prompt + "\n\n<Answer>";
+    message["content"] = DATA_STR + context + QUESTION_STR + prompt + ANSWER_STR;
     req_body["messages"].push_back(message);
 
     std::string res;
@@ -750,6 +760,14 @@ Option<std::string> vLLMConversationModel::get_answer(const std::string& context
     nlohmann::json json_res;
     try {
         json_res = nlohmann::json::parse(res);
+
+        if(json_res.count("choices") == 0 || json_res["choices"].size() == 0) {
+            return Option<std::string>(400, "Got malformed response from OpenAI API.");
+        }
+
+        if(json_res["choices"][0].count("message") == 0 || json_res["choices"][0]["message"].count("content") == 0) {
+            return Option<std::string>(400, "Got malformed response from OpenAI API.");
+        }
     } catch (const std::exception& e) {
         throw Option<std::string>(400, "Got malformed response from vLLM API.");
     }
@@ -775,8 +793,10 @@ Option<std::string> vLLMConversationModel::get_standalone_question(const nlohman
     std::string res;
     
     std::string standalone_question = STANDALONE_QUESTION_PROMPT;
-
-    auto truncate_conversation_op = ConversationManager::get_instance().truncate_conversation(conversation_history["conversation"], model_config["max_bytes"].get<size_t>() - min_required_bytes);
+    auto conversation = conversation_history["conversation"];
+    auto max_conversation_length = model_config["max_bytes"].get<size_t>() - min_required_bytes;
+    auto truncate_conversation_op = ConversationManager::get_instance().truncate_conversation(conversation, max_conversation_length);
+    
     if(!truncate_conversation_op.ok()) {
         return Option<std::string>(400, "Conversation history is not valid");
     }
@@ -822,6 +842,14 @@ Option<std::string> vLLMConversationModel::get_standalone_question(const nlohman
     nlohmann::json json_res;
     try {
         json_res = nlohmann::json::parse(res);
+
+        if(json_res.count("choices") == 0 || json_res["choices"].size() == 0) {
+            return Option<std::string>(400, "Got malformed response from OpenAI API.");
+        }
+
+        if(json_res["choices"][0].count("message") == 0 || json_res["choices"][0]["message"].count("content") == 0) {
+            return Option<std::string>(400, "Got malformed response from OpenAI API.");
+        }
     } catch (const std::exception& e) {
         return Option<std::string>(400, "Got malformed response from vLLM API.");
     }
