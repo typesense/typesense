@@ -1170,12 +1170,19 @@ void filter_result_iterator_t::init() {
                 raw_posting_lists.push_back(leaf->values);
             }
 
-            if (raw_posting_lists.size() != str_tokens.size()) {
+            if (str_tokens.empty()) {
+                status = Option<bool>(400, "Error with filter field `" + f.name + "`: Filter value cannot be empty.");
+                validity = invalid;
+                return;
+            } else if (raw_posting_lists.size() != str_tokens.size()) {
                 continue;
             }
 
             std::vector<posting_list_t*> plists;
             posting_t::to_expanded_plists(raw_posting_lists, plists, expanded_plists);
+            if (plists.empty()) {
+                continue;
+            }
 
             posting_lists.push_back(plists);
             posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());

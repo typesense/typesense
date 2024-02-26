@@ -1562,11 +1562,12 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         }
     }
 
-    if(!found_match_score && !is_wildcard_query && sort_fields.size() < 3) {
+    if(!found_match_score && !is_wildcard_query && sort_fields_std.size() < 3) {
         sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
     }
 
-    if(!found_vector_distance && is_vector_query && sort_fields.size() < 3) {
+    // only add vector_distance if it is a semantic search, do not add it for hybrid search
+    if(!found_vector_distance && is_vector_query && is_wildcard_query && sort_fields_std.size() < 3) {
         sort_fields_std.emplace_back(sort_field_const::vector_distance, sort_field_const::asc);
     }
 
@@ -1822,15 +1823,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         auto conversation_history = conversation_history_op.get();
 
-        auto truncate_conversation_history = ConversationManager::get_instance().truncate_conversation(conversation_history_op.get()["conversation"]);
-
-        conversation_history["conversation"] = truncate_conversation_history.get();
-       
-
-        if(!truncate_conversation_history.ok()) {
-            return Option<nlohmann::json>(400, truncate_conversation_history.error());
-        }
-
         auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
 
         auto standalone_question_op = ConversationModel::get_standalone_question(conversation_history, raw_query, conversation_model_op.get());
@@ -1941,7 +1933,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             auto prefix = i < prefixes.size() ? prefixes[i] : prefixes[0];
             auto infix = i < infixes.size() ? infixes[i] : infixes[0];
 
-            processed_search_fields.emplace_back(expanded_search_field, query_weight, num_typo, prefix, infix);
+            processed_search_fields.emplace_back(expanded_search_field, search_field.faceted_name(),
+                                                 query_weight, num_typo, prefix, infix);
             if(!raw_query_by_weights.empty()) {
                 query_by_weights.push_back(query_weight);
             }
@@ -2259,15 +2252,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         auto most_weighted_field = search_schema.at(weighted_search_fields[0].name);
         const std::string & field_locale = most_weighted_field.locale;
 
-        std::shared_ptr<Stemmer> stemmer = nullptr;
-        if(most_weighted_field.stem) {
-            stemmer = most_weighted_field.get_stemmer();
-        }
-
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set, stemmer);
+                           field_locale, pre_segmented_query, stopwords_set);
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -2720,13 +2708,16 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
 
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
-        auto max_docs_token = ConversationModel::max_context_tokens(conversation_model);
-        if(!max_docs_token.ok()) {
-            return Option<nlohmann::json>(max_docs_token.code(), max_docs_token.error());
+        auto min_required_bytes_op = ConversationModel::get_minimum_required_bytes(conversation_model);
+        if(!min_required_bytes_op.ok()) {
+            return Option<nlohmann::json>(min_required_bytes_op.code(), min_required_bytes_op.error());
         }
-
+        auto min_required_bytes = min_required_bytes_op.get();
+        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + raw_query.size()) { 
+            return Option<nlohmann::json>(400, "`max_bytes` of the conversation model is less than the minimum required bytes(" + std::to_string(min_required_bytes) + ").");
+        }
         // remove document with lowest score until total tokens is less than MAX_TOKENS
-        while(ConversationManager::get_instance().get_token_count(docs_array) > max_docs_token.get()) {
+        while(docs_array.dump(0).size() > conversation_model["max_bytes"].get<size_t>() - min_required_bytes - raw_query.size()) {
             try {
                 if(docs_array.empty()) {
                     break;
@@ -3386,7 +3377,7 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
-                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set, const std::shared_ptr<Stemmer> stemmer) const {
+                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -3448,9 +3439,6 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 }
             }
 
-            if(stemmer) {
-                token = stemmer->stem(token);
-            }
 
             // retokenize using collection config (handles hyphens being part of the query)
             std::vector<std::string> sub_tokens;
