@@ -159,6 +159,32 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
                                    "", 10,
                                    {}, {}, {"foo*"}, 2).error();
     ASSERT_EQ("Pattern `foo*` is not allowed.",  error);
+
+    // typo_tokens_threshold should respect num_groups
+    res = coll_group->search("beta", {"brand"}, "", {"brand"}, {}, {2}, 50, 1, FREQUENCY,
+                             {false}, Index::DROP_TOKENS_THRESHOLD,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 2,
+                             {}, {}, {"brand"}, 1).get();
+
+    ASSERT_EQ(4, res["found_docs"].get<size_t>());
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"].size());
+    ASSERT_EQ("Beta", res["grouped_hits"][0]["group_key"][0]);
+    ASSERT_EQ("Zeta", res["grouped_hits"][1]["group_key"][0]);
+
+    res = coll_group->search("beta", {"brand"}, "", {"brand"}, {}, {2}, 50, 1, FREQUENCY,
+                             {false}, Index::DROP_TOKENS_THRESHOLD,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 1,
+                             {}, {}, {"brand"}, 1).get();
+
+    ASSERT_EQ(3, res["found_docs"].get<size_t>());
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ(1, res["grouped_hits"].size());
+    ASSERT_EQ("Beta", res["grouped_hits"][0]["group_key"][0]);
 }
 
 TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
