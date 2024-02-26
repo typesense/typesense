@@ -1184,3 +1184,65 @@ TEST_F(CollectionGroupingTest, GroupByMultipleFacetFieldsWithPinning) {
     ASSERT_EQ(1, (int) res["facet_counts"][1]["counts"][2]["count"]);
     ASSERT_STREQ("Xorp", res["facet_counts"][1]["counts"][2]["value"].get<std::string>().c_str());
 }
+
+TEST_F(CollectionGroupingTest, GroupByPinnedHitsOrder) {
+    auto res = coll_group->search("*", {"title"}, "size:=[12,11]", {}, {}, {0}, 50, 0, NOT_SET,
+                                  {false}, Index::DROP_TOKENS_THRESHOLD,
+                                  spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4,
+                                  "", 1,
+                                  {"6:1,1:2"}, {}, {"size"}, 1).get();
+
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"].size());
+
+    ASSERT_EQ(12, res["grouped_hits"][0]["group_key"][0].get<size_t>());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ("6", res["grouped_hits"][0]["hits"][0]["document"]["id"]);
+
+    ASSERT_EQ(11, res["grouped_hits"][1]["group_key"][0].get<size_t>());
+    ASSERT_EQ(1, res["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ("1", res["grouped_hits"][1]["hits"][0]["document"]["id"]);
+
+    //try with pinned hits in other order
+    res = coll_group->search("*", {"title"}, "size:=[12,11]", {}, {}, {0}, 50, 0, NOT_SET,
+                                  {false}, Index::DROP_TOKENS_THRESHOLD,
+                                  spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4,
+                                  "", 1,
+                                  {"5:1,8:2"}, {}, {"size"}, 1).get();
+
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_EQ(2, res["grouped_hits"].size());
+
+    ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ("5", res["grouped_hits"][0]["hits"][0]["document"]["id"]);
+
+    ASSERT_EQ(12, res["grouped_hits"][1]["group_key"][0].get<size_t>());
+    ASSERT_EQ(1, res["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ("8", res["grouped_hits"][1]["hits"][0]["document"]["id"]);
+
+    //random order
+    res = coll_group->search("*", {"title"}, "size:=[12,11,10]", {}, {}, {0}, 50, 0, NOT_SET,
+                             {false}, Index::DROP_TOKENS_THRESHOLD,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4,
+                             "", 1,
+                             {"5:1,8:2,0:3"}, {}, {"size"}, 1).get();
+
+    ASSERT_EQ(3, res["found"].get<size_t>());
+    ASSERT_EQ(3, res["grouped_hits"].size());
+
+    ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
+    ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
+    ASSERT_EQ("5", res["grouped_hits"][0]["hits"][0]["document"]["id"]);
+
+    ASSERT_EQ(12, res["grouped_hits"][1]["group_key"][0].get<size_t>());
+    ASSERT_EQ(1, res["grouped_hits"][1]["hits"].size());
+    ASSERT_EQ("8", res["grouped_hits"][1]["hits"][0]["document"]["id"]);
+
+    ASSERT_EQ(10, res["grouped_hits"][2]["group_key"][0].get<size_t>());
+    ASSERT_EQ(1, res["grouped_hits"][2]["hits"].size());
+    ASSERT_EQ("0", res["grouped_hits"][2]["hits"][0]["document"]["id"]);
+}

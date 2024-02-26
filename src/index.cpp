@@ -3764,6 +3764,9 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
         included_ids_vec.push_back(seq_id_pos.first);
     }
 
+    //sort the included ids to keep unidirectional iterators valid
+    std::sort(included_ids_vec.begin(), included_ids_vec.end());
+
     if(group_limit != 0) {
         // if one `id` of a group is present in curated hits, we have to exclude that entire group from results
         auto group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
