@@ -1388,7 +1388,8 @@ TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
 
 TEST_F(CoreAPIUtilsTest, TestConversationModels) {
     nlohmann::json model_config = R"({
-        "model_name": "openai/gpt-3.5-turbo"
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes": 10000
     })"_json;
 
     EmbedderManager::set_model_dir("/tmp/typesense_test/models");
@@ -1490,6 +1491,32 @@ TEST_F(CoreAPIUtilsTest, TestInvalidConversationModels) {
 
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Property `model_name` is not provided or not a string.", nlohmann::json::parse(resp->body)["message"]);
+
+    model_config["model_name"] = "openai/gpt-3.5-turbo";
+
+    // test without max_bytes
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Property `max_bytes` is not provided or not a number.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with max_bytes as string
+    model_config["max_bytes"] = "10000";
+
+    req->body = model_config.dump();
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Property `max_bytes` is not provided or not a number.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with max_bytes as negative number
+    model_config["max_bytes"] = -10000;
+
+    req->body = model_config.dump();
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Property `max_bytes` must be a positive number.", nlohmann::json::parse(resp->body)["message"]);
 }
 
 TEST_F(CoreAPIUtilsTest, DeleteNonExistingDoc) {

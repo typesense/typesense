@@ -24,9 +24,8 @@ class ConversationManager {
         Option<std::string> create_conversation(const nlohmann::json& conversation);
         Option<nlohmann::json> get_conversation(const std::string& conversation_id);
         Option<bool> append_conversation(const std::string& conversation_id, const nlohmann::json& message);
-        Option<nlohmann::json> truncate_conversation(nlohmann::json conversation);
+        Option<nlohmann::json> truncate_conversation(nlohmann::json conversation, size_t limit);
         Option<nlohmann::json> update_conversation(nlohmann::json conversation);
-        static size_t get_token_count(const nlohmann::json& message);
         Option<nlohmann::json> delete_conversation(const std::string& conversation_id);
         Option<nlohmann::json> get_all_conversations();
         static constexpr size_t MAX_TOKENS = 3000;

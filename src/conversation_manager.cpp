@@ -70,20 +70,15 @@ Option<bool> ConversationManager::append_conversation(const std::string& convers
 }
 
 
-size_t ConversationManager::get_token_count(const nlohmann::json& message) {
-    // from OpenAI API docs:
-    // A helpful rule of thumb is that one token generally corresponds to ~4 characters of text for common English text. 
-    // This translates to roughly ¾ of a word (so 100 tokens ~= 75 words).
-
-    return message.dump(0).size() / 4;
-}
-
 // pop front elements until the conversation is less than MAX_TOKENS
-Option<nlohmann::json> ConversationManager::truncate_conversation(nlohmann::json conversation) {
+Option<nlohmann::json> ConversationManager::truncate_conversation(nlohmann::json conversation, size_t limit) {
     if(!conversation.is_array()) {
         return Option<nlohmann::json>(400, "Conversation history is not an array");
     }
-    while(get_token_count(conversation) > MAX_TOKENS) {
+    if(limit <= 0) {
+        return Option<nlohmann::json>(400, "Limit must be positive integer");
+    }
+    while(conversation.dump(0).size() > limit) {
         // pop front element from json array
         try {
             conversation.erase(0);
