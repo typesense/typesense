@@ -734,16 +734,20 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
-        // We have to pop a document from the search result with max size
-        // Until we do not exceed MAX_TOKENS limit
-        auto max_docs_token = ConversationModel::max_context_tokens(conversation_model);
-        if(!max_docs_token.ok()) {
-            res->set_400(max_docs_token.error());
+        auto min_required_bytes_op = ConversationModel::get_minimum_required_bytes(conversation_model);
+        if(!min_required_bytes_op.ok()) {
+            res->set_400(min_required_bytes_op.error());
+            return false;
+        }
+        auto min_required_bytes = min_required_bytes_op.get();
+        auto prompt = req->params["q"];
+        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + prompt.size()) {
+            res->set_400("`max_bytes` of the conversation model is less than the minimum required bytes(" + std::to_string(min_required_bytes) + ").");
             return false;
         }
 
         // remove document with lowest score until total tokens is less than MAX_TOKENS
-        while(ConversationManager::get_instance().get_token_count(result_docs_arr) > max_docs_token.get()) {
+        while(result_docs_arr.dump(0).size() > conversation_model["max_bytes"].get<size_t>() - min_required_bytes - prompt.size()) {
             // sort the result_docs_arr by size descending
             std::sort(result_docs_arr.begin(), result_docs_arr.end(), [](const auto& a, const auto& b) {
                 return a.size() > b.size();
@@ -755,7 +759,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
         }
 
-
         // Make result_docs_arr 1D
         nlohmann::json result_docs = nlohmann::json::array();
         for(const auto& result_doc : result_docs_arr) {
@@ -763,8 +766,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 result_docs.push_back(doc);
             }
         }
-
-        auto prompt = req->params["q"];
 
         auto answer_op = ConversationModel::get_answer(result_docs.dump(0), prompt, conversation_model);
 
@@ -782,7 +783,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             res->set_400(formatted_question_op.error());
             return false;
         }
-
 
         auto formatted_answer_op = ConversationModel::format_answer(answer_op.get(), conversation_model);
         if(!formatted_answer_op.ok()) {

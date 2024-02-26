@@ -1823,15 +1823,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         auto conversation_history = conversation_history_op.get();
 
-        auto truncate_conversation_history = ConversationManager::get_instance().truncate_conversation(conversation_history_op.get()["conversation"]);
-
-        conversation_history["conversation"] = truncate_conversation_history.get();
-       
-
-        if(!truncate_conversation_history.ok()) {
-            return Option<nlohmann::json>(400, truncate_conversation_history.error());
-        }
-
         auto conversation_model_op = ConversationModelManager::get_model(conversation_model_id);
 
         auto standalone_question_op = ConversationModel::get_standalone_question(conversation_history, raw_query, conversation_model_op.get());
@@ -2717,13 +2708,16 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
 
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
-        auto max_docs_token = ConversationModel::max_context_tokens(conversation_model);
-        if(!max_docs_token.ok()) {
-            return Option<nlohmann::json>(max_docs_token.code(), max_docs_token.error());
+        auto min_required_bytes_op = ConversationModel::get_minimum_required_bytes(conversation_model);
+        if(!min_required_bytes_op.ok()) {
+            return Option<nlohmann::json>(min_required_bytes_op.code(), min_required_bytes_op.error());
         }
-
+        auto min_required_bytes = min_required_bytes_op.get();
+        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + raw_query.size()) { 
+            return Option<nlohmann::json>(400, "`max_bytes` of the conversation model is less than the minimum required bytes(" + std::to_string(min_required_bytes) + ").");
+        }
         // remove document with lowest score until total tokens is less than MAX_TOKENS
-        while(ConversationManager::get_instance().get_token_count(docs_array) > max_docs_token.get()) {
+        while(docs_array.dump(0).size() > conversation_model["max_bytes"].get<size_t>() - min_required_bytes - raw_query.size()) {
             try {
                 if(docs_array.empty()) {
                     break;
