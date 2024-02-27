@@ -3781,8 +3781,6 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
         }
     }
 
-    std::sort(included_ids_vec.begin(), included_ids_vec.end());
-
     // if `filter_curated_hits` is enabled, we will remove curated hits that don't match filter condition
     std::set<uint32_t> included_ids_set;
 
