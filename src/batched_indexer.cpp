@@ -14,22 +14,19 @@ BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_sto
     skip_index_iter_upper_bound = new rocksdb::Slice(skip_index_upper_bound_key);
 }
 
-void get_coll_and_ref_coll_names(const std::string& body, std::string& coll_name,
-                                 std::unordered_set<std::string>& referenced_collections) {
+void get_ref_coll_names(const std::string& body, std::unordered_set<std::string>& referenced_collections) {
     auto const& obj = nlohmann::json::parse(body, nullptr, false);
 
-    if (!obj.is_discarded() && obj.is_object() &&
-        obj.count("name") != 0 && obj["name"].is_string()) {
-        coll_name = obj["name"];
-
-        if (obj.contains("fields")) {
-            for (const auto &field: obj["fields"]) {
-                if (field.contains("reference")) {
-                    std::vector<std::string> split_result;
-                    StringUtils::split(field["reference"], split_result, ".");
-                    referenced_collections.insert(split_result.front());
-                }
+    if (!obj.is_discarded() && obj.is_object() && obj.contains("name") && obj["name"].is_string() &&
+        obj.contains("fields")) {
+        for (const auto &field: obj["fields"]) {
+            if (!field.contains("reference")) {
+                continue;
             }
+
+            std::vector<std::string> split_result;
+            StringUtils::split(field["reference"], split_result, ".");
+            referenced_collections.insert(split_result.front());
         }
     }
 }
@@ -80,13 +77,23 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
             req->body = "";
 
             {
-                std::unique_lock lk2(mutex);
+                std::lock_guard lk(mutex);
                 req_res_map[req->start_ts].is_complete = true;
             }
 
             {
-                std::lock_guard lk1(qmutuxes[queue_id].mcv);
+                std::lock_guard lk(qmutuxes[queue_id].mcv);
                 queues[queue_id].emplace_back(req->start_ts);
+            }
+
+            if (!res->is_alive && is_coll_create_route(req->route_hash)) {
+                // Save reference mapping in case of replays to take care of ordering
+                std::unordered_set<std::string> referenced_collections;
+                get_ref_coll_names(req->body, referenced_collections);
+                if (!referenced_collections.empty()) {
+                    std::lock_guard lock(mutex);
+                    coll_to_references[coll_name] = std::move(referenced_collections);
+                }
             }
 
             qmutuxes[queue_id].cv.notify_one();
@@ -100,7 +107,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
             // So, wait for `req_res_map` to be empty before proceeding
             while(true) {
                 {
-                    std::unique_lock lk(mutex);
+                    std::lock_guard lk(mutex);
                     if(req_res_map.empty()) {
                         break;
                     }
@@ -144,33 +151,34 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
 void BatchedIndexer::populate_waiting_on_ids(const std::string& coll_name, const uint64_t& request_start_ts,
                                              std::set<uint64_t>& waiting_on_ids) {
     auto coll_to_references_iter = coll_to_references.find(coll_name);
-    if (coll_to_references_iter != coll_to_references.end()) {
-        for (const auto& ref_coll_name: coll_to_references_iter->second) {
-            auto ref_coll_queue_id = StringUtils::hash_wy(ref_coll_name.c_str(), ref_coll_name.size()) % num_threads;
-            std::lock_guard ref_queue_lock(qmutuxes[ref_coll_queue_id].mcv);
-            auto const& ref_queue = queues[ref_coll_queue_id];
+    if(coll_to_references_iter == coll_to_references.end()) {
+        return ;
+    }
 
-            // Checking every request of the ref queue that was enqueued earlier than this
-            // request since requests of collections other than the referenced collection
-            // might be present.
-            for (const auto& ref_req_id: ref_queue) {
-                auto ref_req_iter = req_res_map.find(ref_req_id);
-                if (ref_req_iter == req_res_map.end()) {
-                    continue;
-                }
+    for (const auto& ref_coll_name: coll_to_references_iter->second) {
+        auto ref_coll_queue_id = StringUtils::hash_wy(ref_coll_name.c_str(), ref_coll_name.size()) % num_threads;
+        std::lock_guard ref_queue_lock(qmutuxes[ref_coll_queue_id].mcv);
+        auto const& ref_queue = queues[ref_coll_queue_id];
 
-                const auto& ref_req_res = ref_req_iter->second;
-                if (ref_req_res.start_ts > request_start_ts) {
-                    break;
-                }
+        // Checking every request of the ref queue that was enqueued earlier than this
+        // request since requests of collections other than the referenced collection might be present.
+        for (const auto& ref_req_id: ref_queue) {
+            auto ref_req_iter = req_res_map.find(ref_req_id);
+            if (ref_req_iter == req_res_map.end()) {
+                continue;
+            }
 
-                const auto& ref_req = ref_req_res.req;
-                // Only wait for import docs request of the referenced collection.
-                if (is_doc_import_route(ref_req->route_hash) &&
-                    get_collection_name(ref_req) == ref_coll_name) {
-                    waiting_on_ids.insert(ref_req_id);
-                    break;
-                }
+            const auto& ref_req_res = ref_req_iter->second;
+            if (ref_req_res.start_ts > request_start_ts) {
+                break;
+            }
+
+            const auto& ref_req = ref_req_res.req;
+            // Only wait for import docs request of the referenced collection.
+            if (is_doc_import_route(ref_req->route_hash) &&
+                get_collection_name(ref_req) == ref_coll_name) {
+                waiting_on_ids.insert(ref_req_id);
+                break;
             }
         }
     }
@@ -279,36 +287,30 @@ void BatchedIndexer::run() {
                                 goto end;
                             }
 
-                            // No need to save reference mapping in case of a live request.
-                            if (!is_live_req && is_coll_create_route(orig_req->route_hash)) {
-                                std::string coll_name;
-                                std::unordered_set<std::string> referenced_collections;
-                                get_coll_and_ref_coll_names(orig_req->body, coll_name, referenced_collections);
-                                if (!referenced_collections.empty()) {
-                                    std::lock_guard lock(mutex);
-                                    coll_to_references[coll_name] = std::move(referenced_collections);
-                                }
-                            }
-
-                            // When raft logs are replayed on restart, document import requests of related collections
+                            // When raft logs are replayed on restart, import requests of related collections
                             // might end up being processed in parallel causing indexing of document having a reference
-                            // to fail. So we wait until all the referenced collections complete the document import
-                            // request.
+                            // to fail. So we wait until all the referenced collections complete the import.
                             if (!is_live_req && is_doc_import_route(orig_req->route_hash)) {
-                                std::unique_lock mutex_lock(mutex);
-
-                                const auto& coll_name = get_collection_name(orig_req);
                                 std::set<uint64_t> waiting_on_ids;
+                                const auto& coll_name = get_collection_name(orig_req);
+
+                                std::unique_lock mlock(mutex);
                                 populate_waiting_on_ids(coll_name, orig_req_res.start_ts, waiting_on_ids);
 
                                 while(!waiting_on_ids.empty()) {
-                                    mutex_lock.unlock();
+                                    mlock.unlock();
                                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-                                    mutex_lock.lock();
-                                    for (auto it = waiting_on_ids.begin(); it != waiting_on_ids.end(); it++) {
+                                    if(quit) {
+                                        goto end;
+                                    }
+
+                                    mlock.lock();
+                                    for (auto it = waiting_on_ids.begin(); it != waiting_on_ids.end();) {
                                         if (req_res_map.count(*it) == 0) {
-                                            waiting_on_ids.erase(it);
+                                            it = waiting_on_ids.erase(it);
+                                        } else {
+                                            it++;
                                         }
                                     }
                                 }
