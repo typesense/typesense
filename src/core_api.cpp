@@ -181,7 +181,31 @@ index_operation_t get_index_operation(const std::string& action) {
 
 bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    nlohmann::json json_response = collectionManager.get_collection_summaries();
+
+    nlohmann::json req_json;
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        //LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    uint32_t offset = 0, limit = 0;
+    if(req_json.contains("offset")) {
+        offset = req_json["offset"].get<size_t >();
+    }
+
+    if(req_json.contains("limit")) {
+        limit = req_json["limit"].get<size_t>();
+    }
+
+    auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset);
+    if(!collections_summaries_op.ok()) {
+        res->set(collections_summaries_op.code(), collections_summaries_op.error());
+    }
+
+    nlohmann::json json_response = collections_summaries_op.get();
     res->set_200(json_response.dump());
     return true;
 }
