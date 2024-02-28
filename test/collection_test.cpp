@@ -5243,7 +5243,7 @@ TEST_F(CollectionTest, CatchPartialResponseFromRemoteEmbedding) {
         ]
     })"_json;
 
-    OpenAIEmbedder embedder("", "", 0, false);
+    OpenAIEmbedder embedder("", "", 0, false, "");
 
     auto res = embedder.get_error_json(req_body, 200, partial_json);
 
