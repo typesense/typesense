@@ -309,9 +309,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             return Option<bool>(500, "Error while parsing collection meta.");
         }
 
-        if (collection_meta.is_object() && collection_meta.contains("name") && collection_meta["name"].is_string()) {
-            collection_name = collection_meta["name"];
-        }
+        collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
