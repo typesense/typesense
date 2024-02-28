@@ -313,8 +313,8 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
                                   "\"string\", \"facet\": false}], \"default_sorting_field\": \"foo\"}");
 
-    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f,
-                                                               spp::sparse_hash_map<std::string, std::string>());
+    spp::sparse_hash_map<std::string, std::string> referenced_in;
+    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f, referenced_in);
     ASSERT_EQ("foobar", collection->get_name());
     ASSERT_EQ(100, collection->get_collection_id());
     ASSERT_EQ(1, collection->get_fields().size());
@@ -336,8 +336,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"symbols_to_index\": [\"+\"], \"token_separators\": [\"-\"]}");
 
 
-    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f,
-                                                   spp::sparse_hash_map<std::string, std::string>());
+    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f, referenced_in);
     ASSERT_EQ(12345, collection->get_created_at());
 
     std::vector<char> expected_symbols = {'+'};

@@ -126,13 +126,13 @@ public:
                                        const uint32_t collection_next_seq_id,
                                        Store* store,
                                        float max_memory_ratio,
-                                       spp::sparse_hash_map<std::string, std::string>&& referenced_in);
+                                       spp::sparse_hash_map<std::string, std::string>& referenced_in);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
                                         const size_t batch_size,
                                         const StoreStatus& next_coll_id_status,
                                         const std::atomic<bool>& quit,
-                                        spp::sparse_hash_map<std::string, std::string>&& referenced_in);
+                                        spp::sparse_hash_map<std::string, std::string>& referenced_in);
 
     Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
 

@@ -384,7 +384,7 @@ public:
                const float max_memory_ratio, const std::string& fallback_field_type,
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
                const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
-               spp::sparse_hash_map<std::string, std::string>&& referenced_in = spp::sparse_hash_map<std::string, std::string>());
+               spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>());
 
     ~Collection();
 

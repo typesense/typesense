@@ -22,7 +22,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                                const uint32_t collection_next_seq_id,
                                                Store* store,
                                                float max_memory_ratio,
-                                               spp::sparse_hash_map<std::string, std::string>&& referenced_in) {
+                                               spp::sparse_hash_map<std::string, std::string>& referenced_in) {
     std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> fields;
@@ -299,6 +299,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     size_t num_processed = 0;
     std::mutex m_process;
     std::condition_variable cv_process;
+    std::string collection_name;
 
     for(size_t coll_index = 0; coll_index < num_collections; coll_index++) {
         const auto& collection_meta_json = collection_meta_jsons[coll_index];
@@ -308,23 +309,18 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             return Option<bool>(500, "Error while parsing collection meta.");
         }
 
-        spp::sparse_hash_map<std::string, std::string>* referenced_in = nullptr;
         if (collection_meta.is_object() && collection_meta.contains("name") && collection_meta["name"].is_string()) {
-            auto collection_name = collection_meta["name"];
-            referenced_in = new spp::sparse_hash_map<std::string, std::string>();
-            *referenced_in = referenced_ins[collection_name];
-            referenced_ins.erase(collection_name);
+            collection_name = collection_meta["name"];
         }
 
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
-                                     referenced_in]() {
-            std::unique_ptr<spp::sparse_hash_map<std::string, std::string>> referenced_in_guard(referenced_in);
+                                     &referenced_ins, collection_name]() {
 
             //auto begin = std::chrono::high_resolution_clock::now();
             Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit,
-                                               std::move(*referenced_in));
+                                               referenced_ins[collection_name]);
             /*long long int timeMillis =
                     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
             LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
@@ -2056,7 +2052,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
                                                 const size_t batch_size,
                                                 const StoreStatus& next_coll_id_status,
                                                 const std::atomic<bool>& quit,
-                                                spp::sparse_hash_map<std::string, std::string>&& referenced_in) {
+                                                spp::sparse_hash_map<std::string, std::string>& referenced_in) {
 
     auto& cm = CollectionManager::get_instance();
 
@@ -2102,8 +2098,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f,
-                                             std::move(referenced_in));
+    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_in);
 
     LOG(INFO) << "Loading collection " << collection->get_name();
 

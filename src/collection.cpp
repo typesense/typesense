@@ -48,7 +48,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const std::vector<std::string>& symbols_to_index,
                        const std::vector<std::string>& token_separators,
                        const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
-                       spp::sparse_hash_map<std::string, std::string>&& referenced_in) :
+                       spp::sparse_hash_map<std::string, std::string> referenced_in) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
