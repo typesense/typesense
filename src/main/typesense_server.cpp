@@ -50,6 +50,7 @@ void master_server_routes() {
     server->post("/collections", post_create_collection);
     server->patch("/collections/:collection", patch_update_collection);
     server->get("/collections", get_collections);
+    server->get("/collections/:offset/:limit", get_collections);
     server->del("/collections/:collection", del_drop_collection);
     server->get("/collections/:collection", get_collection_summary);
 

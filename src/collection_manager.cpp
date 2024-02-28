@@ -588,11 +588,7 @@ Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t lim
 
     auto collections_end = collections.end();
 
-    if(limit > 0 && (limit != collections.size() || (offset + limit != collections.size()))) {
-        if((limit > collections.size()) || (offset + limit > collections.size())) {
-            return Option<std::vector<Collection*>>(400, "Invalid limit param.");
-        }
-
+    if(limit > 0 && (offset + limit < collections.size())) {
         collections_end = collections_it;
         std::advance(collections_end, limit);
     }

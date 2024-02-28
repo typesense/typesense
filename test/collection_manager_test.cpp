@@ -1917,23 +1917,16 @@ TEST_F(CollectionManagerTest, CollectionPagination) {
     }
 
     //create few collections
-    std::vector<std::thread> threads;
     for(size_t i = 0; i < 5; i++) {
-        threads.emplace_back([i, &collectionManager = collectionManager]() {
-            nlohmann::json coll_json = R"({
+        nlohmann::json coll_json = R"({
                 "name": "cp",
                 "fields": [
                     {"name": "title", "type": "string"}
                 ]
             })"_json;
-            coll_json["name"] = coll_json["name"].get<std::string>() + std::to_string(i+1);
-            auto coll_op = collectionManager.create_collection(coll_json);
-            ASSERT_TRUE(coll_op.ok());
-        });
-    }
-
-    for(auto& thread : threads){
-        thread.join();
+        coll_json["name"] = coll_json["name"].get<std::string>() + std::to_string(i + 1);
+        auto coll_op = collectionManager.create_collection(coll_json);
+        ASSERT_TRUE(coll_op.ok());
     }
 
     uint32_t limit = 0, offset = 0;
@@ -1942,7 +1935,7 @@ TEST_F(CollectionManagerTest, CollectionPagination) {
     limit=2;
     auto collection_op = collectionManager.get_collections(limit);
     auto collections_vec = collection_op.get();
-
+    ASSERT_EQ(2, collections_vec.size());
     ASSERT_EQ("cp5", collections_vec[0]->get_name());
     ASSERT_EQ("cp2", collections_vec[1]->get_name());
 
@@ -1950,7 +1943,7 @@ TEST_F(CollectionManagerTest, CollectionPagination) {
     offset=3;
     collection_op = collectionManager.get_collections(limit, offset);
     collections_vec = collection_op.get();
-
+    ASSERT_EQ(2, collections_vec.size());
     ASSERT_EQ("cp4", collections_vec[0]->get_name());
     ASSERT_EQ("cp1", collections_vec[1]->get_name());
 
@@ -1958,7 +1951,7 @@ TEST_F(CollectionManagerTest, CollectionPagination) {
     offset=1; limit=0;
     collection_op = collectionManager.get_collections(limit, offset);
     collections_vec = collection_op.get();
-
+    ASSERT_EQ(4, collections_vec.size());
     ASSERT_EQ("cp5", collections_vec[0]->get_name());
     ASSERT_EQ("cp4", collections_vec[1]->get_name());
     ASSERT_EQ("cp3", collections_vec[2]->get_name());
@@ -1968,22 +1961,30 @@ TEST_F(CollectionManagerTest, CollectionPagination) {
     offset=4, limit=1;
     collection_op = collectionManager.get_collections(limit, offset);
     collections_vec = collection_op.get();
-
+    ASSERT_EQ(1, collections_vec.size());
     ASSERT_EQ("cp4", collections_vec[0]->get_name());
 
-    //invalid offset and limit
+    //if limit is greater than number of collection then return all from offset
+    offset=0; limit=8;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(5, collections_vec.size());
+    ASSERT_EQ("cp5", collections_vec[0]->get_name());
+    ASSERT_EQ("cp4", collections_vec[1]->get_name());
+    ASSERT_EQ("cp3", collections_vec[2]->get_name());
+    ASSERT_EQ("cp2", collections_vec[3]->get_name());
+    ASSERT_EQ("cp1", collections_vec[4]->get_name());
+
+    offset=3; limit=4;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp4", collections_vec[0]->get_name());
+    ASSERT_EQ("cp1", collections_vec[1]->get_name());
+
+    //invalid offset
     offset=6; limit=0;
     collection_op = collectionManager.get_collections(limit, offset);
     ASSERT_FALSE(collection_op.ok());
     ASSERT_EQ("Invalid offset param.", collection_op.error());
-
-    offset=0; limit=8;
-    collection_op = collectionManager.get_collections(limit, offset);
-    ASSERT_FALSE(collection_op.ok());
-    ASSERT_EQ("Invalid limit param.", collection_op.error());
-
-    offset=3; limit=4;
-    collection_op = collectionManager.get_collections(limit, offset);
-    ASSERT_FALSE(collection_op.ok());
-    ASSERT_EQ("Invalid limit param.", collection_op.error());
 }

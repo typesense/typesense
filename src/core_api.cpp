@@ -182,22 +182,13 @@ index_operation_t get_index_operation(const std::string& action) {
 bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
-    nlohmann::json req_json;
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        //LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
-    }
-
     uint32_t offset = 0, limit = 0;
-    if(req_json.contains("offset")) {
-        offset = req_json["offset"].get<size_t >();
+    if(req->params.count("offset") != 0) {
+        offset = std::stoi(req->params["offset"]);
     }
 
-    if(req_json.contains("limit")) {
-        limit = req_json["limit"].get<size_t>();
+    if(req->params.count("limit") != 0) {
+        limit = std::stoi(req->params["limit"]);
     }
 
     auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset);
