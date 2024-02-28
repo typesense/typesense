@@ -184,8 +184,8 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
 
     uint32_t offset = 0, limit = 0;
     if(req->params.count("offset") != 0) {
-        auto offset_str = req->params["offset"];
-        if(offset_str.find_first_not_of("0123456789") != std::string::npos) {
+        const auto &offset_str = req->params["offset"];
+        if(!StringUtils::is_uint32_t(offset_str)) {
             res->set(400, "Offset param should be unsigned integer.");
             return false;
         }
@@ -193,8 +193,8 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
     }
 
     if(req->params.count("limit") != 0) {
-        auto limit_str = req->params["limit"];
-        if(limit_str.find_first_not_of("0123456789") != std::string::npos) {
+        const auto &limit_str = req->params["limit"];
+        if(!StringUtils::is_uint32_t(limit_str)) {
             res->set(400, "Limit param should be unsigned integer.");
             return false;
         }
@@ -204,6 +204,7 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
     auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset);
     if(!collections_summaries_op.ok()) {
         res->set(collections_summaries_op.code(), collections_summaries_op.error());
+        return false;
     }
 
     nlohmann::json json_response = collections_summaries_op.get();
