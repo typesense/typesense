@@ -1936,16 +1936,16 @@ TEST_F(CollectionManagerTest, CollectionPagination) {
     auto collection_op = collectionManager.get_collections(limit);
     auto collections_vec = collection_op.get();
     ASSERT_EQ(2, collections_vec.size());
-    ASSERT_EQ("cp5", collections_vec[0]->get_name());
-    ASSERT_EQ("cp2", collections_vec[1]->get_name());
+    ASSERT_EQ("cp2", collections_vec[0]->get_name());
+    ASSERT_EQ("cp5", collections_vec[1]->get_name());
 
     //get 2 collection from offset 3
     offset=3;
     collection_op = collectionManager.get_collections(limit, offset);
     collections_vec = collection_op.get();
     ASSERT_EQ(2, collections_vec.size());
-    ASSERT_EQ("cp4", collections_vec[0]->get_name());
-    ASSERT_EQ("cp1", collections_vec[1]->get_name());
+    ASSERT_EQ("cp1", collections_vec[0]->get_name());
+    ASSERT_EQ("cp4", collections_vec[1]->get_name());
 
     //get all collection except first
     offset=1; limit=0;
@@ -1953,9 +1953,9 @@ TEST_F(CollectionManagerTest, CollectionPagination) {
     collections_vec = collection_op.get();
     ASSERT_EQ(4, collections_vec.size());
     ASSERT_EQ("cp5", collections_vec[0]->get_name());
-    ASSERT_EQ("cp4", collections_vec[1]->get_name());
-    ASSERT_EQ("cp3", collections_vec[2]->get_name());
-    ASSERT_EQ("cp1", collections_vec[3]->get_name());
+    ASSERT_EQ("cp3", collections_vec[1]->get_name());
+    ASSERT_EQ("cp1", collections_vec[2]->get_name());
+    ASSERT_EQ("cp4", collections_vec[3]->get_name());
 
     //get last collection
     offset=4, limit=1;
@@ -1969,18 +1969,18 @@ TEST_F(CollectionManagerTest, CollectionPagination) {
     collection_op = collectionManager.get_collections(limit, offset);
     collections_vec = collection_op.get();
     ASSERT_EQ(5, collections_vec.size());
-    ASSERT_EQ("cp5", collections_vec[0]->get_name());
-    ASSERT_EQ("cp4", collections_vec[1]->get_name());
+    ASSERT_EQ("cp2", collections_vec[0]->get_name());
+    ASSERT_EQ("cp5", collections_vec[1]->get_name());
     ASSERT_EQ("cp3", collections_vec[2]->get_name());
-    ASSERT_EQ("cp2", collections_vec[3]->get_name());
-    ASSERT_EQ("cp1", collections_vec[4]->get_name());
+    ASSERT_EQ("cp1", collections_vec[3]->get_name());
+    ASSERT_EQ("cp4", collections_vec[4]->get_name());
 
     offset=3; limit=4;
     collection_op = collectionManager.get_collections(limit, offset);
     collections_vec = collection_op.get();
     ASSERT_EQ(2, collections_vec.size());
-    ASSERT_EQ("cp4", collections_vec[0]->get_name());
-    ASSERT_EQ("cp1", collections_vec[1]->get_name());
+    ASSERT_EQ("cp1", collections_vec[0]->get_name());
+    ASSERT_EQ("cp4", collections_vec[1]->get_name());
 
     //invalid offset
     offset=6; limit=0;

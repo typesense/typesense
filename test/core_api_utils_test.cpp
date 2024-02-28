@@ -1556,3 +1556,76 @@ TEST_F(CoreAPIUtilsTest, DeleteNonExistingDoc) {
     del_remove_document(req, res);
     ASSERT_EQ(200, res->status_code);
 }
+
+TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
+    //remove all collections first
+    auto collections = collectionManager.get_collections().get();
+    for(auto collection : collections) {
+        collectionManager.drop_collection(collection->get_name());
+    }
+
+    //create few collections
+    for(size_t i = 0; i < 5; i++) {
+        nlohmann::json coll_json = R"({
+                "name": "cp",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+        coll_json["name"] = coll_json["name"].get<std::string>() + std::to_string(i + 1);
+        auto coll_op = collectionManager.create_collection(coll_json);
+        ASSERT_TRUE(coll_op.ok());
+    }
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["offset"] = "0";
+    req->params["limit"] = "1";
+
+    nlohmann::json expected_meta_json = R"(
+        {
+          "created_at":1663234047,
+          "default_sorting_field":"",
+          "enable_nested_fields":false,
+          "fields":[
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"title",
+              "optional":false,
+              "sort":false,
+              "stem":false,
+              "type":"string"
+            }
+          ],
+          "name":"cp2",
+          "num_documents":0,
+          "symbols_to_index":[],
+          "token_separators":[]
+        }
+    )"_json;
+
+    get_collections(req, resp);
+
+    auto actual_json = nlohmann::json::parse(resp->body);
+    expected_meta_json["created_at"] = actual_json[0]["created_at"];
+
+    ASSERT_EQ(expected_meta_json.dump(), actual_json[0].dump());
+
+    //invalid offset string
+    req->params["offset"] = "0a";
+    get_collections(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+
+    //invalid limit string
+    req->params["offset"] = "0";
+    req->params["limit"] = "-1";
+    get_collections(req, resp);
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+}

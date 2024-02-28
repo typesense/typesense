@@ -598,10 +598,12 @@ Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t lim
     }
 
 
-    std::sort(std::begin(collection_vec), std::end(collection_vec),
-              [] (Collection* lhs, Collection* rhs) {
-                  return lhs->get_collection_id()  > rhs->get_collection_id();
-              });
+    if(offset == 0 && limit == 0) { //dont sort for paginated requests
+        std::sort(std::begin(collection_vec), std::end(collection_vec),
+                  [](Collection *lhs, Collection *rhs) {
+                      return lhs->get_collection_id() > rhs->get_collection_id();
+                  });
+    }
 
     return Option<std::vector<Collection*>>(collection_vec);
 }

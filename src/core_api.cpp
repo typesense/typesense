@@ -184,11 +184,21 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
 
     uint32_t offset = 0, limit = 0;
     if(req->params.count("offset") != 0) {
-        offset = std::stoi(req->params["offset"]);
+        auto offset_str = req->params["offset"];
+        if(offset_str.find_first_not_of("0123456789") != std::string::npos) {
+            res->set(400, "Offset param should be unsigned integer.");
+            return false;
+        }
+        offset = std::stoi(offset_str);
     }
 
     if(req->params.count("limit") != 0) {
-        limit = std::stoi(req->params["limit"]);
+        auto limit_str = req->params["limit"];
+        if(limit_str.find_first_not_of("0123456789") != std::string::npos) {
+            res->set(400, "Limit param should be unsigned integer.");
+            return false;
+        }
+        limit = std::stoi(limit_str);
     }
 
     auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset);
