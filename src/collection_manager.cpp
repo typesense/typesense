@@ -21,7 +21,8 @@ CollectionManager::CollectionManager() {
 Collection* CollectionManager::init_collection(const nlohmann::json & collection_meta,
                                                const uint32_t collection_next_seq_id,
                                                Store* store,
-                                               float max_memory_ratio) {
+                                               float max_memory_ratio,
+                                               spp::sparse_hash_map<std::string, std::string>&& referenced_in) {
     std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> fields;
@@ -193,7 +194,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             fallback_field_type,
                                             symbols_to_index,
                                             token_separators,
-                                            enable_nested_fields, model);
+                                            enable_nested_fields, model, std::move(referenced_in));
 
     return collection;
 }
@@ -226,6 +227,32 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
                              std::atomic<bool>& quit) {
     ThreadPool* thread_pool = new ThreadPool(8);
     init(store, thread_pool, max_memory_ratio, auth_key, quit, nullptr);
+}
+
+void CollectionManager::_populate_referenced_ins(const std::string& collection_meta_json,
+                                                 std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins) {
+    auto const& obj = nlohmann::json::parse(collection_meta_json, nullptr, false);
+
+    if (!obj.is_discarded() && obj.is_object() && obj.contains("name") && obj["name"].is_string() &&
+        obj.contains("fields")) {
+        auto const& collection_name = obj["name"];
+
+        for (const auto &field: obj["fields"]) {
+            if (!field.contains("name") || !field.contains("reference")) {
+                continue;
+            }
+            auto field_name = std::string(field["name"]) + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+            std::vector<std::string> split_result;
+            StringUtils::split(field["reference"], split_result, ".");
+            auto const& ref_coll_name = split_result.front();
+
+            if (referenced_ins.count(ref_coll_name) == 0) {
+                referenced_ins.emplace(ref_coll_name, spp::sparse_hash_map<std::string, std::string>());
+            }
+
+            referenced_ins[ref_coll_name].emplace(collection_name, field_name);
+        }
+    }
 }
 
 Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {
@@ -263,9 +290,13 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     ThreadPool loading_pool(collection_batch_size);
 
+    // Collection name -> Ref collection name -> Ref field name
+    std::map<std::string, spp::sparse_hash_map<std::string, std::string>> referenced_ins;
+    for (const auto &collection_meta_json: collection_meta_jsons) {
+        _populate_referenced_ins(collection_meta_json, referenced_ins);
+    }
+
     size_t num_processed = 0;
-    // Collection name -> Referenced in
-    std::map<std::string, std::set<reference_pair>> referenced_ins = {};
     std::mutex m_process;
     std::condition_variable cv_process;
 
@@ -277,13 +308,23 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             return Option<bool>(500, "Error while parsing collection meta.");
         }
 
+        spp::sparse_hash_map<std::string, std::string>* referenced_in = nullptr;
+        if (collection_meta.is_object() && collection_meta.contains("name") && collection_meta["name"].is_string()) {
+            auto collection_name = collection_meta["name"];
+            referenced_in = new spp::sparse_hash_map<std::string, std::string>();
+            *referenced_in = referenced_ins[collection_name];
+            referenced_ins.erase(collection_name);
+        }
+
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
-                              &referenced_ins]() {
+                                     referenced_in]() {
+            std::unique_ptr<spp::sparse_hash_map<std::string, std::string>> referenced_in_guard(referenced_in);
 
             //auto begin = std::chrono::high_resolution_clock::now();
-            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit);
+            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit,
+                                               std::move(*referenced_in));
             /*long long int timeMillis =
                     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
             LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
@@ -299,18 +340,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             num_processed++;
 
             auto& cm = CollectionManager::get_instance();
-            auto const& collection_name = collection_meta.at("name");
-            auto collection = cm.get_collection(collection_name);
-            if (collection != nullptr) {
-                for (const auto &item: collection->get_reference_fields()) {
-                    auto const& ref_coll_name = item.second.collection;
-                    if (referenced_ins.count(ref_coll_name) == 0) {
-                        referenced_ins[ref_coll_name] = {};
-                    }
-                    auto const field_name = item.first + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-                    referenced_ins.at(ref_coll_name).insert(reference_pair{collection_name, field_name});
-                }
-            }
             cv_process.notify_one();
 
             size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
@@ -325,17 +354,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     cv_process.wait(lock_process, [&](){
         return num_processed == num_collections;
     });
-
-    // Initialize references
-    for (const auto &item: referenced_ins) {
-        auto& cm = CollectionManager::get_instance();
-        auto collection = cm.get_collection(item.first);
-        if (collection != nullptr) {
-            for (const auto &reference_pair: item.second) {
-                collection->add_referenced_in(reference_pair);
-            }
-        }
-    }
 
     // load aliases
 
@@ -2037,7 +2055,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
                                                 const size_t batch_size,
                                                 const StoreStatus& next_coll_id_status,
-                                                const std::atomic<bool>& quit) {
+                                                const std::atomic<bool>& quit,
+                                                spp::sparse_hash_map<std::string, std::string>&& referenced_in) {
 
     auto& cm = CollectionManager::get_instance();
 
@@ -2083,7 +2102,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f);
+    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f,
+                                             std::move(referenced_in));
 
     LOG(INFO) << "Loading collection " << collection->get_name();
 
