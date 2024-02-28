@@ -584,20 +584,40 @@ locked_resource_view_t<Collection> CollectionManager::get_collection_with_id(uin
     return locked_resource_view_t<Collection>(mutex, nullptr);
 }
 
-std::vector<Collection*> CollectionManager::get_collections() const {
+Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t limit, uint32_t offset) const {
     std::shared_lock lock(mutex);
 
     std::vector<Collection*> collection_vec;
-    for(const auto& kv: collections) {
-        collection_vec.push_back(kv.second);
+    auto collections_it = collections.begin();
+
+    if(offset > 0) {
+        if(offset >= collections.size()) {
+            return Option<std::vector<Collection*>>(400, "Invalid offset param.");
+        }
+
+        std::advance(collections_it, offset);
     }
 
-    std::sort(std::begin(collection_vec), std::end(collection_vec),
-              [] (Collection* lhs, Collection* rhs) {
-                  return lhs->get_collection_id()  > rhs->get_collection_id();
-              });
+    auto collections_end = collections.end();
 
-    return collection_vec;
+    if(limit > 0 && (offset + limit < collections.size())) {
+        collections_end = collections_it;
+        std::advance(collections_end, limit);
+    }
+
+    for (collections_it; collections_it != collections_end; ++collections_it) {
+        collection_vec.push_back(collections_it->second);
+    }
+
+
+    if(offset == 0 && limit == 0) { //dont sort for paginated requests
+        std::sort(std::begin(collection_vec), std::end(collection_vec),
+                  [](Collection *lhs, Collection *rhs) {
+                      return lhs->get_collection_id() > rhs->get_collection_id();
+                  });
+    }
+
+    return Option<std::vector<Collection*>>(collection_vec);
 }
 
 std::vector<std::string> CollectionManager::get_collection_names() const {
@@ -1884,10 +1904,16 @@ ThreadPool* CollectionManager::get_thread_pool() const {
     return thread_pool;
 }
 
-nlohmann::json CollectionManager::get_collection_summaries() const {
+Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limit, uint32_t offset) const {
     std::shared_lock lock(mutex);
 
-    std::vector<Collection*> colls = get_collections();
+    auto collections_op = get_collections(limit, offset);
+    if(!collections_op.ok()) {
+        return Option<nlohmann::json>(collections_op.code(), collections_op.error());
+    }
+
+    std::vector<Collection*> colls = collections_op.get();
+
     nlohmann::json json_summaries = nlohmann::json::array();
 
     for(Collection* collection: colls) {
@@ -1895,7 +1921,7 @@ nlohmann::json CollectionManager::get_collection_summaries() const {
         json_summaries.push_back(collection_json);
     }
 
-    return json_summaries;
+    return Option<nlohmann::json>(json_summaries);
 }
 
 Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_json) {

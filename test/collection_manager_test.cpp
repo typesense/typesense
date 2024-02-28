@@ -301,7 +301,7 @@ TEST_F(CollectionManagerTest, ParallelCollectionCreation) {
 
     int64_t prev_id = INT32_MAX;
 
-    for(auto coll: collectionManager.get_collections()) {
+    for(auto coll: collectionManager.get_collections().get()) {
         // collections are sorted by ID, in descending order
         ASSERT_TRUE(coll->get_collection_id() < prev_id);
         prev_id = coll->get_collection_id();
@@ -356,7 +356,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
 }
 
 TEST_F(CollectionManagerTest, GetAllCollections) {
-    std::vector<Collection*> collection_vec = collectionManager.get_collections();
+    std::vector<Collection*> collection_vec = collectionManager.get_collections().get();
     ASSERT_EQ(1, collection_vec.size());
     ASSERT_STREQ("collection1", collection_vec[0]->get_name().c_str());
 
@@ -370,7 +370,7 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
     })"_json;
 
     collectionManager.create_collection(new_schema);
-    collection_vec = collectionManager.get_collections();
+    collection_vec = collectionManager.get_collections().get();
     ASSERT_EQ(2, collection_vec.size());
 
     // most recently created collection first
@@ -1105,7 +1105,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     ASSERT_TRUE(drop_op.ok());
 
     // try to list collections now
-    nlohmann::json summaries = cmanager.get_collection_summaries();
+    nlohmann::json summaries = cmanager.get_collection_summaries().get();
     ASSERT_EQ(0, summaries.size());
 
     // remap alias to another non-existing collection
@@ -1173,7 +1173,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
         cmanager.create_collection("collection" + std::to_string(i), 4, schema, "points").get();
     }
 
-    ASSERT_EQ(100, cmanager.get_collections().size());
+    ASSERT_EQ(100, cmanager.get_collections().get().size());
 
     cmanager.dispose();
     delete new_store;
@@ -1182,7 +1182,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
-    ASSERT_EQ(100, cmanager.get_collections().size());
+    ASSERT_EQ(100, cmanager.get_collections().get().size());
 
     for(size_t i = 0; i < 100; i++) {
         collectionManager.drop_collection("collection" + std::to_string(i));
@@ -1943,4 +1943,84 @@ TEST_F(CollectionManagerTest, PopulateReferencedIns) {
     ASSERT_EQ(1, referenced_ins["A"].size());
     ASSERT_EQ(1, referenced_ins["A"].count("B"));
     ASSERT_EQ("b_ref_sequence_id", referenced_ins["A"]["B"]);
+}
+
+TEST_F(CollectionManagerTest, CollectionPagination) {
+    //remove all collections first
+    auto collections = collectionManager.get_collections().get();
+    for(auto collection : collections) {
+        collectionManager.drop_collection(collection->get_name());
+    }
+
+    //create few collections
+    for(size_t i = 0; i < 5; i++) {
+        nlohmann::json coll_json = R"({
+                "name": "cp",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+        coll_json["name"] = coll_json["name"].get<std::string>() + std::to_string(i + 1);
+        auto coll_op = collectionManager.create_collection(coll_json);
+        ASSERT_TRUE(coll_op.ok());
+    }
+
+    uint32_t limit = 0, offset = 0;
+
+    //limit collections by 2
+    limit=2;
+    auto collection_op = collectionManager.get_collections(limit);
+    auto collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp2", collections_vec[0]->get_name());
+    ASSERT_EQ("cp5", collections_vec[1]->get_name());
+
+    //get 2 collection from offset 3
+    offset=3;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp1", collections_vec[0]->get_name());
+    ASSERT_EQ("cp4", collections_vec[1]->get_name());
+
+    //get all collection except first
+    offset=1; limit=0;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(4, collections_vec.size());
+    ASSERT_EQ("cp5", collections_vec[0]->get_name());
+    ASSERT_EQ("cp3", collections_vec[1]->get_name());
+    ASSERT_EQ("cp1", collections_vec[2]->get_name());
+    ASSERT_EQ("cp4", collections_vec[3]->get_name());
+
+    //get last collection
+    offset=4, limit=1;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(1, collections_vec.size());
+    ASSERT_EQ("cp4", collections_vec[0]->get_name());
+
+    //if limit is greater than number of collection then return all from offset
+    offset=0; limit=8;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(5, collections_vec.size());
+    ASSERT_EQ("cp2", collections_vec[0]->get_name());
+    ASSERT_EQ("cp5", collections_vec[1]->get_name());
+    ASSERT_EQ("cp3", collections_vec[2]->get_name());
+    ASSERT_EQ("cp1", collections_vec[3]->get_name());
+    ASSERT_EQ("cp4", collections_vec[4]->get_name());
+
+    offset=3; limit=4;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp1", collections_vec[0]->get_name());
+    ASSERT_EQ("cp4", collections_vec[1]->get_name());
+
+    //invalid offset
+    offset=6; limit=0;
+    collection_op = collectionManager.get_collections(limit, offset);
+    ASSERT_FALSE(collection_op.ok());
+    ASSERT_EQ("Invalid offset param.", collection_op.error());
 }

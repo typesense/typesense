@@ -138,7 +138,7 @@ public:
 
     void add_to_collections(Collection* collection);
 
-    std::vector<Collection*> get_collections() const;
+    Option<std::vector<Collection*>> get_collections(uint32_t limit = 0, uint32_t offset = 0) const;
 
     std::vector<std::string> get_collection_names() const;
 
@@ -178,7 +178,7 @@ public:
 
     locked_resource_view_t<Collection> get_collection_with_id(uint32_t collection_id) const;
 
-    nlohmann::json get_collection_summaries() const;
+    Option<nlohmann::json> get_collection_summaries(uint32_t limit = 0 , uint32_t offset = 0) const;
 
     Option<nlohmann::json> drop_collection(const std::string& collection_name,
                                            const bool remove_from_store = true,
