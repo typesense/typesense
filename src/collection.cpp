@@ -1122,6 +1122,9 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             if (ref_collection == nullptr) {
                 return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in `sort_by` not found.");
             }
+            // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to the
+            // original collection.
+            ref_collection_name = ref_collection->name;
 
             auto sort_by_str = _sort_field.name.substr(parenthesis_index + 1,
                                                        _sort_field.name.size() - parenthesis_index - 2);
@@ -5164,13 +5167,16 @@ Option<bool> Collection::include_references(nlohmann::json& doc, const uint32_t&
                                             const std::map<std::string, reference_filter_result_t>& reference_filter_results,
                                             const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
     for (auto const& ref_include_exclude: ref_include_exclude_fields_vec) {
-        auto const& ref_collection_name = ref_include_exclude.collection_name;
+        auto ref_collection_name = ref_include_exclude.collection_name;
 
         auto& cm = CollectionManager::get_instance();
         auto ref_collection = cm.get_collection(ref_collection_name);
         if (ref_collection == nullptr) {
             return Option<bool>(400, "Referenced collection `" + ref_collection_name + "` in `include_fields` not found.");
         }
+        // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to the
+        // original collection.
+        ref_collection_name = ref_collection->name;
 
         auto const joined_on_ref_collection = reference_filter_results.count(ref_collection_name) > 0,
                 has_filter_reference = (joined_on_ref_collection &&
@@ -5957,11 +5963,13 @@ Index* Collection::init_index() {
             auto ref_coll_name = field.reference.substr(0, dot_index);
             auto ref_field_name = field.reference.substr(dot_index + 1);
 
-            reference_fields.emplace(field.name, reference_pair(ref_coll_name, ref_field_name));
-
             auto& collectionManager = CollectionManager::get_instance();
             auto ref_coll = collectionManager.get_collection(ref_coll_name);
             if (ref_coll != nullptr) {
+                // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to
+                // the original collection.
+                ref_coll_name = ref_coll->name;
+
                 // Passing reference helper field helps perform operation on doc_id instead of field value.
                 ref_coll->add_referenced_in(name, field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
             } else {
@@ -5969,6 +5977,8 @@ Index* Collection::init_index() {
                 collectionManager.add_referenced_in_backlog(ref_coll_name,
                                                             reference_pair{name, field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX});
             }
+
+            reference_fields.emplace(field.name, reference_pair(ref_coll_name, ref_field_name));
         }
     }
 

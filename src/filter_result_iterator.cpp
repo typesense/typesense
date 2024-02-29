@@ -652,13 +652,16 @@ void filter_result_iterator_t::init() {
     if (is_referenced_filter) {
         // Apply filter on referenced collection and get the sequence ids of current collection from the filtered documents.
         auto& cm = CollectionManager::get_instance();
-        auto const& ref_collection_name = a_filter.referenced_collection_name;
+        auto ref_collection_name = a_filter.referenced_collection_name;
         auto ref_collection = cm.get_collection(ref_collection_name);
         if (ref_collection == nullptr) {
             status = Option<bool>(400, "Referenced collection `" + ref_collection_name + "` not found.");
             validity = invalid;
             return;
         }
+        // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to the
+        // original collection.
+        ref_collection_name = ref_collection->name;
 
         auto coll = cm.get_collection(collection_name);
         bool is_referenced = coll->referenced_in.count(ref_collection_name) > 0,

@@ -244,8 +244,13 @@ void CollectionManager::_populate_referenced_ins(const std::string& collection_m
             auto field_name = std::string(field["name"]) + fields::REFERENCE_HELPER_FIELD_SUFFIX;
             std::vector<std::string> split_result;
             StringUtils::split(field["reference"], split_result, ".");
-            auto const& ref_coll_name = split_result.front();
+            auto ref_coll_name = split_result.front();
 
+            // Resolves alias if used in schema.
+            auto actual_ref_coll_it = CollectionManager::get_instance().collection_symlinks.find(ref_coll_name);
+            if (actual_ref_coll_it != CollectionManager::get_instance().collection_symlinks.end()) {
+                ref_coll_name = actual_ref_coll_it->second;
+            }
             if (referenced_ins.count(ref_coll_name) == 0) {
                 referenced_ins.emplace(ref_coll_name, spp::sparse_hash_map<std::string, std::string>());
             }
@@ -276,6 +281,22 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     } else {
         next_collection_id = 0;
     }
+
+    // load aliases
+
+    std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
+    std::string upper_bound_key = std::string(SYMLINK_PREFIX) + "`";  // cannot inline this
+    rocksdb::Slice upper_bound(upper_bound_key);
+
+    rocksdb::Iterator* iter = store->scan(symlink_prefix_key, &upper_bound);
+    while(iter->Valid() && iter->key().starts_with(symlink_prefix_key)) {
+        std::vector<std::string> parts;
+        StringUtils::split(iter->key().ToString(), parts, symlink_prefix_key);
+        LOG(INFO) << "Loading symlink " << parts[0] << " to " << iter->value().ToString();
+        collection_symlinks[parts[0]] = iter->value().ToString();
+        iter->Next();
+    }
+    delete iter;
 
     LOG(INFO) << "Loading upto " << collection_batch_size << " collections in parallel, "
               << document_batch_size << " documents at a time.";
@@ -348,21 +369,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     cv_process.wait(lock_process, [&](){
         return num_processed == num_collections;
     });
-
-    // load aliases
-
-    std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
-    std::string upper_bound_key = std::string(SYMLINK_PREFIX) + "`";  // cannot inline this
-    rocksdb::Slice upper_bound(upper_bound_key);
-
-    rocksdb::Iterator* iter = store->scan(symlink_prefix_key, &upper_bound);
-    while(iter->Valid() && iter->key().starts_with(symlink_prefix_key)) {
-        std::vector<std::string> parts;
-        StringUtils::split(iter->key().ToString(), parts, symlink_prefix_key);
-        collection_symlinks[parts[0]] = iter->value().ToString();
-        iter->Next();
-    }
-    delete iter;
 
     // load presets
 
