@@ -620,10 +620,9 @@ public:
 
     Option<uint32_t> remove_override(const std::string & id);
 
-    std::map<std::string, override_t> get_overrides() {
-        std::shared_lock lock(mutex);
-        return overrides;
-    };
+    Option<std::map<std::string, override_t*>> get_overrides(uint32_t limit=0, uint32_t offset=0);
+
+    Option<override_t> get_override(const std::string& override_id);
 
     // synonym operations
 

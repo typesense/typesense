@@ -2332,9 +2332,9 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     }
 
     // copy overrides
-    auto overrides = existing_coll->get_overrides();
-    for(const auto& override: overrides) {
-        new_coll->add_override(override.second);
+    auto overrides = existing_coll->get_overrides().get();
+    for(const auto& kv: overrides) {
+        new_coll->add_override(*kv.second);
     }
 
     return Option<Collection*>(new_coll);
