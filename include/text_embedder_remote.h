@@ -47,12 +47,15 @@ class OpenAIEmbedder : public RemoteEmbedder {
     private: 
         std::string api_key;
         std::string openai_model_path;
-        static constexpr char* OPENAI_LIST_MODELS = "https://api.openai.com/v1/models";
-        static constexpr char* OPENAI_CREATE_EMBEDDING = "https://api.openai.com/v1/embeddings";
+        static constexpr char* OPENAI_CREATE_EMBEDDING = "v1/embeddings";
         bool has_custom_dims;
         size_t num_dims;
+        std::string openai_url = "https://api.openai.com";
+        static std::string get_openai_create_embedding_url(const std::string& openai_url) {
+            return openai_url.back() == '/' ? openai_url + OPENAI_CREATE_EMBEDDING : openai_url + "/" + OPENAI_CREATE_EMBEDDING;
+        }
     public:
-        OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims);
+        OpenAIEmbedder(const std::string& openai_model_path, const std::string& api_key, const size_t num_dims, const bool has_custom_dims, const std::string& openai_url);
         static Option<bool> is_model_valid(const nlohmann::json& model_config, size_t& num_dims);
         embedding_res_t Embed(const std::string& text, const size_t remote_embedder_timeout_ms = 30000, const size_t remote_embedding_num_tries = 2) override;
         std::vector<embedding_res_t> batch_embed(const std::vector<std::string>& inputs, const size_t remote_embedding_batch_size = 200,

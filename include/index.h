@@ -323,6 +323,7 @@ struct hnsw_index_t {
     }
 
     ~hnsw_index_t() {
+        std::lock_guard lk(repair_m);
         delete vecdex;
         delete space;
     }

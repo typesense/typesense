@@ -125,12 +125,14 @@ public:
     static Collection* init_collection(const nlohmann::json & collection_meta,
                                        const uint32_t collection_next_seq_id,
                                        Store* store,
-                                       float max_memory_ratio);
+                                       float max_memory_ratio,
+                                       spp::sparse_hash_map<std::string, std::string>& referenced_in);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
                                         const size_t batch_size,
                                         const StoreStatus& next_coll_id_status,
-                                        const std::atomic<bool>& quit);
+                                        const std::atomic<bool>& quit,
+                                        spp::sparse_hash_map<std::string, std::string>& referenced_in);
 
     Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
 
@@ -233,4 +235,7 @@ public:
     std::map<std::string, std::set<reference_pair>> _get_referenced_in_backlog() const;
 
     void process_embedding_field_delete(const std::string& model_name);
+
+    static void _populate_referenced_ins(const std::string& collection_meta_json,
+                                         std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins);
 };

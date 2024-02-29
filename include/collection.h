@@ -8,16 +8,15 @@
 #include <mutex>
 #include <condition_variable>
 #include <shared_mutex>
-#include <art.h>
-#include <index.h>
-#include <number.h>
-#include <sparsepp.h>
-#include <store.h>
-#include <topster.h>
-#include <json.hpp>
-#include <field.h>
-#include <option.h>
-#include <tsl/htrie_map.h>
+#include "art.h"
+#include "index.h"
+#include "number.h"
+#include "store.h"
+#include "topster.h"
+#include "json.hpp"
+#include "field.h"
+#include "option.h"
+#include "tsl/htrie_map.h"
 #include "tokenizer.h"
 #include "synonym_index.h"
 #include "vq_model_manager.h"
@@ -186,7 +185,7 @@ private:
 
     bool does_override_match(const override_t& override, std::string& query,
                              std::set<uint32_t>& excluded_set,
-                             string& actual_query, const string& filter_query,
+                             std::string& actual_query, const std::string& filter_query,
                              bool already_segmented,
                              const bool tags_matched,
                              const bool wildcard_tag_matched,
@@ -199,7 +198,7 @@ private:
                              std::string& curated_sort_by,
                              nlohmann::json& override_metadata) const;
 
-    void curate_results(string& actual_query, const string& filter_query, bool enable_overrides, bool already_segmented,
+    void curate_results(std::string& actual_query, const std::string& filter_query, bool enable_overrides, bool already_segmented,
                         const std::set<std::string>& tags,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
@@ -384,7 +383,8 @@ public:
                const std::string& default_sorting_field,
                const float max_memory_ratio, const std::string& fallback_field_type,
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
-               const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr);
+               const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
+               spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>());
 
     ~Collection();
 
@@ -643,8 +643,8 @@ public:
 
     // highlight ops
 
-    static void highlight_text(const string& highlight_start_tag, const string& highlight_end_tag,
-                   const string& text, const std::map<size_t, size_t>& token_offsets,
+    static void highlight_text(const std::string& highlight_start_tag, const std::string& highlight_end_tag,
+                   const std::string& text, const std::map<size_t, size_t>& token_offsets,
                    size_t snippet_end_offset,
                    std::vector<std::string>& matched_tokens, std::map<size_t, size_t>::iterator& offset_it,
                    std::stringstream& highlighted_text,
@@ -702,9 +702,9 @@ public:
 
     std::shared_mutex& get_lifecycle_mutex();
 
-    void expand_search_query(const string& raw_query, size_t offset, size_t total, const search_args* search_params,
+    void expand_search_query(const std::string& raw_query, size_t offset, size_t total, const search_args* search_params,
                              const std::vector<std::vector<KV*>>& result_group_kvs,
-                             const std::vector<std::string>& raw_search_fields, string& first_q) const;
+                             const std::vector<std::string>& raw_search_fields, std::string& first_q) const;
 };
 
 template<class T>

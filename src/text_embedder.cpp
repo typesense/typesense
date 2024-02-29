@@ -70,8 +70,9 @@ TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, 
 
     if(model_namespace == "openai") {
         auto api_key = model_config["api_key"].get<std::string>();
+        const std::string& url = model_config.contains("url") ? model_config["url"].get<std::string>() : "";
 
-        remote_embedder_ = std::make_unique<OpenAIEmbedder>(model_name, api_key, num_dims, has_custom_dims);
+        remote_embedder_ = std::make_unique<OpenAIEmbedder>(model_name, api_key, num_dims, has_custom_dims, url);
     } else if(model_namespace == "google") {
         auto api_key = model_config["api_key"].get<std::string>();
 

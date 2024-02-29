@@ -47,14 +47,16 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const float max_memory_ratio, const std::string& fallback_field_type,
                        const std::vector<std::string>& symbols_to_index,
                        const std::vector<std::string>& token_separators,
-                       const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model) :
+                       const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
+                       spp::sparse_hash_map<std::string, std::string> referenced_in) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
-        index(init_index()), vq_model(vq_model) {
+        index(init_index()), vq_model(vq_model),
+        referenced_in(std::move(referenced_in)) {
     
     if (vq_model) {
         vq_model->inc_collection_ref_count();
