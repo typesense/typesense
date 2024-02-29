@@ -217,7 +217,6 @@ Index::~Index() {
     delete seq_ids;
 
     for(auto& vec_index_kv: vector_index) {
-        std::unique_lock lock(vec_index_kv.second->repair_m);
         delete vec_index_kv.second;
     }
 
@@ -7010,7 +7009,6 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
         if(del_field.num_dim) {
             auto hnsw_index = vector_index[del_field.name];
-            std::unique_lock lock(hnsw_index->repair_m);
             delete hnsw_index;
             vector_index.erase(del_field.name);
         }
