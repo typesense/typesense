@@ -486,7 +486,7 @@ Option<nlohmann::json> EmbedderManager::get_public_model_config(const std::strin
     }
 
     if(res >= 500) {
-        return Option<nlohmann::json>(res, "Huggingface is down. Status code: " +  std::to_string(res));
+        return Option<nlohmann::json>(res, "Model repository is down. Status code: " +  std::to_string(res));
     }
 
     return Option<nlohmann::json>(404, "Model not found");
