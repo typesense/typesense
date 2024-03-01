@@ -521,9 +521,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     ASSERT_TRUE(collection1->get_enable_nested_fields());
 
-    ASSERT_EQ(2, collection1->get_overrides().size());
-    ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
-    ASSERT_STREQ("include-rule", collection1->get_overrides()["include-rule"].id.c_str());
+    ASSERT_EQ(2, collection1->get_overrides().get().size());
+    ASSERT_STREQ("exclude-rule", collection1->get_overrides().get()["exclude-rule"]->id.c_str());
+    ASSERT_STREQ("include-rule", collection1->get_overrides().get()["include-rule"]->id.c_str());
 
     const auto& synonyms = collection1->get_synonyms();
     ASSERT_EQ(2, synonyms.size());
@@ -1409,7 +1409,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_EQ("coll2", coll2->get_name());
     ASSERT_EQ(1, coll2->get_fields().size());
     ASSERT_EQ(1, coll2->get_synonyms().size());
-    ASSERT_EQ(1, coll2->get_overrides().size());
+    ASSERT_EQ(1, coll2->get_overrides().get().size());
     ASSERT_EQ("", coll2->get_fallback_field_type());
 
     ASSERT_EQ(1, coll2->get_symbols_to_index().size());

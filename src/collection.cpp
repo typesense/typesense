@@ -4712,6 +4712,44 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
     return synonym_index->synonym_reduction(tokens, results);
 }
 
+Option<override_t> Collection::get_override(const std::string& override_id) {
+    std::shared_lock lock(mutex);
+
+    if(overrides.count(override_id) == 0) {
+        return Option<override_t>(404, "override " + override_id + " not found.");
+    }
+
+    return Option<override_t>(overrides.at(override_id));
+}
+
+Option<std::map<std::string, override_t*>> Collection::get_overrides(uint32_t limit, uint32_t offset) {
+    std::shared_lock lock(mutex);
+    std::map<std::string, override_t*> overrides_map;
+
+    auto overrides_it = overrides.begin();
+
+    if(offset > 0) {
+        if(offset >= overrides.size()) {
+            return Option<std::map<std::string, override_t*>>(400, "Invalid offset param.");
+        }
+
+        std::advance(overrides_it, offset);
+    }
+
+    auto overrides_end = overrides.end();
+
+    if(limit > 0 && (offset + limit < overrides.size())) {
+        overrides_end = overrides_it;
+        std::advance(overrides_end, limit);
+    }
+
+    for (overrides_it; overrides_it != overrides_end; ++overrides_it) {
+        overrides_map[overrides_it->first] = &overrides_it->second;
+    }
+
+    return Option<std::map<std::string, override_t*>>(overrides_map);
+}
+
 spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
     std::shared_lock lock(mutex);
     return synonym_index->get_synonyms();

@@ -1697,13 +1697,38 @@ bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
         return false;
     }
 
+    uint32_t offset = 0, limit = 0;
+    if(req->params.count("offset") != 0) {
+        const auto &offset_str = req->params["offset"];
+        if(!StringUtils::is_uint32_t(offset_str)) {
+            res->set(400, "Offset param should be unsigned integer.");
+            return false;
+        }
+        offset = std::stoi(offset_str);
+    }
+
+    if(req->params.count("limit") != 0) {
+        const auto &limit_str = req->params["limit"];
+        if(!StringUtils::is_uint32_t(limit_str)) {
+            res->set(400, "Limit param should be unsigned integer.");
+            return false;
+        }
+        limit = std::stoi(limit_str);
+    }
+
     nlohmann::json res_json;
     res_json["overrides"] = nlohmann::json::array();
 
-    const std::map<std::string, override_t>& overrides = collection->get_overrides();
-    for(const auto & kv: overrides) {
-        nlohmann::json override = kv.second.to_json();
-        res_json["overrides"].push_back(override);
+    auto overrides_op = collection->get_overrides(limit, offset);
+    if(!overrides_op.ok()) {
+        res->set(overrides_op.code(), overrides_op.error());
+        return false;
+    }
+
+    const auto overrides = overrides_op.get();
+
+    for(const auto &kv: overrides) {
+        res_json["overrides"].push_back(kv.second->to_json());
     }
 
     res->set_200(res_json.dump());
@@ -1721,16 +1746,15 @@ bool get_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 
     std::string override_id = req->params["id"];
 
-    const std::map<std::string, override_t>& overrides = collection->get_overrides();
+    auto overrides_op = collection->get_override(override_id);
 
-    if(overrides.count(override_id) != 0) {
-        nlohmann::json override = overrides.at(override_id).to_json();
-        res->set_200(override.dump());
-        return true;
+    if(!overrides_op.ok()) {
+        res->set(overrides_op.code(), overrides_op.error());
+        return false;
     }
 
-    res->set_404();
-    return false;
+    res->set_200(overrides_op.get().to_json());
+    return true;
 }
 
 bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {

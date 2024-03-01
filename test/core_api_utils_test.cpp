@@ -1629,3 +1629,75 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
 }
+
+TEST_F(CoreAPIUtilsTest, OverridesPagination) {
+    Collection *coll2;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll2 = collectionManager.get_collection("coll2").get();
+    if(coll2 == nullptr) {
+        coll2 = collectionManager.create_collection("coll2", 1, fields, "points").get();
+    }
+
+    for(int i = 0; i < 5; ++i) {
+        nlohmann::json override_json = {
+                {"id",       "override"},
+                {
+                 "rule",     {
+                                     {"query", "not-found"},
+                                     {"match", override_t::MATCH_EXACT}
+                             }
+                },
+                {"metadata", {       {"foo",   "bar"}}},
+        };
+
+        override_json["id"] = override_json["id"].get<std::string>() + std::to_string(i + 1);
+        override_t override;
+        override_t::parse(override_json, "", override);
+
+        coll2->add_override(override);
+    }
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "coll2";
+    req->params["offset"] = "0";
+    req->params["limit"] = "1";
+
+    get_overrides(req, resp);
+    nlohmann::json expected_json = R"({
+        "overrides":[
+                    {
+                        "excludes":[],
+                        "filter_curated_hits":false,
+                        "id":"override1",
+                        "includes":[],
+                        "metadata":{"foo":"bar"},
+                        "remove_matched_tokens":false,
+                        "rule":{
+                                "match":"exact",
+                                "query":"not-found"
+                        },
+                        "stop_processing":true
+                    }]
+    })"_json;
+
+    ASSERT_EQ(expected_json.dump(), resp->body);
+
+    //invalid offset string
+    req->params["offset"] = "0a";
+    get_collections(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+
+    //invalid limit string
+    req->params["offset"] = "0";
+    req->params["limit"] = "-1";
+    get_collections(req, resp);
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+}
