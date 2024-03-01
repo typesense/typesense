@@ -1364,7 +1364,7 @@ TEST_F(CollectionOptimizedFacetingTest, SampleFacetCounts) {
 
     for(size_t i = 0; i < 1000; i++) {
         nlohmann::json doc;
-        if(distr(gen) % 2 == 0) {
+        if(distr(gen) % 4 == 0) {
             doc["color"] = "blue";
             count_blue++;
         } else {
@@ -1375,23 +1375,27 @@ TEST_F(CollectionOptimizedFacetingTest, SampleFacetCounts) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto res = coll1->search("*", {}, "", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+    auto res = coll1->search("*", {}, "color:blue || color:red", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                              "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                             4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 10, 0, 4294967295UL, VALUE).get();
+                             4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 5, 0, 4294967295UL, VALUE).get();
 
     ASSERT_EQ(1000, res["found"].get<size_t>());
     ASSERT_EQ(1, res["facet_counts"].size());
     ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
 
     // verify approximate counts
-    ASSERT_GE(res["facet_counts"][0]["counts"][0]["count"].get<size_t>(), 250);
-    ASSERT_GE(res["facet_counts"][0]["counts"][1]["count"].get<size_t>(), 250);
+    ASSERT_GE(res["facet_counts"][0]["counts"][0]["count"].get<size_t>(), 700);
+    ASSERT_EQ("red", res["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    ASSERT_GE(res["facet_counts"][0]["counts"][1]["count"].get<size_t>(), 200);
+    ASSERT_EQ("blue", res["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+
     ASSERT_TRUE(res["facet_counts"][0]["sampled"].get<bool>());
 
     // when sample threshold is high, don't estimate
-    res = coll1->search("*", {}, "", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+    res = coll1->search("*", {}, "color:blue || color:red", {"color"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 20, {}, {}, {}, 0,
                         "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,

@@ -98,7 +98,8 @@ public:
 
     static void uncompress(void*& obj, std::vector<uint32_t>& ids);
 
-    static size_t intersect_count(void*& obj, const uint32_t* result_ids, size_t result_ids_len);
+    static size_t intersect_count(void*& obj, const uint32_t* result_ids, size_t result_ids_len,
+                                  bool estimate_facets = false, size_t facet_sample_mod_value = 1);
 
     static void to_expanded_id_lists(const std::vector<void*>& raw_id_lists, std::vector<id_list_t*>& id_lists,
                                      std::vector<id_list_t*>& expanded_id_lists);

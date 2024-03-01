@@ -1371,7 +1371,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             facet_sample_percent = 1;
         }
 
-        size_t mod_value = 100 / facet_sample_percent;
+        size_t facet_sample_mod_value = 100 / facet_sample_percent;
 
         auto num_facet_values = facet_index_v4->get_facet_count(facet_field.name);
         if(num_facet_values == 0) {
@@ -1392,6 +1392,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             std::string sort_order = a_facet.is_sort_by_alpha ? a_facet.sort_order : "";
 
             facet_index_v4->intersect(a_facet, facet_field,use_facet_query,
+                                      estimate_facets, facet_sample_mod_value,
                                       facet_infos[findex].fvalue_searched_tokens,
                                       symbols_to_index, token_separators,
                                       result_ids, results_size, max_facet_count, facet_results,
@@ -1462,7 +1463,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             for(size_t i = 0; i < results_size; i++) {
                 // if sampling is enabled, we will skip a portion of the results to speed up things
                 if(estimate_facets) {
-                    if(i % mod_value != 0) {
+                    if(i % facet_sample_mod_value != 0) {
                         continue;
                     }
                 }
@@ -3638,11 +3639,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 }
             }
 
-            for(auto& facet_kv: acc_facet.value_result_map) {
-                if(estimate_facets) {
-                    facet_kv.second.count = size_t(double(facet_kv.second.count) * (100.0f / facet_sample_percent));
-                }
-            }
+            // value_result_map already contains the scaled counts
 
             if(estimate_facets) {
                 acc_facet.sampled = true;
