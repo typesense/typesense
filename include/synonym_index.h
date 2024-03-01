@@ -70,7 +70,7 @@ public:
     void synonym_reduction(const std::vector<std::string>& tokens,
                            std::vector<std::vector<std::string>>& results) const;
 
-    spp::sparse_hash_map<std::string, synonym_t> get_synonyms();
+    Option<spp::sparse_hash_map<std::string, synonym_t*>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
