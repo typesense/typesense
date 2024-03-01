@@ -2345,9 +2345,9 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     Collection* new_coll = coll_create_op.get();
 
     // copy synonyms
-    auto synonyms = existing_coll->get_synonyms();
+    auto synonyms = existing_coll->get_synonyms().get();
     for(const auto& synonym: synonyms) {
-        new_coll->get_synonym_index()->add_synonym(new_name, synonym.second);
+        new_coll->get_synonym_index()->add_synonym(new_name, *synonym.second);
     }
 
     // copy overrides

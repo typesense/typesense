@@ -525,16 +525,16 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_STREQ("exclude-rule", collection1->get_overrides().get()["exclude-rule"]->id.c_str());
     ASSERT_STREQ("include-rule", collection1->get_overrides().get()["include-rule"]->id.c_str());
 
-    const auto& synonyms = collection1->get_synonyms();
+    const auto& synonyms = collection1->get_synonyms().get();
     ASSERT_EQ(2, synonyms.size());
 
-    ASSERT_STREQ("id1", synonyms.at("id1").id.c_str());
-    ASSERT_EQ(2, synonyms.at("id1").root.size());
-    ASSERT_EQ(1, synonyms.at("id1").synonyms.size());
+    ASSERT_STREQ("id1", synonyms.at("id1")->id.c_str());
+    ASSERT_EQ(2, synonyms.at("id1")->root.size());
+    ASSERT_EQ(1, synonyms.at("id1")->synonyms.size());
 
-    ASSERT_STREQ("id3", synonyms.at("id3").id.c_str());
-    ASSERT_EQ(0, synonyms.at("id3").root.size());
-    ASSERT_EQ(2, synonyms.at("id3").synonyms.size());
+    ASSERT_STREQ("id3", synonyms.at("id3")->id.c_str());
+    ASSERT_EQ(0, synonyms.at("id3")->root.size());
+    ASSERT_EQ(2, synonyms.at("id3")->synonyms.size());
 
     std::vector<char> expected_symbols = {'+'};
     std::vector<char> expected_separators = {'-'};
@@ -1408,7 +1408,7 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_FALSE(coll2 == nullptr);
     ASSERT_EQ("coll2", coll2->get_name());
     ASSERT_EQ(1, coll2->get_fields().size());
-    ASSERT_EQ(1, coll2->get_synonyms().size());
+    ASSERT_EQ(1, coll2->get_synonyms().get().size());
     ASSERT_EQ(1, coll2->get_overrides().get().size());
     ASSERT_EQ("", coll2->get_fallback_field_type());
 

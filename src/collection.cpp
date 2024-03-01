@@ -4750,9 +4750,14 @@ Option<std::map<std::string, override_t*>> Collection::get_overrides(uint32_t li
     return Option<std::map<std::string, override_t*>>(overrides_map);
 }
 
-spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
+Option<spp::sparse_hash_map<std::string, synonym_t*>> Collection::get_synonyms(uint32_t limit, uint32_t offset) {
     std::shared_lock lock(mutex);
-    return synonym_index->get_synonyms();
+    auto synonyms_op =synonym_index->get_synonyms(limit, offset);
+    if(!synonyms_op.ok()) {
+        return Option<spp::sparse_hash_map<std::string, synonym_t*>>(synonyms_op.code(), synonyms_op.error());
+    }
+
+    return Option<spp::sparse_hash_map<std::string, synonym_t*>>(synonyms_op.get());
 }
 
 SynonymIndex* Collection::get_synonym_index() {

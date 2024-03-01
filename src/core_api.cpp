@@ -2047,13 +2047,37 @@ bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
         return false;
     }
 
+    uint32_t offset = 0, limit = 0;
+    if(req->params.count("offset") != 0) {
+        const auto &offset_str = req->params["offset"];
+        if(!StringUtils::is_uint32_t(offset_str)) {
+            res->set(400, "Offset param should be unsigned integer.");
+            return false;
+        }
+        offset = std::stoi(offset_str);
+    }
+
+    if(req->params.count("limit") != 0) {
+        const auto &limit_str = req->params["limit"];
+        if(!StringUtils::is_uint32_t(limit_str)) {
+            res->set(400, "Limit param should be unsigned integer.");
+            return false;
+        }
+        limit = std::stoi(limit_str);
+    }
+
     nlohmann::json res_json;
     res_json["synonyms"] = nlohmann::json::array();
 
-    const auto& synonyms = collection->get_synonyms();
+    auto synonyms_op = collection->get_synonyms(limit, offset);
+    if(!synonyms_op.ok()) {
+        res->set(synonyms_op.code(), synonyms_op.error());
+        return false;
+    }
+
+    const auto synonyms = synonyms_op.get();
     for(const auto & kv: synonyms) {
-        nlohmann::json synonym = kv.second.to_view_json();
-        res_json["synonyms"].push_back(synonym);
+        res_json["synonyms"].push_back(kv.second->to_view_json());
     }
 
     res->set_200(res_json.dump());
