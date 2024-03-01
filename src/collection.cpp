@@ -4757,7 +4757,7 @@ Option<spp::sparse_hash_map<std::string, synonym_t*>> Collection::get_synonyms(u
         return Option<spp::sparse_hash_map<std::string, synonym_t*>>(synonyms_op.code(), synonyms_op.error());
     }
 
-    return Option<spp::sparse_hash_map<std::string, synonym_t*>>(synonyms_op.get());
+    return synonyms_op;
 }
 
 SynonymIndex* Collection::get_synonym_index() {
