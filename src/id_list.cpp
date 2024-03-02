@@ -729,16 +729,15 @@ size_t id_list_t::intersect_count(const uint32_t *res_ids, size_t res_ids_len,
     auto it = new_iterator();
 
     if(estimate_facets) {
-        while(res_index < res_ids_len && it.valid()) {
-            auto skip_interval = rand() % (2 * facet_sample_interval);
+        while(it.valid() && res_index < res_ids_len) {
             if(it.id() == res_ids[res_index]) {
                 count++;
-                it.next();
-                res_index += skip_interval;
+                it.skip_n(facet_sample_interval);
+                res_index += facet_sample_interval;
             } else if(it.id() < res_ids[res_index]) {
-                it.skip_to(res_ids[res_index]);
+                it.skip_n(facet_sample_interval);
             } else {
-                res_index += skip_interval;
+                res_index += facet_sample_interval;
             }
         }
     } else {
@@ -759,7 +758,7 @@ size_t id_list_t::intersect_count(const uint32_t *res_ids, size_t res_ids_len,
     //          << ", skip_interval: " << facet_sample_interval << ", count: " << count;
 
     if(estimate_facets) {
-        count = count * facet_sample_interval;
+        count = count * facet_sample_interval * facet_sample_interval;
     }
 
     return std::min<size_t>(ids_length, count);
