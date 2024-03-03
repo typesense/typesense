@@ -60,8 +60,6 @@ private:
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
-    const size_t DEFAULT_TOPSTER_SIZE = 250;
-
     struct highlight_t {
         size_t field_index;
         std::string field;
@@ -347,8 +345,6 @@ private:
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
-
-    const size_t PER_PAGE_MAX = 250;
 
     const size_t GROUP_LIMIT_MAX = 99;
 
