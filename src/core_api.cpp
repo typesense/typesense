@@ -315,9 +315,14 @@ bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const 
     nlohmann::json result;
     bool alive = server->is_alive();
 
-    auto resource_error = cached_resource_stat_t::get_instance().get_out_of_resource_error();
-    if (resource_error != cached_resource_stat_t::resource_check_t::OK) {
-        result["resource_error"] = std::string(magic_enum::enum_name(resource_error));
+    auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(
+        Config::get_instance().get_data_dir(),
+        Config::get_instance().get_disk_used_max_percentage(),
+        Config::get_instance().get_memory_used_max_percentage()
+    );
+
+    if (resource_check != cached_resource_stat_t::resource_check_t::OK) {
+        result["resource_error"] = std::string(magic_enum::enum_name(resource_check));
     }
 
     if(req->params.count("cpu_threshold") != 0 && StringUtils::is_float(req->params["cpu_threshold"])) {
@@ -345,9 +350,14 @@ bool get_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     bool alive = server->is_alive();
     result["ok"] = alive;
 
-    auto resource_error = cached_resource_stat_t::get_instance().get_out_of_resource_error();
-    if (resource_error != cached_resource_stat_t::resource_check_t::OK) {
-        result["resource_error"] = std::string(magic_enum::enum_name(resource_error));
+    auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(
+        Config::get_instance().get_data_dir(),
+        Config::get_instance().get_disk_used_max_percentage(),
+        Config::get_instance().get_memory_used_max_percentage()
+    );
+
+    if (resource_check != cached_resource_stat_t::resource_check_t::OK) {
+        result["resource_error"] = std::string(magic_enum::enum_name(resource_check));
     }
 
     if(alive) {
