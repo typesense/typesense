@@ -311,6 +311,35 @@ bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
     return true;
 }
 
+bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json result;
+    bool alive = server->is_alive();
+
+    auto resource_error = cached_resource_stat_t::get_instance().get_out_of_resource_error();
+    if (resource_error != cached_resource_stat_t::resource_check_t::OK) {
+        result["resource_error"] = std::string(magic_enum::enum_name(resource_error));
+    }
+
+    if(req->params.count("cpu_threshold") != 0 && StringUtils::is_float(req->params["cpu_threshold"])) {
+        float cpu_threshold = std::stof(req->params["cpu_threshold"]);
+        SystemMetrics sys_metrics;
+        std::vector<cpu_stat_t> cpu_stats = sys_metrics.get_cpu_stats();
+        if(!cpu_stats.empty() && StringUtils::is_float(cpu_stats[0].active)) {
+            alive = alive && (std::stof(cpu_stats[0].active) < cpu_threshold);
+        }
+    }
+
+    result["ok"] = alive;
+
+    if(alive) {
+        res->set_body(200, result.dump());
+    } else {
+        res->set_body(503, result.dump());
+    }
+
+    return alive;
+}
+
 bool get_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json result;
     bool alive = server->is_alive();

@@ -86,6 +86,7 @@ void master_server_routes() {
     server->get("/stats.json", get_stats_json);
     server->get("/debug", get_debug);
     server->get("/health", get_health);
+    server->get("/health_with_rusage", get_health_with_resource_usage);
     server->post("/health", post_health);
     server->get("/status", get_status);
 
@@ -99,7 +100,6 @@ void master_server_routes() {
     server->get("/conversations/models", get_conversation_models);
     server->get("/conversations/models/:id", get_conversation_model);
     server->del("/conversations/models/:id", del_conversation_model);
-
 
     server->get("/conversations", get_conversations);
     server->get("/conversations/:id", get_conversation);

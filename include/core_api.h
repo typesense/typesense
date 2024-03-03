@@ -113,6 +113,8 @@ bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
 bool get_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 bool post_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool get_metrics_json(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
