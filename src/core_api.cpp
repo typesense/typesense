@@ -44,16 +44,23 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
                            const std::string& body,
                            const route_path& rpath,
                            const std::string& req_auth_key) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-
-    std::vector<collection_key_t> collections;
-
-    get_collections_for_auth(req_params, body, rpath, req_auth_key, collections, embedded_params_vec);
 
     if(rpath.handler == get_health) {
         // health endpoint requires no authentication
         return true;
     }
+
+    if(rpath.handler == get_health_with_resource_usage) {
+        // health_rusage end-point will be authenticated via pre-determined keys
+        return !req_auth_key.empty() && (
+                req_auth_key == Config::get_instance().get_api_key() ||
+                req_auth_key == Config::get_instance().get_health_rusage_api_key()
+                );
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::vector<collection_key_t> collections;
+    get_collections_for_auth(req_params, body, rpath, req_auth_key, collections, embedded_params_vec);
 
     if(collections.size() != embedded_params_vec.size()) {
         LOG(ERROR) << "Impossible error: size of collections and embedded_params_vec don't match, "
