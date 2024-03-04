@@ -1193,6 +1193,7 @@ TEST_F(CollectionGroupingTest, GroupByPinnedHitsOrder) {
                                   "", 1,
                                   {"6:1,1:2"}, {}, {"size"}, 1).get();
 
+    LOG(INFO) << res.dump();
     ASSERT_EQ(2, res["found"].get<size_t>());
     ASSERT_EQ(2, res["grouped_hits"].size());
 
