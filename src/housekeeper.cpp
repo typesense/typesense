@@ -31,7 +31,7 @@ void HouseKeeper::run() {
             }
         }
 
-        if(now_ts_seconds - prev_hnsw_repair_s >= hnsw_repair_interval_s) {
+        /*if(now_ts_seconds - prev_hnsw_repair_s >= hnsw_repair_interval_s) {
             // iterate through all collections and repair all hnsw graphs (if any)
             auto coll_names = CollectionManager::get_instance().get_collection_names();
 
@@ -53,7 +53,7 @@ void HouseKeeper::run() {
 
             prev_hnsw_repair_s = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
-        }
+        }*/
 
         lk.unlock();
     }
