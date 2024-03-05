@@ -86,8 +86,13 @@ uint32_t Collection::get_next_seq_id() {
 }
 
 Option<bool> single_value_filter_query(nlohmann::json& document, const std::string& field_name,
-                                       const std::string& ref_field_type, std::string& filter_query) {
+                                       const std::string& ref_field_type, bool is_optional, std::string& filter_query) {
     auto const& value = document[field_name];
+
+    if (is_optional && value.is_null()) {
+        return Option<bool>(422, "Optional field has `null` value.");
+    }
+
     if (value.is_string() && ref_field_type == field_types::STRING) {
         filter_query[filter_query.size() - 1] = '=';
         filter_query += (" " + value.get<std::string>());
@@ -140,14 +145,17 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
         }
 
         auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-        document[fields::reference_helper_fields] += reference_helper_field;
 
         if (reference_field_name == "id") {
             auto id_field_type_error_op =  Option<bool>(400, "Field `" + field_name + "` must have string value.");
             if (document[field_name].is_array()) {
                 document[reference_helper_field] = nlohmann::json::array();
+                document[fields::reference_helper_fields] += reference_helper_field;
+
                 for (const auto &item: document[field_name].items()) {
-                    if (!item.value().is_string()) {
+                    if (optional && item.value().is_null()) {
+                        continue;
+                    } else if (!item.value().is_string()) {
                         return id_field_type_error_op;
                     }
 
@@ -171,6 +179,9 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
                 }
 
                 document[reference_helper_field] = ref_doc_id_op.get();
+                document[fields::reference_helper_fields] += reference_helper_field;
+            } else if (optional && document[field_name].is_null()) {
+                continue;
             } else {
                 return id_field_type_error_op;
             }
@@ -221,6 +232,7 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
             }
 
             document[reference_helper_field] = nlohmann::json::array();
+            document[fields::reference_helper_fields] += reference_helper_field;
             nlohmann::json temp_doc; // To store singular values of `field_name` field.
 
             std::vector<std::string> keys;
@@ -236,8 +248,11 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
 
                 temp_doc[field_name] = object_array[i].at(keys[1]);
                 auto single_value_filter_query_op = single_value_filter_query(temp_doc, field_name, ref_field_type,
-                                                                              filter_query);
+                                                                              optional, filter_query);
                 if (!single_value_filter_query_op.ok()) {
+                    if (single_value_filter_query_op.code() == 422) {
+                        continue;
+                    }
                     return single_value_filter_query_op;
                 }
 
@@ -271,23 +286,34 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
             } else {
                 filter_query += "[";
             }
+            bool filter_values_added = false;
             for (const auto &item: document[field_name].items()) {
                 auto const& item_value = item.value();
                 if (item_value.is_string() && ref_field_type == field_types::STRING) {
                     filter_query += item_value.get<std::string>();
+                    filter_values_added = true;
                 } else if (item_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
                     (ref_field_type == field_types::INT32 && StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>()))))) {
                     filter_query += std::to_string(item_value.get<int64_t>());
+                    filter_values_added = true;
+                } else if (optional && item_value.is_null()) {
+                    continue;
                 } else {
                     return Option<bool>(400, "Field `" + field_name + "` must only have `" + ref_field_type + "` values.");
                 }
                 filter_query += ",";
             }
+            if (!filter_values_added) {
+                continue;
+            }
             filter_query[filter_query.size() - 1] = ']';
         } else {
             auto single_value_filter_query_op = single_value_filter_query(document, field_name, ref_field_type,
-                                                                          filter_query);
+                                                                          optional, filter_query);
             if (!single_value_filter_query_op.ok()) {
+                if (single_value_filter_query_op.code() == 422) {
+                    continue;
+                }
                 return single_value_filter_query_op;
             }
         }
@@ -300,6 +326,8 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
 
         if (document[field_name].is_array()) {
             document[reference_helper_field] = nlohmann::json::array();
+            document[fields::reference_helper_fields] += reference_helper_field;
+
             for (uint32_t i = 0; i < filter_result.count; i++) {
                 document[reference_helper_field] += filter_result.docs[i];
             }
@@ -314,6 +342,7 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
             }
 
             document[reference_helper_field] = filter_result.docs[0];
+            document[fields::reference_helper_fields] += reference_helper_field;
         }
     }
 

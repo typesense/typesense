@@ -403,12 +403,33 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ(0, doc["multi_id_reference_sequence_id"][0]);
     ASSERT_EQ(1, doc["multi_id_reference_sequence_id"][1]);
 
+    id_ref_json = R"({
+                        "id_reference": null
+                    })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc = id_ref_collection->get("3").get();
+    ASSERT_EQ(0, doc.count("id_reference_sequence_id"));
+    ASSERT_EQ(0, doc.count("multi_id_reference_sequence_id"));
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(0, doc[".ref"].size());
+
+    id_ref_json = R"({
+                        "multi_id_reference": [null]
+                    })"_json;
+    add_doc_op = id_ref_collection->add(id_ref_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `multi_id_reference` must be an array of string.", add_doc_op.error());
+
+    // Reference helper field is not returned in the search response.
     auto result = id_ref_collection->search("*", {}, "", {}, {}, {0}).get();
-    ASSERT_EQ(3, result["found"].get<size_t>());
-    ASSERT_EQ(3, result["hits"].size());
-    ASSERT_EQ(0, result["hits"][0]["document"].count("multi_id_reference_sequence_id"));
+    ASSERT_EQ(4, result["found"].get<size_t>());
+    ASSERT_EQ(4, result["hits"].size());
+    ASSERT_EQ(0, result["hits"][0]["document"].count("id_reference_sequence_id"));
     ASSERT_EQ(0, result["hits"][1]["document"].count("multi_id_reference_sequence_id"));
-    ASSERT_EQ(0, result["hits"][2]["document"].count("id_reference_sequence_id"));
+    ASSERT_EQ(0, result["hits"][2]["document"].count("multi_id_reference_sequence_id"));
+    ASSERT_EQ(0, result["hits"][3]["document"].count("id_reference_sequence_id"));
 
     collectionManager.drop_collection("Customers");
     collectionManager.drop_collection("Products");
@@ -500,6 +521,13 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_FALSE(add_doc_op.ok());
     ASSERT_EQ("Field `ref_string_array_field` must only have `string` values.", add_doc_op.error());
 
+    doc_json = R"({
+                    "ref_string_array_field": [null]
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_FALSE(add_doc_op.ok());
+    ASSERT_EQ("Field `ref_string_array_field` must be an array of string.", add_doc_op.error());
+
     collectionManager.drop_collection("coll2");
     temp_json = schema_json;
     collection_create_op = collectionManager.create_collection(temp_json);
@@ -520,6 +548,17 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     ASSERT_EQ("ref_string_field_sequence_id", doc[".ref"][0]);
 
     doc_json = R"({
+                    "ref_string_field": null
+                })"_json;
+    add_doc_op = coll2->add(doc_json.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    doc = coll2->get("1").get();
+    ASSERT_EQ(0, doc.count("ref_string_field_sequence_id"));
+    ASSERT_EQ(1, doc.count(".ref"));
+    ASSERT_EQ(0, doc[".ref"].size());
+
+    doc_json = R"({
                     "ref_string_array_field": ["foo"]
                 })"_json;
     add_doc_op = coll2->add(doc_json.dump());
@@ -528,7 +567,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     result = coll2->search("*", {}, "", {}, {}, {0}).get();
     ASSERT_EQ(0, result["hits"][0]["document"]["ref_string_array_field_sequence_id"].size());
 
-    doc = coll2->get("1").get();
+    doc = coll2->get("2").get();
     ASSERT_EQ(1, doc.count("ref_string_array_field_sequence_id"));
     ASSERT_EQ(0, doc["ref_string_array_field_sequence_id"].size());
     ASSERT_EQ(1, doc.count(".ref"));
@@ -541,7 +580,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    doc = coll2->get("2").get();
+    doc = coll2->get("3").get();
     ASSERT_EQ(1, doc.count("ref_string_array_field_sequence_id"));
     ASSERT_EQ(1, doc["ref_string_array_field_sequence_id"].size());
     ASSERT_EQ(0, doc["ref_string_array_field_sequence_id"][0]);
@@ -552,7 +591,7 @@ TEST_F(CollectionJoinTest, IndexDocumentHavingReferenceField) {
     add_doc_op = coll2->add(doc_json.dump());
     ASSERT_TRUE(add_doc_op.ok());
 
-    doc = coll2->get("3").get();
+    doc = coll2->get("4").get();
     ASSERT_EQ(1, doc.count("ref_string_array_field_sequence_id"));
     ASSERT_EQ(2, doc["ref_string_array_field_sequence_id"].size());
     ASSERT_EQ(0, doc["ref_string_array_field_sequence_id"][0]);
