@@ -850,6 +850,46 @@ TEST_F(CollectionOptimizedFacetingTest, FacetCountOnSimilarStrings) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOptimizedFacetingTest, ConcurrentValueFacetingOnMulFields) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("c1", field_types::STRING, true),
+                                 field("c2", field_types::STRING, true),
+                                 field("c3", field_types::STRING, true),
+                                 field("c4", field_types::STRING, true),
+                                 field("points", field_types::INT32, true)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    for(size_t i = 0; i < 1000; i++) {
+        nlohmann::json doc;
+        doc["c1"] = "c1_" + std::to_string(i % 40);
+        doc["c2"] = "c2_" + std::to_string(i % 40);
+        doc["c3"] = "c3_" + std::to_string(i % 40);
+        doc["c4"] = "c4_" + std::to_string(i % 40);
+        doc["points"] = 25;
+        coll1->add(doc.dump());
+    }
+
+    std::vector<std::string> facets = {"c1", "c2", "c3", "c4"};
+
+    nlohmann::json results = coll1->search("*", {}, "points:[25, 50]", facets, sort_fields, {0}, 10, 1,
+                                           token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "", 30UL, 4UL,
+                                           "", 1UL, "", "", {}, 3UL, "<mark>", "</mark>", {},
+                                           4294967295UL, true, false, true, "", false, 6000000UL, 4UL,
+                                           7UL, fallback, 4UL, {off}, 32767UL, 32767UL, 2UL, 2UL, false,
+                                           "", true, 0UL, max_score, 100UL, 0UL, 4294967295UL, VALUE).get();
+
+    ASSERT_EQ(4, results["facet_counts"].size());
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOptimizedFacetingTest, FacetByNestedIntField) {
     nlohmann::json schema = R"({
         "name": "coll1",
