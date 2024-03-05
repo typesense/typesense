@@ -2394,7 +2394,7 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
         ASSERT_EQ(id, result_id);
     }
 
-    results = coll_mul_fields->search("*", {}, "cast: Ch.*", {}, {}, {0},
+    results = coll_mul_fields->search("*", {}, "cast: Ch*", {}, {}, {0},
                                                      10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
 
@@ -2407,7 +2407,7 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
         ASSERT_EQ(id, result_id);
     }
 
-    results = coll_mul_fields->search("*", {}, "cast: M.*", {}, {}, {0},
+    results = coll_mul_fields->search("*", {}, "cast: M*", {}, {}, {0},
                                                      10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
 
@@ -2420,7 +2420,7 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
         ASSERT_EQ(id, result_id);
     }
 
-    results = coll_mul_fields->search("*", {}, "cast: Chris P.*", {}, {}, {0},
+    results = coll_mul_fields->search("*", {}, "cast: Chris P*", {}, {}, {0},
                                                      10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(2, results["hits"].size());
 
@@ -2433,7 +2433,7 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
         ASSERT_EQ(id, result_id);
     }
 
-    results = coll_mul_fields->search("*", {}, "cast: [Martin, Chris P.*]", {}, {}, {0},
+    results = coll_mul_fields->search("*", {}, "cast: [Martin, Chris P*]", {}, {}, {0},
                                                      10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
 
@@ -2446,7 +2446,7 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
         ASSERT_EQ(id, result_id);
     }
 
-    results = coll_mul_fields->search("*", {}, "cast: [M.*, Chris P.*]", {}, {}, {0},
+    results = coll_mul_fields->search("*", {}, "cast: [M*, Chris P*]", {}, {}, {0},
                                                      10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(5, results["hits"].size());
 

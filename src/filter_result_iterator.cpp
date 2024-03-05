@@ -1145,10 +1145,9 @@ void filter_result_iterator_t::init() {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
         for (std::string filter_value : a_filter.values) {
-            auto is_prefix_match = filter_value.size() > 2 && filter_value[filter_value.size() - 2] == '.' &&
-                                   filter_value[filter_value.size() - 1] == '*';
+            auto is_prefix_match = filter_value.size() > 1 && filter_value[filter_value.size() - 1] == '*';
             if (is_prefix_match) {
-                filter_value.erase(filter_value.size() - 2);
+                filter_value.erase(filter_value.size() - 1);
             }
 
             std::vector<void*> raw_posting_lists;

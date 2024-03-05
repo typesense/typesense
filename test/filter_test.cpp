@@ -777,7 +777,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     search_stop_us = UINT64_MAX; // `Index::fuzzy_search_fields` checks for timeout.
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: g.*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = filter::parse_filter_query("tags: g*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
@@ -796,7 +796,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != g.*", coll->get_schema(), store, doc_id_prefix,
+    filter_op = filter::parse_filter_query("tags: != g*", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
