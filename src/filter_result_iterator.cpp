@@ -1145,10 +1145,9 @@ void filter_result_iterator_t::init() {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
         for (std::string filter_value : a_filter.values) {
-            auto is_prefix_match = filter_value.size() > 2 && filter_value[filter_value.size() - 2] == '.' &&
-                                   filter_value[filter_value.size() - 1] == '*';
+            auto is_prefix_match = filter_value.size() > 1 && filter_value[filter_value.size() - 1] == '*';
             if (is_prefix_match) {
-                filter_value.erase(filter_value.size() - 2);
+                filter_value.erase(filter_value.size() - 1);
             }
 
             std::vector<void*> raw_posting_lists;
@@ -1231,6 +1230,9 @@ void filter_result_iterator_t::init() {
 
                 // Searching for `Chris P.*` will return `Chris Parnell` and `Chris Pine`.
                 for (const auto& searched_filter_value: searched_filters) {
+                    raw_posting_lists.clear();
+                    approx_filter_value_match = UINT32_MAX;
+
                     for (const auto& leaf: searched_filter_value) {
                         if (leaf == nullptr) {
                             continue;
@@ -1259,7 +1261,6 @@ void filter_result_iterator_t::init() {
 
                     // Multiple filter values get OR.
                     approx_filter_ids_length += approx_filter_value_match;
-                    raw_posting_lists.clear();
                 }
                 continue;
             }
