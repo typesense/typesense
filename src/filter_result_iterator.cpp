@@ -1231,6 +1231,9 @@ void filter_result_iterator_t::init() {
 
                 // Searching for `Chris P.*` will return `Chris Parnell` and `Chris Pine`.
                 for (const auto& searched_filter_value: searched_filters) {
+                    raw_posting_lists.clear();
+                    approx_filter_value_match = UINT32_MAX;
+
                     for (const auto& leaf: searched_filter_value) {
                         if (leaf == nullptr) {
                             continue;
@@ -1259,7 +1262,6 @@ void filter_result_iterator_t::init() {
 
                     // Multiple filter values get OR.
                     approx_filter_ids_length += approx_filter_value_match;
-                    raw_posting_lists.clear();
                 }
                 continue;
             }

@@ -764,6 +764,56 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_EQ(-1, iter_boolean_test_2.is_valid(10));
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_boolean_test_2.validity);
     delete filter_tree_root;
+
+    doc = R"({
+            "name": "James rock",
+            "age": 20,
+            "years": [],
+            "rating": 4.51,
+            "tags": ["gallium", "Gadolinium"]
+        })"_json;
+    add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    search_stop_us = UINT64_MAX; // `Index::fuzzy_search_fields` checks for timeout.
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: g.*", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_prefix_value_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_prefix_value_test.init_status().ok());
+    ASSERT_FALSE(iter_string_prefix_value_test._get_is_filter_result_initialized());
+    ASSERT_EQ(3, iter_string_prefix_value_test.approx_filter_ids_length); // document 0 and 2 have been deleted.
+
+    expected = {4, 8};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_prefix_value_test.validity);
+        ASSERT_EQ(i, iter_string_prefix_value_test.seq_id);
+        iter_string_prefix_value_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_prefix_value_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: != g.*", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_prefix_value_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_prefix_value_test_2.init_status().ok());
+    ASSERT_FALSE(iter_string_prefix_value_test_2._get_is_filter_result_initialized());
+    ASSERT_EQ(3, iter_string_prefix_value_test_2.approx_filter_ids_length); // document 0 and 2 have been deleted.
+
+    expected = {1, 3, 5, 6, 7};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_prefix_value_test_2.validity);
+        ASSERT_EQ(i, iter_string_prefix_value_test_2.seq_id);
+        iter_string_prefix_value_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_prefix_value_test_2.validity);
+
+    delete filter_tree_root;
 }
 
 TEST_F(FilterTest, FilterTreeIteratorTimeout) {
