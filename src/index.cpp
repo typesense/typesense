@@ -2562,7 +2562,7 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
 
             std::vector<sort_by> sort_fields;
             std::vector<search_field_t> fq_fields;
-            fq_fields.emplace_back(field_name, field_it.value().faceted_name(), 1, 0, true, enable_t::off);
+            fq_fields.emplace_back(field_name, field_it.value().faceted_name(), 1, 0, false, enable_t::off);
 
             uint32_t* filter_ids = nullptr;
             filter_result_iterator_t filter_result_it(filter_ids, 0);
@@ -2574,7 +2574,7 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
                     fq_fields, window_tokens, {}, text_match_type_t::max_score, nullptr, 0,
                     &filter_result_it, {}, {}, sort_fields, {0}, searched_queries,
                     qtoken_set, topster, groups_processed, result_ids, result_ids_len,
-                    0, group_by_fields, false, true, false, false, query_hashes, MAX_SCORE, {true}, 1,
+                    0, group_by_fields, false, true, false, false, query_hashes, MAX_SCORE, {false}, 1,
                     false, 4, 3, 7, 0, nullptr, field_values, geopoint_indices, "", true);
 
             if(!fuzzy_search_fields_op.ok()) {
