@@ -252,7 +252,7 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("วัน", tokens[1]);
     ASSERT_EQ("ที่", tokens[2]);
     ASSERT_EQ("31", tokens[3]);
-    ASSERT_EQ("มี.ค", tokens[4]);
+    ASSERT_EQ("มีค", tokens[4]);
 
     tokens.clear();
     str = "12345_678";
@@ -345,6 +345,26 @@ TEST(TokenizerTest, ShouldTokenizeLocaleTextWithEnglishText) {
     ASSERT_EQ("math", ttokens[8]);
 }
 
+TEST(TokenizerTest, ShouldTokenizeLocaleTextWithSwedishText) {
+    std::string tstr = "södra";
+    std::vector<std::string> ttokens;
+    Tokenizer(tstr, true, false, "sv").tokenize(ttokens);
+    ASSERT_EQ(1, ttokens.size());
+    ASSERT_EQ("södra", ttokens[0]);
+
+    tstr = "Ängelholm";
+    ttokens.clear();
+    Tokenizer(tstr, true, false, "sv").tokenize(ttokens);
+    ASSERT_EQ(1, ttokens.size());
+    ASSERT_EQ("ängelholm", ttokens[0]);
+
+    tstr = "Ängelholm";
+    ttokens.clear();
+    Tokenizer(tstr, true, false, "").tokenize(ttokens);
+    ASSERT_EQ(1, ttokens.size());
+    ASSERT_EQ("angelholm", ttokens[0]);
+}
+
 TEST(TokenizerTest, ShouldTokenizeWithDifferentSymbolConfigs) {
     std::string str1 = "ความ-เหลื่อมล้ำ";
 
@@ -373,4 +393,9 @@ TEST(TokenizerTest, ShouldTokenizeWithDifferentSymbolConfigs) {
     ASSERT_EQ("ความ", tokens[0]);
     ASSERT_EQ("เหลื่อม", tokens[1]);
     ASSERT_EQ("ล้ํา", tokens[2]);
+
+    tokens.clear();
+    Tokenizer("ความ_เห", true, false, "th", {}, {}).tokenize(tokens);
+    ASSERT_EQ(1, tokens.size());
+    ASSERT_EQ("ความเห", tokens[0]);
 }

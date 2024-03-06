@@ -153,54 +153,35 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 word.assign(normalized_word, strlen(normalized_word));
                 free(normalized_word);
             } else {
-                unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(word);
+                unicode_text.tempSubStringBetween(start_pos, end_pos).foldCase().toUTF8String(word);
             }
 
             bool emit_token = false;
-
-            // `word` can be either a multi-byte unicode sequence or an ASCII character
-            // ASCII character can be either a special character or English alphabet
             size_t orig_word_size = word.size();
 
-            if(is_ascii_char(word[0])) {
-                if(std::isalnum(word[0])) {
-                    // normalize an ascii string and emit word as token
-                    size_t read_index = 0, write_index = 0;
-
-                    while (read_index < word.size()) {
-                        size_t this_stream_mode = get_stream_mode(word[read_index]);
-                        if(this_stream_mode != SKIP) {
-                            word[write_index++] = std::tolower(word[read_index]);
-                        }
-
-                        read_index++;
-                    }
-
-                    // resize to fit new length
-                    word.resize(write_index);
-
-                    out += word;
-                    emit_token = true;
-                }
-
-                else {
-                    // special character:
-                    // a) present in `index_symbols` -> append word to out and continue iteration
-                    // b) present in `separator_symbols` -> skip word
-                    // c) not present in either -> skip word
-                    if(index_symbols[uint8_t(word[0])] == 1) {
-                        out += word;
-                        emit_token = true;
-                    }
-                }
+            if(locale == "zh" && (word == "，" || word == "─" || word == "。")) {
+                emit_token = false;
+            } else if(locale == "ko" && word == "·") {
+                emit_token = false;
             } else {
-                if(locale == "zh" && (word == "，" || word == "─" || word == "。")) {
-                    emit_token = false;
-                } else if(locale == "ko" && word == "·") {
-                    emit_token = false;
-                } else {
-                    emit_token = true;
+                // Some special characters like punctuations arrive as independent units, while others like
+                // underscore and quotes are present within the string. We will have to handle both cases.
+                size_t read_index = 0, write_index = 0;
+
+                while (read_index < word.size()) {
+                    size_t this_stream_mode = get_stream_mode(word[read_index]);
+                    if (!is_ascii_char(word[read_index]) || this_stream_mode == INDEX) {
+                        word[write_index++] = std::tolower(word[read_index]);
+                    }
+
+                    read_index++;
+                }
+
+                // resize to fit new length
+                word.resize(write_index);
+                if(!word.empty()) {
                     out += word;
+                    emit_token = true;
                 }
             }
 
