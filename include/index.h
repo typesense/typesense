@@ -169,6 +169,7 @@ struct search_args {
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
     spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
+    spp::sparse_hash_map<uint64_t, Topster*> curated_group_kv_map;
 
     vector_query_t& vector_query;
     size_t facet_sample_percent;
@@ -215,6 +216,7 @@ struct search_args {
         topster = new Topster(topster_size);
         curated_topster = new Topster(topster_size);
         group_kv_map.clear();
+        curated_group_kv_map.clear();
     }
 
     ~search_args() {
@@ -224,6 +226,11 @@ struct search_args {
             delete kv.second;
         }
         group_kv_map.clear();
+
+        for(const auto& kv : curated_group_kv_map) {
+            delete kv.second;
+        }
+        curated_group_kv_map.clear();
     };
 };
 
@@ -535,7 +542,9 @@ private:
 
     void collate_included_ids(const std::vector<token_t>& q_included_tokens,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
-                              Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries) const;
+                              Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries,
+                              size_t group_limit,
+                              spp::sparse_hash_map<uint64_t, Topster*>& curated_group_kv_map) const;
 
     static void compute_facet_stats(facet &a_facet, const std::string& raw_value,
                                     const std::string & field_type, const size_t count);
@@ -674,6 +683,7 @@ public:
                 const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                 const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
                 spp::sparse_hash_map<uint64_t, Topster*>& group_kv_map,
+                spp::sparse_hash_map<uint64_t, Topster*>& curated_group_kv_map,
                 const size_t per_page,
                 const size_t offset, const token_ordering token_order, const std::vector<bool>& prefixes,
                 const size_t drop_tokens_threshold, size_t& all_result_ids_len,
@@ -839,6 +849,7 @@ public:
                                                  const token_ordering& token_order,
                                                  const size_t typo_tokens_threshold, const size_t group_limit,
                                                  const std::vector<std::string>& group_by_fields,
+                                                 spp::sparse_hash_map<uint64_t, Topster*>& curated_group_kv_map,
                                                  const bool group_missing_values,
                                                  bool prioritize_exact_match,
                                                  const bool prioritize_token_position,
@@ -869,6 +880,7 @@ public:
                                   const std::vector<sort_by>& sort_fields,
                                   std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                                   const std::vector<std::string>& group_by_fields,
+                                  spp::sparse_hash_map<uint64_t, Topster*>& curated_group_kv_map,
                                   const bool group_missing_values,
                                   Topster* actual_topster,
                                   const int sort_order[3],

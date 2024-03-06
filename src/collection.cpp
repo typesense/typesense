@@ -2322,8 +2322,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     topster.sort();
     curated_topster.sort();
 
-    populate_result_kvs(&topster, raw_result_kvs, search_params->groups_processed, sort_fields_std, search_params->group_kv_map);
-    populate_result_kvs(&curated_topster, override_result_kvs, search_params->groups_processed, sort_fields_std, search_params->group_kv_map);
+    populate_result_kvs(&topster, raw_result_kvs, search_params->groups_processed, sort_fields_std, search_params->group_kv_map, pinned_hits);
+    populate_result_kvs(&curated_topster, override_result_kvs, search_params->groups_processed, sort_fields_std, search_params->curated_group_kv_map, pinned_hits);
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
@@ -2331,7 +2331,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     } else {
         total = search_params->all_result_ids_len;
     }
-    
+
+    total += pinned_hits.size();
 
     if(search_cutoff && total == 0) {
         // this can happen if other requests stopped this request from being processed
@@ -2384,28 +2385,69 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<std::vector<KV*>> result_group_kvs;
     size_t override_kv_index = 0;
     size_t raw_results_index = 0;
+    size_t result_position = 1;
+    auto pinned_hits_it = pinned_hits.begin();
 
     // merge raw results and override results
     while(raw_results_index < raw_result_kvs.size()) {
         if(override_kv_index < override_result_kvs.size()) {
-            size_t result_position = result_group_kvs.size() + 1;
             uint64_t override_position = override_result_kvs[override_kv_index][0]->key;
-            if(result_position == override_position) {
+            if(result_position == override_position && pinned_hits.find(result_position) == pinned_hits.end()) {
                 override_result_kvs[override_kv_index][0]->match_score_index = CURATED_RECORD_IDENTIFIER;
                 result_group_kvs.push_back(override_result_kvs[override_kv_index]);
                 override_kv_index++;
+                result_position++;
                 continue;
             }
         }
 
+        if(pinned_hits_it != pinned_hits.end() && result_position == pinned_hits_it->first) {
+            const auto group_topster = search_params->curated_group_kv_map.at(result_position);
+            const std::vector<KV *> group_kvs(
+                    group_topster->kvs,
+                    group_topster->kvs + group_topster->size
+            );
+            group_kvs[0]->match_score_index = CURATED_RECORD_IDENTIFIER;
+            result_group_kvs.push_back(group_kvs);
+            result_position++;
+            pinned_hits_it++;
+            continue;
+        }
+
         result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
         raw_results_index++;
+        result_position++;
     }
 
     while(override_kv_index < override_result_kvs.size()) {
-        override_result_kvs[override_kv_index][0]->match_score_index = CURATED_RECORD_IDENTIFIER;
-        result_group_kvs.push_back({override_result_kvs[override_kv_index]});
-        override_kv_index++;
+        if(pinned_hits_it != pinned_hits.end() && result_position == pinned_hits_it->first) {
+            const auto group_topster = search_params->curated_group_kv_map.at(result_position);
+            const std::vector<KV *> group_kvs(
+                    group_topster->kvs,
+                    group_topster->kvs + group_topster->size
+            );
+            group_kvs[0]->match_score_index = CURATED_RECORD_IDENTIFIER;
+            result_group_kvs.push_back(group_kvs);
+            result_position++;
+            pinned_hits_it++;
+            continue;
+        } else {
+            override_result_kvs[override_kv_index][0]->match_score_index = CURATED_RECORD_IDENTIFIER;
+            result_group_kvs.push_back({override_result_kvs[override_kv_index]});
+            result_position++;
+            override_kv_index++;
+        }
+    }
+
+    while(pinned_hits_it != pinned_hits.end()) {
+        const auto group_topster = search_params->curated_group_kv_map.at(pinned_hits_it->first);
+        const std::vector<KV *> group_kvs(
+                group_topster->kvs,
+                group_topster->kvs + group_topster->size
+        );
+        group_kvs[0]->match_score_index = CURATED_RECORD_IDENTIFIER;
+        result_group_kvs.push_back(group_kvs);
+        pinned_hits_it++;
     }
 
     std::string facet_query_last_token;
@@ -3508,7 +3550,8 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs,
                                 const spp::sparse_hash_map<uint64_t, std::set<uint32_t>>& groups_processed,
                                 const std::vector<sort_by>& sort_by_fields,
-                                spp::sparse_hash_map<uint64_t, Topster*> group_kv_map) {
+                                const spp::sparse_hash_map<uint64_t, Topster*>& group_kv_map,
+                                const std::map<size_t, std::vector<std::string>>& pinned_hits) {
     if(!group_kv_map.empty() && !topster->kv_map.empty()) {
         // we have to pick top-K groups
         Topster gtopster(topster->MAX_SIZE);
@@ -3532,7 +3575,12 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
             group_topster.second->sort();
             if(group_topster.second->size != 0) {
                 KV* kv_head = group_topster.second->getKV(0);
-                
+
+                //skip the pinned hits
+                if(pinned_hits.find(group_topster.first) != pinned_hits.end()) {
+                    continue;
+                }
+
                 if(group_count_index >= 0) {
                     const auto& itr = groups_processed.find(kv_head->key);
                     if(itr != groups_processed.end()) {
