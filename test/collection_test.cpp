@@ -10,6 +10,7 @@
 #include "collection.h"
 #include "embedder_manager.h"
 #include "http_client.h"
+#include "collection_metadata.h"
 
 class CollectionTest : public ::testing::Test {
 protected:
@@ -30,6 +31,7 @@ protected:
         system("mkdir -p /tmp/typesense_test/models");
 
         store = new Store(state_dir_path);
+        CollectionMetadata::get_instance().init(store);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 

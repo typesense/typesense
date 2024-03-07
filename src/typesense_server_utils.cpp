@@ -26,6 +26,7 @@
 #include "conversation_manager.h"
 #include "conversation_model_manager.h"
 #include "vq_model_manager.h"
+#include "collection_metadata.h"
 
 #ifndef ASAN_BUILD
 #include "jemalloc.h"
@@ -398,6 +399,8 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // primary DB used for storing the documents: we will not use WAL since Raft provides that
     Store store(db_dir, 24*60*60, 1024, true);
+
+    CollectionMetadata::get_instance().init(&store);
 
     // meta DB for storing house keeping things
     Store meta_store(meta_dir, 24*60*60, 1024, false);

@@ -4,6 +4,7 @@
 #include <app_metrics.h>
 #include <analytics_manager.h>
 #include <event_manager.h>
+#include "collection_metadata.h"
 #include "collection_manager.h"
 #include "batched_indexer.h"
 #include "logger.h"
@@ -261,6 +262,7 @@ void CollectionManager::_populate_referenced_ins(const std::string& collection_m
 }
 
 Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {
+    // `CollectionMetadata` must be initialized before calling this method.
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     LOG(INFO) << "CollectionManager::load()";
 
@@ -301,10 +303,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     LOG(INFO) << "Loading upto " << collection_batch_size << " collections in parallel, "
               << document_batch_size << " documents at a time.";
 
-    std::vector<std::string> collection_meta_jsons;
-    store->scan_fill(std::string(Collection::COLLECTION_META_PREFIX) + "_",
-                     std::string(Collection::COLLECTION_META_PREFIX) + "`",
-                     collection_meta_jsons);
+    auto const& collection_meta_jsons = CollectionMetadata::get_instance().collection_meta_jsons;
 
     const size_t num_collections = collection_meta_jsons.size();
     LOG(INFO) << "Found " << num_collections << " collection(s) on disk.";

@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <collection_manager.h>
+#include "collection_metadata.h"
 #include "collection.h"
 
 class CollectionSchemaChangeTest : public ::testing::Test {
@@ -21,6 +22,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
+        CollectionMetadata::get_instance().init(store);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
     }
@@ -245,6 +247,7 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     delete store;
 
     store = new Store("/tmp/typesense_test/collection_schema_change");
+    CollectionMetadata::get_instance().init(store);
     collectionManager.init(store, 1.0, "auth_key", quit);
     collectionManager.load(8, 1000);
     coll1 = collectionManager.get_collection("coll1").get();
@@ -337,6 +340,7 @@ TEST_F(CollectionSchemaChangeTest, DropFieldsFromCollection) {
     delete store;
 
     store = new Store("/tmp/typesense_test/collection_schema_change");
+    CollectionMetadata::get_instance().init(store);
     collectionManager.init(store, 1.0, "auth_key", quit);
     collectionManager.load(8, 1000);
     coll1 = collectionManager.get_collection("coll1").get();

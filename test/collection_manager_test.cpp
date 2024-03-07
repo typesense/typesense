@@ -6,6 +6,7 @@
 #include <analytics_manager.h>
 #include "string_utils.h"
 #include "collection.h"
+#include "collection_metadata.h"
 
 class CollectionManagerTest : public ::testing::Test {
 protected:
@@ -22,6 +23,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
+        CollectionMetadata::get_instance().init(store);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
@@ -479,6 +481,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     delete store;
 
     store = new Store("/tmp/typesense_test/coll_manager_test_db");
+    CollectionMetadata::get_instance().init(store);
     collectionManager.init(store, 1.0, "auth_key", quit);
     auto load_op = collectionManager.load(8, 1000);
 
@@ -1157,6 +1160,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *new_store = new Store(state_dir_path);
+    CollectionMetadata::get_instance().init(new_store);
     cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
@@ -1179,6 +1183,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     delete new_store;
 
     new_store = new Store(state_dir_path);
+    CollectionMetadata::get_instance().init(new_store);
     cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
@@ -1354,6 +1359,7 @@ TEST_F(CollectionManagerTest, Presets) {
     delete store;
 
     store = new Store("/tmp/typesense_test/coll_manager_test_db");
+    CollectionMetadata::get_instance().init(store);
     collectionManager.init(store, 1.0, "auth_key", quit);
     collectionManager.load(8, 1000);
 

@@ -8,6 +8,7 @@
 #include "raft_server.h"
 #include "conversation_model_manager.h"
 #include "conversation_manager.h"
+#include "collection_metadata.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
 protected:
@@ -25,6 +26,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
+        CollectionMetadata::get_instance().init(store);
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
@@ -1026,6 +1028,7 @@ TEST_F(CoreAPIUtilsTest, ExportIncludeExcludeFieldsWithFilter) {
 
     std::vector<std::string> res_strs;
     StringUtils::split(res->body, res_strs, "\n");
+    ASSERT_EQ(1, res_strs.size());
     nlohmann::json doc = nlohmann::json::parse(res_strs[0]);
     ASSERT_EQ(1, doc.size());
     ASSERT_EQ(1, doc.count("name"));

@@ -152,6 +152,7 @@ public:
     // only for tests!
     void init(Store *store, const float max_memory_ratio, const std::string & auth_key, std::atomic<bool>& exit);
 
+    // `CollectionMetadata` must be initialized before calling this method.
     Option<bool> load(const size_t collection_batch_size, const size_t document_batch_size);
 
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detector properly

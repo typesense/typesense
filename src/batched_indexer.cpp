@@ -1,4 +1,4 @@
-#include <collection_manager.h>
+#include "collection_metadata.h"
 #include "batched_indexer.h"
 #include "core_api.h"
 #include "thread_local_vars.h"
@@ -14,11 +14,14 @@ BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_sto
     skip_index_iter_upper_bound = new rocksdb::Slice(skip_index_upper_bound_key);
 }
 
-void get_ref_coll_names(const std::string& body, std::unordered_set<std::string>& referenced_collections) {
+std::string get_ref_coll_names(const std::string& body, std::unordered_set<std::string>& referenced_collections) {
+    std::string collection_name;
     auto const& obj = nlohmann::json::parse(body, nullptr, false);
 
     if (!obj.is_discarded() && obj.is_object() && obj.contains("name") && obj["name"].is_string() &&
         obj.contains("fields")) {
+        collection_name = obj["name"];
+
         for (const auto &field: obj["fields"]) {
             if (!field.contains("reference")) {
                 continue;
@@ -29,6 +32,8 @@ void get_ref_coll_names(const std::string& body, std::unordered_set<std::string>
             referenced_collections.insert(split_result.front());
         }
     }
+
+    return collection_name;
 }
 
 void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -86,7 +91,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
                 queues[queue_id].emplace_back(req->start_ts);
             }
 
-            if (!res->is_alive && is_coll_create_route(req->route_hash)) {
+            if (is_coll_create_route(req->route_hash)) {
                 // Save reference mapping in case of replays to take care of ordering
                 std::unordered_set<std::string> referenced_collections;
                 get_ref_coll_names(req->body, referenced_collections);
@@ -94,6 +99,9 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
                     std::lock_guard lock(mutex);
                     coll_to_references[coll_name] = std::move(referenced_collections);
                 }
+            } else if (is_drop_collection_route(req->route_hash)) {
+                std::lock_guard lock(mutex);
+                coll_to_references.erase(coll_name);
             }
 
             qmutuxes[queue_id].cv.notify_one();
@@ -287,10 +295,10 @@ void BatchedIndexer::run() {
                                 goto end;
                             }
 
-                            // When raft logs are replayed on restart, import requests of related collections
-                            // might end up being processed in parallel causing indexing of document having a reference
-                            // to fail. So we wait until all the referenced collections complete the import.
-                            if (!is_live_req && is_doc_import_route(orig_req->route_hash)) {
+                            // Import requests of related collections might end up being processed in parallel causing
+                            // indexing of document having a reference to fail. So we wait until all the referenced
+                            // collections complete the import.
+                            if (is_doc_import_route(orig_req->route_hash)) {
                                 std::set<uint64_t> waiting_on_ids;
                                 const auto& coll_name = get_collection_name(orig_req);
 
@@ -314,8 +322,6 @@ void BatchedIndexer::run() {
                                         }
                                     }
                                 }
-
-                                coll_to_references.erase(coll_name);
                             }
 
                             async_res = found_rpath->async_res;
@@ -525,6 +531,17 @@ void BatchedIndexer::serialize_state(nlohmann::json& state) {
 
 void BatchedIndexer::load_state(const nlohmann::json& state) {
     queued_writes = state["queued_writes"].get<int64_t>();
+
+    auto const& collection_meta_jsons = CollectionMetadata::get_instance().collection_meta_jsons;
+    for (const auto &collection_meta_json: collection_meta_jsons) {
+        // Save reference mapping in case of replays to take care of ordering
+        std::unordered_set<std::string> referenced_collections;
+        auto const& coll_name = get_ref_coll_names(collection_meta_json, referenced_collections);
+        if (!referenced_collections.empty()) {
+            std::lock_guard lock(mutex);
+            coll_to_references[coll_name] = std::move(referenced_collections);
+        }
+    }
 
     size_t num_reqs_restored = 0;
     std::set<uint64_t> queue_ids;
