@@ -19,9 +19,15 @@ private:
     std::atomic<uint64_t> last_checked_ts = 0;
     std::mutex m;
 
+    resource_check_t resource_status = OK;
+
     cached_resource_stat_t() = default;
 
     ~cached_resource_stat_t() = default;
+
+    static cached_resource_stat_t::resource_check_t get_resource_status(const std::string& data_dir_path,
+                                                                 const int disk_used_max_percentage,
+                                                                 const int memory_used_max_percentage);
 
 public:
     static cached_resource_stat_t& get_instance() {
