@@ -1369,6 +1369,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *HIDDEN_HITS = "hidden_hits";
     const char *ENABLE_OVERRIDES = "enable_overrides";
     const char *FILTER_CURATED_HITS = "filter_curated_hits";
+    const char *ENABLE_SYNONYMS = "enable_synonyms";
 
     const char *MAX_CANDIDATES = "max_candidates";
 
@@ -1524,6 +1525,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool prioritize_token_position = false;
     bool pre_segmented_query = false;
     bool enable_overrides = true;
+    bool enable_synonyms = true;
     size_t filter_curated_hits_option = 2;
     std::string highlight_fields;
     bool exhaustive_search = false;
@@ -1608,6 +1610,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
         {GROUP_MISSING_VALUES, &group_missing_values},
         {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
+        {ENABLE_SYNONYMS, &enable_synonyms},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1822,7 +1825,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           conversation_id,
                                                           override_tags,
                                                           voice_query,
-                                                          enable_typos_for_numerical_tokens);
+                                                          enable_typos_for_numerical_tokens,
+                                                          enable_synonyms);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

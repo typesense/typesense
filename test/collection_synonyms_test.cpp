@@ -1067,3 +1067,86 @@ TEST_F(CollectionSynonymsTest, MultipleSynonymSubstitution) {
                              {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(1, res["hits"].size());
 }
+
+TEST_F(CollectionSynonymsTest, EnableSynonymFlag) {
+    nlohmann::json schema = R"({
+        "name": "coll2",
+        "fields": [
+          {"name": "title", "type": "string"},
+          {"name": "gender", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+
+    std::vector<std::vector<std::string>> records = {
+            {"Beautiful Blazer", "Male"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["gender"] = records[i][1];
+
+        auto add_op = coll2->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    nlohmann::json synonym1 = R"({
+        "id": "foobar",
+        "synonyms": ["blazer", "suit"]
+    })"_json;
+
+    nlohmann::json synonym2 = R"({
+        "id": "foobar2",
+        "synonyms": ["male", "man"]
+    })"_json;
+
+
+    ASSERT_TRUE(coll2->add_synonym(synonym1).ok());
+    ASSERT_TRUE(coll2->add_synonym(synonym2).ok());
+    bool enable_synonyms = true;
+
+    auto res = coll2->search("suit man", {"title", "gender"}, "", {},
+                           {}, {2}, 10, 1,FREQUENCY, {true},
+                           Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "",
+                           30, 4, "", 40,
+                           {}, {}, {}, 0,"<mark>",
+                           "</mark>", {}, 1000,true,
+                           false, true, "", false,
+                           6000*1000, 4, 7, fallback, 4,
+                           {off}, INT16_MAX, INT16_MAX,2,
+                           2, false, "", true,
+                           0, max_score, 100, 0, 0,
+                           HASH, 30000, 2, "",
+                           {},{}, "right_to_left", true,
+                           true, false, "", "", "",
+                           "", false, enable_synonyms).get();
+
+    ASSERT_EQ(1, res["hits"].size());
+
+    enable_synonyms = false;
+    res = coll2->search("suit man", {"title", "gender"}, "", {},
+                        {}, {2}, 10, 1,FREQUENCY, {true},
+                        Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "",
+                        30, 4, "", 40,
+                        {}, {}, {}, 0,"<mark>",
+                        "</mark>", {}, 1000,true,
+                        false, true, "", false,
+                        6000*1000, 4, 7, fallback, 4,
+                        {off}, INT16_MAX, INT16_MAX,2,
+                        2, false, "", true,
+                        0, max_score, 100, 0, 0,
+                        HASH, 30000, 2, "",
+                        {},{}, "right_to_left", true,
+                        true, false, "", "", "",
+                        "", false, enable_synonyms).get();
+
+    ASSERT_EQ(0, res["hits"].size());
+}
