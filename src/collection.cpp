@@ -1714,7 +1714,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   std::string conversation_id,
                                   const std::string& override_tags_str,
                                   const std::string& voice_query,
-                                  bool enable_typos_for_numerical_tokens) const {
+                                  bool enable_typos_for_numerical_tokens,
+                                  bool enable_synonyms) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -2304,7 +2305,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
-    auto search_op = index->run_search(search_params, name, facet_index_type, enable_typos_for_numerical_tokens);
+    auto search_op = index->run_search(search_params, name, facet_index_type,
+                                       enable_typos_for_numerical_tokens, enable_synonyms);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();

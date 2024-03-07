@@ -2211,7 +2211,8 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
-                               facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens) {
+                               facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens,
+                               bool enable_synonyms) {
     return search(search_params->field_query_tokens,
            search_params->search_fields,
            search_params->match_type,
@@ -2252,7 +2253,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            collection_name,
            search_params->drop_tokens_mode,
            facet_index_type,
-           enable_typos_for_numerical_tokens
+           enable_typos_for_numerical_tokens,
+           enable_synonyms
            );
 }
 
@@ -2740,7 +2742,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const std::string& collection_name,
                    const drop_tokens_param_t drop_tokens_mode,
                    facet_index_type_t facet_index_type,
-                   bool enable_typos_for_numerical_tokens) const {
+                   bool enable_typos_for_numerical_tokens,
+                   bool enable_synonyms) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
@@ -3083,7 +3086,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         for(size_t j = 0; j < field_query_tokens[0].q_include_tokens.size(); j++) {
             q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
         }
-        synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
+
+        if(enable_synonyms) {
+            synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
+        }
 
         if (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem) {
             auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
