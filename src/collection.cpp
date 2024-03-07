@@ -3582,7 +3582,7 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
                 }
 
                 if(group_count_index >= 0) {
-                    const auto& itr = groups_processed.find(kv_head->key);
+                    const auto& itr = groups_processed.find(group_topster.first);
                     if(itr != groups_processed.end()) {
                         kv_head->scores[group_count_index] = itr->second.size() * group_sort_order;
                     }
