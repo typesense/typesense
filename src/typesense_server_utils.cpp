@@ -299,15 +299,14 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
             const Option<std::string> & refreshed_nodes_op = Config::fetch_nodes_config(path_to_nodes);
             if(!refreshed_nodes_op.ok()) {
                 LOG(WARNING) << "Error while refreshing peer configuration: " << refreshed_nodes_op.error();
-                continue;
-            }
+            } else {
+                const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
+                                                                                    refreshed_nodes_op.get());
+                replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
 
-            const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
-                                                                                refreshed_nodes_op.get());
-            replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
-
-            if(raft_counter % 60 == 0) {
-                replication_state.do_snapshot(nodes_config);
+                if(raft_counter % 60 == 0) {
+                    replication_state.do_snapshot(nodes_config);
+                }
             }
         }
 
