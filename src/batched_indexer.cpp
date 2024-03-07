@@ -92,7 +92,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
             }
 
             if (is_coll_create_route(req->route_hash)) {
-                // Save reference mapping in case of replays to take care of ordering
+                // Save reference mapping to take care of ordering of import requests.
                 std::unordered_set<std::string> referenced_collections;
                 get_ref_coll_names(req->body, referenced_collections);
                 if (!referenced_collections.empty()) {
@@ -159,35 +159,22 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
 void BatchedIndexer::populate_waiting_on_ids(const std::string& coll_name, const uint64_t& request_start_ts,
                                              std::set<uint64_t>& waiting_on_ids) {
     auto coll_to_references_iter = coll_to_references.find(coll_name);
-    if(coll_to_references_iter == coll_to_references.end()) {
-        return ;
+    if (coll_to_references_iter == coll_to_references.end()) {
+        return;
     }
+    auto const& ref_collections = coll_to_references_iter->second;
 
-    for (const auto& ref_coll_name: coll_to_references_iter->second) {
-        auto ref_coll_queue_id = StringUtils::hash_wy(ref_coll_name.c_str(), ref_coll_name.size()) % num_threads;
-        std::lock_guard ref_queue_lock(qmutuxes[ref_coll_queue_id].mcv);
-        auto const& ref_queue = queues[ref_coll_queue_id];
+    for (auto it = req_res_map.begin(); it != req_res_map.end() && it->first < request_start_ts; it++) {
+        auto const& request = it->second.req;
+        auto const& req_coll_name = get_collection_name(request);
+        if (ref_collections.count(req_coll_name) == 0) {
+            continue;
+        }
 
-        // Checking every request of the ref queue that was enqueued earlier than this
-        // request since requests of collections other than the referenced collection might be present.
-        for (const auto& ref_req_id: ref_queue) {
-            auto ref_req_iter = req_res_map.find(ref_req_id);
-            if (ref_req_iter == req_res_map.end()) {
-                continue;
-            }
-
-            const auto& ref_req_res = ref_req_iter->second;
-            if (ref_req_res.start_ts > request_start_ts) {
-                break;
-            }
-
-            const auto& ref_req = ref_req_res.req;
-            // Only wait for import docs request of the referenced collection.
-            if (is_doc_import_route(ref_req->route_hash) &&
-                get_collection_name(ref_req) == ref_coll_name) {
-                waiting_on_ids.insert(ref_req_id);
-                break;
-            }
+        // Only wait for import docs request of the referenced collection.
+        if (is_doc_import_route(request->route_hash)) {
+            waiting_on_ids.insert(it->first);
+            break;
         }
     }
 }

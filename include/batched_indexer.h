@@ -51,7 +51,7 @@ private:
     --------------------------------------------------------- */
 
     std::mutex mutex;
-    std::unordered_map<uint64_t, req_res_t> req_res_map;
+    std::map<uint64_t, req_res_t> req_res_map;
     std::unordered_map<std::string, std::unordered_set<std::string>> coll_to_references;
 
     std::atomic<int64_t> queued_writes = 0;
