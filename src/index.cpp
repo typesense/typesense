@@ -3521,19 +3521,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         std::mutex m_process;
         std::condition_variable cv_process;
 
-        // We have to choose between hash and value index:
-        // 1. Group queries -> requires hash index
-        // 2. Wildcard + no filters -> use value index
-        // 3. Very few unique facet values (< 250) -> use value index
-        // 4. Result match > 50%
-
         std::vector<facet_info_t> facet_infos(facets.size());
         compute_facet_infos(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
                             group_by_fields, group_limit, is_wildcard_no_filter_query,
                             max_candidates, facet_infos, facet_index_type);
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
-        std::vector<std::vector<facet>> value_facets;
+        std::vector<std::vector<facet>> value_facets(concurrency);
+        size_t num_value_facets = 0;
 
         for(size_t i = 0; i < facets.size(); i++) {
             const auto& this_facet = facets[i];
@@ -3543,10 +3538,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             if(facet_infos[i].use_value_index) {
 #endif
                 // value based faceting on a single thread
-                value_facets.emplace_back();
-                value_facets.back().emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.facet_range_map,
+                value_facets[num_value_facets % num_threads].emplace_back(this_facet.field_name, this_facet.orig_index,
+                                          this_facet.facet_range_map,
                                           this_facet.is_range_query, this_facet.is_sort_by_alpha,
                                           this_facet.sort_order, this_facet.sort_field);
+                num_value_facets++;
                 continue;
             }
 
@@ -3580,9 +3576,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             uint32_t* batch_result_ids = all_result_ids + result_index;
             num_queued++;
 
-            thread_pool->enqueue([this, thread_id, &facet_batches, &facet_query, group_limit, group_by_fields,
+            thread_pool->enqueue([this, thread_id, &facets, &facet_batches, &facet_query, group_limit, group_by_fields,
                                          batch_result_ids, batch_res_len, &facet_infos, max_facet_values,
-                                         is_wildcard_no_filter_query, no_filters_provided, estimate_facets,
+                                         is_wildcard_no_filter_query, estimate_facets,
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                                          &num_processed, &m_process, &cv_process, facet_index_type]() {
@@ -3597,6 +3593,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                           is_wildcard_no_filter_query, facet_index_type);
 
                 std::unique_lock<std::mutex> lock(m_process);
+
+                auto& facet_batch = facet_batches[thread_id];
+                for(auto& this_facet : facet_batch) {
+                    auto& acc_facet = facets[this_facet.orig_index];
+                    aggregate_facet(group_limit, this_facet, acc_facet);
+                }
+
                 num_processed++;
                 parent_search_cutoff = parent_search_cutoff || search_cutoff;
                 cv_process.notify_one();
@@ -3605,30 +3608,17 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             result_index += batch_res_len;
         }
 
-        std::unique_lock<std::mutex> lock_process(m_process);
-        cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
-        search_cutoff = parent_search_cutoff;
-
-        // use `num_processed` since < `facet_batches.size()` batches could be processed (uneven splitting of records)
-        for(size_t batch_index = 0; batch_index < num_processed; batch_index++) {
-            auto& facet_batch = facet_batches[batch_index];
-            for(auto& this_facet : facet_batch) {
-                auto& acc_facet = facets[this_facet.orig_index];
-                aggregate_facet(group_limit, this_facet, acc_facet);
-            }
-        }
-
-        lock_process.unlock();
-        num_processed = 0;
-        num_queued = 0;
-
         // do value based faceting field-wise parallel but on the entire result set
-        for(size_t thread_id = 0; thread_id < value_facets.size(); thread_id++) {
+        for(size_t thread_id = 0; thread_id < concurrency && num_value_facets > 0; thread_id++) {
+            if(value_facets[thread_id].empty()) {
+                continue;
+            }
+
             num_queued++;
 
             thread_pool->enqueue([this, thread_id, &facets, &value_facets, &facet_query, group_limit, group_by_fields,
                                          all_result_ids, all_result_ids_len, &facet_infos, max_facet_values,
-                                         is_wildcard_no_filter_query, no_filters_provided, estimate_facets,
+                                         is_wildcard_no_filter_query, estimate_facets,
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
                                          &num_processed, &m_process, &cv_process, facet_index_type]() {
@@ -3645,9 +3635,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 std::unique_lock<std::mutex> lock(m_process);
 
-                auto& this_facet = value_facets[thread_id][0];
-                auto& acc_facet = facets[this_facet.orig_index];
-                aggregate_facet(group_limit, this_facet, acc_facet);
+                for(auto& this_facet : value_facets[thread_id]) {
+                    auto& acc_facet = facets[this_facet.orig_index];
+                    aggregate_facet(group_limit, this_facet, acc_facet);
+                }
 
                 num_processed++;
                 parent_search_cutoff = parent_search_cutoff || search_cutoff;
@@ -3655,7 +3646,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             });
         }
 
-        lock_process.lock();
+        std::unique_lock<std::mutex> lock_process(m_process);
         cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
         search_cutoff = parent_search_cutoff;
 
