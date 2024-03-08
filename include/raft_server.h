@@ -139,6 +139,8 @@ private:
     std::atomic<bool> shutting_down;
     std::atomic<size_t> pending_writes;
 
+    std::atomic<size_t> snapshot_in_progress;
+
     const uint64_t snapshot_interval_s;     // frequency of actual snapshotting
     uint64_t last_snapshot_ts;              // when last snapshot ran
 
