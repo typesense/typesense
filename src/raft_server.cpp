@@ -853,6 +853,13 @@ uint64_t ReplicationState::node_state() const {
 
 void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req,
                                    const std::shared_ptr<http_res>& res) {
+    if(node == nullptr) {
+        res->set_500("Could not trigger a snapshot, as node is not initialized.");
+        auto req_res = new async_req_res_t(req, res, true);
+        get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        return ;
+    }
+
     LOG(INFO) << "Triggerring an on demand snapshot...";
 
     thread_pool->enqueue([&snapshot_path, req, res, this]() {
