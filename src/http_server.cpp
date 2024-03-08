@@ -479,12 +479,12 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
             if(is_multi_search_query) {
                 search_payload = body;
                 StringUtils::erase_char(search_payload, '\n');
-            } else {
-                // ignore params map of multi_search since it is mutated for every search object in the POST body
-                for(const auto& kv: query_map) {
-                    if(kv.first != http_req::AUTH_HEADER) {
-                        query_string += kv.first + "=" + kv.second + "&";
-                    }
+            }
+
+            // ignore params map of multi_search since it is mutated for every search object in the POST body
+            for(const auto& kv: query_map) {
+                if(kv.first != http_req::AUTH_HEADER) {
+                    query_string += kv.first + "=" + kv.second + "&";
                 }
             }
 

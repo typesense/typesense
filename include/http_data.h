@@ -357,17 +357,16 @@ struct http_req {
                 AppMetrics::get_instance().increment_count(AppMetrics::OVERLOADED_LABEL, 1);
             } else if(log_slow_searches || log_slow_requests) {
                 // log slow request if logging is enabled
-                std::string query_string = "?";
                 bool is_multi_search_query = (path_without_query == "/multi_search");
+                std::string query_string = "?";
 
                 if(is_multi_search_query) {
                     StringUtils::erase_char(body, '\n');
-                } else {
-                    // ignore params map of multi_search since it is mutated for every search object in the POST body
-                    for(const auto& kv: params) {
-                        if(kv.first != AUTH_HEADER) {
-                            query_string += kv.first + "=" + kv.second + "&";
-                        }
+                }
+
+                for(const auto& kv: params) {
+                    if(kv.first != AUTH_HEADER) {
+                        query_string += kv.first + "=" + kv.second + "&";
                     }
                 }
 
