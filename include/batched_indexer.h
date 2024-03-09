@@ -38,6 +38,12 @@ private:
         std::condition_variable cv;
     };
 
+    struct await_reference_imports_t {
+        std::mutex mcv;
+        std::condition_variable cv;
+        std::unordered_set<std::string> referenced_collections;
+    };
+
     HttpServer* server;
     Store* store;
     Store* meta_store;
@@ -52,7 +58,8 @@ private:
 
     std::mutex mutex;
     std::map<uint64_t, req_res_t> req_res_map;
-    std::unordered_map<std::string, std::unordered_set<std::string>> coll_to_references;
+    std::unordered_map<std::string, await_reference_imports_t> coll_to_references;
+    std::unordered_map<uint64_t, std::unordered_set<std::string>> req_to_waiting_collections;
 
     std::atomic<int64_t> queued_writes = 0;
 

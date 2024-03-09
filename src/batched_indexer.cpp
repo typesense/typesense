@@ -78,6 +78,19 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
 
         {
             auto const& coll_name = get_collection_name(req);
+            if (is_coll_create_route(req->route_hash)) {
+                // Save reference mapping to take care of ordering of import requests.
+                std::unordered_set<std::string> referenced_collections;
+                get_ref_coll_names(req->body, referenced_collections);
+                if (!referenced_collections.empty()) {
+                    std::lock_guard lock(mutex);
+                    coll_to_references[coll_name].referenced_collections = std::move(referenced_collections);
+                }
+            } else if (is_drop_collection_route(req->route_hash)) {
+                std::lock_guard lock(mutex);
+                coll_to_references.erase(coll_name);
+            }
+
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
             req->body = "";
 
@@ -89,19 +102,6 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
             {
                 std::lock_guard lk(qmutuxes[queue_id].mcv);
                 queues[queue_id].emplace_back(req->start_ts);
-            }
-
-            if (is_coll_create_route(req->route_hash)) {
-                // Save reference mapping to take care of ordering of import requests.
-                std::unordered_set<std::string> referenced_collections;
-                get_ref_coll_names(req->body, referenced_collections);
-                if (!referenced_collections.empty()) {
-                    std::lock_guard lock(mutex);
-                    coll_to_references[coll_name] = std::move(referenced_collections);
-                }
-            } else if (is_drop_collection_route(req->route_hash)) {
-                std::lock_guard lock(mutex);
-                coll_to_references.erase(coll_name);
             }
 
             qmutuxes[queue_id].cv.notify_one();
@@ -162,7 +162,7 @@ void BatchedIndexer::populate_waiting_on_ids(const std::string& coll_name, const
     if (coll_to_references_iter == coll_to_references.end()) {
         return;
     }
-    auto const& ref_collections = coll_to_references_iter->second;
+    auto const& ref_collections = coll_to_references_iter->second.referenced_collections;
 
     for (auto it = req_res_map.begin(); it != req_res_map.end() && it->first < request_start_ts; it++) {
         auto const& request = it->second.req;
@@ -289,18 +289,22 @@ void BatchedIndexer::run() {
                                 std::set<uint64_t> waiting_on_ids;
                                 const auto& coll_name = get_collection_name(orig_req);
 
-                                std::unique_lock mlock(mutex);
-                                populate_waiting_on_ids(coll_name, orig_req_res.start_ts, waiting_on_ids);
-
-                                while(!waiting_on_ids.empty()) {
-                                    mlock.unlock();
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-                                    if(quit) {
-                                        goto end;
+                                {
+                                    std::lock_guard lock(mutex);
+                                    populate_waiting_on_ids(coll_name, orig_req_res.start_ts, waiting_on_ids);
+                                    for (const auto &id: waiting_on_ids) {
+                                        /////////////////////////////
+                                        LOG(INFO) << "..........................................Waiting on " << std::to_string(req_id);
+                                        req_to_waiting_collections[id].insert(coll_name);
                                     }
+                                }
 
-                                    mlock.lock();
+                                std::unique_lock lock(coll_to_references[coll_name].mcv);
+                                auto& cv = coll_to_references[coll_name].cv;
+                                cv.wait(lock, [&](){
+                                    //////////////////
+                                    LOG(INFO) << "..........................................wake up";
+                                    std::lock_guard lg(mutex);
                                     for (auto it = waiting_on_ids.begin(); it != waiting_on_ids.end();) {
                                         if (req_res_map.count(*it) == 0) {
                                             it = waiting_on_ids.erase(it);
@@ -308,6 +312,12 @@ void BatchedIndexer::run() {
                                             it++;
                                         }
                                     }
+
+                                    return quit || waiting_on_ids.empty();
+                                });
+
+                                if (quit) {
+                                    goto end;
                                 }
                             }
 
@@ -359,6 +369,22 @@ void BatchedIndexer::run() {
                 {
                     std::lock_guard lk(mutex);
                     req_res_map.erase(req_id);
+
+                    auto it = req_to_waiting_collections.find(req_id);
+                    if (it != req_to_waiting_collections.end()) {
+                        for (const auto &coll_name: it->second) {
+                            auto coll_to_ref_it = coll_to_references.find(coll_name);
+                            if (coll_to_ref_it == coll_to_references.end()) {
+                                continue;
+                            }
+
+                            ////////////////////
+                            LOG(INFO) << ".........................................." << std::to_string(req_id) << " is completed notifying " << coll_name;
+                            coll_to_ref_it->second.cv.notify_one();
+                        }
+
+                        req_to_waiting_collections.erase(it);
+                    }
                 }
 
                 qlk.lock();
@@ -423,7 +449,24 @@ void BatchedIndexer::run() {
                         server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
                     }
 
+                    auto req_id = it->first;
                     it = req_res_map.erase(it);
+                    auto it = req_to_waiting_collections.find(req_id);
+                    if (it != req_to_waiting_collections.end()) {
+                        for (const auto &coll_name: it->second) {
+                            auto coll_to_ref_it = coll_to_references.find(coll_name);
+                            if (coll_to_ref_it == coll_to_references.end()) {
+                                continue;
+                            }
+                            ////////////////////
+                            LOG(INFO) << ".........................................." << std::to_string(req_id)
+                                      << " is completed notifying " << coll_name;
+
+                            coll_to_ref_it->second.cv.notify_one();
+                        }
+
+                        req_to_waiting_collections.erase(it);
+                    }
                 } else {
                     it++;
                 }
@@ -526,7 +569,7 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
         auto const& coll_name = get_ref_coll_names(collection_meta_json, referenced_collections);
         if (!referenced_collections.empty()) {
             std::lock_guard lock(mutex);
-            coll_to_references[coll_name] = std::move(referenced_collections);
+            coll_to_references[coll_name].referenced_collections = std::move(referenced_collections);
         }
     }
 
