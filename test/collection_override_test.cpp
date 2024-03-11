@@ -4191,3 +4191,35 @@ TEST_F(CollectionOverrideTest, OverridesPagination) {
     ASSERT_FALSE(override_op.ok());
     ASSERT_EQ("Invalid offset param.", override_op.error());
 }
+
+TEST_F(CollectionOverrideTest, RetrieveOverideByID) {
+    Collection *coll2;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll2 = collectionManager.get_collection("coll2").get();
+    if (coll2 == nullptr) {
+        coll2 = collectionManager.create_collection("coll2", 1, fields, "points").get();
+    }
+
+    nlohmann::json override_json = {
+            {"id",       "override"},
+            {
+             "rule",     {
+                                 {"query", "not-found"},
+                                 {"match", override_t::MATCH_EXACT}
+                         }
+            },
+            {"metadata", {       {"foo",   "bar"}}},
+    };
+
+    override_json["id"] = override_json["id"].get<std::string>() + "1";
+    override_t override;
+    override_t::parse(override_json, "", override);
+
+    coll2->add_override(override);
+
+    auto op = coll2->get_override("override1");
+    ASSERT_TRUE(op.ok());
+}

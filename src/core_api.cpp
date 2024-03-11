@@ -1799,7 +1799,7 @@ bool get_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
         return false;
     }
 
-    res->set_200(overrides_op.get().to_json());
+    res->set_200(overrides_op.get().to_json().dump());
     return true;
 }
 
