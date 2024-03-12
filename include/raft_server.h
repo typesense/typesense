@@ -100,6 +100,7 @@ class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
     static constexpr const char* analytics_db_snapshot_name = "analytics_db_snapshot";
+    static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
 
     mutable std::shared_mutex node_mutex;
 

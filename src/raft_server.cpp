@@ -563,7 +563,7 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
 
         nlohmann::json batch_index_state;
         batched_indexer->serialize_state(batch_index_state);
-        store->insert(CollectionManager::BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
+        store->insert(BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
 
         // we will delete all the skip indices in meta store and flush that DB
         // this will block writes, but should be pretty fast
@@ -579,7 +579,7 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
         }
 
         if(analytics_store) {
-            analytics_store->insert(CollectionManager::BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
+            analytics_store->insert(BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
             rocksdb::Checkpoint* checkpoint2 = nullptr;
             status = analytics_store->create_check_point(&checkpoint2, analytics_db_snapshot_path);
             std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint2);
@@ -624,6 +624,16 @@ int ReplicationState::init_db() {
     } else {
         LOG(ERROR)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
         return 1;
+    }
+
+    if(batched_indexer != nullptr) {
+        LOG(INFO) << "Initializing batched indexer from snapshot state...";
+        std::string batched_indexer_state_str;
+        StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
+        if(s == FOUND) {
+            nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
+            batched_indexer->load_state(batch_indexer_state);
+        }
     }
 
     return 0;

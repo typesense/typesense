@@ -2241,6 +2241,18 @@ bool is_doc_import_route(uint64_t route_hash) {
     return found && (rpath->handler == post_import_documents);
 }
 
+bool is_coll_create_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == post_create_collection);
+}
+
+bool is_drop_collection_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == del_drop_collection);
+}
+
 bool is_doc_write_route(uint64_t route_hash) {
     route_path* rpath;
     bool found = server->get_route(route_hash, &rpath);

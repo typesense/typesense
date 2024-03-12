@@ -78,8 +78,6 @@ private:
 
     std::atomic<bool>* quit;
 
-    BatchedIndexer* batch_indexer;
-
     // All the references to a particular collection are stored until it is created.
     std::map<std::string, std::set<reference_pair>> referenced_in_backlog;
 
@@ -103,7 +101,6 @@ public:
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
     static constexpr const char* SYMLINK_PREFIX = "$SL";
     static constexpr const char* PRESET_PREFIX = "$PS";
-    static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
 
     static CollectionManager & get_instance() {
         static CollectionManager instance;
@@ -147,7 +144,7 @@ public:
     // PUBLICLY EXPOSED API
 
     void init(Store *store, ThreadPool* thread_pool, const float max_memory_ratio,
-              const std::string & auth_key, std::atomic<bool>& quit, BatchedIndexer* batch_indexer);
+              const std::string & auth_key, std::atomic<bool>& quit);
 
     // only for tests!
     void init(Store *store, const float max_memory_ratio, const std::string & auth_key, std::atomic<bool>& exit);
@@ -238,4 +235,6 @@ public:
 
     static void _populate_referenced_ins(const std::string& collection_meta_json,
                                          std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins);
+
+    std::unordered_set<std::string> get_collection_references(const std::string& coll_name);
 };

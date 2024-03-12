@@ -436,7 +436,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
-                           config.get_api_key(), quit_raft_service, batch_indexer);
+                           config.get_api_key(), quit_raft_service);
 
     StopwordsManager& stopwordsManager = StopwordsManager::get_instance();
     stopwordsManager.init(&store);
