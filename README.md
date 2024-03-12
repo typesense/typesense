@@ -112,7 +112,7 @@ We'd love to benchmark with larger datasets, if we can find large ones in the pu
 
 Typesense is used by a range of users across different domains and verticals.
 
-On Typesense Cloud we serve more than **3 BILLION** searches per month. Typesense's Docker images have been downloaded over 7M times.
+On Typesense Cloud we serve more than **3 BILLION** searches per month. Typesense's Docker images have been downloaded over 12M times.
 
 We've recently started documenting who's using it in our [Showcase](SHOWCASE.md).
 If you'd like to be included in the list, please feel free to edit [SHOWCASE.md](SHOWCASE.md) and send us a PR.
