@@ -3087,40 +3087,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
         }
 
-        if(enable_synonyms) {
-            synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
-        }
-
-        if (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem) {
-            auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
-            for(auto& q_include_token: q_include_tokens) {
-                q_include_token = stemmer->stem(q_include_token);
-            }
-
-            for(auto& q_token: field_query_tokens[0].q_include_tokens) {
-                q_token.value = stemmer->stem(q_token.value);
-            }
-        }
-
-        if(!field_query_tokens[0].q_synonyms.empty()) {
-            syn_orig_num_tokens = field_query_tokens[0].q_include_tokens.size();
-        }
-
-        for(const auto& q_syn_vec: field_query_tokens[0].q_synonyms) {
-            std::vector<token_t> q_pos_syn;
-            for(size_t j=0; j < q_syn_vec.size(); j++) {
-                bool is_prefix = (j == q_syn_vec.size()-1);
-                q_pos_syn.emplace_back(j, q_syn_vec[j], is_prefix, q_syn_vec[j].size(), 0);
-            }
-
-            q_pos_synonyms.push_back(q_pos_syn);
-            all_queries.push_back(q_pos_syn);
-
-            if((int)q_syn_vec.size() > syn_orig_num_tokens) {
-                syn_orig_num_tokens = (int) q_syn_vec.size();
-            }
-        }
-
         auto fuzzy_search_fields_op = fuzzy_search_fields(the_fields, field_query_tokens[0].q_include_tokens, {}, match_type,
                                                           excluded_result_ids, excluded_result_ids_size,
                                                           filter_result_iterator, curated_ids_sorted,
@@ -3183,6 +3149,52 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 if (!fuzzy_search_fields_op.ok()) {
                     return fuzzy_search_fields_op;
                 }
+            }
+        }
+
+        if(enable_synonyms) {
+            synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
+
+            if (field_query_tokens[0].q_synonyms.empty() && !searched_queries.empty()) {
+                //try with typo corrected tokens
+                q_include_tokens.clear();
+                for (auto i = 0; i < searched_queries.size(); ++i) {
+                    for (auto j = 0; j < searched_queries[i].size(); j++) {
+                        std::string token(reinterpret_cast<char*>(searched_queries[i][j]->key), searched_queries[i][j]->key_len - 1);
+                        q_include_tokens.push_back(token);
+                    }
+                }
+                synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
+            }
+        }
+
+        if (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem) {
+            auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
+            for(auto& q_include_token: q_include_tokens) {
+                q_include_token = stemmer->stem(q_include_token);
+            }
+
+            for(auto& q_token: field_query_tokens[0].q_include_tokens) {
+                q_token.value = stemmer->stem(q_token.value);
+            }
+        }
+
+        if(!field_query_tokens[0].q_synonyms.empty()) {
+            syn_orig_num_tokens = field_query_tokens[0].q_include_tokens.size();
+        }
+
+        for(const auto& q_syn_vec: field_query_tokens[0].q_synonyms) {
+            std::vector<token_t> q_pos_syn;
+            for(size_t j=0; j < q_syn_vec.size(); j++) {
+                bool is_prefix = (j == q_syn_vec.size()-1);
+                q_pos_syn.emplace_back(j, q_syn_vec[j], is_prefix, q_syn_vec[j].size(), 0);
+            }
+
+            q_pos_synonyms.push_back(q_pos_syn);
+            all_queries.push_back(q_pos_syn);
+
+            if((int)q_syn_vec.size() > syn_orig_num_tokens) {
+                syn_orig_num_tokens = (int) q_syn_vec.size();
             }
         }
 
