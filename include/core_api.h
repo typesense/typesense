@@ -180,6 +180,10 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params, co
 
 bool is_doc_import_route(uint64_t route_hash);
 
+bool is_coll_create_route(uint64_t route_hash);
+
+bool is_drop_collection_route(uint64_t route_hash);
+
 bool is_doc_write_route(uint64_t route_hash);
 
 bool is_doc_del_route(uint64_t route_hash);
