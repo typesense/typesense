@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <string_utils.h>
 #include "tokenizer.h"
+#include <unicode/uchar.h>
 
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
                      const std::vector<char>& symbols_to_index,
@@ -102,6 +103,11 @@ void Tokenizer::init(const std::string& input) {
     }
 }
 
+bool Tokenizer::belongs_to_general_punctuation_unicode_block(UChar c) {
+    UBlockCode blockCode = ublock_getCode(c);
+    return blockCode == UBLOCK_GENERAL_PUNCTUATION;
+}
+
 bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_index, size_t& end_index) {
     if(no_op) {
         if(i == text.size()) {
@@ -142,7 +148,14 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 icu::UnicodeString dst;
                 nfkc->normalize(src, dst, errcode);
                 if(!U_FAILURE(errcode)) {
-                    dst.toUTF8String(word);
+                    icu::UnicodeString transformedString;
+                    for (int32_t t = 0; t < dst.length(); t++) {
+                        if (!belongs_to_general_punctuation_unicode_block(dst[t])) {
+                            transformedString += dst[t];
+                        }
+                    }
+
+                    transformedString.toUTF8String(word);
                 } else {
                     LOG(ERROR) << "Unicode error during parsing: " << errcode;
                 }

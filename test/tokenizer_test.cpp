@@ -345,6 +345,21 @@ TEST(TokenizerTest, ShouldTokenizeLocaleTextWithEnglishText) {
     ASSERT_EQ("math", ttokens[8]);
 }
 
+TEST(TokenizerTest, ShouldRemoveGenericPunctuationFromThaiText) {
+    std::string tstr = "f’’b";
+    std::vector<std::string> ttokens;
+    Tokenizer(tstr, true, false, "th").tokenize(ttokens);
+    ASSERT_EQ(2, ttokens.size());
+    ASSERT_EQ("f", ttokens[0]);
+    ASSERT_EQ("b", ttokens[1]);
+
+    ttokens.clear();
+    tstr = "Lay’s";
+    Tokenizer(tstr, true, false, "th").tokenize(ttokens);
+    ASSERT_EQ(1, ttokens.size());
+    ASSERT_EQ("lays", ttokens[0]);
+}
+
 TEST(TokenizerTest, ShouldTokenizeLocaleTextWithSwedishText) {
     std::string tstr = "södra";
     std::vector<std::string> ttokens;
