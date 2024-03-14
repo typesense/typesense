@@ -183,14 +183,23 @@ struct StringUtils {
         return (*p == 0) && ul <= std::numeric_limits<uint32_t>::max();
     }
 
-    static bool is_int32_t(const std::string &s) {
+    static Option<bool> is_int32_t(const std::string &s) {
         if(s.empty()) {
-            return false;
+            return Option<bool>(400, "empty");
         }
 
+        errno = 0; // strtol will set this to ERANGE in case s exceeds the range of long.
         char * p ;
         long val = strtol(s.c_str(), &p, 10);
-        return (*p == 0) && val >= std::numeric_limits<int32_t>::min() && val <= std::numeric_limits<int32_t>::max();
+
+        if (*p != 0) {
+            return Option<bool>(400, "Not an int32.");
+        } else if (errno == ERANGE ||
+                    !(val >= std::numeric_limits<int32_t>::min() && val <= std::numeric_limits<int32_t>::max())) {
+            return Option<bool>(400, "`" + s + "` exceeds the range of an int32.");
+        }
+
+        return Option<bool>(true);
     }
 
     static bool is_bool(std::string &s) {

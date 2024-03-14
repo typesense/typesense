@@ -281,7 +281,7 @@ Option<uint32_t> validator_t::coerce_int32_t(const DIRTY_VALUES& dirty_values, c
         item = item == true ? 1 : 0;
     }
 
-    else if(item.is_string() && StringUtils::is_int32_t(item)) {
+    else if(item.is_string() && StringUtils::is_int32_t(item).ok()) {
         item = std::atol(item.get<std::string>().c_str());
     }
 

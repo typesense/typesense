@@ -5,8 +5,12 @@
 #include "filter.h"
 
 Option<bool> filter::validate_numerical_filter_value(field _field, const string &raw_value) {
-    if(_field.is_int32() && !StringUtils::is_int32_t(raw_value)) {
-        return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
+    if(_field.is_int32()) {
+        auto op = StringUtils::is_int32_t(raw_value);
+        if (!op.ok()) {
+            return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op.error());
+        }
+        return Option<bool>(true);
     }
 
     else if(_field.is_int64() && !StringUtils::is_int64_t(raw_value)) {
