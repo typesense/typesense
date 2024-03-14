@@ -417,7 +417,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         auto now = std::chrono::high_resolution_clock::now();
         const auto cache_ttl_it = req->params.find("cache_ttl");
         uint32_t cache_ttl = 60;
-        if(cache_ttl_it != req->params.end() && StringUtils::is_int32_t(cache_ttl_it->second)) {
+        if(cache_ttl_it != req->params.end() && StringUtils::is_int32_t(cache_ttl_it->second).ok()) {
             cache_ttl = std::stoul(cache_ttl_it->second);
         }
 
@@ -841,7 +841,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         auto now = std::chrono::high_resolution_clock::now();
         const auto cache_ttl_it = req->params.find("cache_ttl");
         uint32_t cache_ttl = 60;
-        if(cache_ttl_it != req->params.end() && StringUtils::is_int32_t(cache_ttl_it->second)) {
+        if(cache_ttl_it != req->params.end() && StringUtils::is_int32_t(cache_ttl_it->second).ok()) {
             cache_ttl = std::stoul(cache_ttl_it->second);
         }
 

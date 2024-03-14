@@ -90,7 +90,8 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
         filter_query[filter_query.size() - 1] = '=';
         filter_query += (" " + value.get<std::string>());
     } else if (value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                                             (ref_field_type == field_types::INT32 && StringUtils::is_int32_t(std::to_string(value.get<int64_t>()))))) {
+                                             (ref_field_type == field_types::INT32 &&
+                                              StringUtils::is_int32_t(std::to_string(value.get<int64_t>())).ok()))) {
         filter_query += std::to_string(value.get<int64_t>());
     } else {
         return Option<bool>(400, "Field `" + field_name + "` must have `" + ref_field_type + "` value.");
@@ -274,7 +275,8 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
                 if (item_value.is_string() && ref_field_type == field_types::STRING) {
                     filter_query += item_value.get<std::string>();
                 } else if (item_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                    (ref_field_type == field_types::INT32 && StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>()))))) {
+                                                              (ref_field_type == field_types::INT32 &&
+                                                               StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>())).ok()))) {
                     filter_query += std::to_string(item_value.get<int64_t>());
                 } else {
                     return Option<bool>(400, "Field `" + field_name + "` must only have `" + ref_field_type + "` values.");
