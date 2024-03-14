@@ -1267,10 +1267,14 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
                 response_stream << "\n" << json_lines[i];
             }
         }
+
+        // Since we use `res->status_code == 0` for flagging `res_start`, we will only set this
+        // when we have accumulated enough response data to stream.
+        // Otherwise, we will send an empty line as first response.
+        res->status_code = 200;
     }
 
     res->content_type_header = "text/plain; charset=utf-8";
-    res->status_code = 200;
     res->body = response_stream.str();
 
     res->final.store(req->last_chunk_aggregate);
