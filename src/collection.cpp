@@ -4709,7 +4709,7 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
     return synonym_index->synonym_reduction(tokens, results);
 }
 
-spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
+spp::sparse_hash_map<uint32_t, synonym_t> Collection::get_synonyms() {
     std::shared_lock lock(mutex);
     return synonym_index->get_synonyms();
 }

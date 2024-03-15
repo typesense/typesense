@@ -628,7 +628,7 @@ public:
 
     // synonym operations
 
-    spp::sparse_hash_map<std::string, synonym_t> get_synonyms();
+    spp::sparse_hash_map<uint32_t, synonym_t> get_synonyms();
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 

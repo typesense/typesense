@@ -703,8 +703,9 @@ TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
     ASSERT_EQ(2, coll_mul_fields->get_synonyms().size());
     coll_mul_fields->remove_synonym("ipod-synonyms");
 
-    ASSERT_EQ(1, coll_mul_fields->get_synonyms().size());
-    ASSERT_STREQ("samsung-synonyms", coll_mul_fields->get_synonyms()["samsung-synonyms"].id.c_str());
+    auto synonyms = coll_mul_fields->get_synonyms();
+    ASSERT_EQ(1, synonyms.size());
+    ASSERT_STREQ("samsung-synonyms", synonyms.begin()->second.id.c_str());
 
     // try to upsert synonym with same ID
 
@@ -1149,4 +1150,47 @@ TEST_F(CollectionSynonymsTest, EnableSynonymFlag) {
                         "", false, enable_synonyms).get();
 
     ASSERT_EQ(0, res["hits"].size());
+}
+
+TEST_F(CollectionSynonymsTest, SynonymTypos) {
+    nlohmann::json schema = R"({
+        "name": "coll3",
+        "fields": [
+          {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection *coll3 = op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Cool Trousers";
+
+    auto add_op = coll3->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json synonym1 = R"({
+        "id": "foobar",
+        "synonyms": ["trousers", "pants"]
+    })"_json;
+
+    ASSERT_TRUE(coll3->add_synonym(synonym1).ok());
+
+    auto res = coll3->search("trousers", {"title"}, "", {},
+                             {}, {0}, 10, 1, FREQUENCY, {true},0).get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    res = coll3->search("truoesrs", {"title"}, "", {},
+                        {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    res = coll3->search("pants", {"title"}, "", {},
+                        {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    res = coll3->search("patns", {"title"}, "", {},
+                        {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
 }
