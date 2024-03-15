@@ -1,47 +1,33 @@
 #include "synonym_index.h"
 #include "posting.h"
 
-uint32_t SynonymIndex::get_token_cost(const std::string &token, bool typos_enabled) const {
-    if(!typos_enabled) {
-        return 0;
-    }
-
-    if(token.size() < 3) {
-        return 0;
-    } else if(token.size() < 7) {
-        return 1;
-    }
-
-    return 2;
-}
-
 void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& tokens,
                                             size_t start_window_size, size_t start_index_pos,
                                             std::set<std::string>& processed_tokens,
                                             std::vector<std::vector<std::string>>& results,
                                             const std::vector<std::string>& orig_tokens,
-                                            bool typos_enabled) const {
+                                            bool synonym_prefix, uint32_t synonym_num_typos) const {
 
     bool recursed = false;
 
     for(size_t window_len = start_window_size; window_len > 0; window_len--) {
         for(size_t start_index = start_index_pos; start_index+window_len-1 < tokens.size(); start_index++) {
-            std::string merged_tokens="";
-            auto max_cost = 0;
+            std::string merged_tokens_str="";
             for(size_t i = start_index; i < start_index+window_len; i++) {
-                merged_tokens += tokens[i];
-                merged_tokens += " ";
-                max_cost += get_token_cost(tokens[i], typos_enabled);
+                merged_tokens_str += tokens[i];
+                merged_tokens_str += " ";
             }
-            StringUtils::trim(merged_tokens);
+            StringUtils::trim(merged_tokens_str);
 
             std::vector<art_leaf*> leaves;
             std::set<std::string> exclude_leaves;
+            auto merged_tokens_len = strlen(merged_tokens_str.c_str());
+            merged_tokens_len = synonym_prefix ? merged_tokens_len : merged_tokens_len + 1;
 
-            art_fuzzy_search(synonym_index_tree, (unsigned char*)merged_tokens.c_str(), merged_tokens.size() + 1, 0, max_cost,
-                             10, FREQUENCY, false, false, "", nullptr, 0, leaves, exclude_leaves);
+            art_fuzzy_search(synonym_index_tree, (unsigned char*)merged_tokens_str.c_str(), merged_tokens_len, 0, synonym_num_typos,
+                             10, FREQUENCY, synonym_prefix, false, "", nullptr, 0, leaves, exclude_leaves);
 
-            if(processed_tokens.count(merged_tokens) == 0) {
+            if(processed_tokens.count(merged_tokens_str) == 0) {
                 // tokens in this window match a synonym: reconstruct tokens and rerun synonym mapping against matches
                 for (const auto &leaf: leaves) {
                     for (auto index = 0; index < synonym_index; ++index) {
@@ -55,27 +41,24 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
                                     new_tokens.push_back(tokens[i]);
                                 }
 
-                                std::string token_synonyms_str="";
                                 for (size_t i = 0; i < syn_def_tokens.size(); i++) {
                                     const auto &syn_def_token = syn_def_tokens[i];
                                     new_tokens.push_back(syn_def_token);
                                     processed_tokens.emplace(syn_def_token);
-                                    token_synonyms_str+= syn_def_token;
-                                    token_synonyms_str+=" ";
                                 }
 
                                 for (size_t i = start_index + window_len; i < tokens.size(); i++) {
                                     new_tokens.push_back(tokens[i]);
                                 }
 
-                                processed_tokens.emplace(merged_tokens);
-                                StringUtils::trim(token_synonyms_str);
-                                processed_tokens.emplace(token_synonyms_str);
+                                processed_tokens.emplace(merged_tokens_str);
+                                auto syn_def_tokens_str = StringUtils::join(syn_def_tokens, " ");
+                                processed_tokens.emplace(syn_def_tokens_str);
 
                                 recursed = true;
                                 synonym_reduction_internal(new_tokens, window_len,
                                                            start_index, processed_tokens, results, orig_tokens,
-                                                           typos_enabled);
+                                                           synonym_prefix, synonym_num_typos);
                             }
                         }
                     }
@@ -93,18 +76,16 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
 }
 
 void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
-                                   std::vector<std::vector<std::string>>& results) const {
+                                     std::vector<std::vector<std::string>>& results,
+                                     bool synonym_prefix, uint32_t synonym_num_typos) const {
     std::shared_lock lock(mutex);
     if(synonym_definitions.empty()) {
         return;
     }
 
     std::set<std::string> processed_tokens;
-    synonym_reduction_internal(tokens, tokens.size(), 0, processed_tokens, results, tokens);
-    if(results.empty()) {
-        //try with enabling typos
-        synonym_reduction_internal(tokens, tokens.size(), 0, processed_tokens, results, tokens, true);
-    }
+    synonym_reduction_internal(tokens, tokens.size(), 0, processed_tokens, results, tokens,
+                               synonym_prefix, synonym_num_typos);
 }
 
 Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, const synonym_t& synonym,
@@ -124,25 +105,14 @@ Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, cons
     synonym_ids_index_map[synonym.id] = synonym_index;
 
     std::vector<std::string> keys;
-    std::string all_tokens="";
 
     if(!synonym.root.empty()) {
-        all_tokens.clear();
-        for (const auto &tok: synonym.root) {
-            all_tokens += tok;
-            all_tokens += " ";
-        }
-        StringUtils::trim(all_tokens);
-        keys.push_back(all_tokens);
+        auto root_tokens_str = StringUtils::join(synonym.root, " ");
+        keys.push_back(root_tokens_str);
     } else {
         for(const auto & syn_tokens : synonym.synonyms) {
-            all_tokens.clear();
-            for (const auto &tok: syn_tokens) {
-                all_tokens += tok;
-                all_tokens += " ";
-            }
-            StringUtils::trim(all_tokens);
-            keys.push_back(all_tokens);
+            auto synonyms_str = StringUtils::join(syn_tokens, " ");
+            keys.push_back(synonyms_str);
         }
     }
 

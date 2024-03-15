@@ -585,7 +585,9 @@ public:
                                   const std::string& override_tags_str = "",
                                   const std::string& voice_query = "",
                                   bool enable_typos_for_numerical_tokens = true,
-                                  bool enable_synonyms = true) const;
+                                  bool enable_synonyms = true,
+                                  bool synonym_prefix = false,
+                                  uint32_t synonym_num_typos = 0) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
@@ -637,7 +639,8 @@ public:
     Option<bool> remove_synonym(const std::string & id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
-                           std::vector<std::vector<std::string>>& results) const;
+                           std::vector<std::vector<std::string>>& results,
+                           bool synonym_prefix = false, uint32_t synonym_num_typos = 0) const;
 
     SynonymIndex* get_synonym_index();
 

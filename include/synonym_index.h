@@ -61,10 +61,7 @@ private:
                                     std::set<std::string>& processed_tokens,
                                     std::vector<std::vector<std::string>>& results,
                                     const std::vector<std::string>& orig_tokens,
-                                    bool typos_enabled = false) const;
-
-    uint32_t get_token_cost(const std::string& token, bool typos_enabled) const;
-
+                                    bool synonym_prefix, uint32_t synonym_num_typos) const;
 public:
 
     static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
@@ -82,7 +79,8 @@ public:
     static std::string get_synonym_key(const std::string & collection_name, const std::string & synonym_id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
-                           std::vector<std::vector<std::string>>& results) const;
+                           std::vector<std::vector<std::string>>& results,
+                           bool synonym_prefix, uint32_t synonym_num_typos) const;
 
     spp::sparse_hash_map<uint32_t, synonym_t> get_synonyms();
 
