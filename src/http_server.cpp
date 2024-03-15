@@ -538,6 +538,8 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         request->metadata = multi_search_key;
     }
 
+    LOG(INFO) << "action: " << rpath->action;
+
     // routes match and is an authenticated request
     // do any additional pre-request middleware operations here
     if(rpath->action == "keys:create") {

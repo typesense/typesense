@@ -485,63 +485,7 @@ struct route_path {
         return (hash > 100) ? hash : (hash + 100);  // [0-99] reserved for special codes
     }
 
-    std::string _get_action() {
-        // `resource:operation` forms an action
-        // operations: create, get, list, delete, search, import, export
-
-        std::string resource;
-        std::string operation;
-
-        size_t resource_index = 0;
-        size_t identifier_index = 0;
-
-        for(size_t i = 0; i < path_parts.size(); i++) {
-            if(path_parts[i][0] == ':') {
-                identifier_index = i;
-            }
-        }
-
-        if(identifier_index == 0) {
-            // means that no identifier found, so set the last part as resource
-            resource_index = path_parts.size() - 1;
-        } else if(identifier_index == (path_parts.size() - 1)) {
-            // is already last position
-            resource_index = identifier_index - 1;
-        } else {
-            resource_index = identifier_index + 1;
-        }
-
-        resource = path_parts[resource_index];
-
-        // special case to maintain semantics and backward compatibility
-        if(resource == "multi_search") {
-            return "documents:search";
-        }
-
-        if(resource_index != path_parts.size() - 1 && path_parts[resource_index+1][0] != ':') {
-            // e.g. /collections/:collection/documents/search
-            operation = path_parts[resource_index+1];
-        } else {
-            // e.g /collections or /collections/:collection/foo or /collections/:collection
-
-            if(http_method == "GET") {
-                // GET can be a `get` or `list`
-                operation = (resource_index == path_parts.size()-1) ? "list" : "get";
-            } else if(http_method == "POST") {
-                operation = "create";
-            } else if(http_method == "PUT") {
-                operation = "upsert";
-            } else if(http_method == "DELETE") {
-                operation = "delete";
-            } else if(http_method == "PATCH") {
-                operation = "update";
-            } else {
-                operation = "unknown";
-            }
-        }
-
-        return resource + ":" + operation;
-    }
+    std::string _get_action();
 };
 
 struct h2o_custom_res_message_t {
