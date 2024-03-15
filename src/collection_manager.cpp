@@ -210,7 +210,8 @@ void CollectionManager::init(Store *store, ThreadPool* thread_pool,
                              const float max_memory_ratio,
                              const std::string & auth_key,
                              std::atomic<bool>& quit,
-                             BatchedIndexer* batch_indexer) {
+                             BatchedIndexer* batch_indexer,
+                             const uint16_t& filter_by_max_operations) {
     std::unique_lock lock(mutex);
 
     this->store = store;
@@ -219,13 +220,15 @@ void CollectionManager::init(Store *store, ThreadPool* thread_pool,
     this->max_memory_ratio = max_memory_ratio;
     this->quit = &quit;
     this->batch_indexer = batch_indexer;
+    this->filter_by_max_ops = filter_by_max_operations;
 }
 
 // used only in tests!
 void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key,
-                             std::atomic<bool>& quit) {
+                             std::atomic<bool>& quit,
+                             const uint16_t& filter_by_max_operations) {
     ThreadPool* thread_pool = new ThreadPool(8);
-    init(store, thread_pool, max_memory_ratio, auth_key, quit, nullptr);
+    init(store, thread_pool, max_memory_ratio, auth_key, quit, nullptr, filter_by_max_operations);
 }
 
 Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {

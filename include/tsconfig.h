@@ -76,6 +76,8 @@ private:
 
     bool enable_search_logging;
 
+    uint16_t filter_by_max_ops;
+
 protected:
 
     Config() {
@@ -107,6 +109,8 @@ protected:
         this->db_compaction_interval = 0;     // in seconds, disabled
 
         this->enable_search_logging = false;
+
+        this->filter_by_max_ops = FILTER_BY_DEFAULT_OPERATIONS;
     }
 
     Config(Config const&) {
@@ -114,6 +118,8 @@ protected:
     }
 
 public:
+
+    static constexpr uint16_t FILTER_BY_DEFAULT_OPERATIONS = 100;
 
     static Config & get_instance() {
         static Config instance;
@@ -364,6 +370,10 @@ public:
         return skip_writes;
     }
 
+    uint16_t get_filter_by_max_ops() const {
+        return filter_by_max_ops;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -494,6 +504,10 @@ public:
 
         if(!get_env("TYPESENSE_MEMORY_USED_MAX_PERCENTAGE").empty()) {
             this->memory_used_max_percentage = std::stoi(get_env("TYPESENSE_MEMORY_USED_MAX_PERCENTAGE"));
+        }
+
+        if(!get_env("TYPESENSE_FILTER_BY_MAX_OPS").empty()) {
+            this->filter_by_max_ops = std::stoi(get_env("TYPESENSE_FILTER_BY_MAX_OPS"));
         }
 
         this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
@@ -689,6 +703,10 @@ public:
             this->reset_peers_on_error = (reset_peers_on_error_str == "true");
         }
 
+        if(reader.Exists("server", "filter-by-max-ops")) {
+            this->filter_by_max_ops = (uint16_t) reader.GetInteger("server", "filter-by-max-ops", FILTER_BY_DEFAULT_OPERATIONS);
+        }
+
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -853,6 +871,10 @@ public:
 
         if(options.exist("enable-search-logging")) {
             this->enable_search_logging = options.get<bool>("enable-search-logging");
+        }
+
+        if(options.exist("filter-by-max-ops")) {
+            this->filter_by_max_ops = options.get<uint16_t>("filter-by-max-ops");
         }
     }
 

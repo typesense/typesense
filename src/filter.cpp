@@ -759,8 +759,9 @@ Option<bool> filter::parse_filter_query(const std::string& filter_query,
         return toPostfix_op;
     }
 
-    if (postfix.size() > 100) {
-        return Option<bool>(400, "`filter_by` has too many operations.");
+    auto const& max_ops = CollectionManager::get_instance().filter_by_max_ops;
+    if (postfix.size() > max_ops) {
+        return Option<bool>(400, "`filter_by` has too many operations. Maximum allowed: " + std::to_string(max_ops));
     }
 
     Option<bool> toParseTree_op = toParseTree(postfix,
