@@ -8,6 +8,7 @@
 
 class CollectionFilteringTest : public ::testing::Test {
 protected:
+    std::string state_dir_path = "/tmp/typesense_test/collection_filtering";
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
@@ -16,7 +17,6 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_filtering";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -2204,7 +2204,31 @@ TEST_F(CollectionFilteringTest, ComplexFilterQuery) {
     search_op = coll->search("Jeremy", {"name"}, extreme_filter,
                              {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(search_op.ok());
-    ASSERT_EQ("`filter_by` has too many operations.", search_op.error());
+    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 100", search_op.error());
+
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit, 109); // Re-initialize with 109 filter operations allowed.
+    auto load_op = collectionManager.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+    ASSERT_TRUE(load_op.ok());
+
+    coll = collectionManager.get_collection_unsafe("ComplexFilterQueryCollection");
+    search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+                                  {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(search_op.ok());
+    ASSERT_EQ(1, search_op.get()["hits"].size());
+
+    extreme_filter += "|| (years:>2000 && ((age:<30 && rating:>5) || (age:>50 && rating:<5)))";
+    search_op = coll->search("Jeremy", {"name"}, extreme_filter,
+                             {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("`filter_by` has too many operations. Maximum allowed: 109", search_op.error());
 
     collectionManager.drop_collection("ComplexFilterQueryCollection");
 }
