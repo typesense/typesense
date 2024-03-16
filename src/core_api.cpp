@@ -833,8 +833,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             auto conversation_history = get_conversation_op.get();
             if(!exclude_conversation_history) {
                 response["conversation"]["conversation_history"] = conversation_history;
+            } else {
+                response["conversation"]["conversation_id"] = conversation_id;
             }
-            response["conversation"]["conversation_id"] = conversation_id;
         } else {
             nlohmann::json conversation_history = nlohmann::json::array();
             conversation_history.push_back(formatted_question_op.get());
