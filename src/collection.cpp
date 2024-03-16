@@ -2768,7 +2768,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());
         }
         result["conversation"]["answer"] = qa_op.get();
-        result["conversation"]["conversation_id"] = conversation_id;
+        if(exclude_fields.count("conversation_history") != 0) {
+            result["conversation"]["conversation_id"] = conversation_id;
+        }
 
         auto formatted_question_op = ConversationModel::format_question(raw_query, conversation_model);
         if(!formatted_question_op.ok()) {
