@@ -477,6 +477,11 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
     ASSERT_EQ(false, result_op.ok());
     ASSERT_STREQ("Error with filter field `points`: Numerical field has an invalid comparator.", result_op.error().c_str());
 
+    result_op = coll_mul_fields->search("captain", query_fields, "points:<= foo", facets, sort_fields, {0}, 10, 1,
+                                        FREQUENCY, {false});
+    ASSERT_FALSE(result_op.ok());
+    ASSERT_EQ("Error with filter field `points`: Not an int32.", result_op.error());
+
     // bad filter value type - equaling float on an integer field
     result_op = coll_mul_fields->search("captain", query_fields, "points: 100.34", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, {false});
@@ -493,7 +498,12 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
     result_op = coll_mul_fields->search("captain", query_fields, "points: <2230070399", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, {false});
     ASSERT_EQ(false, result_op.ok());
-    ASSERT_STREQ("Error with filter field `points`: Not an int32.", result_op.error().c_str());
+    ASSERT_EQ("Error with filter field `points`: `2230070399` exceeds the range of an int32.", result_op.error());
+
+    result_op = coll_mul_fields->search("captain", query_fields, "points:<= 9223372036854775808", facets, sort_fields, {0}, 10, 1,
+                                        FREQUENCY, {false});
+    ASSERT_FALSE(result_op.ok());
+    ASSERT_EQ("Error with filter field `points`: `9223372036854775808` exceeds the range of an int32.", result_op.error());
 
     // using a string filter value against an integer field
     result_op = coll_mul_fields->search("captain", query_fields, "points: <sdsdfsdf", facets, sort_fields, {0}, 10, 1,
