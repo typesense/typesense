@@ -945,9 +945,12 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithPrecision) {
     std::vector<std::string> expected_ids = {
         "6", "2", "1", "0", "3", "4", "7", "5"
     };
+    std::vector<uint32_t> geo_distance_meters = {900,900,900,900,1800,2700,3600,3600};
 
     for (size_t i = 0; i < expected_ids.size(); i++) {
-        ASSERT_STREQ(expected_ids[i].c_str(), results["hits"][i]["document"]["id"].get<std::string>().c_str());
+        auto const& hit = results["hits"][i];
+        ASSERT_EQ(expected_ids[i], hit["document"]["id"]);
+        ASSERT_EQ(geo_distance_meters[i], hit["geo_distance_meters"]["loc"]);
     }
 
     // badly formatted precision
