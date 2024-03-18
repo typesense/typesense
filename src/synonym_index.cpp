@@ -1,83 +1,66 @@
 #include "synonym_index.h"
-
+#include "posting.h"
 
 void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& tokens,
                                             size_t start_window_size, size_t start_index_pos,
-                                            std::set<uint64_t>& processed_syn_hashes,
+                                            std::set<std::string>& processed_tokens,
                                             std::vector<std::vector<std::string>>& results,
-                                            const std::vector<std::string>& orig_tokens) const {
+                                            const std::vector<std::string>& orig_tokens,
+                                            bool synonym_prefix, uint32_t synonym_num_typos) const {
 
     bool recursed = false;
 
     for(size_t window_len = start_window_size; window_len > 0; window_len--) {
         for(size_t start_index = start_index_pos; start_index+window_len-1 < tokens.size(); start_index++) {
-            std::vector<uint64_t> syn_hashes;
-            uint64_t syn_hash = 1;
-
+            std::string merged_tokens_str="";
             for(size_t i = start_index; i < start_index+window_len; i++) {
-                uint64_t token_hash = StringUtils::hash_wy(tokens[i].c_str(), tokens[i].size());
-
-                if(i == start_index) {
-                    syn_hash = token_hash;
-                } else {
-                    syn_hash = StringUtils::hash_combine(syn_hash, token_hash);
-                }
-
-                syn_hashes.push_back(token_hash);
+                merged_tokens_str += tokens[i];
+                merged_tokens_str += " ";
             }
+            StringUtils::trim(merged_tokens_str);
 
-            const auto& syn_itr = synonym_index.find(syn_hash);
+            std::vector<art_leaf*> leaves;
+            std::set<std::string> exclude_leaves;
+            auto merged_tokens_len = strlen(merged_tokens_str.c_str());
+            merged_tokens_len = synonym_prefix ? merged_tokens_len : merged_tokens_len + 1;
 
-            if(syn_itr != synonym_index.end() && processed_syn_hashes.count(syn_hash) == 0) {
+            art_fuzzy_search(synonym_index_tree, (unsigned char*)merged_tokens_str.c_str(), merged_tokens_len, 0, synonym_num_typos,
+                             10, FREQUENCY, synonym_prefix, false, "", nullptr, 0, leaves, exclude_leaves);
+
+            if(processed_tokens.count(merged_tokens_str) == 0) {
                 // tokens in this window match a synonym: reconstruct tokens and rerun synonym mapping against matches
-                const auto& syn_ids = syn_itr->second;
+                for (const auto &leaf: leaves) {
+                    for (auto index = 0; index < synonym_index; ++index) {
+                        if (posting_t::contains(leaf->values, index)) {
+                            const auto &syn_def = synonym_definitions.at(index);
 
-                for(const auto& syn_id: syn_ids) {
-                    const auto &syn_def = synonym_definitions.at(syn_id);
+                            for (const auto &syn_def_tokens: syn_def.synonyms) {
+                                std::vector<std::string> new_tokens;
 
-                    for (const auto &syn_def_tokens: syn_def.synonyms) {
-                        std::vector<std::string> new_tokens;
+                                for (size_t i = 0; i < start_index; i++) {
+                                    new_tokens.push_back(tokens[i]);
+                                }
 
-                        for (size_t i = 0; i < start_index; i++) {
-                            new_tokens.push_back(tokens[i]);
-                        }
+                                for (size_t i = 0; i < syn_def_tokens.size(); i++) {
+                                    const auto &syn_def_token = syn_def_tokens[i];
+                                    new_tokens.push_back(syn_def_token);
+                                    processed_tokens.emplace(syn_def_token);
+                                }
 
-                        std::vector<uint64_t> syn_def_hashes;
-                        uint64_t syn_def_hash = 1;
+                                for (size_t i = start_index + window_len; i < tokens.size(); i++) {
+                                    new_tokens.push_back(tokens[i]);
+                                }
 
-                        for (size_t i = 0; i < syn_def_tokens.size(); i++) {
-                            const auto &syn_def_token = syn_def_tokens[i];
-                            new_tokens.push_back(syn_def_token);
-                            uint64_t token_hash = StringUtils::hash_wy(syn_def_token.c_str(),
-                                                                       syn_def_token.size());
+                                processed_tokens.emplace(merged_tokens_str);
+                                auto syn_def_tokens_str = StringUtils::join(syn_def_tokens, " ");
+                                processed_tokens.emplace(syn_def_tokens_str);
 
-                            if (i == 0) {
-                                syn_def_hash = token_hash;
-                            } else {
-                                syn_def_hash = StringUtils::hash_combine(syn_def_hash, token_hash);
+                                recursed = true;
+                                synonym_reduction_internal(new_tokens, window_len,
+                                                           start_index, processed_tokens, results, orig_tokens,
+                                                           synonym_prefix, synonym_num_typos);
                             }
-
-                            syn_def_hashes.push_back(token_hash);
                         }
-
-                        for (size_t i = start_index + window_len; i < tokens.size(); i++) {
-                            new_tokens.push_back(tokens[i]);
-                        }
-
-                        processed_syn_hashes.emplace(syn_def_hash);
-                        processed_syn_hashes.emplace(syn_hash);
-
-                        for (uint64_t h: syn_def_hashes) {
-                            processed_syn_hashes.emplace(h);
-                        }
-
-                        for (uint64_t h: syn_hashes) {
-                            processed_syn_hashes.emplace(h);
-                        }
-
-                        recursed = true;
-                        synonym_reduction_internal(new_tokens, window_len,
-                                                   start_index, processed_syn_hashes, results, orig_tokens);
                     }
                 }
             }
@@ -87,46 +70,63 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
         start_index_pos = 0;
     }
 
-    if(!recursed && !processed_syn_hashes.empty() && tokens != orig_tokens) {
+    if(!recursed && !processed_tokens.empty() && tokens != orig_tokens) {
         results.emplace_back(tokens);
     }
 }
 
 void SynonymIndex::synonym_reduction(const std::vector<std::string>& tokens,
-                                   std::vector<std::vector<std::string>>& results) const {
+                                     std::vector<std::vector<std::string>>& results,
+                                     bool synonym_prefix, uint32_t synonym_num_typos) const {
     std::shared_lock lock(mutex);
     if(synonym_definitions.empty()) {
         return;
     }
 
-    std::set<uint64_t> processed_syn_hashes;
-    synonym_reduction_internal(tokens, tokens.size(), 0, processed_syn_hashes, results, tokens);
+    std::set<std::string> processed_tokens;
+    synonym_reduction_internal(tokens, tokens.size(), 0, processed_tokens, results, tokens,
+                               synonym_prefix, synonym_num_typos);
 }
 
 Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, const synonym_t& synonym,
                                        bool write_to_store) {
     std::unique_lock write_lock(mutex);
-    if(synonym_definitions.count(synonym.id) != 0) {
+    if(synonym_ids_index_map.count(synonym.id) != 0) {
         write_lock.unlock();
         // first we have to delete existing entries so we can upsert
         Option<bool> rem_op = remove_synonym(collection_name, synonym.id);
-        if(!rem_op.ok()) {
+        if (!rem_op.ok()) {
             return rem_op;
         }
-	write_lock.lock();
+        write_lock.lock();
     }
 
-    synonym_definitions[synonym.id] = synonym;
+    synonym_definitions[synonym_index] = synonym;
+    synonym_ids_index_map[synonym.id] = synonym_index;
+
+    std::vector<std::string> keys;
 
     if(!synonym.root.empty()) {
-        uint64_t root_hash = synonym_t::get_hash(synonym.root);
-        synonym_index[root_hash].emplace_back(synonym.id);
+        auto root_tokens_str = StringUtils::join(synonym.root, " ");
+        keys.push_back(root_tokens_str);
     } else {
         for(const auto & syn_tokens : synonym.synonyms) {
-            uint64_t syn_hash = synonym_t::get_hash(syn_tokens);
-            synonym_index[syn_hash].emplace_back(synonym.id);
+            auto synonyms_str = StringUtils::join(syn_tokens, " ");
+            keys.push_back(synonyms_str);
         }
     }
+
+    for(const auto& key : keys) {
+        art_leaf* exact_leaf = (art_leaf *) art_search(synonym_index_tree, (unsigned char *) key.c_str(), key.size() + 1);
+        if(exact_leaf) {
+            auto offset = posting_t::num_ids(exact_leaf->values);
+            posting_t::upsert(exact_leaf->values, synonym_index, {offset});
+        } else {
+            art_document document(synonym_index, synonym_index, {0});
+            art_insert(synonym_index_tree, (unsigned char *) key.c_str(), key.size() + 1, &document);
+        }
+    }
+    ++synonym_index;
 
     write_lock.unlock();
 
@@ -143,8 +143,9 @@ Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, cons
 bool SynonymIndex::get_synonym(const std::string& id, synonym_t& synonym) {
     std::shared_lock lock(mutex);
 
-    if(synonym_definitions.count(id) != 0) {
-        synonym = synonym_definitions[id];
+    if(synonym_ids_index_map.count(id) != 0) {
+        auto index = synonym_ids_index_map.at(id);
+        synonym = synonym_definitions.at(index);
         return true;
     }
 
@@ -153,33 +154,39 @@ bool SynonymIndex::get_synonym(const std::string& id, synonym_t& synonym) {
 
 Option<bool> SynonymIndex::remove_synonym(const std::string & collection_name, const std::string &id) {
     std::unique_lock lock(mutex);
-    const auto& syn_iter = synonym_definitions.find(id);
+    const auto& syn_iter = synonym_ids_index_map.find(id);
 
-    if(syn_iter != synonym_definitions.end()) {
+    if(syn_iter != synonym_ids_index_map.end()) {
         bool removed = store->remove(get_synonym_key(collection_name, id));
         if(!removed) {
             return Option<bool>(500, "Error while deleting the synonym from disk.");
         }
 
-        const auto& synonym = syn_iter->second;
+        const auto& synonym = synonym_definitions.at(syn_iter->second);
+        std::vector<std::string> keys;
         if(!synonym.root.empty()) {
-            uint64_t root_hash = synonym_t::get_hash(synonym.root);
-            synonym_index.erase(root_hash);
+            keys.insert(keys.end(), synonym.root.begin(), synonym.root.end());
         } else {
             for(const auto & syn_tokens : synonym.synonyms) {
-                uint64_t syn_hash = synonym_t::get_hash(syn_tokens);
-                synonym_index.erase(syn_hash);
+                keys.insert(keys.end(), syn_tokens.begin(), syn_tokens.end());
             }
         }
 
-        synonym_definitions.erase(id);
+        for(const auto& key : keys) {
+            art_delete(synonym_index_tree, (unsigned char*)key.c_str(), key.size() + 1);
+        }
+
+        auto index = synonym_ids_index_map.at(id);
+        synonym_ids_index_map.erase(id);
+        synonym_definitions.erase(index);
+
         return Option<bool>(true);
     }
 
     return Option<bool>(404, "Could not find that `id`.");
 }
 
-spp::sparse_hash_map<std::string, synonym_t> SynonymIndex::get_synonyms() {
+spp::sparse_hash_map<uint32_t, synonym_t> SynonymIndex::get_synonyms() {
     std::shared_lock lock(mutex);
     return synonym_definitions;
 }
