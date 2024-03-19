@@ -105,6 +105,8 @@ public:
     static constexpr const char* PRESET_PREFIX = "$PS";
     static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
 
+    uint16_t filter_by_max_ops;
+
     static CollectionManager & get_instance() {
         static CollectionManager instance;
         return instance;
@@ -145,10 +147,12 @@ public:
     // PUBLICLY EXPOSED API
 
     void init(Store *store, ThreadPool* thread_pool, const float max_memory_ratio,
-              const std::string & auth_key, std::atomic<bool>& quit, BatchedIndexer* batch_indexer);
+              const std::string & auth_key, std::atomic<bool>& quit, BatchedIndexer* batch_indexer,
+              const uint16_t& filter_by_max_operations = Config::FILTER_BY_DEFAULT_OPERATIONS);
 
     // only for tests!
-    void init(Store *store, const float max_memory_ratio, const std::string & auth_key, std::atomic<bool>& exit);
+    void init(Store *store, const float max_memory_ratio, const std::string & auth_key, std::atomic<bool>& exit,
+              const uint16_t& filter_by_max_operations = Config::FILTER_BY_DEFAULT_OPERATIONS);
 
     Option<bool> load(const size_t collection_batch_size, const size_t document_batch_size);
 

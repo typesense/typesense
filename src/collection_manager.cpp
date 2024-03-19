@@ -210,7 +210,8 @@ void CollectionManager::init(Store *store, ThreadPool* thread_pool,
                              const float max_memory_ratio,
                              const std::string & auth_key,
                              std::atomic<bool>& quit,
-                             BatchedIndexer* batch_indexer) {
+                             BatchedIndexer* batch_indexer,
+                             const uint16_t& filter_by_max_operations) {
     std::unique_lock lock(mutex);
 
     this->store = store;
@@ -219,13 +220,15 @@ void CollectionManager::init(Store *store, ThreadPool* thread_pool,
     this->max_memory_ratio = max_memory_ratio;
     this->quit = &quit;
     this->batch_indexer = batch_indexer;
+    this->filter_by_max_ops = filter_by_max_operations;
 }
 
 // used only in tests!
 void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key,
-                             std::atomic<bool>& quit) {
+                             std::atomic<bool>& quit,
+                             const uint16_t& filter_by_max_operations) {
     ThreadPool* thread_pool = new ThreadPool(8);
-    init(store, thread_pool, max_memory_ratio, auth_key, quit, nullptr);
+    init(store, thread_pool, max_memory_ratio, auth_key, quit, nullptr, filter_by_max_operations);
 }
 
 Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {
@@ -1369,6 +1372,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *HIDDEN_HITS = "hidden_hits";
     const char *ENABLE_OVERRIDES = "enable_overrides";
     const char *FILTER_CURATED_HITS = "filter_curated_hits";
+    const char *ENABLE_SYNONYMS = "enable_synonyms";
 
     const char *MAX_CANDIDATES = "max_candidates";
 
@@ -1416,6 +1420,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *VOICE_QUERY = "voice_query";
 
     const char *ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
+
+    const char *SYNONYM_PREFIX = "synonym_prefix";
+    const char *SYNONYM_NUM_TYPOS = "synonym_num_typos";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -1524,6 +1531,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool prioritize_token_position = false;
     bool pre_segmented_query = false;
     bool enable_overrides = true;
+    bool enable_synonyms = true;
+    bool synonym_prefix = false;
+    size_t synonym_num_typos = 0;
+
     size_t filter_curated_hits_option = 2;
     std::string highlight_fields;
     bool exhaustive_search = false;
@@ -1578,6 +1589,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
+        {SYNONYM_NUM_TYPOS, &synonym_num_typos},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1608,6 +1620,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
         {GROUP_MISSING_VALUES, &group_missing_values},
         {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
+        {ENABLE_SYNONYMS, &enable_synonyms},
+        {SYNONYM_PREFIX, &synonym_prefix},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1822,7 +1836,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           conversation_id,
                                                           override_tags,
                                                           voice_query,
-                                                          enable_typos_for_numerical_tokens);
+                                                          enable_typos_for_numerical_tokens,
+                                                          enable_synonyms,
+                                                          synonym_prefix,
+                                                          synonym_num_typos);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

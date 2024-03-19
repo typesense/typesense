@@ -90,7 +90,8 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
         filter_query[filter_query.size() - 1] = '=';
         filter_query += (" " + value.get<std::string>());
     } else if (value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                                             (ref_field_type == field_types::INT32 && StringUtils::is_int32_t(std::to_string(value.get<int64_t>()))))) {
+                                             (ref_field_type == field_types::INT32 &&
+                                              StringUtils::is_int32_t(std::to_string(value.get<int64_t>()))))) {
         filter_query += std::to_string(value.get<int64_t>());
     } else {
         return Option<bool>(400, "Field `" + field_name + "` must have `" + ref_field_type + "` value.");
@@ -274,7 +275,8 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
                 if (item_value.is_string() && ref_field_type == field_types::STRING) {
                     filter_query += item_value.get<std::string>();
                 } else if (item_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                    (ref_field_type == field_types::INT32 && StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>()))))) {
+                                                              (ref_field_type == field_types::INT32 &&
+                                                               StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>()))))) {
                     filter_query += std::to_string(item_value.get<int64_t>());
                 } else {
                     return Option<bool>(400, "Field `" + field_name + "` must only have `" + ref_field_type + "` values.");
@@ -1714,7 +1716,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   std::string conversation_id,
                                   const std::string& override_tags_str,
                                   const std::string& voice_query,
-                                  bool enable_typos_for_numerical_tokens) const {
+                                  bool enable_typos_for_numerical_tokens,
+                                  bool enable_synonyms,
+                                  bool synonym_prefix,
+                                  uint32_t synonyms_num_typos) const {
+
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -1762,6 +1768,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(facet_sample_percent > 100) {
         return Option<nlohmann::json>(400, "Value of `facet_sample_percent` must be less than 100.");
+    }
+
+    if(synonyms_num_typos > 2) {
+        return Option<nlohmann::json>(400, "Value of `synonym_num_typos` must not be greater than 2.");
     }
 
     if(raw_group_by_fields.empty()) {
@@ -2304,7 +2314,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
-    auto search_op = index->run_search(search_params, name, facet_index_type, enable_typos_for_numerical_tokens);
+    auto search_op = index->run_search(search_params, name, facet_index_type,
+                                       enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
+                                       synonyms_num_typos);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();
@@ -4760,12 +4772,13 @@ Option<bool> Collection::remove_synonym(const std::string &id) {
 }
 
 void Collection::synonym_reduction(const std::vector<std::string>& tokens,
-                                     std::vector<std::vector<std::string>>& results) const {
+                                     std::vector<std::vector<std::string>>& results,
+                                     bool synonym_prefix, uint32_t synonym_num_typos) const {
     std::shared_lock lock(mutex);
-    return synonym_index->synonym_reduction(tokens, results);
+    return synonym_index->synonym_reduction(tokens, results, synonym_prefix, synonym_num_typos);
 }
 
-spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
+spp::sparse_hash_map<uint32_t, synonym_t> Collection::get_synonyms() {
     std::shared_lock lock(mutex);
     return synonym_index->get_synonyms();
 }
