@@ -2658,10 +2658,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
             remove_flat_fields(document);
             remove_reference_helper_fields(document);
-            auto doc_id_op = doc_id_to_seq_id(document["id"].get<std::string>());
-            if (!doc_id_op.ok()) {
-                return Option<nlohmann::json>(doc_id_op.code(), doc_id_op.error());
-            }
 
             auto prune_op = prune_doc(document,
                                       include_fields_full,
