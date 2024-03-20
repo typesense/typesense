@@ -84,6 +84,8 @@ public:
         return (c & ~0x7f) == 0;
     }
 
+    static bool belongs_to_general_punctuation_unicode_block(UChar c);
+
     void decr_token_counter();
 
     bool should_skip_char(char c);

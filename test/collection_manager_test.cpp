@@ -301,7 +301,7 @@ TEST_F(CollectionManagerTest, ParallelCollectionCreation) {
 
     int64_t prev_id = INT32_MAX;
 
-    for(auto coll: collectionManager.get_collections()) {
+    for(auto coll: collectionManager.get_collections().get()) {
         // collections are sorted by ID, in descending order
         ASSERT_TRUE(coll->get_collection_id() < prev_id);
         prev_id = coll->get_collection_id();
@@ -313,7 +313,8 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
                                   "\"string\", \"facet\": false}], \"default_sorting_field\": \"foo\"}");
 
-    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f);
+    spp::sparse_hash_map<std::string, std::string> referenced_in;
+    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f, referenced_in);
     ASSERT_EQ("foobar", collection->get_name());
     ASSERT_EQ(100, collection->get_collection_id());
     ASSERT_EQ(1, collection->get_fields().size());
@@ -335,7 +336,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"symbols_to_index\": [\"+\"], \"token_separators\": [\"-\"]}");
 
 
-    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f);
+    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f, referenced_in);
     ASSERT_EQ(12345, collection->get_created_at());
 
     std::vector<char> expected_symbols = {'+'};
@@ -355,7 +356,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
 }
 
 TEST_F(CollectionManagerTest, GetAllCollections) {
-    std::vector<Collection*> collection_vec = collectionManager.get_collections();
+    std::vector<Collection*> collection_vec = collectionManager.get_collections().get();
     ASSERT_EQ(1, collection_vec.size());
     ASSERT_STREQ("collection1", collection_vec[0]->get_name().c_str());
 
@@ -369,7 +370,7 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
     })"_json;
 
     collectionManager.create_collection(new_schema);
-    collection_vec = collectionManager.get_collections();
+    collection_vec = collectionManager.get_collections().get();
     ASSERT_EQ(2, collection_vec.size());
 
     // most recently created collection first
@@ -520,20 +521,20 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     ASSERT_TRUE(collection1->get_enable_nested_fields());
 
-    ASSERT_EQ(2, collection1->get_overrides().size());
-    ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
-    ASSERT_STREQ("include-rule", collection1->get_overrides()["include-rule"].id.c_str());
+    ASSERT_EQ(2, collection1->get_overrides().get().size());
+    ASSERT_STREQ("exclude-rule", collection1->get_overrides().get()["exclude-rule"]->id.c_str());
+    ASSERT_STREQ("include-rule", collection1->get_overrides().get()["include-rule"]->id.c_str());
 
-    const auto& synonyms = collection1->get_synonyms();
+    const auto& synonyms = collection1->get_synonyms().get();
     ASSERT_EQ(2, synonyms.size());
 
-    ASSERT_STREQ("id1", synonyms.at(0).id.c_str());
-    ASSERT_EQ(2, synonyms.at(0).root.size());
-    ASSERT_EQ(1, synonyms.at(0).synonyms.size());
+    ASSERT_STREQ("id1", synonyms.at(0)->id.c_str());
+    ASSERT_EQ(2, synonyms.at(0)->root.size());
+    ASSERT_EQ(1, synonyms.at(0)->synonyms.size());
 
-    ASSERT_STREQ("id3", synonyms.at(1).id.c_str());
-    ASSERT_EQ(0, synonyms.at(1).root.size());
-    ASSERT_EQ(2, synonyms.at(1).synonyms.size());
+    ASSERT_STREQ("id3", synonyms.at(1)->id.c_str());
+    ASSERT_EQ(0, synonyms.at(1)->root.size());
+    ASSERT_EQ(2, synonyms.at(1)->synonyms.size());
 
     std::vector<char> expected_symbols = {'+'};
     std::vector<char> expected_separators = {'-'};
@@ -1104,7 +1105,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     ASSERT_TRUE(drop_op.ok());
 
     // try to list collections now
-    nlohmann::json summaries = cmanager.get_collection_summaries();
+    nlohmann::json summaries = cmanager.get_collection_summaries().get();
     ASSERT_EQ(0, summaries.size());
 
     // remap alias to another non-existing collection
@@ -1172,7 +1173,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
         cmanager.create_collection("collection" + std::to_string(i), 4, schema, "points").get();
     }
 
-    ASSERT_EQ(100, cmanager.get_collections().size());
+    ASSERT_EQ(100, cmanager.get_collections().get().size());
 
     cmanager.dispose();
     delete new_store;
@@ -1181,7 +1182,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
-    ASSERT_EQ(100, cmanager.get_collections().size());
+    ASSERT_EQ(100, cmanager.get_collections().get().size());
 
     for(size_t i = 0; i < 100; i++) {
         collectionManager.drop_collection("collection" + std::to_string(i));
@@ -1407,8 +1408,8 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_FALSE(coll2 == nullptr);
     ASSERT_EQ("coll2", coll2->get_name());
     ASSERT_EQ(1, coll2->get_fields().size());
-    ASSERT_EQ(1, coll2->get_synonyms().size());
-    ASSERT_EQ(1, coll2->get_overrides().size());
+    ASSERT_EQ(1, coll2->get_synonyms().get().size());
+    ASSERT_EQ(1, coll2->get_overrides().get().size());
     ASSERT_EQ("", coll2->get_fallback_field_type());
 
     ASSERT_EQ(1, coll2->get_symbols_to_index().size());
@@ -1907,4 +1908,119 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
     expected_meta_json["created_at"] = actual_json["created_at"];
 
     ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
+}
+
+TEST_F(CollectionManagerTest, PopulateReferencedIns) {
+    std::vector<std::string> collection_meta_jsons = {
+            R"({
+                "name": "A",
+                "fields": [
+                  {"name": "a_id", "type": "string"}
+                ]
+            })"_json.dump(),
+            R"({
+                "name": "B",
+                "fields": [
+                  {"name": "b_id", "type": "string"},
+                  {"name": "b_ref", "type": "string", "reference": "A.a_id"}
+                ]
+            })"_json.dump(),
+            R"({
+                "name": "C",
+                "fields": [
+                  {"name": "c_id", "type": "string"}
+                ]
+            })"_json.dump(),
+    };
+    std::map<std::string, spp::sparse_hash_map<std::string, std::string>> referenced_ins;
+
+    for (const auto &collection_meta_json: collection_meta_jsons) {
+        CollectionManager::_populate_referenced_ins(collection_meta_json, referenced_ins);
+    }
+
+    ASSERT_EQ(1, referenced_ins.size());
+    ASSERT_EQ(1, referenced_ins.count("A"));
+    ASSERT_EQ(1, referenced_ins["A"].size());
+    ASSERT_EQ(1, referenced_ins["A"].count("B"));
+    ASSERT_EQ("b_ref_sequence_id", referenced_ins["A"]["B"]);
+}
+
+TEST_F(CollectionManagerTest, CollectionPagination) {
+    //remove all collections first
+    auto collections = collectionManager.get_collections().get();
+    for(auto collection : collections) {
+        collectionManager.drop_collection(collection->get_name());
+    }
+
+    //create few collections
+    for(size_t i = 0; i < 5; i++) {
+        nlohmann::json coll_json = R"({
+                "name": "cp",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+        coll_json["name"] = coll_json["name"].get<std::string>() + std::to_string(i + 1);
+        auto coll_op = collectionManager.create_collection(coll_json);
+        ASSERT_TRUE(coll_op.ok());
+    }
+
+    uint32_t limit = 0, offset = 0;
+
+    //limit collections by 2
+    limit=2;
+    auto collection_op = collectionManager.get_collections(limit);
+    auto collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp2", collections_vec[0]->get_name());
+    ASSERT_EQ("cp5", collections_vec[1]->get_name());
+
+    //get 2 collection from offset 3
+    offset=3;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp1", collections_vec[0]->get_name());
+    ASSERT_EQ("cp4", collections_vec[1]->get_name());
+
+    //get all collection except first
+    offset=1; limit=0;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(4, collections_vec.size());
+    ASSERT_EQ("cp5", collections_vec[0]->get_name());
+    ASSERT_EQ("cp3", collections_vec[1]->get_name());
+    ASSERT_EQ("cp1", collections_vec[2]->get_name());
+    ASSERT_EQ("cp4", collections_vec[3]->get_name());
+
+    //get last collection
+    offset=4, limit=1;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(1, collections_vec.size());
+    ASSERT_EQ("cp4", collections_vec[0]->get_name());
+
+    //if limit is greater than number of collection then return all from offset
+    offset=0; limit=8;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(5, collections_vec.size());
+    ASSERT_EQ("cp2", collections_vec[0]->get_name());
+    ASSERT_EQ("cp5", collections_vec[1]->get_name());
+    ASSERT_EQ("cp3", collections_vec[2]->get_name());
+    ASSERT_EQ("cp1", collections_vec[3]->get_name());
+    ASSERT_EQ("cp4", collections_vec[4]->get_name());
+
+    offset=3; limit=4;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp1", collections_vec[0]->get_name());
+    ASSERT_EQ("cp4", collections_vec[1]->get_name());
+
+    //invalid offset
+    offset=6; limit=0;
+    collection_op = collectionManager.get_collections(limit, offset);
+    ASSERT_FALSE(collection_op.ok());
+    ASSERT_EQ("Invalid offset param.", collection_op.error());
 }

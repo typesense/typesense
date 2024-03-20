@@ -1556,3 +1556,206 @@ TEST_F(CoreAPIUtilsTest, DeleteNonExistingDoc) {
     del_remove_document(req, res);
     ASSERT_EQ(200, res->status_code);
 }
+
+TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
+    //remove all collections first
+    auto collections = collectionManager.get_collections().get();
+    for(auto collection : collections) {
+        collectionManager.drop_collection(collection->get_name());
+    }
+
+    //create few collections
+    for(size_t i = 0; i < 5; i++) {
+        nlohmann::json coll_json = R"({
+                "name": "cp",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+        coll_json["name"] = coll_json["name"].get<std::string>() + std::to_string(i + 1);
+        auto coll_op = collectionManager.create_collection(coll_json);
+        ASSERT_TRUE(coll_op.ok());
+    }
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["offset"] = "0";
+    req->params["limit"] = "1";
+
+    nlohmann::json expected_meta_json = R"(
+        {
+          "created_at":1663234047,
+          "default_sorting_field":"",
+          "enable_nested_fields":false,
+          "fields":[
+            {
+              "facet":false,
+              "index":true,
+              "infix":false,
+              "locale":"",
+              "name":"title",
+              "optional":false,
+              "sort":false,
+              "stem":false,
+              "type":"string"
+            }
+          ],
+          "name":"cp2",
+          "num_documents":0,
+          "symbols_to_index":[],
+          "token_separators":[]
+        }
+    )"_json;
+
+    get_collections(req, resp);
+
+    auto actual_json = nlohmann::json::parse(resp->body);
+    expected_meta_json["created_at"] = actual_json[0]["created_at"];
+
+    ASSERT_EQ(expected_meta_json.dump(), actual_json[0].dump());
+
+    //invalid offset string
+    req->params["offset"] = "0a";
+    get_collections(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+
+    //invalid limit string
+    req->params["offset"] = "0";
+    req->params["limit"] = "-1";
+    get_collections(req, resp);
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+}
+
+TEST_F(CoreAPIUtilsTest, OverridesPagination) {
+    Collection *coll2;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll2 = collectionManager.get_collection("coll2").get();
+    if(coll2 == nullptr) {
+        coll2 = collectionManager.create_collection("coll2", 1, fields, "points").get();
+    }
+
+    for(int i = 0; i < 5; ++i) {
+        nlohmann::json override_json = {
+                {"id",       "override"},
+                {
+                 "rule",     {
+                                     {"query", "not-found"},
+                                     {"match", override_t::MATCH_EXACT}
+                             }
+                },
+                {"metadata", {       {"foo",   "bar"}}},
+        };
+
+        override_json["id"] = override_json["id"].get<std::string>() + std::to_string(i + 1);
+        override_t override;
+        override_t::parse(override_json, "", override);
+
+        coll2->add_override(override);
+    }
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "coll2";
+    req->params["offset"] = "0";
+    req->params["limit"] = "1";
+
+    get_overrides(req, resp);
+    nlohmann::json expected_json = R"({
+        "overrides":[
+                    {
+                        "excludes":[],
+                        "filter_curated_hits":false,
+                        "id":"override1",
+                        "includes":[],
+                        "metadata":{"foo":"bar"},
+                        "remove_matched_tokens":false,
+                        "rule":{
+                                "match":"exact",
+                                "query":"not-found"
+                        },
+                        "stop_processing":true
+                    }]
+    })"_json;
+
+    ASSERT_EQ(expected_json.dump(), resp->body);
+
+    //invalid offset string
+    req->params["offset"] = "0a";
+    get_collections(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+
+    //invalid limit string
+    req->params["offset"] = "0";
+    req->params["limit"] = "-1";
+    get_collections(req, resp);
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+}
+
+TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
+    Collection *coll3;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll3 = collectionManager.get_collection("coll3").get();
+    if (coll3 == nullptr) {
+        coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
+    }
+
+    for (int i = 0; i < 5; ++i) {
+        nlohmann::json synonym_json = R"(
+                {
+                    "id": "foobar",
+                    "synonyms": ["blazer", "suit"]
+                })"_json;
+
+        synonym_json["id"] = synonym_json["id"].get<std::string>() + std::to_string(i + 1);
+
+        coll3->add_synonym(synonym_json);
+    }
+
+    auto req = std::make_shared<http_req>();
+    auto resp = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "coll3";
+    req->params["offset"] = "0";
+    req->params["limit"] = "1";
+
+    get_synonyms(req, resp);
+
+    nlohmann::json expected_json = R"({
+        "synonyms":[
+                    {
+                        "id":"foobar1",
+                        "root":"",
+                        "synonyms":["blazer","suit"]
+                    }]
+    })"_json;
+
+    ASSERT_EQ(expected_json.dump(), resp->body);
+
+    //invalid offset string
+    req->params["offset"] = "0a";
+    get_collections(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Offset param should be unsigned integer.\"}", resp->body);
+
+    //invalid limit string
+    req->params["offset"] = "0";
+    req->params["limit"] = "-1";
+    get_collections(req, resp);
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
+}

@@ -143,8 +143,6 @@ private:
 
     static uint64_t get_memory_non_proc_bytes();
 
-    static uint64_t linux_get_swap_used_bytes();
-
 public:
 
     SystemMetrics() {

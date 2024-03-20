@@ -113,6 +113,8 @@ bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
 bool get_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 bool post_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool get_metrics_json(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
@@ -177,6 +179,10 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params, co
                               std::vector<nlohmann::json>& embedded_params_vec);
 
 bool is_doc_import_route(uint64_t route_hash);
+
+bool is_coll_create_route(uint64_t route_hash);
+
+bool is_drop_collection_route(uint64_t route_hash);
 
 bool is_doc_write_route(uint64_t route_hash);
 

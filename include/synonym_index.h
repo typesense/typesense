@@ -53,7 +53,7 @@ private:
     spp::sparse_hash_map<std::string, uint32_t> synonym_ids_index_map;
     art_tree* synonym_index_tree;
     uint32_t synonym_index = 0;
-    spp::sparse_hash_map<uint32_t, synonym_t> synonym_definitions;
+    std::map<uint32_t, synonym_t> synonym_definitions;
 
     void synonym_reduction_internal(const std::vector<std::string>& tokens,
                                     size_t start_window_size,
@@ -82,7 +82,7 @@ public:
                            std::vector<std::vector<std::string>>& results,
                            bool synonym_prefix, uint32_t synonym_num_typos) const;
 
-    spp::sparse_hash_map<uint32_t, synonym_t> get_synonyms();
+    Option<std::map<uint32_t, synonym_t*>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
