@@ -375,4 +375,12 @@ public:
     [[nodiscard]] bool _get_is_filter_result_initialized() const {
         return is_filter_result_initialized;
     }
+
+    [[nodiscard]] filter_result_iterator_t* _get_left_it() const {
+        return left_it;
+    }
+
+    [[nodiscard]] filter_result_iterator_t* _get_right_it() const {
+        return right_it;
+    }
 };

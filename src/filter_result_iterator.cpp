@@ -1506,7 +1506,9 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
 }
 
 Option<bool> filter_result_iterator_t::init_status() {
-    if (filter_node != nullptr && filter_node->isOperator) {
+    if (is_filter_result_initialized) {
+        return status;
+    } else if (filter_node != nullptr && filter_node->isOperator) {
         auto left_status = left_it->init_status();
 
         return !left_status.ok() ? left_status : right_it->init_status();
@@ -1779,6 +1781,15 @@ filter_result_iterator_t::filter_result_iterator_t(const std::string& collection
     // Generate the iterator tree and then initialize each node.
     if (filter_node->isOperator) {
         left_it = new filter_result_iterator_t(collection_name, index, filter_node->left);
+        // If left subtree of && operator is invalid, we don't have to evaluate its right subtree.
+        if (filter_node->filter_operator == AND && left_it->validity == invalid) {
+            validity = invalid;
+            is_filter_result_initialized = true;
+            delete left_it;
+            left_it = nullptr;
+            return;
+        }
+
         right_it = new filter_result_iterator_t(collection_name, index, filter_node->right);
     }
 
