@@ -863,3 +863,78 @@ TEST_F(FilterTest, FilterTreeIteratorTimeout) {
     ASSERT_EQ(count, result->count); // With `override_timeout` true, we should get result.
     delete result;
 }
+
+TEST_F(FilterTest, FilterTreeInitialization) {
+    nlohmann::json schema =
+            R"({
+                "name": "Collection",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "age", "type": "int32"},
+                    {"name": "years", "type": "int32[]"},
+                    {"name": "rating", "type": "float"},
+                    {"name": "tags", "type": "string[]"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll->add(json_line);
+        ASSERT_TRUE(add_op.ok());
+    }
+    infile.close();
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    Option<bool> filter_op = filter::parse_filter_query("age: 0 && (rating: >0 && years: 2016)", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_left_subtree_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+
+    ASSERT_TRUE(iter_left_subtree_0_matches.init_status().ok());
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_left_subtree_0_matches.validity);
+    ASSERT_EQ(0, iter_left_subtree_0_matches.approx_filter_ids_length);
+    ASSERT_TRUE(iter_left_subtree_0_matches._get_is_filter_result_initialized());
+    ASSERT_EQ(nullptr, iter_left_subtree_0_matches._get_left_it());
+    ASSERT_EQ(nullptr, iter_left_subtree_0_matches._get_right_it());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("(rating: >0 && years: 2016) && age: 0", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_right_subtree_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+
+    ASSERT_TRUE(iter_right_subtree_0_matches.init_status().ok());
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_right_subtree_0_matches.validity);
+    ASSERT_EQ(0, iter_right_subtree_0_matches.approx_filter_ids_length);
+    ASSERT_FALSE(iter_right_subtree_0_matches._get_is_filter_result_initialized());
+    ASSERT_NE(nullptr, iter_right_subtree_0_matches._get_left_it());
+    ASSERT_NE(nullptr, iter_right_subtree_0_matches._get_right_it());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+
+    filter_op = filter::parse_filter_query("(age: 0 && rating: >0) || (age: 0 && rating: >0)", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_inner_subtree_0_matches = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+
+    ASSERT_TRUE(iter_inner_subtree_0_matches.init_status().ok());
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_inner_subtree_0_matches.validity);
+    ASSERT_EQ(0, iter_inner_subtree_0_matches.approx_filter_ids_length);
+    ASSERT_FALSE(iter_inner_subtree_0_matches._get_is_filter_result_initialized());
+    ASSERT_NE(nullptr, iter_inner_subtree_0_matches._get_left_it());
+    ASSERT_NE(nullptr, iter_inner_subtree_0_matches._get_right_it());
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+}
