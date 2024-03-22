@@ -778,7 +778,11 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             } else {
                 // remove flattened field values before storing on disk
                 remove_flat_fields(index_record.doc);
-
+                for(auto& field: fields) {
+                    if(!field.store) {
+                        index_record.doc.erase(field.name);
+                    }
+                }
                 const std::string& seq_id_str = std::to_string(index_record.seq_id);
                 const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
                                                                            nlohmann::detail::error_handler_t::ignore);

@@ -2986,3 +2986,30 @@ TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ("foobar", res["hits"][0]["document"]["word"].get<std::string>());
 }
+
+TEST_F(CollectionSpecificMoreTest, TestFieldStore) {
+    nlohmann::json schema = R"({
+         "name": "words",
+         "fields": [
+           {"name": "word_to_store", "type": "string", "store": true },
+           {"name": "word_not_to_store", "type": "string", "store": false }
+         ]
+    })"_json;
+
+    auto coll_store_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_store_res.ok());
+
+    auto coll_store = coll_store_res.get();
+
+    nlohmann::json doc;
+    doc["word_to_store"] = "store";
+    doc["word_not_to_store"] = "not store";
+    ASSERT_TRUE(coll_store->add(doc.dump()).ok());
+
+    auto res = coll_store->search("*", {}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
+    ASSERT_TRUE(res.ok());
+
+    ASSERT_EQ(1, res.get()["hits"].size());
+    ASSERT_EQ("store", res.get()["hits"][0]["document"]["word_to_store"].get<std::string>());
+    ASSERT_TRUE(res.get()["hits"][0]["document"].count("word_not_to_store") == 0);
+}
