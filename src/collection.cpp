@@ -6053,6 +6053,9 @@ Index* Collection::init_index() {
             }
 
             reference_fields.emplace(field.name, reference_pair(ref_coll_name, ref_field_name));
+            if (field.nested) {
+                object_reference_helper_fields.insert(field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
+            }
         }
     }
 
