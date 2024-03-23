@@ -3830,6 +3830,64 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     ASSERT_EQ(500 , res_obj["hits"][1]["document"]["portions"][0].at("quantity"));
     ASSERT_EQ("g", res_obj["hits"][1]["document"]["portions"][0].at("unit"));
     ASSERT_EQ(10 , res_obj["hits"][1]["document"]["portions"][0].at("count"));
+
+    // recreate collection manager to ensure that it initializes `object_reference_helper_fields` correctly.
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store(state_dir_path);
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+    ASSERT_TRUE(load_op.ok());
+
+    req_params = {
+            {"collection", "Foods"},
+            {"q", "*"},
+            {"include_fields", "$Portions(*:merge)"}
+    };
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    LOG(INFO) << search_op_bool.error();
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(3, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("name"));
+
+    ASSERT_EQ("Milk", res_obj["hits"][0]["document"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("portions"));
+    ASSERT_EQ(3, res_obj["hits"][0]["document"]["portions"].size());
+
+    ASSERT_EQ(5, res_obj["hits"][0]["document"]["portions"][0].size());
+    ASSERT_EQ("portion_b", res_obj["hits"][0]["document"]["portions"][0].at("portion_id"));
+    ASSERT_EQ(1 , res_obj["hits"][0]["document"]["portions"][0].at("quantity"));
+    ASSERT_EQ("lt", res_obj["hits"][0]["document"]["portions"][0].at("unit"));
+    ASSERT_EQ(3 , res_obj["hits"][0]["document"]["portions"][0].at("count"));
+
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["portions"][1].size());
+    ASSERT_EQ(3 , res_obj["hits"][0]["document"]["portions"][1].at("count"));
+
+    ASSERT_EQ(5, res_obj["hits"][0]["document"]["portions"][2].size());
+    ASSERT_EQ("portion_c", res_obj["hits"][0]["document"]["portions"][2].at("portion_id"));
+    ASSERT_EQ(500 , res_obj["hits"][0]["document"]["portions"][2].at("quantity"));
+    ASSERT_EQ("ml", res_obj["hits"][0]["document"]["portions"][2].at("unit"));
+    ASSERT_EQ(1 , res_obj["hits"][0]["document"]["portions"][2].at("count"));
+
+
+    ASSERT_EQ("Bread", res_obj["hits"][1]["document"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("portions"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["portions"].size());
+
+    ASSERT_EQ(5, res_obj["hits"][1]["document"]["portions"][0].size());
+    ASSERT_EQ("portion_a", res_obj["hits"][1]["document"]["portions"][0].at("portion_id"));
+    ASSERT_EQ(500 , res_obj["hits"][1]["document"]["portions"][0].at("quantity"));
+    ASSERT_EQ("g", res_obj["hits"][1]["document"]["portions"][0].at("unit"));
+    ASSERT_EQ(10 , res_obj["hits"][1]["document"]["portions"][0].at("count"));
 }
 
 TEST_F(CollectionJoinTest, CascadeDeletion) {
