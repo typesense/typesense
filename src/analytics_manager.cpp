@@ -132,6 +132,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
                 return Option<bool>(400, "Must contain a valid counter_field.");
             }
             counter_field = params["destination"]["counter_field"].get<std::string>();
+            suggestion_config.counter_field = counter_field;
         }
 
         for (const auto &coll: params["source"]["collections"]) {

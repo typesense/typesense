@@ -107,6 +107,7 @@ private:
         std::string rule_type;
         bool expand_query = false;
         nlohmann::json events;
+        std::string counter_field;
 
         void to_json(nlohmann::json& obj) const {
             obj["name"] = name;
@@ -122,6 +123,7 @@ private:
 
             if(!events.empty()) {
                 obj["params"]["source"]["events"] = events;
+                obj["params"]["destination"]["counter_field"] = counter_field;
             }
         }
     };
