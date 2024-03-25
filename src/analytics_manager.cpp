@@ -110,6 +110,8 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
                                                           || !params["source"]["events"][0].is_object()))) {
                 return Option<bool>(400, "Bad or missing events.");
             }
+
+            suggestion_config.events = params["source"]["events"];
         }
 
         if (!params.contains("destination") || !params["destination"].is_object()) {
@@ -130,6 +132,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
                 return Option<bool>(400, "Must contain a valid counter_field.");
             }
             counter_field = params["destination"]["counter_field"].get<std::string>();
+            suggestion_config.counter_field = counter_field;
         }
 
         for (const auto &coll: params["source"]["collections"]) {
@@ -372,7 +375,7 @@ Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std
     }
     const auto event_collection_map_it = event_collection_map.find(event_name);
     if(event_collection_map_it == event_collection_map.end()) {
-        return Option<bool>(404, "No analytics rule defined for event name" + event_name);
+        return Option<bool>(404, "No analytics rule defined for event name " + event_name);
     }
 
     if(event_collection_map_it->second.event_type != event_type) {
