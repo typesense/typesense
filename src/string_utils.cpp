@@ -519,17 +519,14 @@ Option<bool> StringUtils::split_reference_include_exclude_fields(const std::stri
     }
 
     // In case of nested reference include, we might end up with one of the following scenarios:
-    // $ref_include( $nested_ref_include(foo :merge)as nest ) as ref
-    //                                                   ...^
-    // $ref_include( $nested_ref_include(foo :merge)as nest, bar ) as ref
-    //                                                  ...^
-    // $ref_include( $nested_ref_include(foo :merge)as nest :merge ) as ref
-    //                                                   ...^
+    // $ref_include( $nested_ref_include(foo, strategy:merge)as nest ) as ref
+    //                                                            ...^
+    // $ref_include( $nested_ref_include(foo, strategy:merge)as nest, bar ) as ref
+    //                                                           ...^
     auto closing_parenthesis_pos = include_exclude_fields.find(')', index);
     auto comma_pos = include_exclude_fields.find(',', index);
-    auto colon_pos = include_exclude_fields.find(':', index);
     auto alias_start_pos = include_exclude_fields.find(" as ", index);
-    auto alias_end_pos = std::min(std::min(closing_parenthesis_pos, comma_pos), colon_pos);
+    auto alias_end_pos = std::min(closing_parenthesis_pos, comma_pos);
     std::string alias;
     if (alias_start_pos != std::string::npos && alias_start_pos < alias_end_pos) {
         alias = include_exclude_fields.substr(alias_start_pos, alias_end_pos - alias_start_pos);

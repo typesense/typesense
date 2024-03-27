@@ -531,6 +531,7 @@ namespace sort_field_const {
 }
 
 namespace ref_include {
+    static const std::string strategy_key = "strategy";
     static const std::string merge_string = "merge";
     static const std::string nest_string = "nest";
     static const std::string nest_array_string = "nest_array";

@@ -1113,10 +1113,37 @@ Option<bool> parse_nested_exclude(const std::string& exclude_field_exp,
     return Option<bool>(true);
 }
 
+Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, const std::string& parameters,
+                                          ref_include::strategy_enum& strategy_enum) {
+    std::vector<std::string> parameters_map;
+    StringUtils::split(parameters, parameters_map, ",");
+    for (const auto &item: parameters_map) {
+        std::vector<std::string> parameter_pair;
+        StringUtils::split(item, parameter_pair, ":");
+        if (parameter_pair.size() != 2) {
+            continue;
+        }
+        auto const& key = StringUtils::trim(parameter_pair[0]);
+        if (key == ref_include::strategy_key) {
+            auto const& include_strategy = StringUtils::trim(parameter_pair[1]);
+
+            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
+            if (!string_to_enum_op.ok()) {
+                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
+            }
+            strategy_enum = string_to_enum_op.get();
+        } else {
+            return Option<bool>(400, "Unknown reference `include_fields` parameter: `" + key + "`.");
+        }
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> parse_nested_include(const std::string& include_field_exp,
                                   CollectionManager::ref_include_collection_names_t* const ref_include_coll_names,
                                   std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
-    // Format: $ref_collection_name(field_1, field_2, $nested_ref_coll(nested_field_1: nested_include_strategy) as nested_ref_alias: include_strategy) as ref_alias
+    // Format: $ref_collection_name(field_1, field_2, $nested_ref_coll(nested_field_1, strategy: nested_include_strategy) as nested_ref_alias, strategy: include_strategy) as ref_alias
     size_t index = 0;
     while (index < include_field_exp.size()) {
         auto parenthesis_index = include_field_exp.find('(');
@@ -1132,7 +1159,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         std::vector<ref_include_exclude_fields> nested_ref_include_exclude_fields_vec;
         if (nested_include_pos < closing_parenthesis_pos) {
             // Nested reference include.
-            // "... $product_variants(title, $inventory(qty:merge) as inventory :nest) as variants ..."
+            // "... $product_variants(title, $inventory(qty, strategy:merge) as inventory, strategy :nest) as variants ..."
             do {
                 ref_fields += include_field_exp.substr(index, nested_include_pos - index);
                 StringUtils::trim(ref_fields);
@@ -1159,28 +1186,31 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
             } while(index < include_field_exp.size() && nested_include_pos < closing_parenthesis_pos);
         }
 
-        // ... $inventory(qty:merge) as inventory ...
-        auto include_strategy = ref_include::nest_string;
-        auto strategy_enum = ref_include::nest;
-        if (colon_pos < closing_parenthesis_pos) { // Merge strategy is specified.
-            include_strategy = include_field_exp.substr(colon_pos + 1, closing_parenthesis_pos - colon_pos - 1);
-            StringUtils::trim(include_strategy);
-
-            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
-            if (!string_to_enum_op.ok()) {
-                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
-            }
-            strategy_enum = string_to_enum_op.get();
-
-            if (index < colon_pos) {
-                ref_fields += include_field_exp.substr(index, colon_pos - index);
-            }
-        } else if (index < closing_parenthesis_pos) {
+        if (index < closing_parenthesis_pos) {
             ref_fields += include_field_exp.substr(index, closing_parenthesis_pos - index);
+        }
+        index = closing_parenthesis_pos;
+
+        // ... $inventory(qty, strategy:merge) as inventory
+        auto strategy_enum = ref_include::nest;
+        if (colon_pos < closing_parenthesis_pos) {
+            auto const& parameters_start = ref_fields.rfind(',', colon_pos);
+            std::string parameters;
+            if (parameters_start == std::string::npos) {
+                parameters = ref_fields;
+                ref_fields.clear();
+            } else {
+                parameters = ref_fields.substr(parameters_start + 1);
+                ref_fields = ref_fields.substr(0, parameters_start);
+            }
+
+            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum);
+            if (!parse_params_op.ok()) {
+                return parse_params_op;
+            }
         }
         StringUtils::trim(ref_fields);
 
-        index = closing_parenthesis_pos;
         auto as_pos = include_field_exp.find(" as ", index);
         comma_pos = include_field_exp.find(',', index);
         if (as_pos != std::string::npos && as_pos < comma_pos) {
@@ -1250,20 +1280,23 @@ Option<bool> CollectionManager::_initialize_ref_include_exclude_fields_vec(const
         auto ref_collection_name = ref_include.substr(1, parenthesis_index - 1);
         auto ref_fields = ref_include.substr(parenthesis_index + 1, ref_include.size() - parenthesis_index - 2);
 
-        auto include_strategy = ref_include::nest_string;
         auto strategy_enum = ref_include::nest;
         auto colon_pos = ref_fields.find(':');
         if (colon_pos != std::string::npos) {
-            include_strategy = ref_fields.substr(colon_pos + 1, ref_fields.size() - colon_pos - 1);
-            StringUtils::trim(include_strategy);
-
-            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
-            if (!string_to_enum_op.ok()) {
-                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
+            auto const& parameters_start = ref_fields.rfind(',', colon_pos);
+            std::string parameters;
+            if (parameters_start == std::string::npos) {
+                parameters = ref_fields;
+                ref_fields.clear();
+            } else {
+                parameters = ref_fields.substr(parameters_start + 1);
+                ref_fields = ref_fields.substr(0, parameters_start);
             }
-            strategy_enum = string_to_enum_op.get();
 
-            ref_fields = ref_fields.substr(0, colon_pos);
+            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum);
+            if (!parse_params_op.ok()) {
+                return parse_params_op;
+            }
         }
 
         // For an alias `foo`,
