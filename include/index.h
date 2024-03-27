@@ -1031,6 +1031,9 @@ public:
     void repair_hnsw_index();
 
     void aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const;
+
+    bool process_facet_excluded_filter(const std::string& coll, filter_node_t* filter_tree_root, const uint32_t* all_result_ids,
+                                        size_t all_result_ids_len, std::vector<uint32_t>& filtered_result_ids) const;
 };
 
 template<class T>

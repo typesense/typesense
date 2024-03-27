@@ -6128,7 +6128,8 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
     const std::string _alpha = "_alpha";
 
    if ((facet_field.find(":") != std::string::npos)
-        && (facet_field.find("sort") == std::string::npos)) { //range based facet
+        && (facet_field.find("sort") == std::string::npos)
+        && (facet_field.find("exclude_filter") == std::string::npos)) { //range based facet
 
        if (!std::regex_match(facet_field, base_pattern)) {
             std::string error = "Facet range value is not valid.";
@@ -6320,57 +6321,114 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
            return Option<bool>(404, error);
        }
 
-       if (facet_field.find("sort_by") != std::string::npos) { //sort params are supplied with facet
-           std::vector<std::string> tokens;
-           StringUtils::split(facet_field, tokens, ":");
+       bool is_sort_by = facet_field.find("sort_by") != std::string::npos;
+       bool is_exclude_filter = facet_field.find("exclude_filter") != std::string::npos;
+       filter_node_t* filter_tree_root = nullptr;
 
-           if(tokens.size() != 3) {
-               std::string error = "Invalid sort format.";
-               return Option<bool>(400, error);
+       if (is_sort_by || is_exclude_filter) { // sort or exclude filter params are supplied with facet
+           std::string sort_by_params = facet_field;
+           std::string exclude_filter_params = facet_field;
+
+           if (is_sort_by && is_exclude_filter) { // both params are supplied
+               std::vector<std::string> facet_params;
+               StringUtils::split(facet_field, facet_params, ",");
+
+               if ((facet_params.size() != 2)
+                   || (facet_params[0].find("sort_by") != std::string::npos
+                       && facet_params[1].find("sort_by") != std::string::npos)
+                   || (facet_params[0].find("exclude_filter") != std::string::npos
+                       && facet_params[1].find("exclude_filter") != std::string::npos)) {
+                   return Option<bool>(400, "Invalid facet params.");
+               }
+
+               if (facet_params[0].find("sort_by") != std::string::npos) {
+                   sort_by_params = facet_params[0];
+                   exclude_filter_params = facet_params[1];
+               } else if (facet_params[1].find("sort_by") != std::string::npos) {
+                   sort_by_params = facet_params[1];
+                   exclude_filter_params = facet_params[0];
+               }
            }
 
-           //remove possible whitespaces
-           for(auto i=0; i < 3; ++i) {
-               StringUtils::trim(tokens[i]);
-           }
+           if (is_sort_by) {
+               std::vector<std::string> tokens;
+               StringUtils::split(sort_by_params, tokens, ":");
 
-           if(tokens[1] == _alpha) {
-               const field &a_field = search_schema.at(facet_field_copy);
-               if (!a_field.is_string()) {
-                   std::string error = "Facet field should be string type to apply alpha sort.";
+               if (is_sort_by && tokens.size() != 3) {
+                   std::string error = "Invalid sort format.";
                    return Option<bool>(400, error);
                }
-               sort_alpha = true;
-           } else { //sort_field based sort
-               sort_field = tokens[1];
 
-               if (search_schema.count(sort_field) == 0 || !search_schema.at(sort_field).facet) {
-                   std::string error = "Could not find a facet field named `" + sort_field + "` in the schema.";
-                   return Option<bool>(404, error);
+               //remove possible whitespaces
+               for (auto i = 0; i < tokens.size(); ++i) {
+                   StringUtils::trim(tokens[i]);
                }
 
-               const field &a_field = search_schema.at(sort_field);
-               if (a_field.is_string()) {
-                   std::string error = "Sort field should be non string type to apply sort.";
+               if (tokens[1] == _alpha) {
+                   const field &a_field = search_schema.at(facet_field_copy);
+                   if (!a_field.is_string()) {
+                       std::string error = "Facet field should be string type to apply alpha sort.";
+                       return Option<bool>(400, error);
+                   }
+                   sort_alpha = true;
+               } else { //sort_field based sort
+                   sort_field = tokens[1];
+
+                   if (search_schema.count(sort_field) == 0 || !search_schema.at(sort_field).facet) {
+                       std::string error = "Could not find a facet field named `" + sort_field + "` in the schema.";
+                       return Option<bool>(404, error);
+                   }
+
+                   const field &a_field = search_schema.at(sort_field);
+                   if (a_field.is_string()) {
+                       std::string error = "Sort field should be non string type to apply sort.";
+                       return Option<bool>(400, error);
+                   }
+               }
+
+               if (tokens[2].find("asc") != std::string::npos) {
+                   order = "asc";
+               } else if (tokens[2].find("desc") != std::string::npos) {
+                   order = "desc";
+               } else {
+                   std::string error = "Invalid sort param.";
                    return Option<bool>(400, error);
                }
            }
 
-           if (tokens[2].find("asc") != std::string::npos) {
-               order = "asc";
-           } else if (tokens[2].find("desc") != std::string::npos) {
-               order = "desc";
-           } else {
-               std::string error = "Invalid sort param.";
-               return Option<bool>(400, error);
+           if (is_exclude_filter) {
+               std::vector<std::string> tokens;
+               StringUtils::split(exclude_filter_params, tokens, ":");
+
+               if (is_exclude_filter && tokens.size() != 2) {
+                   std::string error = "Invalid exclude filter format.";
+                   return Option<bool>(400, error);
+               }
+
+               //remove possible whitespaces
+               for (auto i = 0; i < tokens.size(); ++i) {
+                   StringUtils::trim(tokens[i]);
+               }
+
+               if(tokens[1].back() == ')') {
+                    tokens[1].pop_back();
+               }
+
+               auto exclude_filter_query = facet_field_copy + ":" + tokens[1];
+               const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
+               Option<bool> parse_op = filter::parse_filter_query(exclude_filter_query, search_schema,store, doc_id_prefix, filter_tree_root);
+
+               if(!parse_op.ok()) {
+                   return Option<bool>(parse_op.code(), parse_op.error());
+               }
            }
        } else if (facet_field != facet_field_copy) {
-           std::string error = "Invalid sort format.";
+           std::string error = "Invalid format.";
            return Option<bool>(400, error);
        }
 
        facets.emplace_back(facet(facet_field_copy, facets.size(), {}, false, sort_alpha,
-                                 order, sort_field));
+                                 order, sort_field, filter_tree_root));
    }
 
     return Option<bool>(true);
