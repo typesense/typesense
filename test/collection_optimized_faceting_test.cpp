@@ -2342,7 +2342,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetSortValidation) {
                               {}, {2});
 
     ASSERT_EQ(400, search_op.code());
-    ASSERT_EQ("Invalid sort format.", search_op.error());
+    ASSERT_EQ("Invalid format.", search_op.error());
 
     //invalid param
     search_op = coll1->search("*", {}, "", {"phone(sort_by:_alpha:foo)"},
@@ -2893,4 +2893,78 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetRangeLabelWithSpace) {
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("small tvs with display size", results["facet_counts"][0]["counts"][0]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, ExcludeFilter) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "receipe", "type": "object", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "receipe": {
+            "name": "cheese pizza",
+            "calories": 300,
+            "origin": "america"
+        }
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc2 = R"({
+          "receipe": {
+            "name": "noodles",
+            "calories": 250,
+            "origin": "china"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc3 = R"({
+          "receipe": {
+            "name": "hamburger",
+            "calories": 350,
+            "origin": "america"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc3.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json doc4 = R"({
+          "receipe": {
+            "name": "schezwan rice",
+            "calories": 150,
+            "origin": "china"
+        }
+    })"_json;
+
+    add_op = coll1->add(doc4.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {},
+                                 "", {"receipe.calories(exclude_filter: > 250)"},
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true,
+                                 6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                 2, 2, false, "", true, 0, max_score, 100, 0, 0, VALUE).get();
+
+
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("250", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ("150", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
 }

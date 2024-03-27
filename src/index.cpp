@@ -1429,8 +1429,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             if(should_compute_stats) {
                 auto numerical_index_it = numerical_index.find(a_facet.field_name);
                 if(numerical_index_it != numerical_index.end()) {
-                    auto min_max_pair = numerical_index_it->second->get_min_max(result_ids,
-                                                                                results_size);
+                    auto min_max_pair = numerical_index_it->second->get_min_max(result_ids, results_size);
                     if(facet_field.is_float()) {
                         a_facet.stats.fvmin = int64_t_to_float(min_max_pair.first);
                         a_facet.stats.fvmax = int64_t_to_float(min_max_pair.second);
@@ -3539,9 +3538,21 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         std::vector<std::vector<facet>> facet_batches(num_threads);
         std::vector<std::vector<facet>> value_facets(concurrency);
         size_t num_value_facets = 0;
+        std::vector<uint32_t> filtered_results;
+        uint32_t* filtered_result_ids = all_result_ids;
+        size_t filtered_result_len = all_result_ids_len;
 
         for(size_t i = 0; i < facets.size(); i++) {
             const auto& this_facet = facets[i];
+
+            if(this_facet.filter_tree_root != nullptr) {
+                process_facet_excluded_filter(collection_name, this_facet.filter_tree_root, all_result_ids,
+                                              all_result_ids_len, filtered_results);
+                filtered_result_ids = filtered_results.data();
+                filtered_result_len = filtered_results.size();
+                all_result_ids_len = filtered_result_len;
+                is_wildcard_no_filter_query = false;
+            }
 #ifdef TEST_BUILD
             if(facet_index_type == VALUE) {
 #else
@@ -3551,7 +3562,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 value_facets[num_value_facets % num_threads].emplace_back(this_facet.field_name, this_facet.orig_index,
                                           this_facet.facet_range_map,
                                           this_facet.is_range_query, this_facet.is_sort_by_alpha,
-                                          this_facet.sort_order, this_facet.sort_field);
+                                          this_facet.sort_order, this_facet.sort_field, this_facet.filter_tree_root);
                 num_value_facets++;
                 continue;
             }
@@ -3559,7 +3570,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             for(size_t j = 0; j < num_threads; j++) {
                 facet_batches[j].emplace_back(this_facet.field_name, this_facet.orig_index, this_facet.facet_range_map,
                                               this_facet.is_range_query, this_facet.is_sort_by_alpha,
-                                              this_facet.sort_order, this_facet.sort_field);
+                                              this_facet.sort_order, this_facet.sort_field, this_facet.filter_tree_root);
             }
         }
 
@@ -3572,18 +3583,18 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         //auto beginF = std::chrono::high_resolution_clock::now();
 
-        for(size_t thread_id = 0; thread_id < num_threads && result_index < all_result_ids_len; thread_id++) {
+        for(size_t thread_id = 0; thread_id < num_threads && result_index < filtered_result_len; thread_id++) {
             size_t batch_res_len = window_size;
 
-            if(result_index + window_size > all_result_ids_len) {
-                batch_res_len = all_result_ids_len - result_index;
+            if(result_index + window_size > filtered_result_len) {
+                batch_res_len = filtered_result_len - result_index;
             }
 
             if(facet_batches[thread_id].empty()) {
                 continue;
             }
 
-            uint32_t* batch_result_ids = all_result_ids + result_index;
+            uint32_t* batch_result_ids = filtered_result_ids + result_index;
             num_queued++;
 
             thread_pool->enqueue([this, thread_id, &facets, &facet_batches, &facet_query, group_limit, group_by_fields,
@@ -3591,7 +3602,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          is_wildcard_no_filter_query, estimate_facets,
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
-                                         &num_processed, &m_process, &cv_process, facet_index_type]() {
+                                         &num_processed, &m_process, &cv_process, facet_index_type, collection_name]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = false;
@@ -3627,7 +3638,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             num_queued++;
 
             thread_pool->enqueue([this, thread_id, &facets, &value_facets, &facet_query, group_limit, group_by_fields,
-                                         all_result_ids, all_result_ids_len, &facet_infos, max_facet_values,
+                                         filtered_result_ids, filtered_result_len, &facet_infos, max_facet_values,
                                          is_wildcard_no_filter_query, estimate_facets,
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
@@ -3640,7 +3651,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 do_facets({value_facets[thread_id]}, fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields, group_missing_values,
-                          all_result_ids, all_result_ids_len, max_facet_values,
+                          filtered_result_ids, filtered_result_len, max_facet_values,
                           is_wildcard_no_filter_query, facet_index_type);
 
                 std::unique_lock<std::mutex> lock(m_process);
@@ -7539,6 +7550,42 @@ Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collec
     }
 
     return Option<uint32_t>(sort_index.at(field_name)->at(seq_id));
+}
+
+bool Index::process_facet_excluded_filter(const std::string& coll, filter_node_t* filter_tree_root, const uint32_t* all_result_ids,
+                                   size_t all_result_ids_len, std::vector<uint32_t>& filtered_result_ids) const {
+
+    auto filter_result_iterator = new filter_result_iterator_t(coll, this, filter_tree_root,
+                                                          search_begin_us, search_stop_us);
+
+    auto filter_init_op = filter_result_iterator->init_status();
+    if (!filter_init_op.ok()) {
+        return false;
+    }
+
+    if (filter_tree_root != nullptr &&
+        filter_result_iterator->validity != filter_result_iterator_t::valid) {
+        return true;
+    }
+
+    if (filter_result_iterator->approx_filter_ids_length < 25'000) {
+        filter_result_iterator->compute_iterators();
+    }
+
+    if (filter_result_iterator->validity == filter_result_iterator_t::valid) {
+        for (auto i = 0; i < all_result_ids_len; ++i) {
+            auto result = filter_result_iterator->is_valid(all_result_ids[i]);
+
+            if (result != 1) { //id is not found with filter
+                filtered_result_ids.push_back(all_result_ids[i]);
+            }
+        }
+    }
+
+    //delete filter node and iterator for current facet
+    delete filter_tree_root;
+    delete filter_result_iterator;
+    return true;
 }
 
 /*
