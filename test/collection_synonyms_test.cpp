@@ -1160,3 +1160,31 @@ TEST_F(CollectionSynonymsTest, SynonymsPagination) {
     ASSERT_FALSE(synonym_op.ok());
     ASSERT_EQ("Invalid offset param.", synonym_op.error());
 }
+
+TEST_F(CollectionSynonymsTest, SynonymWithStemming) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string", "stem": true}
+        ]
+    })"_json;
+
+    auto coll1 = collectionManager.create_collection(schema).get();
+    std::vector<std::string> records  = {"k8s", "kubernetes"};
+
+    for(size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["name"] = records[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    coll1->add_synonym(R"({"id": "syn-1", "synonyms": ["k8s", "kubernetes"]})"_json);
+
+    auto res = coll1->search("k8s", {"name"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(2, res["found"].get<uint32_t>());
+
+    collectionManager.drop_collection("coll1");
+}

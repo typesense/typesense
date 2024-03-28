@@ -3085,7 +3085,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         }
         synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
 
-        if (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem) {
+        const bool& do_stemming = (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem);
+        if (do_stemming) {
             auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
             for(auto& q_include_token: q_include_tokens) {
                 q_include_token = stemmer->stem(q_include_token);
@@ -3104,7 +3105,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             std::vector<token_t> q_pos_syn;
             for(size_t j=0; j < q_syn_vec.size(); j++) {
                 bool is_prefix = (j == q_syn_vec.size()-1);
-                q_pos_syn.emplace_back(j, q_syn_vec[j], is_prefix, q_syn_vec[j].size(), 0);
+                std::string token_val = q_syn_vec[j];
+                if (do_stemming) {
+                    auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
+                    token_val = stemmer->stem(q_syn_vec[j]);
+                }
+                q_pos_syn.emplace_back(j, token_val, is_prefix, token_val.size(), 0);
             }
 
             q_pos_synonyms.push_back(q_pos_syn);
