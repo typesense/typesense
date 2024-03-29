@@ -947,4 +947,8 @@ TEST_F(NumericRangeTrieTest, Integration) {
 
     results = coll_array_fields->search("Jeremy", query_fields, "rating: [7.812 .. 9.999, 1.05 .. 1.09]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
+
+    auto coll_json = coll_array_fields->get_summary_json();
+    ASSERT_TRUE(coll_json["fields"][2]["range_index"]);
+    ASSERT_TRUE(coll_json["fields"][4]["range_index"]);
 }

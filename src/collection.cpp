@@ -466,6 +466,11 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
         field_json[fields::stem] = coll_field.stem;
+
+        if(coll_field.range_index) {
+            field_json[fields::range_index] = coll_field.range_index;
+        }
+
         // no need to sned hnsw_params for text fields
         if(coll_field.num_dim > 0) {
             field_json[fields::hnsw_params] = coll_field.hnsw_params;
