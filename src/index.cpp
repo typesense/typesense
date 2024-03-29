@@ -2763,9 +2763,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 #else
 
-    if (filter_result_iterator->approx_filter_ids_length < 25'000) {
+    //if (filter_result_iterator->approx_filter_ids_length < 25'000) {
         filter_result_iterator->compute_iterators();
-    }
+    //}
 #endif
 
     size_t fetch_size = offset + per_page;
