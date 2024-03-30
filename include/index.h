@@ -174,6 +174,8 @@ struct search_args {
     size_t facet_sample_threshold;
     drop_tokens_param_t drop_tokens_mode;
 
+    bool enable_lazy_filter;
+
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 const text_match_type_t match_type,
                 filter_node_t* filter_tree_root, std::vector<facet>& facets,
@@ -189,7 +191,8 @@ struct search_args {
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<enable_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
-                size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode) :
+                size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode,
+                bool enable_lazy_filter) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -208,7 +211,7 @@ struct search_args {
             facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits),
             split_join_tokens(split_join_tokens), vector_query(vector_query),
             facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold),
-            drop_tokens_mode(drop_tokens_mode) {
+            drop_tokens_mode(drop_tokens_mode), enable_lazy_filter(enable_lazy_filter) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -692,7 +695,9 @@ public:
                 facet_index_type_t facet_index_type = DETECT,
                 bool enable_typos_for_numerical_tokens = true,
                 bool enable_synonyms = true,
-                bool synonym_prefix = false, uint32_t synonym_num_typos = 0
+                bool synonym_prefix = false,
+                uint32_t synonym_num_typos = 0,
+                bool enable_lazy_filter = true
                 ) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,

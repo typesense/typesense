@@ -468,6 +468,11 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
         field_json[fields::stem] = coll_field.stem;
+
+        if(coll_field.range_index) {
+            field_json[fields::range_index] = coll_field.range_index;
+        }
+
         // no need to sned hnsw_params for text fields
         if(coll_field.num_dim > 0) {
             field_json[fields::hnsw_params] = coll_field.hnsw_params;
@@ -780,7 +785,11 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
             } else {
                 // remove flattened field values before storing on disk
                 remove_flat_fields(index_record.doc);
-
+                for(auto& field: fields) {
+                    if(!field.store) {
+                        index_record.doc.erase(field.name);
+                    }
+                }
                 const std::string& seq_id_str = std::to_string(index_record.seq_id);
                 const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
                                                                            nlohmann::detail::error_handler_t::ignore);
@@ -1753,8 +1762,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   bool enable_typos_for_numerical_tokens,
                                   bool enable_synonyms,
                                   bool synonym_prefix,
-                                  uint32_t synonyms_num_typos) const {
-
+                                  uint32_t synonyms_num_typos,
+                                  bool enable_lazy_filter) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -2344,7 +2353,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query,
-                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_param);
+                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_param,
+                                                 enable_lazy_filter);
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
@@ -6062,6 +6072,9 @@ Index* Collection::init_index() {
             }
 
             reference_fields.emplace(field.name, reference_pair(ref_coll_name, ref_field_name));
+            if (field.nested) {
+                object_reference_helper_fields.insert(field.name + fields::REFERENCE_HELPER_FIELD_SUFFIX);
+            }
         }
     }
 
