@@ -1757,7 +1757,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   std::string conversation_id,
                                   const std::string& override_tags_str,
                                   const std::string& voice_query,
-                                  bool enable_typos_for_numerical_tokens) const {
+                                  bool enable_typos_for_numerical_tokens,
+                                  bool enable_lazy_filter) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -2343,7 +2344,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
                                                  filter_curated_hits, split_join_tokens, vector_query,
-                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_param);
+                                                 facet_sample_percent, facet_sample_threshold, drop_tokens_param,
+                                                 enable_lazy_filter);
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 

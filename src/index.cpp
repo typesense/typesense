@@ -2252,7 +2252,8 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            collection_name,
            search_params->drop_tokens_mode,
            facet_index_type,
-           enable_typos_for_numerical_tokens
+           enable_typos_for_numerical_tokens,
+           search_params->enable_lazy_filter
            );
 }
 
@@ -2740,7 +2741,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const std::string& collection_name,
                    const drop_tokens_param_t drop_tokens_mode,
                    facet_index_type_t facet_index_type,
-                   bool enable_typos_for_numerical_tokens) const {
+                   bool enable_typos_for_numerical_tokens,
+                   bool enable_lazy_filter) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
@@ -2763,7 +2765,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     }
 #else
 
-    if (filter_result_iterator->approx_filter_ids_length < 25'000) {
+    if (!enable_lazy_filter || filter_result_iterator->approx_filter_ids_length < 25'000) {
         filter_result_iterator->compute_iterators();
     }
 #endif
