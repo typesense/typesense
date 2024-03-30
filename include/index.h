@@ -693,7 +693,7 @@ public:
                 const drop_tokens_param_t drop_tokens_mode,
                 facet_index_type_t facet_index_type = DETECT,
                 bool enable_typos_for_numerical_tokens = true,
-                bool enable_lazy_filter = true
+                bool enable_lazy_filter = false
                 ) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,

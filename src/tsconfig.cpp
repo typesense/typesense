@@ -251,6 +251,7 @@ void Config::load_config_env() {
     }
 
     this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
+    this->enable_lazy_filter = ("TRUE" == get_env("TYPESENSE_ENABLE_LAZY_FILTER"));
     this->reset_peers_on_error = ("TRUE" == get_env("TYPESENSE_RESET_PEERS_ON_ERROR"));
 }
 
@@ -437,6 +438,11 @@ void Config::load_config_file(cmdline::parser& options) {
         this->memory_used_max_percentage = (int) reader.GetInteger("server", "memory-used-max-percentage", 100);
     }
 
+    if(reader.Exists("server", "enable-lazy-filter")) {
+        auto enable_lazy_filter_str = reader.Get("server", "enable-lazy-filter", "false");
+        this->enable_lazy_filter = (enable_lazy_filter_str == "true");
+    }
+
     if(reader.Exists("server", "skip-writes")) {
         auto skip_writes_str = reader.Get("server", "skip-writes", "false");
         this->skip_writes = (skip_writes_str == "true");
@@ -609,6 +615,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("enable-search-analytics")) {
         this->enable_search_analytics = options.get<bool>("enable-search-analytics");
+    }
+
+    if(options.exist("enable-lazy-filter")) {
+        this->enable_lazy_filter = options.get<bool>("enable-lazy-filter");
     }
 
     if(options.exist("enable-search-logging")) {

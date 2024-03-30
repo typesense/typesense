@@ -585,7 +585,7 @@ public:
                                   const std::string& override_tags_str = "",
                                   const std::string& voice_query = "",
                                   bool enable_typos_for_numerical_tokens = true,
-                                  bool enable_lazy_filter = true) const;
+                                  bool enable_lazy_filter = false) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
