@@ -531,6 +531,7 @@ namespace sort_field_const {
 }
 
 namespace ref_include {
+    static const std::string strategy_key = "strategy";
     static const std::string merge_string = "merge";
     static const std::string nest_string = "nest";
     static const std::string nest_array_string = "nest_array";
@@ -699,6 +700,15 @@ struct facet_stats_t {
             fvsum = 0;
 };
 
+struct range_specs_t {
+    std::string range_label;
+    int64_t lower_range;
+
+    bool is_in_range(int64_t key) {
+        return key >= lower_range;
+    }
+};
+
 struct facet {
     const std::string field_name;
     spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
@@ -714,7 +724,7 @@ struct facet {
     facet_stats_t stats;
 
     //dictionary of key=>pair(range_id, range_val)
-    std::map<int64_t, std::string> facet_range_map;
+    std::map<int64_t, range_specs_t> facet_range_map;
 
     bool is_range_query;
 
@@ -739,18 +749,22 @@ struct facet {
 
         auto it = facet_range_map.lower_bound(key);
 
-        if(it != facet_range_map.end()) {
+        if(it != facet_range_map.end() && it->first == key) {
+            it++;
+        }
+
+        if(it != facet_range_map.end() && it->second.is_in_range(key)) {
             range_pair.first = it->first;
-            range_pair.second = it->second;
+            range_pair.second = it->second.range_label;
             return true;
         }
 
         return false;
     }
 
-    explicit facet(const std::string& field_name, std::map<int64_t, std::string> facet_range = {},
+    explicit facet(const std::string& field_name, uint32_t orig_index, std::map<int64_t, range_specs_t> facet_range = {},
                    bool is_range_q = false, bool sort_by_alpha=false, const std::string& order="",
-                   const std::string& sort_by_field="", uint32_t orig_index = 0)
+                   const std::string& sort_by_field="")
                    : field_name(field_name), facet_range_map(facet_range),
                    is_range_query(is_range_q), is_sort_by_alpha(sort_by_alpha), sort_order(order),
                    sort_field(sort_by_field), orig_index(orig_index) {

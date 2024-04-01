@@ -365,13 +365,14 @@ void ids_t::uncompress(void*& obj, std::vector<uint32_t>& ids) {
     }
 }
 
-size_t ids_t::intersect_count(void*& obj, const uint32_t* result_ids, size_t result_ids_len) {
+size_t ids_t::intersect_count(void*& obj, const uint32_t* result_ids, size_t result_ids_len,
+                              bool estimate_facets, size_t facet_sample_mod_value) {
     if(IS_COMPACT_IDS(obj)) {
         compact_id_list_t* list = COMPACT_IDS_PTR(obj);
         return list->intersect_count(result_ids, result_ids_len);
     } else {
         id_list_t* list = (id_list_t*)(obj);
-        return list->intersect_count(result_ids, result_ids_len);
+        return list->intersect_count(result_ids, result_ids_len, estimate_facets, facet_sample_mod_value);
     }
 }
 

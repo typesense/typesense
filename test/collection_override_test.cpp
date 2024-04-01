@@ -331,9 +331,9 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
     override_t::parse(override_json_include, "", override_include);
     coll_mul_fields->add_override(override_include);
 
-    std::map<std::string, override_t> overrides = coll_mul_fields->get_overrides();
+    std::map<std::string, override_t*> overrides = coll_mul_fields->get_overrides().get();
     ASSERT_EQ(1, overrides.size());
-    auto override_json = overrides["include-rule"].to_json();
+    auto override_json = overrides.at("include-rule")->to_json();
     ASSERT_TRUE(override_json.contains("filter_curated_hits"));
     ASSERT_TRUE(override_json["filter_curated_hits"].get<bool>());
 
@@ -440,9 +440,9 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
 
     coll_mul_fields->add_override(override_include);
 
-    std::map<std::string, override_t> overrides = coll_mul_fields->get_overrides();
+    std::map<std::string, override_t*> overrides = coll_mul_fields->get_overrides().get();
     ASSERT_EQ(1, overrides.size());
-    auto override_json = overrides["include-rule"].to_json();
+    auto override_json = overrides.at("include-rule")->to_json();
     ASSERT_FALSE(override_json.contains("filter_by"));
     ASSERT_TRUE(override_json.contains("remove_matched_tokens"));
     ASSERT_TRUE(override_json.contains("filter_curated_hits"));
@@ -520,7 +520,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     // should be able to replace existing override
     override_include.rule.query = "found";
     coll_mul_fields->add_override(override_include);
-    ASSERT_STREQ("found", coll_mul_fields->get_overrides()["include-rule"].rule.query.c_str());
+    ASSERT_STREQ("found", coll_mul_fields->get_overrides().get()["include-rule"]->rule.query.c_str());
 
     coll_mul_fields->remove_override("include-rule");
 }
@@ -1943,6 +1943,74 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, DynamicFilteringPrefixMatchShouldNotWork) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),
+                                 field("brand", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["category"] = "shoe";
+    doc1["brand"] = "Nike";
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Track Gym";
+    doc2["category"] = "shoes";
+    doc2["brand"] = "Adidas";
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Running Shoe";
+    doc3["category"] = "shoes";
+    doc3["brand"] = "Nike";
+    doc3["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    // with override, results will be different
+
+    nlohmann::json override_json = {
+            {"id",   "dynamic-cat-filter"},
+            {
+             "rule", {
+                             {"query", "{category}"},
+                             {"match", override_t::MATCH_EXACT}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"filter_by", "category: {category}"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    auto results = coll1->search("shoe", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, DynamicFilteringMissingField) {
     Collection *coll1;
 
@@ -2450,9 +2518,9 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
     ASSERT_TRUE(op.ok());
     coll1->add_override(override1);
 
-    std::map<std::string, override_t> overrides = coll1->get_overrides();
+    std::map<std::string, override_t*> overrides = coll1->get_overrides().get();
     ASSERT_EQ(1, overrides.size());
-    auto override_json = overrides["dynamic-filters"].to_json();
+    auto override_json = overrides.at("dynamic-filters")->to_json();
     ASSERT_EQ("category: {category}", override_json["filter_by"].get<std::string>());
     ASSERT_EQ(true, override_json["remove_matched_tokens"].get<bool>());  // must be true by default
 
@@ -4022,4 +4090,136 @@ TEST_F(CollectionOverrideTest, WildcardSearchOverride) {
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, OverridesPagination) {
+    Collection *coll2;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll2 = collectionManager.get_collection("coll2").get();
+    if(coll2 == nullptr) {
+        coll2 = collectionManager.create_collection("coll2", 1, fields, "points").get();
+    }
+
+    for(int i = 0; i < 5; ++i) {
+        nlohmann::json override_json = {
+                {"id",       "override"},
+                {
+                 "rule",     {
+                                     {"query", "not-found"},
+                                     {"match", override_t::MATCH_EXACT}
+                             }
+                },
+                {"metadata", {       {"foo",   "bar"}}},
+        };
+
+        override_json["id"] = override_json["id"].get<std::string>() + std::to_string(i + 1);
+        override_t override;
+        override_t::parse(override_json, "", override);
+
+        coll2->add_override(override);
+    }
+
+    uint32_t limit = 0, offset = 0, i = 0;
+
+    //limit collections by 2
+    limit=2;
+    auto override_op = coll2->get_overrides(limit);
+    auto override_map = override_op.get();
+    ASSERT_EQ(2, override_map.size());
+    i=offset;
+    for(const auto &kv : override_map) {
+        ASSERT_EQ("override" + std::to_string(i+1), kv.second->id);
+        ++i;
+    }
+
+    //get 2 collection from offset 3
+    offset=3;
+    override_op = coll2->get_overrides(limit, offset);
+    override_map = override_op.get();
+    ASSERT_EQ(2, override_map.size());
+    i=offset;
+    for(const auto &kv : override_map) {
+        ASSERT_EQ("override" + std::to_string(i+1), kv.second->id);
+        ++i;
+    }
+
+    //get all collection except first
+    offset=1; limit=0;
+    override_op = coll2->get_overrides(limit, offset);
+    override_map = override_op.get();
+    ASSERT_EQ(4, override_map.size());
+    i=offset;
+    for(const auto &kv : override_map) {
+        ASSERT_EQ("override" + std::to_string(i+1), kv.second->id);
+        ++i;
+    }
+
+    //get last collection
+    offset=4, limit=1;
+    override_op = coll2->get_overrides(limit, offset);
+    override_map = override_op.get();
+    ASSERT_EQ(1, override_map.size());
+    ASSERT_EQ("override5", override_map.begin()->second->id);
+
+    //if limit is greater than number of collection then return all from offset
+    offset=0; limit=8;
+    override_op = coll2->get_overrides(limit, offset);
+    override_map = override_op.get();
+    ASSERT_EQ(5, override_map.size());
+    i=offset;
+    for(const auto &kv : override_map) {
+        ASSERT_EQ("override" + std::to_string(i+1), kv.second->id);
+        ++i;
+    }
+
+    offset=3; limit=4;
+    override_op = coll2->get_overrides(limit, offset);
+    override_map = override_op.get();
+    ASSERT_EQ(2, override_map.size());
+    i=offset;
+    for(const auto &kv : override_map) {
+        ASSERT_EQ("override" + std::to_string(i+1), kv.second->id);
+        ++i;
+    }
+
+    //invalid offset
+    offset=6; limit=0;
+    override_op = coll2->get_overrides(limit, offset);
+    ASSERT_FALSE(override_op.ok());
+    ASSERT_EQ("Invalid offset param.", override_op.error());
+}
+
+TEST_F(CollectionOverrideTest, RetrieveOverideByID) {
+    Collection *coll2;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll2 = collectionManager.get_collection("coll2").get();
+    if (coll2 == nullptr) {
+        coll2 = collectionManager.create_collection("coll2", 1, fields, "points").get();
+    }
+
+    nlohmann::json override_json = {
+            {"id",       "override"},
+            {
+             "rule",     {
+                                 {"query", "not-found"},
+                                 {"match", override_t::MATCH_EXACT}
+                         }
+            },
+            {"metadata", {       {"foo",   "bar"}}},
+    };
+
+    override_json["id"] = override_json["id"].get<std::string>() + "1";
+    override_t override;
+    override_t::parse(override_json, "", override);
+
+    coll2->add_override(override);
+
+    auto op = coll2->get_override("override1");
+    ASSERT_TRUE(op.ok());
 }

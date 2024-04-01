@@ -66,6 +66,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
     options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
     options.add<std::string>("search-only-api-key", 's', "[DEPRECATED: use API key management end-point] API key that allows only searches.", false);
+    options.add<std::string>("health-rusage-api-key", '\0', "API key that allows access to health end-point with resource usage.", false);
     options.add<std::string>("analytics-dir", '\0', "Directory where Analytics will be stored.", false);
 
     options.add<std::string>("api-address", '\0', "Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -111,6 +112,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<int>("cache-num-entries", '\0', "Number of entries to cache.", false, 1000);
     options.add<uint32_t>("analytics-flush-interval", '\0', "Frequency of persisting analytics data to disk (in seconds).", false, 3600);
     options.add<uint32_t>("housekeeping-interval", '\0', "Frequency of housekeeping background job (in seconds).", false, 1800);
+    options.add<bool>("enable-lazy-filter", '\0', "Filter clause will be evaluated lazily.", false, false);
     options.add<uint32_t>("db-compaction-interval", '\0', "Frequency of RocksDB compaction (in seconds).", false, 604800);
 
     // DEPRECATED
@@ -298,15 +300,14 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
             const Option<std::string> & refreshed_nodes_op = Config::fetch_nodes_config(path_to_nodes);
             if(!refreshed_nodes_op.ok()) {
                 LOG(WARNING) << "Error while refreshing peer configuration: " << refreshed_nodes_op.error();
-                continue;
-            }
+            } else {
+                const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
+                                                                                    refreshed_nodes_op.get());
+                replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
 
-            const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
-                                                                                refreshed_nodes_op.get());
-            replication_state.refresh_nodes(nodes_config, raft_counter, reset_peers_on_error);
-
-            if(raft_counter % 60 == 0) {
-                replication_state.do_snapshot(nodes_config);
+                if(raft_counter % 60 == 0) {
+                    replication_state.do_snapshot(nodes_config);
+                }
             }
         }
 
@@ -436,7 +437,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
-                           config.get_api_key(), quit_raft_service, batch_indexer);
+                           config.get_api_key(), quit_raft_service);
 
     StopwordsManager& stopwordsManager = StopwordsManager::get_instance();
     stopwordsManager.init(&store);

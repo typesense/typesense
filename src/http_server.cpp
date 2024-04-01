@@ -479,12 +479,12 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
             if(is_multi_search_query) {
                 search_payload = body;
                 StringUtils::erase_char(search_payload, '\n');
-            } else {
-                // ignore params map of multi_search since it is mutated for every search object in the POST body
-                for(const auto& kv: query_map) {
-                    if(kv.first != http_req::AUTH_HEADER) {
-                        query_string += kv.first + "=" + kv.second + "&";
-                    }
+            }
+
+            // ignore params map of multi_search since it is mutated for every search object in the POST body
+            for(const auto& kv: query_map) {
+                if(kv.first != http_req::AUTH_HEADER) {
+                    query_string += kv.first + "=" + kv.second + "&";
                 }
             }
 
@@ -833,7 +833,7 @@ void HttpServer::stream_response(stream_response_state_t& state) {
     if(start_of_res) {
         h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
                        state.res_content_type.data(), state.res_content_type.size());
-        req->res.status = state.status;
+        req->res.status = (state.status == 0 && state.send_state != H2O_SEND_STATE_FINAL) ? 200 : state.status;
         req->res.reason = state.reason;
     }
 

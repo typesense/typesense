@@ -53,6 +53,7 @@ public:
         void next();
         void previous();
         [[nodiscard]] uint32_t last_block_id() const;
+        void skip_n(uint32_t n);
         void skip_to(uint32_t id);
         void reset_cache();
         [[nodiscard]] uint32_t id() const;
@@ -158,7 +159,8 @@ public:
 
     void uncompress(std::vector<uint32_t>& data);
 
-    size_t intersect_count(const uint32_t* res_ids, size_t res_ids_len);
+    size_t intersect_count(const uint32_t* res_ids, size_t res_ids_len,
+                           bool estimate_facets, size_t facet_sample_interval);
 };
 
 template<class T>

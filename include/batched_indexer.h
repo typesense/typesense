@@ -38,6 +38,15 @@ private:
         std::condition_variable cv;
     };
 
+    struct refq_entry {
+        uint64_t queue_id;
+        uint64_t start_ts;
+
+        refq_entry(uint64_t qid, uint64_t sts): queue_id(qid), start_ts(sts) {
+
+        }
+    };
+
     HttpServer* server;
     Store* store;
     Store* meta_store;
@@ -47,11 +56,15 @@ private:
     await_t* qmutuxes;
     std::vector<std::deque<uint64_t>> queues;
 
+    std::unordered_map<std::string, std::unordered_set<std::string>> coll_to_references;
+    await_t refq_wait;
+    std::list<refq_entry> reference_q;
+
     /* Variables to be serialized on snapshot                  /
     --------------------------------------------------------- */
 
     std::mutex mutex;
-    std::unordered_map<uint64_t, req_res_t> req_res_map;
+    std::map<uint64_t, req_res_t> req_res_map;
 
     std::atomic<int64_t> queued_writes = 0;
 

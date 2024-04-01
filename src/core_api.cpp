@@ -44,16 +44,23 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
                            const std::string& body,
                            const route_path& rpath,
                            const std::string& req_auth_key) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-
-    std::vector<collection_key_t> collections;
-
-    get_collections_for_auth(req_params, body, rpath, req_auth_key, collections, embedded_params_vec);
 
     if(rpath.handler == get_health) {
         // health endpoint requires no authentication
         return true;
     }
+
+    if(rpath.handler == get_health_with_resource_usage) {
+        // health_rusage end-point will be authenticated via pre-determined keys
+        return !req_auth_key.empty() && (
+                req_auth_key == Config::get_instance().get_api_key() ||
+                req_auth_key == Config::get_instance().get_health_rusage_api_key()
+                );
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::vector<collection_key_t> collections;
+    get_collections_for_auth(req_params, body, rpath, req_auth_key, collections, embedded_params_vec);
 
     if(collections.size() != embedded_params_vec.size()) {
         LOG(ERROR) << "Impossible error: size of collections and embedded_params_vec don't match, "
@@ -181,7 +188,33 @@ index_operation_t get_index_operation(const std::string& action) {
 
 bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    nlohmann::json json_response = collectionManager.get_collection_summaries();
+
+    uint32_t offset = 0, limit = 0;
+    if(req->params.count("offset") != 0) {
+        const auto &offset_str = req->params["offset"];
+        if(!StringUtils::is_uint32_t(offset_str)) {
+            res->set(400, "Offset param should be unsigned integer.");
+            return false;
+        }
+        offset = std::stoi(offset_str);
+    }
+
+    if(req->params.count("limit") != 0) {
+        const auto &limit_str = req->params["limit"];
+        if(!StringUtils::is_uint32_t(limit_str)) {
+            res->set(400, "Limit param should be unsigned integer.");
+            return false;
+        }
+        limit = std::stoi(limit_str);
+    }
+
+    auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset);
+    if(!collections_summaries_op.ok()) {
+        res->set(collections_summaries_op.code(), collections_summaries_op.error());
+        return false;
+    }
+
+    nlohmann::json json_response = collections_summaries_op.get();
     res->set_200(json_response.dump());
     return true;
 }
@@ -285,14 +318,53 @@ bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
     return true;
 }
 
+bool get_health_with_resource_usage(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json result;
+    bool alive = server->is_alive();
+
+    auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(
+        Config::get_instance().get_data_dir(),
+        Config::get_instance().get_disk_used_max_percentage(),
+        Config::get_instance().get_memory_used_max_percentage()
+    );
+
+    if (resource_check != cached_resource_stat_t::resource_check_t::OK) {
+        result["resource_error"] = std::string(magic_enum::enum_name(resource_check));
+    }
+
+    if(req->params.count("cpu_threshold") != 0 && StringUtils::is_float(req->params["cpu_threshold"])) {
+        float cpu_threshold = std::stof(req->params["cpu_threshold"]);
+        SystemMetrics sys_metrics;
+        std::vector<cpu_stat_t> cpu_stats = sys_metrics.get_cpu_stats();
+        if(!cpu_stats.empty() && StringUtils::is_float(cpu_stats[0].active)) {
+            alive = alive && (std::stof(cpu_stats[0].active) < cpu_threshold);
+        }
+    }
+
+    result["ok"] = alive;
+
+    if(alive) {
+        res->set_body(200, result.dump());
+    } else {
+        res->set_body(503, result.dump());
+    }
+
+    return alive;
+}
+
 bool get_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json result;
     bool alive = server->is_alive();
     result["ok"] = alive;
 
-    auto resource_error = cached_resource_stat_t::get_instance().get_out_of_resource_error();
-    if (resource_error != cached_resource_stat_t::resource_check_t::OK) {
-        result["resource_error"] = std::string(magic_enum::enum_name(resource_error));
+    auto resource_check = cached_resource_stat_t::get_instance().has_enough_resources(
+        Config::get_instance().get_data_dir(),
+        Config::get_instance().get_disk_used_max_percentage(),
+        Config::get_instance().get_memory_used_max_percentage()
+    );
+
+    if (resource_check != cached_resource_stat_t::resource_check_t::OK) {
+        result["resource_error"] = std::string(magic_enum::enum_name(resource_check));
     }
 
     if(alive) {
@@ -734,16 +806,20 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
         const std::string& conversation_model_id = orig_req_params["conversation_model_id"];
         auto conversation_model = ConversationModelManager::get_model(conversation_model_id).get();
-        // We have to pop a document from the search result with max size
-        // Until we do not exceed MAX_TOKENS limit
-        auto max_docs_token = ConversationModel::max_context_tokens(conversation_model);
-        if(!max_docs_token.ok()) {
-            res->set_400(max_docs_token.error());
+        auto min_required_bytes_op = ConversationModel::get_minimum_required_bytes(conversation_model);
+        if(!min_required_bytes_op.ok()) {
+            res->set_400(min_required_bytes_op.error());
+            return false;
+        }
+        auto min_required_bytes = min_required_bytes_op.get();
+        auto prompt = req->params["q"];
+        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + prompt.size()) {
+            res->set_400("`max_bytes` of the conversation model is less than the minimum required bytes(" + std::to_string(min_required_bytes) + ").");
             return false;
         }
 
         // remove document with lowest score until total tokens is less than MAX_TOKENS
-        while(ConversationManager::get_instance().get_token_count(result_docs_arr) > max_docs_token.get()) {
+        while(result_docs_arr.dump(0).size() > conversation_model["max_bytes"].get<size_t>() - min_required_bytes - prompt.size()) {
             // sort the result_docs_arr by size descending
             std::sort(result_docs_arr.begin(), result_docs_arr.end(), [](const auto& a, const auto& b) {
                 return a.size() > b.size();
@@ -755,7 +831,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             }
         }
 
-
         // Make result_docs_arr 1D
         nlohmann::json result_docs = nlohmann::json::array();
         for(const auto& result_doc : result_docs_arr) {
@@ -763,8 +838,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
                 result_docs.push_back(doc);
             }
         }
-
-        auto prompt = req->params["q"];
 
         auto answer_op = ConversationModel::get_answer(result_docs.dump(0), prompt, conversation_model);
 
@@ -782,7 +855,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             res->set_400(formatted_question_op.error());
             return false;
         }
-
 
         auto formatted_answer_op = ConversationModel::format_answer(answer_op.get(), conversation_model);
         if(!formatted_answer_op.ok()) {
@@ -807,8 +879,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             auto conversation_history = get_conversation_op.get();
             if(!exclude_conversation_history) {
                 response["conversation"]["conversation_history"] = conversation_history;
+            } else {
+                response["conversation"]["conversation_id"] = conversation_id;
             }
-            response["conversation"]["conversation_id"] = conversation_id;
         } else {
             nlohmann::json conversation_history = nlohmann::json::array();
             conversation_history.push_back(formatted_question_op.get());
@@ -1195,10 +1268,14 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
                 response_stream << "\n" << json_lines[i];
             }
         }
+
+        // Since we use `res->status_code == 0` for flagging `res_start`, we will only set this
+        // when we have accumulated enough response data to stream.
+        // Otherwise, we will send an empty line as first response.
+        res->status_code = 200;
     }
 
     res->content_type_header = "text/plain; charset=utf-8";
-    res->status_code = 200;
     res->body = response_stream.str();
 
     res->final.store(req->last_chunk_aggregate);
@@ -1671,13 +1748,38 @@ bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
         return false;
     }
 
+    uint32_t offset = 0, limit = 0;
+    if(req->params.count("offset") != 0) {
+        const auto &offset_str = req->params["offset"];
+        if(!StringUtils::is_uint32_t(offset_str)) {
+            res->set(400, "Offset param should be unsigned integer.");
+            return false;
+        }
+        offset = std::stoi(offset_str);
+    }
+
+    if(req->params.count("limit") != 0) {
+        const auto &limit_str = req->params["limit"];
+        if(!StringUtils::is_uint32_t(limit_str)) {
+            res->set(400, "Limit param should be unsigned integer.");
+            return false;
+        }
+        limit = std::stoi(limit_str);
+    }
+
     nlohmann::json res_json;
     res_json["overrides"] = nlohmann::json::array();
 
-    const std::map<std::string, override_t>& overrides = collection->get_overrides();
-    for(const auto & kv: overrides) {
-        nlohmann::json override = kv.second.to_json();
-        res_json["overrides"].push_back(override);
+    auto overrides_op = collection->get_overrides(limit, offset);
+    if(!overrides_op.ok()) {
+        res->set(overrides_op.code(), overrides_op.error());
+        return false;
+    }
+
+    const auto overrides = overrides_op.get();
+
+    for(const auto &kv: overrides) {
+        res_json["overrides"].push_back(kv.second->to_json());
     }
 
     res->set_200(res_json.dump());
@@ -1695,16 +1797,15 @@ bool get_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
 
     std::string override_id = req->params["id"];
 
-    const std::map<std::string, override_t>& overrides = collection->get_overrides();
+    auto overrides_op = collection->get_override(override_id);
 
-    if(overrides.count(override_id) != 0) {
-        nlohmann::json override = overrides.at(override_id).to_json();
-        res->set_200(override.dump());
-        return true;
+    if(!overrides_op.ok()) {
+        res->set(overrides_op.code(), overrides_op.error());
+        return false;
     }
 
-    res->set_404();
-    return false;
+    res->set_200(overrides_op.get().to_json().dump());
+    return true;
 }
 
 bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -1997,13 +2098,37 @@ bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<ht
         return false;
     }
 
+    uint32_t offset = 0, limit = 0;
+    if(req->params.count("offset") != 0) {
+        const auto &offset_str = req->params["offset"];
+        if(!StringUtils::is_uint32_t(offset_str)) {
+            res->set(400, "Offset param should be unsigned integer.");
+            return false;
+        }
+        offset = std::stoi(offset_str);
+    }
+
+    if(req->params.count("limit") != 0) {
+        const auto &limit_str = req->params["limit"];
+        if(!StringUtils::is_uint32_t(limit_str)) {
+            res->set(400, "Limit param should be unsigned integer.");
+            return false;
+        }
+        limit = std::stoi(limit_str);
+    }
+
     nlohmann::json res_json;
     res_json["synonyms"] = nlohmann::json::array();
 
-    const auto& synonyms = collection->get_synonyms();
+    auto synonyms_op = collection->get_synonyms(limit, offset);
+    if(!synonyms_op.ok()) {
+        res->set(synonyms_op.code(), synonyms_op.error());
+        return false;
+    }
+
+    const auto synonyms = synonyms_op.get();
     for(const auto & kv: synonyms) {
-        nlohmann::json synonym = kv.second.to_view_json();
-        res_json["synonyms"].push_back(synonym);
+        res_json["synonyms"].push_back(kv.second->to_view_json());
     }
 
     res->set_200(res_json.dump());
@@ -2119,6 +2244,18 @@ bool is_doc_import_route(uint64_t route_hash) {
     route_path* rpath;
     bool found = server->get_route(route_hash, &rpath);
     return found && (rpath->handler == post_import_documents);
+}
+
+bool is_coll_create_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == post_create_collection);
+}
+
+bool is_drop_collection_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == del_drop_collection);
 }
 
 bool is_doc_write_route(uint64_t route_hash) {

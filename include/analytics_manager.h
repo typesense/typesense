@@ -106,6 +106,8 @@ private:
         size_t limit;
         std::string rule_type;
         bool expand_query = false;
+        nlohmann::json events;
+        std::string counter_field;
 
         void to_json(nlohmann::json& obj) const {
             obj["name"] = name;
@@ -117,6 +119,11 @@ private:
 
             if(rule_type == POPULAR_QUERIES_TYPE) {
                 obj["params"]["expand_query"] = expand_query;
+            }
+
+            if(!events.empty()) {
+                obj["params"]["source"]["events"] = events;
+                obj["params"]["destination"]["counter_field"] = counter_field;
             }
         }
     };

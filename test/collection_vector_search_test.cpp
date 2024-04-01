@@ -2872,7 +2872,8 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
     auto api_key = std::string(std::getenv("api_key"));
 
     auto conversation_model_config = R"({
-        "model_name": "openai/gpt-3.5-turbo"
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes: 1000
     })"_json;
 
     conversation_model_config["api_key"] = api_key;
@@ -3318,7 +3319,8 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     auto api_key = std::string(std::getenv("api_key"));
 
     auto conversation_model_config = R"({
-        "model_name": "openai/gpt-3.5-turbo"
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes": 1000
     })"_json;
 
     conversation_model_config["api_key"] = api_key;
@@ -4419,3 +4421,27 @@ TEST_F(CollectionVectorTest, TestCFModelResponseParsing) {
     ASSERT_EQ("00,\n\"publishDateYear\": 2011,\n\"title\": \"SOPA\",\n\"topics\": [\n\"Links to xkcd.com\",\n\"April fools' comics\",\n\"Interactive comics\",\n\"Comics with animation\",\n\"Dynamic comics\",\n\"Comics with audio\"\n ],\n\"transcript\": \" \"\n},\n{\n\"altTitle\": \"I'm currently getting totally blacked out.\",\n\"id\": \"1006\",\n\"imageUrl\": \"https://imgs.xkcd.com/comics/blackout.png\",\n\"publishDateDay\": 18,\n\"publishDateMonth\": 1,\n\"publishDateTimestamp\": 1326866400,\n\"publishDateYear\": 2011,\n\"title\": \"Blackout\",\n\"topics\": [\n\"Links to xkcd.com\",\n\"April fools' comics\",\n\"Interactive comics\",\n\"Comics with animation\",\n\"Dynamic comics\",\n\"Comics with audio\"\n ],\n\"", parsed_string.get());
 }
 
+TEST_F(CollectionVectorTest, TestInvalidOpenAIURL) {
+    nlohmann::json schema_json = R"({
+        "name": "test",
+        "fields": [
+            {"name": "name", "type": "string"},
+            {
+                "name": "vector",
+                "type": "float[]",
+                "embed": {
+                    "from": ["name"],
+                    "model_config": {
+                        "model_name": "openai/text-embedding-3-small",
+                        "api_key": "123",
+                        "url": "invalid url"
+                    }
+                }
+            }
+        ]
+    })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_FALSE(collection_create_op.ok());
+    ASSERT_EQ("OpenAI API error: ", collection_create_op.error());
+}

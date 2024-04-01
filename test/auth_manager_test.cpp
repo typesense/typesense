@@ -266,20 +266,34 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
     route_path rpath_coll_create = route_path("POST", {"collections"}, nullptr, false, false);
     route_path rpath_coll_get = route_path("GET", {"collections", ":collection"}, nullptr, false, false);
     route_path rpath_coll_list = route_path("GET", {"collections"}, nullptr, false, false);
+    route_path rpath_coll_import = route_path("POST", {"collections", ":collection", "documents", "import"}, nullptr, false, false);
+    route_path rpath_coll_export = route_path("GET", {"collections", ":collection", "documents", "export"}, nullptr, false, false);
     route_path rpath_keys_post = route_path("POST", {"keys"}, nullptr, false, false);
     route_path rpath_doc_delete = route_path("DELETE", {"collections", ":collection", "documents", ":id"}, nullptr, false, false);
     route_path rpath_override_upsert = route_path("PUT", {"collections", ":collection", "overrides", ":id"}, nullptr, false, false);
     route_path rpath_doc_patch = route_path("PATCH", {"collections", ":collection", "documents", ":id"}, nullptr, false, false);
+    route_path rpath_analytics_rules_list = route_path("GET", {"analytics", "rules"}, nullptr, false, false);
+    route_path rpath_analytics_rules_get = route_path("GET", {"analytics", "rules", ":id"}, nullptr, false, false);
+    route_path rpath_analytics_rules_put = route_path("PUT", {"analytics", "rules", ":id"}, nullptr, false, false);
+    route_path rpath_ops_cache_clear_post = route_path("POST", {"operations", "cache", "clear"}, nullptr, false, false);
+    route_path rpath_conv_models_list = route_path("GET", {"conversations", "models"}, nullptr, false, false);
 
     ASSERT_STREQ("documents:search", rpath_search._get_action().c_str());
     ASSERT_STREQ("documents:search", rpath_multi_search._get_action().c_str());
     ASSERT_STREQ("collections:create", rpath_coll_create._get_action().c_str());
     ASSERT_STREQ("collections:get", rpath_coll_get._get_action().c_str());
+    ASSERT_STREQ("documents:import", rpath_coll_import._get_action().c_str());
+    ASSERT_STREQ("documents:export", rpath_coll_export._get_action().c_str());
     ASSERT_STREQ("collections:list", rpath_coll_list._get_action().c_str());
     ASSERT_STREQ("keys:create", rpath_keys_post._get_action().c_str());
     ASSERT_STREQ("documents:delete", rpath_doc_delete._get_action().c_str());
     ASSERT_STREQ("overrides:upsert", rpath_override_upsert._get_action().c_str());
     ASSERT_STREQ("documents:update", rpath_doc_patch._get_action().c_str());
+    ASSERT_STREQ("analytics/rules:list", rpath_analytics_rules_list._get_action().c_str());
+    ASSERT_STREQ("analytics/rules:get", rpath_analytics_rules_get._get_action().c_str());
+    ASSERT_STREQ("analytics/rules:upsert", rpath_analytics_rules_put._get_action().c_str());
+    ASSERT_STREQ("operations/cache/clear:create", rpath_ops_cache_clear_post._get_action().c_str());
+    ASSERT_STREQ("conversations/models:list", rpath_conv_models_list._get_action().c_str());
 }
 
 TEST_F(AuthManagerTest, ScopedAPIKeys) {

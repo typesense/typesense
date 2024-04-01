@@ -21,7 +21,8 @@ CollectionManager::CollectionManager() {
 Collection* CollectionManager::init_collection(const nlohmann::json & collection_meta,
                                                const uint32_t collection_next_seq_id,
                                                Store* store,
-                                               float max_memory_ratio) {
+                                               float max_memory_ratio,
+                                               spp::sparse_hash_map<std::string, std::string>& referenced_in) {
     std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> fields;
@@ -193,7 +194,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             fallback_field_type,
                                             symbols_to_index,
                                             token_separators,
-                                            enable_nested_fields, model);
+                                            enable_nested_fields, model, std::move(referenced_in));
 
     return collection;
 }
@@ -209,8 +210,7 @@ void CollectionManager::add_to_collections(Collection* collection) {
 void CollectionManager::init(Store *store, ThreadPool* thread_pool,
                              const float max_memory_ratio,
                              const std::string & auth_key,
-                             std::atomic<bool>& quit,
-                             BatchedIndexer* batch_indexer) {
+                             std::atomic<bool>& quit) {
     std::unique_lock lock(mutex);
 
     this->store = store;
@@ -218,14 +218,44 @@ void CollectionManager::init(Store *store, ThreadPool* thread_pool,
     this->bootstrap_auth_key = auth_key;
     this->max_memory_ratio = max_memory_ratio;
     this->quit = &quit;
-    this->batch_indexer = batch_indexer;
 }
 
 // used only in tests!
 void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key,
                              std::atomic<bool>& quit) {
     ThreadPool* thread_pool = new ThreadPool(8);
-    init(store, thread_pool, max_memory_ratio, auth_key, quit, nullptr);
+    init(store, thread_pool, max_memory_ratio, auth_key, quit);
+}
+
+void CollectionManager::_populate_referenced_ins(const std::string& collection_meta_json,
+                                                 std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins) {
+    auto const& obj = nlohmann::json::parse(collection_meta_json, nullptr, false);
+
+    if (!obj.is_discarded() && obj.is_object() && obj.contains("name") && obj["name"].is_string() &&
+        obj.contains("fields")) {
+        auto const& collection_name = obj["name"];
+
+        for (const auto &field: obj["fields"]) {
+            if (!field.contains("name") || !field.contains("reference")) {
+                continue;
+            }
+            auto field_name = std::string(field["name"]) + fields::REFERENCE_HELPER_FIELD_SUFFIX;
+            std::vector<std::string> split_result;
+            StringUtils::split(field["reference"], split_result, ".");
+            auto ref_coll_name = split_result.front();
+
+            // Resolves alias if used in schema.
+            auto actual_ref_coll_it = CollectionManager::get_instance().collection_symlinks.find(ref_coll_name);
+            if (actual_ref_coll_it != CollectionManager::get_instance().collection_symlinks.end()) {
+                ref_coll_name = actual_ref_coll_it->second;
+            }
+            if (referenced_ins.count(ref_coll_name) == 0) {
+                referenced_ins.emplace(ref_coll_name, spp::sparse_hash_map<std::string, std::string>());
+            }
+
+            referenced_ins[ref_coll_name].emplace(collection_name, field_name);
+        }
+    }
 }
 
 Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {
@@ -250,6 +280,22 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         next_collection_id = 0;
     }
 
+    // load aliases
+
+    std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
+    std::string upper_bound_key = std::string(SYMLINK_PREFIX) + "`";  // cannot inline this
+    rocksdb::Slice upper_bound(upper_bound_key);
+
+    rocksdb::Iterator* iter = store->scan(symlink_prefix_key, &upper_bound);
+    while(iter->Valid() && iter->key().starts_with(symlink_prefix_key)) {
+        std::vector<std::string> parts;
+        StringUtils::split(iter->key().ToString(), parts, symlink_prefix_key);
+        LOG(INFO) << "Loading symlink " << parts[0] << " to " << iter->value().ToString();
+        collection_symlinks[parts[0]] = iter->value().ToString();
+        iter->Next();
+    }
+    delete iter;
+
     LOG(INFO) << "Loading upto " << collection_batch_size << " collections in parallel, "
               << document_batch_size << " documents at a time.";
 
@@ -263,11 +309,16 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     ThreadPool loading_pool(collection_batch_size);
 
+    // Collection name -> Ref collection name -> Ref field name
+    std::map<std::string, spp::sparse_hash_map<std::string, std::string>> referenced_ins;
+    for (const auto &collection_meta_json: collection_meta_jsons) {
+        _populate_referenced_ins(collection_meta_json, referenced_ins);
+    }
+
     size_t num_processed = 0;
-    // Collection name -> Referenced in
-    std::map<std::string, std::set<reference_pair>> referenced_ins = {};
     std::mutex m_process;
     std::condition_variable cv_process;
+    std::string collection_name;
 
     for(size_t coll_index = 0; coll_index < num_collections; coll_index++) {
         const auto& collection_meta_json = collection_meta_jsons[coll_index];
@@ -277,13 +328,16 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             return Option<bool>(500, "Error while parsing collection meta.");
         }
 
+        collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
+
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit,
-                              &referenced_ins]() {
+                                     &referenced_ins, collection_name]() {
 
             //auto begin = std::chrono::high_resolution_clock::now();
-            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit);
+            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit,
+                                               referenced_ins[collection_name]);
             /*long long int timeMillis =
                     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
             LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
@@ -299,18 +353,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
             num_processed++;
 
             auto& cm = CollectionManager::get_instance();
-            auto const& collection_name = collection_meta.at("name");
-            auto collection = cm.get_collection(collection_name);
-            if (collection != nullptr) {
-                for (const auto &item: collection->get_reference_fields()) {
-                    auto const& ref_coll_name = item.second.collection;
-                    if (referenced_ins.count(ref_coll_name) == 0) {
-                        referenced_ins[ref_coll_name] = {};
-                    }
-                    auto const field_name = item.first + fields::REFERENCE_HELPER_FIELD_SUFFIX;
-                    referenced_ins.at(ref_coll_name).insert(reference_pair{collection_name, field_name});
-                }
-            }
             cv_process.notify_one();
 
             size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
@@ -325,32 +367,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     cv_process.wait(lock_process, [&](){
         return num_processed == num_collections;
     });
-
-    // Initialize references
-    for (const auto &item: referenced_ins) {
-        auto& cm = CollectionManager::get_instance();
-        auto collection = cm.get_collection(item.first);
-        if (collection != nullptr) {
-            for (const auto &reference_pair: item.second) {
-                collection->add_referenced_in(reference_pair);
-            }
-        }
-    }
-
-    // load aliases
-
-    std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
-    std::string upper_bound_key = std::string(SYMLINK_PREFIX) + "`";  // cannot inline this
-    rocksdb::Slice upper_bound(upper_bound_key);
-
-    rocksdb::Iterator* iter = store->scan(symlink_prefix_key, &upper_bound);
-    while(iter->Valid() && iter->key().starts_with(symlink_prefix_key)) {
-        std::vector<std::string> parts;
-        StringUtils::split(iter->key().ToString(), parts, symlink_prefix_key);
-        collection_symlinks[parts[0]] = iter->value().ToString();
-        iter->Next();
-    }
-    delete iter;
 
     // load presets
 
@@ -409,16 +425,6 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";
 
     loading_pool.shutdown();
-
-    LOG(INFO) << "Initializing batched indexer from snapshot state...";
-    if(batch_indexer != nullptr) {
-        std::string batched_indexer_state_str;
-        StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
-        if(s == FOUND) {
-            nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
-            batch_indexer->load_state(batch_indexer_state);
-        }
-    }
 
     return Option<bool>(true);
 }
@@ -572,20 +578,40 @@ locked_resource_view_t<Collection> CollectionManager::get_collection_with_id(uin
     return locked_resource_view_t<Collection>(mutex, nullptr);
 }
 
-std::vector<Collection*> CollectionManager::get_collections() const {
+Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t limit, uint32_t offset) const {
     std::shared_lock lock(mutex);
 
     std::vector<Collection*> collection_vec;
-    for(const auto& kv: collections) {
-        collection_vec.push_back(kv.second);
+    auto collections_it = collections.begin();
+
+    if(offset > 0) {
+        if(offset >= collections.size()) {
+            return Option<std::vector<Collection*>>(400, "Invalid offset param.");
+        }
+
+        std::advance(collections_it, offset);
     }
 
-    std::sort(std::begin(collection_vec), std::end(collection_vec),
-              [] (Collection* lhs, Collection* rhs) {
-                  return lhs->get_collection_id()  > rhs->get_collection_id();
-              });
+    auto collections_end = collections.end();
 
-    return collection_vec;
+    if(limit > 0 && (offset + limit < collections.size())) {
+        collections_end = collections_it;
+        std::advance(collections_end, limit);
+    }
+
+    for (collections_it; collections_it != collections_end; ++collections_it) {
+        collection_vec.push_back(collections_it->second);
+    }
+
+
+    if(offset == 0 && limit == 0) { //dont sort for paginated requests
+        std::sort(std::begin(collection_vec), std::end(collection_vec),
+                  [](Collection *lhs, Collection *rhs) {
+                      return lhs->get_collection_id() > rhs->get_collection_id();
+                  });
+    }
+
+    return Option<std::vector<Collection*>>(collection_vec);
 }
 
 std::vector<std::string> CollectionManager::get_collection_names() const {
@@ -1087,10 +1113,37 @@ Option<bool> parse_nested_exclude(const std::string& exclude_field_exp,
     return Option<bool>(true);
 }
 
+Option<bool> parse_ref_include_parameters(const std::string& include_field_exp, const std::string& parameters,
+                                          ref_include::strategy_enum& strategy_enum) {
+    std::vector<std::string> parameters_map;
+    StringUtils::split(parameters, parameters_map, ",");
+    for (const auto &item: parameters_map) {
+        std::vector<std::string> parameter_pair;
+        StringUtils::split(item, parameter_pair, ":");
+        if (parameter_pair.size() != 2) {
+            continue;
+        }
+        auto const& key = StringUtils::trim(parameter_pair[0]);
+        if (key == ref_include::strategy_key) {
+            auto const& include_strategy = StringUtils::trim(parameter_pair[1]);
+
+            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
+            if (!string_to_enum_op.ok()) {
+                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
+            }
+            strategy_enum = string_to_enum_op.get();
+        } else {
+            return Option<bool>(400, "Unknown reference `include_fields` parameter: `" + key + "`.");
+        }
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> parse_nested_include(const std::string& include_field_exp,
                                   CollectionManager::ref_include_collection_names_t* const ref_include_coll_names,
                                   std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec) {
-    // Format: $ref_collection_name(field_1, field_2, $nested_ref_coll(nested_field_1: nested_include_strategy) as nested_ref_alias: include_strategy) as ref_alias
+    // Format: $ref_collection_name(field_1, field_2, $nested_ref_coll(nested_field_1, strategy: nested_include_strategy) as nested_ref_alias, strategy: include_strategy) as ref_alias
     size_t index = 0;
     while (index < include_field_exp.size()) {
         auto parenthesis_index = include_field_exp.find('(');
@@ -1106,7 +1159,7 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
         std::vector<ref_include_exclude_fields> nested_ref_include_exclude_fields_vec;
         if (nested_include_pos < closing_parenthesis_pos) {
             // Nested reference include.
-            // "... $product_variants(title, $inventory(qty:merge) as inventory :nest) as variants ..."
+            // "... $product_variants(title, $inventory(qty, strategy:merge) as inventory, strategy :nest) as variants ..."
             do {
                 ref_fields += include_field_exp.substr(index, nested_include_pos - index);
                 StringUtils::trim(ref_fields);
@@ -1133,28 +1186,31 @@ Option<bool> parse_nested_include(const std::string& include_field_exp,
             } while(index < include_field_exp.size() && nested_include_pos < closing_parenthesis_pos);
         }
 
-        // ... $inventory(qty:merge) as inventory ...
-        auto include_strategy = ref_include::nest_string;
-        auto strategy_enum = ref_include::nest;
-        if (colon_pos < closing_parenthesis_pos) { // Merge strategy is specified.
-            include_strategy = include_field_exp.substr(colon_pos + 1, closing_parenthesis_pos - colon_pos - 1);
-            StringUtils::trim(include_strategy);
-
-            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
-            if (!string_to_enum_op.ok()) {
-                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
-            }
-            strategy_enum = string_to_enum_op.get();
-
-            if (index < colon_pos) {
-                ref_fields += include_field_exp.substr(index, colon_pos - index);
-            }
-        } else if (index < closing_parenthesis_pos) {
+        if (index < closing_parenthesis_pos) {
             ref_fields += include_field_exp.substr(index, closing_parenthesis_pos - index);
+        }
+        index = closing_parenthesis_pos;
+
+        // ... $inventory(qty, strategy:merge) as inventory
+        auto strategy_enum = ref_include::nest;
+        if (colon_pos < closing_parenthesis_pos) {
+            auto const& parameters_start = ref_fields.rfind(',', colon_pos);
+            std::string parameters;
+            if (parameters_start == std::string::npos) {
+                parameters = ref_fields;
+                ref_fields.clear();
+            } else {
+                parameters = ref_fields.substr(parameters_start + 1);
+                ref_fields = ref_fields.substr(0, parameters_start);
+            }
+
+            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum);
+            if (!parse_params_op.ok()) {
+                return parse_params_op;
+            }
         }
         StringUtils::trim(ref_fields);
 
-        index = closing_parenthesis_pos;
         auto as_pos = include_field_exp.find(" as ", index);
         comma_pos = include_field_exp.find(',', index);
         if (as_pos != std::string::npos && as_pos < comma_pos) {
@@ -1224,20 +1280,23 @@ Option<bool> CollectionManager::_initialize_ref_include_exclude_fields_vec(const
         auto ref_collection_name = ref_include.substr(1, parenthesis_index - 1);
         auto ref_fields = ref_include.substr(parenthesis_index + 1, ref_include.size() - parenthesis_index - 2);
 
-        auto include_strategy = ref_include::nest_string;
         auto strategy_enum = ref_include::nest;
         auto colon_pos = ref_fields.find(':');
         if (colon_pos != std::string::npos) {
-            include_strategy = ref_fields.substr(colon_pos + 1, ref_fields.size() - colon_pos - 1);
-            StringUtils::trim(include_strategy);
-
-            auto string_to_enum_op = ref_include::string_to_enum(include_strategy);
-            if (!string_to_enum_op.ok()) {
-                return Option<bool>(400, "Error parsing `" + include_field_exp + "`: " + string_to_enum_op.error());
+            auto const& parameters_start = ref_fields.rfind(',', colon_pos);
+            std::string parameters;
+            if (parameters_start == std::string::npos) {
+                parameters = ref_fields;
+                ref_fields.clear();
+            } else {
+                parameters = ref_fields.substr(parameters_start + 1);
+                ref_fields = ref_fields.substr(0, parameters_start);
             }
-            strategy_enum = string_to_enum_op.get();
 
-            ref_fields = ref_fields.substr(0, colon_pos);
+            auto parse_params_op = parse_ref_include_parameters(include_field_exp, parameters, strategy_enum);
+            if (!parse_params_op.ok()) {
+                return parse_params_op;
+            }
         }
 
         // For an alias `foo`,
@@ -1416,6 +1475,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *VOICE_QUERY = "voice_query";
 
     const char *ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
+    const char *ENABLE_LAZY_FILTER = "enable_lazy_filter";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -1536,6 +1596,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
     bool enable_typos_for_numerical_tokens = true;
+    bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
@@ -1608,6 +1669,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
         {GROUP_MISSING_VALUES, &group_missing_values},
         {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
+        {ENABLE_LAZY_FILTER, &enable_lazy_filter},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1822,7 +1884,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           conversation_id,
                                                           override_tags,
                                                           voice_query,
-                                                          enable_typos_for_numerical_tokens);
+                                                          enable_typos_for_numerical_tokens,
+                                                          enable_lazy_filter);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
@@ -1837,17 +1900,17 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     nlohmann::json result = result_op.get();
 
     if(Config::get_instance().get_enable_search_analytics()) {
-        if(result.count("found") != 0 && result["found"].get<size_t>() != 0) {
+        if(result.contains("found")) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
-            const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
-                                                result["request_params"]["first_q"].get<std::string>());
-
-            AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
-                                                            true, req_params["x-typesense-user-id"]);
-        } else if(result.contains("found") == 0 && result["found"].get<size_t>() == 0) {
-            std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
-            AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
-                                                              true, req_params["x-typesense-user-id"]);
+            if(result["found"].get<size_t>() != 0) {
+                const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
+                        result["request_params"]["first_q"].get<std::string>());
+                AnalyticsManager::get_instance().add_suggestion(orig_coll_name, analytics_query, expanded_query,
+                                                                true, req_params["x-typesense-user-id"]);
+            } else {
+                AnalyticsManager::get_instance().add_nohits_query(orig_coll_name, analytics_query,
+                                                                  true, req_params["x-typesense-user-id"]);
+            }
         }
     }
 
@@ -1872,10 +1935,16 @@ ThreadPool* CollectionManager::get_thread_pool() const {
     return thread_pool;
 }
 
-nlohmann::json CollectionManager::get_collection_summaries() const {
+Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limit, uint32_t offset) const {
     std::shared_lock lock(mutex);
 
-    std::vector<Collection*> colls = get_collections();
+    auto collections_op = get_collections(limit, offset);
+    if(!collections_op.ok()) {
+        return Option<nlohmann::json>(collections_op.code(), collections_op.error());
+    }
+
+    std::vector<Collection*> colls = collections_op.get();
+
     nlohmann::json json_summaries = nlohmann::json::array();
 
     for(Collection* collection: colls) {
@@ -1883,7 +1952,7 @@ nlohmann::json CollectionManager::get_collection_summaries() const {
         json_summaries.push_back(collection_json);
     }
 
-    return json_summaries;
+    return Option<nlohmann::json>(json_summaries);
 }
 
 Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_json) {
@@ -2037,7 +2106,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
                                                 const size_t batch_size,
                                                 const StoreStatus& next_coll_id_status,
-                                                const std::atomic<bool>& quit) {
+                                                const std::atomic<bool>& quit,
+                                                spp::sparse_hash_map<std::string, std::string>& referenced_in) {
 
     auto& cm = CollectionManager::get_instance();
 
@@ -2083,7 +2153,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
-    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f);
+    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_in);
 
     LOG(INFO) << "Loading collection " << collection->get_name();
 
@@ -2300,15 +2370,15 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     Collection* new_coll = coll_create_op.get();
 
     // copy synonyms
-    auto synonyms = existing_coll->get_synonyms();
+    auto synonyms = existing_coll->get_synonyms().get();
     for(const auto& synonym: synonyms) {
-        new_coll->get_synonym_index()->add_synonym(new_name, synonym.second);
+        new_coll->get_synonym_index()->add_synonym(new_name, *synonym.second);
     }
 
     // copy overrides
-    auto overrides = existing_coll->get_overrides();
-    for(const auto& override: overrides) {
-        new_coll->add_override(override.second);
+    auto overrides = existing_coll->get_overrides().get();
+    for(const auto& kv: overrides) {
+        new_coll->add_override(*kv.second);
     }
 
     return Option<Collection*>(new_coll);
@@ -2349,4 +2419,20 @@ void CollectionManager::process_embedding_field_delete(const std::string& model_
         EmbedderManager::get_instance().delete_text_embedder(model_name);
         EmbedderManager::get_instance().delete_image_embedder(model_name);
     }
+}
+
+std::unordered_set<std::string> CollectionManager::get_collection_references(const std::string& coll_name) {
+    std::shared_lock lock(mutex);
+
+    std::unordered_set<std::string> references;
+    auto it = collections.find(coll_name);
+    if (it == collections.end()) {
+        return references;
+    }
+
+    for (const auto& item: it->second->get_reference_fields()) {
+        const auto& ref_pair = item.second;
+        references.insert(ref_pair.collection);
+    }
+    return references;
 }

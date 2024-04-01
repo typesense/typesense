@@ -63,15 +63,16 @@ TextEmbedder::TextEmbedder(const std::string& model_name) {
     }
 }
 
-TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims) {
+TextEmbedder::TextEmbedder(const nlohmann::json& model_config, size_t num_dims, const bool has_custom_dims) {
     const std::string& model_name = model_config["model_name"].get<std::string>();
     LOG(INFO) << "Initializing remote embedding model: " << model_name;
     auto model_namespace = EmbedderManager::get_model_namespace(model_name);
 
     if(model_namespace == "openai") {
         auto api_key = model_config["api_key"].get<std::string>();
+        const std::string& url = model_config.contains("url") ? model_config["url"].get<std::string>() : "";
 
-        remote_embedder_ = std::make_unique<OpenAIEmbedder>(model_name, api_key);
+        remote_embedder_ = std::make_unique<OpenAIEmbedder>(model_name, api_key, num_dims, has_custom_dims, url);
     } else if(model_namespace == "google") {
         auto api_key = model_config["api_key"].get<std::string>();
 

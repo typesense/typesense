@@ -113,6 +113,29 @@ void id_list_t::iterator_t::reset_cache() {
     curr_block = end_block = nullptr;
 }
 
+void id_list_t::iterator_t::skip_n(uint32_t n) {
+    while(curr_block != end_block) {
+        curr_index += n;
+        if(curr_index < curr_block->size()) {
+            return;
+        }
+
+        n = (curr_index - curr_block->size() + 1);
+        curr_block = curr_block->next;
+
+        delete [] ids;
+        ids = nullptr;
+
+        if(curr_block != end_block) {
+            curr_index = 0;
+            n--;
+            ids = curr_block->ids.uncompress();
+        } else {
+            reset_cache();
+        }
+    }
+}
+
 void id_list_t::iterator_t::skip_to(uint32_t id) {
     // first look to skip within current block
     if(id <= this->last_block_id()) {
@@ -699,23 +722,44 @@ uint32_t* id_list_t::uncompress() {
     return arr;
 }
 
-size_t id_list_t::intersect_count(const uint32_t *res_ids, size_t res_ids_len) {
+size_t id_list_t::intersect_count(const uint32_t *res_ids, size_t res_ids_len,
+                                  bool estimate_facets, size_t facet_sample_interval) {
     size_t count = 0;
     size_t res_index = 0;
     auto it = new_iterator();
 
-    while(it.valid() && res_index < res_ids_len) {
-        if(it.id() < res_ids[res_index]) {
-            it.skip_to(res_ids[res_index]);
-        } else if(it.id() > res_ids[res_index]) {
-            // returns index that is >= to value or last if no such element is found.
-            res_index = std::lower_bound(res_ids + res_index, res_ids + res_ids_len, it.id()) - res_ids;
-        } else {
-            it.next();
-            res_index++;
-            count++;
+    if(estimate_facets) {
+        while(it.valid() && res_index < res_ids_len) {
+            if(it.id() == res_ids[res_index]) {
+                count++;
+                it.skip_n(facet_sample_interval);
+                res_index += facet_sample_interval;
+            } else if(it.id() < res_ids[res_index]) {
+                it.skip_n(facet_sample_interval);
+            } else {
+                res_index += facet_sample_interval;
+            }
+        }
+    } else {
+        while(it.valid() && res_index < res_ids_len) {
+            if(it.id() == res_ids[res_index]) {
+                count++;
+                it.next();
+                res_index += 1;
+            } else if(it.id() < res_ids[res_index]) {
+                it.next();
+            } else {
+                res_index += 1;
+            }
         }
     }
 
-    return count;
+    //LOG(INFO) << "estimate_facets: " << estimate_facets << ", res_ids_len: " << res_ids_len
+    //          << ", skip_interval: " << facet_sample_interval << ", count: " << count;
+
+    if(estimate_facets) {
+        count = count * facet_sample_interval * facet_sample_interval;
+    }
+
+    return std::min<size_t>(ids_length, count);
 }

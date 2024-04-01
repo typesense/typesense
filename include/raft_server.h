@@ -100,6 +100,7 @@ class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
     static constexpr const char* analytics_db_snapshot_name = "analytics_db_snapshot";
+    static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
 
     mutable std::shared_mutex node_mutex;
 
@@ -138,6 +139,8 @@ private:
 
     std::atomic<bool> shutting_down;
     std::atomic<size_t> pending_writes;
+
+    std::atomic<size_t> snapshot_in_progress;
 
     const uint64_t snapshot_interval_s;     // frequency of actual snapshotting
     uint64_t last_snapshot_ts;              // when last snapshot ran

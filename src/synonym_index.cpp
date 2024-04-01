@@ -179,9 +179,32 @@ Option<bool> SynonymIndex::remove_synonym(const std::string & collection_name, c
     return Option<bool>(404, "Could not find that `id`.");
 }
 
-spp::sparse_hash_map<std::string, synonym_t> SynonymIndex::get_synonyms() {
+Option<spp::sparse_hash_map<std::string, synonym_t*>> SynonymIndex::get_synonyms(uint32_t limit, uint32_t offset) {
     std::shared_lock lock(mutex);
-    return synonym_definitions;
+    spp::sparse_hash_map<std::string, synonym_t*> synonyms_map;
+
+    auto synonym_it = synonym_definitions.begin();
+
+    if(offset > 0) {
+        if(offset >= synonym_definitions.size()) {
+            return Option<spp::sparse_hash_map<std::string, synonym_t*>>(400, "Invalid offset param.");
+        }
+
+        std::advance(synonym_it, offset);
+    }
+
+    auto synonym_end = synonym_definitions.end();
+
+    if(limit > 0 && (offset + limit < synonym_definitions.size())) {
+        synonym_end = synonym_it;
+        std::advance(synonym_end, limit);
+    }
+
+    for (synonym_it; synonym_it != synonym_end; ++synonym_it) {
+        synonyms_map[synonym_it->first] = &synonym_it->second;
+    }
+
+    return Option<spp::sparse_hash_map<std::string, synonym_t*>>(synonyms_map);
 }
 
 std::string SynonymIndex::get_synonym_key(const std::string & collection_name, const std::string & synonym_id) {

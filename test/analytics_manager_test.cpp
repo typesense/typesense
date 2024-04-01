@@ -1107,6 +1107,12 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     create_op = analyticsManager.create_rule(analytics_rule, false, true);
     ASSERT_TRUE(create_op.ok());
 
+    auto rule_op = analyticsManager.get_rule("books_popularity2");
+    ASSERT_TRUE(rule_op.ok());
+    auto rule = rule_op.get();
+    ASSERT_EQ(analytics_rule["params"]["source"]["events"], rule["params"]["source"]["events"]);
+    ASSERT_EQ(analytics_rule["params"]["destination"]["counter_field"], rule["params"]["destination"]["counter_field"]);
+
     nlohmann::json event = R"({
         "type": "conversion",
         "name": "CNV4",

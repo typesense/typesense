@@ -318,7 +318,10 @@ size_t facet_index_t::get_facet_count(const std::string& field_name) {
 
 //returns the count of matching seq_ids from result array
 size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
-                                bool has_facet_query, const std::vector<std::vector<std::string>>& fvalue_searched_tokens,
+                                bool has_facet_query,
+                                bool estimate_facets,
+                                size_t facet_sample_interval,
+                                const std::vector<std::vector<std::string>>& fvalue_searched_tokens,
                                 const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
                                 const uint32_t* result_ids, size_t result_ids_len,
                                 size_t max_facet_count, std::map<std::string, docid_count_t>& found,
@@ -389,7 +392,9 @@ size_t facet_index_t::intersect(facet& a_facet, const field& facet_field,
         if (is_wildcard_no_filter_query) {
             count = facet_count_it->count;
         } else {
-            count = ids_t::intersect_count(ids, result_ids, result_ids_len);
+            auto val_count = ids_t::num_ids(ids);
+            bool estimate_facet_count = (estimate_facets && val_count > 300);
+            count = ids_t::intersect_count(ids, result_ids, result_ids_len, estimate_facet_count, facet_sample_interval);
         }
 
         if (count) {

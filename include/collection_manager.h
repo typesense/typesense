@@ -78,8 +78,6 @@ private:
 
     std::atomic<bool>* quit;
 
-    BatchedIndexer* batch_indexer;
-
     // All the references to a particular collection are stored until it is created.
     std::map<std::string, std::set<reference_pair>> referenced_in_backlog;
 
@@ -103,7 +101,6 @@ public:
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
     static constexpr const char* SYMLINK_PREFIX = "$SL";
     static constexpr const char* PRESET_PREFIX = "$PS";
-    static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
 
     static CollectionManager & get_instance() {
         static CollectionManager instance;
@@ -125,18 +122,20 @@ public:
     static Collection* init_collection(const nlohmann::json & collection_meta,
                                        const uint32_t collection_next_seq_id,
                                        Store* store,
-                                       float max_memory_ratio);
+                                       float max_memory_ratio,
+                                       spp::sparse_hash_map<std::string, std::string>& referenced_in);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
                                         const size_t batch_size,
                                         const StoreStatus& next_coll_id_status,
-                                        const std::atomic<bool>& quit);
+                                        const std::atomic<bool>& quit,
+                                        spp::sparse_hash_map<std::string, std::string>& referenced_in);
 
     Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
 
     void add_to_collections(Collection* collection);
 
-    std::vector<Collection*> get_collections() const;
+    Option<std::vector<Collection*>> get_collections(uint32_t limit = 0, uint32_t offset = 0) const;
 
     std::vector<std::string> get_collection_names() const;
 
@@ -145,7 +144,7 @@ public:
     // PUBLICLY EXPOSED API
 
     void init(Store *store, ThreadPool* thread_pool, const float max_memory_ratio,
-              const std::string & auth_key, std::atomic<bool>& quit, BatchedIndexer* batch_indexer);
+              const std::string & auth_key, std::atomic<bool>& quit);
 
     // only for tests!
     void init(Store *store, const float max_memory_ratio, const std::string & auth_key, std::atomic<bool>& exit);
@@ -176,7 +175,7 @@ public:
 
     locked_resource_view_t<Collection> get_collection_with_id(uint32_t collection_id) const;
 
-    nlohmann::json get_collection_summaries() const;
+    Option<nlohmann::json> get_collection_summaries(uint32_t limit = 0 , uint32_t offset = 0) const;
 
     Option<nlohmann::json> drop_collection(const std::string& collection_name,
                                            const bool remove_from_store = true,
@@ -233,4 +232,9 @@ public:
     std::map<std::string, std::set<reference_pair>> _get_referenced_in_backlog() const;
 
     void process_embedding_field_delete(const std::string& model_name);
+
+    static void _populate_referenced_ins(const std::string& collection_meta_json,
+                                         std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins);
+
+    std::unordered_set<std::string> get_collection_references(const std::string& coll_name);
 };

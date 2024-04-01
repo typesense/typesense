@@ -301,7 +301,7 @@ TEST_F(CollectionManagerTest, ParallelCollectionCreation) {
 
     int64_t prev_id = INT32_MAX;
 
-    for(auto coll: collectionManager.get_collections()) {
+    for(auto coll: collectionManager.get_collections().get()) {
         // collections are sorted by ID, in descending order
         ASSERT_TRUE(coll->get_collection_id() < prev_id);
         prev_id = coll->get_collection_id();
@@ -313,7 +313,8 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
                                   "\"string\", \"facet\": false}], \"default_sorting_field\": \"foo\"}");
 
-    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f);
+    spp::sparse_hash_map<std::string, std::string> referenced_in;
+    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f, referenced_in);
     ASSERT_EQ("foobar", collection->get_name());
     ASSERT_EQ(100, collection->get_collection_id());
     ASSERT_EQ(1, collection->get_fields().size());
@@ -335,7 +336,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"symbols_to_index\": [\"+\"], \"token_separators\": [\"-\"]}");
 
 
-    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f);
+    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f, referenced_in);
     ASSERT_EQ(12345, collection->get_created_at());
 
     std::vector<char> expected_symbols = {'+'};
@@ -355,7 +356,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
 }
 
 TEST_F(CollectionManagerTest, GetAllCollections) {
-    std::vector<Collection*> collection_vec = collectionManager.get_collections();
+    std::vector<Collection*> collection_vec = collectionManager.get_collections().get();
     ASSERT_EQ(1, collection_vec.size());
     ASSERT_STREQ("collection1", collection_vec[0]->get_name().c_str());
 
@@ -369,7 +370,7 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
     })"_json;
 
     collectionManager.create_collection(new_schema);
-    collection_vec = collectionManager.get_collections();
+    collection_vec = collectionManager.get_collections().get();
     ASSERT_EQ(2, collection_vec.size());
 
     // most recently created collection first
@@ -520,20 +521,20 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     ASSERT_TRUE(collection1->get_enable_nested_fields());
 
-    ASSERT_EQ(2, collection1->get_overrides().size());
-    ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
-    ASSERT_STREQ("include-rule", collection1->get_overrides()["include-rule"].id.c_str());
+    ASSERT_EQ(2, collection1->get_overrides().get().size());
+    ASSERT_STREQ("exclude-rule", collection1->get_overrides().get()["exclude-rule"]->id.c_str());
+    ASSERT_STREQ("include-rule", collection1->get_overrides().get()["include-rule"]->id.c_str());
 
-    const auto& synonyms = collection1->get_synonyms();
+    const auto& synonyms = collection1->get_synonyms().get();
     ASSERT_EQ(2, synonyms.size());
 
-    ASSERT_STREQ("id1", synonyms.at("id1").id.c_str());
-    ASSERT_EQ(2, synonyms.at("id1").root.size());
-    ASSERT_EQ(1, synonyms.at("id1").synonyms.size());
+    ASSERT_STREQ("id1", synonyms.at("id1")->id.c_str());
+    ASSERT_EQ(2, synonyms.at("id1")->root.size());
+    ASSERT_EQ(1, synonyms.at("id1")->synonyms.size());
 
-    ASSERT_STREQ("id3", synonyms.at("id3").id.c_str());
-    ASSERT_EQ(0, synonyms.at("id3").root.size());
-    ASSERT_EQ(2, synonyms.at("id3").synonyms.size());
+    ASSERT_STREQ("id3", synonyms.at("id3")->id.c_str());
+    ASSERT_EQ(0, synonyms.at("id3")->root.size());
+    ASSERT_EQ(2, synonyms.at("id3")->synonyms.size());
 
     std::vector<char> expected_symbols = {'+'};
     std::vector<char> expected_separators = {'-'};
@@ -668,6 +669,61 @@ TEST_F(CollectionManagerTest, QuerySuggestionsShouldBeTrimmed) {
     ASSERT_EQ(2, popular_queries["top_queries"]->get_user_prefix_queries()[""].size());
     ASSERT_EQ("tom", popular_queries["top_queries"]->get_user_prefix_queries()[""][0].query);
     ASSERT_EQ("", popular_queries["top_queries"]->get_user_prefix_queries()[""][1].query);
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionManagerTest, NoHitsQueryAggregation) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("year", field_types::INT32, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Tom Sawyer";
+    doc1["year"] = 1876;
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    Config::get_instance().set_enable_search_analytics(true);
+
+    nlohmann::json analytics_rule = R"({
+        "name": "nohits_search_queries",
+        "type": "nohits_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["coll1"]
+            },
+            "destination": {
+                "collection": "nohits_queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    nlohmann::json embedded_params;
+    std::map<std::string, std::string> req_params;
+    req_params["collection"] = "coll1";
+    req_params["q"] = "foobarbaz";
+    req_params["query_by"] = "title";
+
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    // check that no hits queries have been populated
+    auto nohits_queries = AnalyticsManager::get_instance().get_nohits_queries();
+    ASSERT_EQ(1, nohits_queries["nohits_queries"]->get_user_prefix_queries()[""].size());
+    ASSERT_EQ("foobarbaz", nohits_queries["nohits_queries"]->get_user_prefix_queries()[""][0].query);
 
     collectionManager.drop_collection("coll1");
 }
@@ -1049,7 +1105,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     ASSERT_TRUE(drop_op.ok());
 
     // try to list collections now
-    nlohmann::json summaries = cmanager.get_collection_summaries();
+    nlohmann::json summaries = cmanager.get_collection_summaries().get();
     ASSERT_EQ(0, summaries.size());
 
     // remap alias to another non-existing collection
@@ -1117,7 +1173,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
         cmanager.create_collection("collection" + std::to_string(i), 4, schema, "points").get();
     }
 
-    ASSERT_EQ(100, cmanager.get_collections().size());
+    ASSERT_EQ(100, cmanager.get_collections().get().size());
 
     cmanager.dispose();
     delete new_store;
@@ -1126,7 +1182,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
-    ASSERT_EQ(100, cmanager.get_collections().size());
+    ASSERT_EQ(100, cmanager.get_collections().get().size());
 
     for(size_t i = 0; i < 100; i++) {
         collectionManager.drop_collection("collection" + std::to_string(i));
@@ -1352,8 +1408,8 @@ TEST_F(CollectionManagerTest, CloneCollection) {
     ASSERT_FALSE(coll2 == nullptr);
     ASSERT_EQ("coll2", coll2->get_name());
     ASSERT_EQ(1, coll2->get_fields().size());
-    ASSERT_EQ(1, coll2->get_synonyms().size());
-    ASSERT_EQ(1, coll2->get_overrides().size());
+    ASSERT_EQ(1, coll2->get_synonyms().get().size());
+    ASSERT_EQ(1, coll2->get_overrides().get().size());
     ASSERT_EQ("", coll2->get_fallback_field_type());
 
     ASSERT_EQ(1, coll2->get_symbols_to_index().size());
@@ -1485,16 +1541,23 @@ TEST_F(CollectionManagerTest, InitializeRefIncludeExcludeFields) {
     exclude_fields_vec.clear();
 
     filter_query = "";
-    include_fields_vec = {"$Customers(product_price: foo) as customers"};
+    include_fields_vec = {"$Customers(product_price, strategy: foo) as customers"};
     initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
                                                                                   exclude_fields_vec,
                                                                                   ref_include_exclude_fields_vec);
     ASSERT_FALSE(initialize_op.ok());
-    ASSERT_EQ("Error parsing `$Customers(product_price: foo) as customers`: Unknown include strategy `foo`. "
+    ASSERT_EQ("Error parsing `$Customers(product_price, strategy: foo) as customers`: Unknown include strategy `foo`. "
               "Valid options are `merge`, `nest`, `nest_array`.", initialize_op.error());
 
+    include_fields_vec = {"$Customers(product_price, foo: bar) as customers"};
+    initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
+                                                                                  exclude_fields_vec,
+                                                                                  ref_include_exclude_fields_vec);
+    ASSERT_FALSE(initialize_op.ok());
+    ASSERT_EQ("Unknown reference `include_fields` parameter: `foo`.", initialize_op.error());
+
     filter_query = "$Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
-    include_fields_vec = {"$Customers(product_price: merge) as customers"};
+    include_fields_vec = {"$Customers(product_price, strategy: merge) as customers"};
     initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
                                                                                   exclude_fields_vec,
                                                                                   ref_include_exclude_fields_vec);
@@ -1508,7 +1571,7 @@ TEST_F(CollectionManagerTest, InitializeRefIncludeExcludeFields) {
     ref_include_exclude_fields_vec.clear();
 
     filter_query = "$Customers(customer_id:=customer_a && (product_price:>100 && product_price:<200))";
-    include_fields_vec = {"$Customers(product_price: nest_array) as customers"};
+    include_fields_vec = {"$Customers(product_price, strategy: nest_array) as customers"};
     initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
                                                                                   exclude_fields_vec,
                                                                                   ref_include_exclude_fields_vec);
@@ -1547,14 +1610,14 @@ TEST_F(CollectionManagerTest, InitializeRefIncludeExcludeFields) {
     ref_include_exclude_fields_vec.clear();
 
     filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
-    include_fields_vec = {"$product_variants(title, $inventory(qty:merge) as inventory: nest) as variants"};
+    include_fields_vec = {"$product_variants(title, $inventory(qty, strategy:merge) as inventory, strategy: nest) as variants"};
     initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
                                                                                   exclude_fields_vec,
                                                                                   ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
     ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
     ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
-    ASSERT_EQ("title,", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("title", ref_include_exclude_fields_vec[0].include_fields);
     ASSERT_EQ("variants", ref_include_exclude_fields_vec[0].alias);
     ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
 
@@ -1572,15 +1635,15 @@ TEST_F(CollectionManagerTest, InitializeRefIncludeExcludeFields) {
     ref_include_exclude_fields_vec.clear();
 
     filter_query = "$product_variants( $inventory(id:*) && $retailers(location:(33.865,-118.375,100 km)))";
-    include_fields_vec = {"$product_variants(title, $inventory(qty:merge) as inventory,"
-                            " $retailers(title): merge) as variants"};
+    include_fields_vec = {"$product_variants(title, $inventory(qty, strategy:merge) as inventory,"
+                            " $retailers(title), strategy: merge) as variants"};
     initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
                                                                                   exclude_fields_vec,
                                                                                   ref_include_exclude_fields_vec);
     ASSERT_TRUE(initialize_op.ok());
     ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
     ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
-    ASSERT_EQ("title,", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("title", ref_include_exclude_fields_vec[0].include_fields);
     ASSERT_EQ("variants.", ref_include_exclude_fields_vec[0].alias);
     ASSERT_EQ(ref_include::merge, ref_include_exclude_fields_vec[0].strategy);
 
@@ -1597,8 +1660,8 @@ TEST_F(CollectionManagerTest, InitializeRefIncludeExcludeFields) {
     ref_include_exclude_fields_vec.clear();
 
     filter_query = "$product_variants( $inventory(id:*) && $retailers(location:(33.865,-118.375,100 km)))";
-    include_fields_vec = {"$product_variants(title, $inventory(qty:merge) as inventory, description,"
-                            " $retailers(title), foo: merge) as variants"};
+    include_fields_vec = {"$product_variants(title, $inventory(qty, strategy:merge) as inventory, description,"
+                            " $retailers(title), foo, strategy: merge) as variants"};
     initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
                                                                                   exclude_fields_vec,
                                                                                   ref_include_exclude_fields_vec);
@@ -1666,7 +1729,7 @@ TEST_F(CollectionManagerTest, InitializeRefIncludeExcludeFields) {
     ref_include_exclude_fields_vec.clear();
 
     filter_query = "$product_variants( $inventory($retailers(location:(33.865,-118.375,100 km))))";
-    include_fields_vec = {"$product_variants(title, $inventory(qty:merge) as inventory: nest) as variants"};
+    include_fields_vec = {"$product_variants(title, $inventory(qty, strategy:merge) as inventory, strategy: nest) as variants"};
     exclude_fields_vec = {"$product_variants(title, $inventory(qty, $retailers(title)))"};
     initialize_op = CollectionManager::_initialize_ref_include_exclude_fields_vec(filter_query, include_fields_vec,
                                                                                   exclude_fields_vec,
@@ -1674,7 +1737,7 @@ TEST_F(CollectionManagerTest, InitializeRefIncludeExcludeFields) {
     ASSERT_TRUE(initialize_op.ok());
     ASSERT_EQ(1, ref_include_exclude_fields_vec.size());
     ASSERT_EQ("product_variants", ref_include_exclude_fields_vec[0].collection_name);
-    ASSERT_EQ("title,", ref_include_exclude_fields_vec[0].include_fields);
+    ASSERT_EQ("title", ref_include_exclude_fields_vec[0].include_fields);
     ASSERT_EQ("title,", ref_include_exclude_fields_vec[0].exclude_fields);
     ASSERT_EQ("variants", ref_include_exclude_fields_vec[0].alias);
     ASSERT_EQ(ref_include::nest, ref_include_exclude_fields_vec[0].strategy);
@@ -1852,4 +1915,119 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
     expected_meta_json["created_at"] = actual_json["created_at"];
 
     ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
+}
+
+TEST_F(CollectionManagerTest, PopulateReferencedIns) {
+    std::vector<std::string> collection_meta_jsons = {
+            R"({
+                "name": "A",
+                "fields": [
+                  {"name": "a_id", "type": "string"}
+                ]
+            })"_json.dump(),
+            R"({
+                "name": "B",
+                "fields": [
+                  {"name": "b_id", "type": "string"},
+                  {"name": "b_ref", "type": "string", "reference": "A.a_id"}
+                ]
+            })"_json.dump(),
+            R"({
+                "name": "C",
+                "fields": [
+                  {"name": "c_id", "type": "string"}
+                ]
+            })"_json.dump(),
+    };
+    std::map<std::string, spp::sparse_hash_map<std::string, std::string>> referenced_ins;
+
+    for (const auto &collection_meta_json: collection_meta_jsons) {
+        CollectionManager::_populate_referenced_ins(collection_meta_json, referenced_ins);
+    }
+
+    ASSERT_EQ(1, referenced_ins.size());
+    ASSERT_EQ(1, referenced_ins.count("A"));
+    ASSERT_EQ(1, referenced_ins["A"].size());
+    ASSERT_EQ(1, referenced_ins["A"].count("B"));
+    ASSERT_EQ("b_ref_sequence_id", referenced_ins["A"]["B"]);
+}
+
+TEST_F(CollectionManagerTest, CollectionPagination) {
+    //remove all collections first
+    auto collections = collectionManager.get_collections().get();
+    for(auto collection : collections) {
+        collectionManager.drop_collection(collection->get_name());
+    }
+
+    //create few collections
+    for(size_t i = 0; i < 5; i++) {
+        nlohmann::json coll_json = R"({
+                "name": "cp",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+        coll_json["name"] = coll_json["name"].get<std::string>() + std::to_string(i + 1);
+        auto coll_op = collectionManager.create_collection(coll_json);
+        ASSERT_TRUE(coll_op.ok());
+    }
+
+    uint32_t limit = 0, offset = 0;
+
+    //limit collections by 2
+    limit=2;
+    auto collection_op = collectionManager.get_collections(limit);
+    auto collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp2", collections_vec[0]->get_name());
+    ASSERT_EQ("cp5", collections_vec[1]->get_name());
+
+    //get 2 collection from offset 3
+    offset=3;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp1", collections_vec[0]->get_name());
+    ASSERT_EQ("cp4", collections_vec[1]->get_name());
+
+    //get all collection except first
+    offset=1; limit=0;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(4, collections_vec.size());
+    ASSERT_EQ("cp5", collections_vec[0]->get_name());
+    ASSERT_EQ("cp3", collections_vec[1]->get_name());
+    ASSERT_EQ("cp1", collections_vec[2]->get_name());
+    ASSERT_EQ("cp4", collections_vec[3]->get_name());
+
+    //get last collection
+    offset=4, limit=1;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(1, collections_vec.size());
+    ASSERT_EQ("cp4", collections_vec[0]->get_name());
+
+    //if limit is greater than number of collection then return all from offset
+    offset=0; limit=8;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(5, collections_vec.size());
+    ASSERT_EQ("cp2", collections_vec[0]->get_name());
+    ASSERT_EQ("cp5", collections_vec[1]->get_name());
+    ASSERT_EQ("cp3", collections_vec[2]->get_name());
+    ASSERT_EQ("cp1", collections_vec[3]->get_name());
+    ASSERT_EQ("cp4", collections_vec[4]->get_name());
+
+    offset=3; limit=4;
+    collection_op = collectionManager.get_collections(limit, offset);
+    collections_vec = collection_op.get();
+    ASSERT_EQ(2, collections_vec.size());
+    ASSERT_EQ("cp1", collections_vec[0]->get_name());
+    ASSERT_EQ("cp4", collections_vec[1]->get_name());
+
+    //invalid offset
+    offset=6; limit=0;
+    collection_op = collectionManager.get_collections(limit, offset);
+    ASSERT_FALSE(collection_op.ok());
+    ASSERT_EQ("Invalid offset param.", collection_op.error());
 }

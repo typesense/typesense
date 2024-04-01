@@ -89,13 +89,15 @@ enum enable_t {
 
 struct search_field_t {
     std::string name;
+    std::string str_name;   // for lookup of non-string fields in art index
     size_t weight;
     size_t num_typos;
     bool prefix;
     enable_t infix;
 
-    search_field_t(const std::string& name, size_t weight, size_t num_typos, bool prefix, enable_t infix):
-            name(name), weight(weight), num_typos(num_typos), prefix(prefix), infix(infix) { }
+    search_field_t(const std::string& name, const std::string& str_name, size_t weight, size_t num_typos,
+                   bool prefix, enable_t infix):
+            name(name), str_name(str_name), weight(weight), num_typos(num_typos), prefix(prefix), infix(infix) { }
 };
 
 enum text_match_type_t {
@@ -172,6 +174,8 @@ struct search_args {
     size_t facet_sample_threshold;
     drop_tokens_param_t drop_tokens_mode;
 
+    bool enable_lazy_filter;
+
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 const text_match_type_t match_type,
                 filter_node_t* filter_tree_root, std::vector<facet>& facets,
@@ -187,7 +191,8 @@ struct search_args {
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<enable_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
-                size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode) :
+                size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode,
+                bool enable_lazy_filter) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -206,7 +211,7 @@ struct search_args {
             facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits),
             split_join_tokens(split_join_tokens), vector_query(vector_query),
             facet_sample_percent(facet_sample_percent), facet_sample_threshold(facet_sample_threshold),
-            drop_tokens_mode(drop_tokens_mode) {
+            drop_tokens_mode(drop_tokens_mode), enable_lazy_filter(enable_lazy_filter) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -321,6 +326,7 @@ struct hnsw_index_t {
     }
 
     ~hnsw_index_t() {
+        std::lock_guard lk(repair_m);
         delete vecdex;
         delete space;
     }
@@ -472,37 +478,6 @@ private:
 
     static void aggregate_topster(Topster* agg_topster, Topster* index_topster);
 
-    void search_field(const uint8_t & field_id,
-                      const std::vector<token_t>& query_tokens,
-                      const uint32_t* exclude_token_ids,
-                      size_t exclude_token_ids_size,
-                      size_t& num_tokens_dropped,
-                      const field& the_field, const std::string& field_name,
-                      const uint32_t *filter_ids, size_t filter_ids_length,
-                      const std::vector<uint32_t>& curated_ids,
-                      std::vector<sort_by> & sort_fields,
-                      int last_typo,
-                      int max_typos,
-                      std::vector<std::vector<art_leaf*>> & searched_queries,
-                      Topster* topster, spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
-                      uint32_t** all_result_ids, size_t & all_result_ids_len,
-                      size_t& field_num_results,
-                      size_t group_limit,
-                      const std::vector<std::string>& group_by_fields,
-                      const bool group_missing_values,
-                      bool prioritize_exact_match,
-                      size_t concurrency,
-                      std::set<uint64>& query_hashes,
-                      token_ordering token_order, const bool prefix,
-                      size_t drop_tokens_threshold,
-                      size_t typo_tokens_threshold,
-                      bool exhaustive_search,
-                      int syn_orig_num_tokens,
-                      size_t min_len_1typo,
-                      size_t min_len_2typo,
-                      size_t max_candidates,
-                      bool enable_typos_for_numerical_tokens) const;
-
     Option<bool> search_all_candidates(const size_t num_search_fields,
                                        const text_match_type_t match_type,
                                        const std::vector<search_field_t>& the_fields,
@@ -535,28 +510,6 @@ private:
                                        const std::vector<size_t>& geopoint_indices,
                                        std::set<uint64>& query_hashes,
                                        std::vector<uint32_t>& id_buff, const std::string& collection_name = "") const;
-
-    void search_candidates(const uint8_t & field_id,
-                           bool field_is_array,
-                           const uint32_t* filter_ids, size_t filter_ids_length,
-                           const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
-                           const std::vector<uint32_t>& curated_ids,
-                           std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
-                           std::vector<std::vector<art_leaf*>> & searched_queries,
-                           Topster* topster, spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed,
-                           uint32_t** all_result_ids,
-                           size_t & all_result_ids_len,
-                           size_t& field_num_results,
-                           const size_t typo_tokens_threshold,
-                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
-                           const bool group_missing_values,
-                           const std::vector<token_t>& query_tokens,
-                           bool prioritize_exact_match,
-                           bool exhaustive_search,
-                           int syn_orig_num_tokens,
-                           size_t concurrency,
-                           std::set<uint64>& query_hashes,
-                           std::vector<uint32_t>& id_buff) const;
 
     static void popular_fields_of_token(const spp::sparse_hash_map<std::string, art_tree*>& search_index,
                                         const std::string& previous_token,
@@ -739,7 +692,8 @@ public:
                 const std::string& collection_name,
                 const drop_tokens_param_t drop_tokens_mode,
                 facet_index_type_t facet_index_type = DETECT,
-                bool enable_typos_for_numerical_tokens = true
+                bool enable_typos_for_numerical_tokens = true,
+                bool enable_lazy_filter = false
                 ) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
@@ -840,13 +794,13 @@ public:
     static void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) ;
 
     void compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
-                             const size_t facet_query_num_typos,
-                             const uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                             const uint32_t facet_query_num_typos,
+                             uint32_t* all_result_ids, const size_t& all_result_ids_len,
                              const std::vector<std::string>& group_by_fields,
                              size_t group_limit, bool is_wildcard_no_filter_query,
                              size_t max_candidates,
-                             std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type,
-                             bool enable_typos_for_numerical_tokens) const;
+                             std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type
+                             ) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
                                 std::vector<std::vector<std::string>>& resolved_queries) const;

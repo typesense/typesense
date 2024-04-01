@@ -652,13 +652,16 @@ void filter_result_iterator_t::init() {
     if (is_referenced_filter) {
         // Apply filter on referenced collection and get the sequence ids of current collection from the filtered documents.
         auto& cm = CollectionManager::get_instance();
-        auto const& ref_collection_name = a_filter.referenced_collection_name;
+        auto ref_collection_name = a_filter.referenced_collection_name;
         auto ref_collection = cm.get_collection(ref_collection_name);
         if (ref_collection == nullptr) {
             status = Option<bool>(400, "Referenced collection `" + ref_collection_name + "` not found.");
             validity = invalid;
             return;
         }
+        // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to the
+        // original collection.
+        ref_collection_name = ref_collection->name;
 
         auto coll = cm.get_collection(collection_name);
         bool is_referenced = coll->referenced_in.count(ref_collection_name) > 0,
@@ -1141,7 +1144,12 @@ void filter_result_iterator_t::init() {
     } else if (f.is_string()) {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
-        for (const std::string& filter_value : a_filter.values) {
+        for (std::string filter_value : a_filter.values) {
+            auto is_prefix_match = filter_value.size() > 1 && filter_value[filter_value.size() - 1] == '*';
+            if (is_prefix_match) {
+                filter_value.erase(filter_value.size() - 1);
+            }
+
             std::vector<void*> raw_posting_lists;
 
             // there could be multiple tokens in a filter value, which we have to treat as ANDs
@@ -1159,6 +1167,10 @@ void filter_result_iterator_t::init() {
                 }
                 str_tokens.push_back(str_token);
 
+                if (is_prefix_match) {
+                    continue;
+                }
+
                 art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
                                                          str_token.length()+1);
                 if (leaf == nullptr) {
@@ -1170,12 +1182,98 @@ void filter_result_iterator_t::init() {
                 raw_posting_lists.push_back(leaf->values);
             }
 
+            if (str_tokens.empty()) {
+                status = Option<bool>(400, "Error with filter field `" + f.name + "`: Filter value cannot be empty.");
+                validity = invalid;
+                return;
+            }
+
+            if (is_prefix_match) {
+                std::vector<search_field_t> fq_fields;
+                fq_fields.emplace_back(f.name, f.name, 1, 0, true, enable_t::off);
+
+                std::vector<token_t> value_tokens;
+                for (size_t i = 0; i < str_tokens.size(); i++) {
+                    value_tokens.emplace_back(i, str_tokens[i], false, str_tokens[i].size(), 0);
+                }
+                value_tokens.back().is_prefix_searched = true;
+
+                filter_result_iterator_t filter_result_it(nullptr, 0);
+                std::vector<sort_by> sort_fields;
+                std::vector<std::vector<art_leaf*>> searched_filters;
+                tsl::htrie_map<char, token_leaf> qtoken_set;
+                Topster* topster = nullptr;
+                spp::sparse_hash_map<uint64_t, uint32_t> groups_processed;
+                uint32_t* all_result_ids = nullptr;
+                size_t all_result_ids_len = 0;
+                std::vector<std::string> group_by_fields;
+                std::set<uint64> query_hashes;
+                size_t typo_tokens_threshold = 0;
+                size_t max_candidates = 4;
+                size_t min_len_1typo = 0;
+                size_t min_len_2typo = 0;
+                std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values{};
+                const std::vector<size_t> geopoint_indices;
+
+                auto fuzzy_search_fields_op = index->fuzzy_search_fields(fq_fields, value_tokens, {}, text_match_type_t::max_score,
+                                                                         nullptr, 0, &filter_result_it, {}, {}, sort_fields,
+                                                                         {0}, searched_filters, qtoken_set, topster,
+                                                                         groups_processed, all_result_ids, all_result_ids_len,
+                                                                         0, group_by_fields, false, false, false, false,
+                                                                         query_hashes, MAX_SCORE, {true}, typo_tokens_threshold,
+                                                                         false, max_candidates, min_len_1typo, min_len_2typo,
+                                                                         0, nullptr, field_values, geopoint_indices, "", false);
+                delete[] all_result_ids;
+                if(!fuzzy_search_fields_op.ok()) {
+                    continue;
+                }
+
+                // Searching for `Chris P.*` will return `Chris Parnell` and `Chris Pine`.
+                for (const auto& searched_filter_value: searched_filters) {
+                    raw_posting_lists.clear();
+                    approx_filter_value_match = UINT32_MAX;
+
+                    for (const auto& leaf: searched_filter_value) {
+                        if (leaf == nullptr) {
+                            continue;
+                        }
+
+                        // Tokens of a filter value get AND.
+                        approx_filter_value_match = std::min(posting_t::num_ids(leaf->values), approx_filter_value_match);
+                        raw_posting_lists.push_back(leaf->values);
+                    }
+
+                    if (raw_posting_lists.size() != str_tokens.size()) {
+                        continue;
+                    }
+
+                    std::vector<posting_list_t*> plists;
+                    posting_t::to_expanded_plists(raw_posting_lists, plists, expanded_plists);
+                    if (plists.empty()) {
+                        continue;
+                    }
+
+                    posting_lists.push_back(plists);
+                    posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());
+                    for (auto const& plist: plists) {
+                        posting_list_iterators.back().push_back(plist->new_iterator());
+                    }
+
+                    // Multiple filter values get OR.
+                    approx_filter_ids_length += approx_filter_value_match;
+                }
+                continue;
+            }
+
             if (raw_posting_lists.size() != str_tokens.size()) {
                 continue;
             }
 
             std::vector<posting_list_t*> plists;
             posting_t::to_expanded_plists(raw_posting_lists, plists, expanded_plists);
+            if (plists.empty()) {
+                continue;
+            }
 
             posting_lists.push_back(plists);
             posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());
