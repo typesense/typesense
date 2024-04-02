@@ -167,18 +167,13 @@ private:
                               bool upsert,
                               bool write_to_disk);
 
-    std::string get_sub_event_type(const std::string& event_type);
-
 public:
 
     static constexpr const char* ANALYTICS_RULE_PREFIX = "$AR";
     static constexpr const char* POPULAR_QUERIES_TYPE = "popular_queries";
     static constexpr const char* NOHITS_QUERIES_TYPE = "nohits_queries";
     static constexpr const char* COUNTER_TYPE = "counter";
-    static constexpr const char* CLICKS_TYPE = "clicks";
-    static constexpr const char* CONVERSIONS_TYPE = "conversions";
-    static constexpr const char* VISITS_TYPE = "visits";
-    static constexpr const char* CUSTOM_EVENTS_TYPE = "custom_events";
+    static constexpr const char* LOG_TYPE = "log";
     static constexpr const char* CLICK_EVENT = "click";
     static constexpr const char* CONVERSION_EVENT = "conversion";
     static constexpr const char* VISIT_EVENT = "visit";
