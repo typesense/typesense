@@ -79,7 +79,11 @@
 - **Geo Search:** Search and sort by results around a latitude/longitude or within a bounding box.
 - **Vector Search:** Index embeddings from your machine learning models in Typesense and do a nearest-neighbor search. Can be used to build similarity search, semantic search, visual search, recommendations, etc.
 - **Semantic / Hybrid Search:** Automatically generate embeddings from within Typesense using built-in models like S-BERT, E-5, etc or use OpenAI, PaLM API, etc, for both queries and indexed data. This allows you to send JSON data into Typesense and build an out-of-the-box semantic search + keyword search experience.
+- **Conversational Search (Built-in RAG):** Send questions to Typesense and have the response be a fully-formed sentence, based on the data you've indexed in Typesense. Think ChatGPT, but over your own data.
+- **Image Search:** Search through images using text descriptions of their contents, or perform similarity searches, using the CLIP model.
+- **Voice Search:** Capture and send query via voice recordings - Typesense will transcribe (via Whisper model) and provide search results.
 - **Scoped API Keys:** Generate API keys that only allow access to certain records, for multi-tenant applications.
+- **JOINs:** Connect one or more collections via common reference fields and join them during query time. This allows you to model SQL-like relationships elegantly.
 - **Synonyms:** Define words as equivalents of each other, so searching for a word will also return results for the synonyms defined.
 - **Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
 - **Raft-based Clustering:** Setup a distributed cluster that is highly available.
