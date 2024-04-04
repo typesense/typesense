@@ -76,6 +76,8 @@ private:
 
     uint32_t db_compaction_interval;
 
+    bool enable_lazy_filter;
+
     bool enable_search_logging;
 
     uint16_t filter_by_max_ops;
@@ -109,6 +111,8 @@ protected:
         this->analytics_flush_interval = 3600;  // in seconds
         this->housekeeping_interval = 1800;     // in seconds
         this->db_compaction_interval = 0;     // in seconds, disabled
+
+        this->enable_lazy_filter = false;
 
         this->enable_search_logging = false;
 
@@ -370,6 +374,10 @@ public:
         }
 
         return this->log_dir + "/typesense-access.log";
+    }
+
+    bool get_enable_lazy_filter() const {
+        return enable_lazy_filter;
     }
 
     const std::atomic<bool>& get_skip_writes() const {

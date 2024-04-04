@@ -697,7 +697,7 @@ public:
                 bool enable_synonyms = true,
                 bool synonym_prefix = false,
                 uint32_t synonym_num_typos = 0,
-                bool enable_lazy_filter = true
+                bool enable_lazy_filter = false
                 ) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
