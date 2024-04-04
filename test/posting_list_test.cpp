@@ -1595,3 +1595,75 @@ TEST_F(PostingListTest, GetOrIterator) {
 
     or_iterators.clear();
 }
+
+TEST_F(PostingListTest, NotIterator) {
+    auto not_it = posting_list_t::not_iterator_t({}, nullptr, nullptr);
+    ASSERT_FALSE(not_it.valid());
+
+    std::vector<uint32_t> offsets = {0, 1, 3};
+
+    // [0, 2] [3, 20]
+    posting_list_t p1(2);
+    p1.upsert(0, offsets);
+    p1.upsert(2, offsets);
+    p1.upsert(3, offsets);
+    p1.upsert(20, offsets);
+
+    not_it = p1.new_not_iterator();
+    std::vector<uint32_t> expected_ids = {1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19};
+    for (const auto &id: expected_ids) {
+        ASSERT_TRUE(not_it.valid());
+        ASSERT_EQ(id, not_it.id());
+        not_it.next();
+    }
+    ASSERT_FALSE(not_it.valid());
+
+    not_it = p1.new_not_iterator();
+    ASSERT_TRUE(not_it.valid());
+
+    not_it.skip_to(1);
+    ASSERT_TRUE(not_it.valid());
+    ASSERT_EQ(1, not_it.id());
+
+    not_it.skip_to(3);
+    ASSERT_TRUE(not_it.valid());
+    ASSERT_EQ(4, not_it.id());
+
+    not_it.skip_to(20);
+    ASSERT_FALSE(not_it.valid());
+
+    // [1, 3], [5, 10], [20]
+    posting_list_t p2(2);
+    p2.upsert(1, offsets);
+    p2.upsert(3, offsets);
+    p2.upsert(5, offsets);
+    p2.upsert(10, offsets);
+    p2.upsert(20, offsets);
+
+    not_it = p2.new_not_iterator();
+    expected_ids = {0, 2, 4, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19};
+    for (const auto &id: expected_ids) {
+        ASSERT_TRUE(not_it.valid());
+        ASSERT_EQ(id, not_it.id());
+        not_it.next();
+    }
+    ASSERT_FALSE(not_it.valid());
+
+    not_it = p2.new_not_iterator();
+    ASSERT_TRUE(not_it.valid());
+
+    not_it.skip_to(0);
+    ASSERT_TRUE(not_it.valid());
+    ASSERT_EQ(0, not_it.id());
+
+    not_it.skip_to(3);
+    ASSERT_TRUE(not_it.valid());
+    ASSERT_EQ(4, not_it.id());
+
+    not_it.skip_to(10);
+    ASSERT_TRUE(not_it.valid());
+    ASSERT_EQ(11, not_it.id());
+
+    not_it.skip_to(20);
+    ASSERT_FALSE(not_it.valid());
+}

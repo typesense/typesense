@@ -201,7 +201,79 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
     result.coll_to_references = out_references;
 }
 
-void filter_result_iterator_t::and_filter_iterators() {
+void filter_result_iterator_t::and_filter_iterators(uint32_t id) {
+    if (left_it->is_not_equals_iterator && right_it->is_not_equals_iterator) {
+        auto& left_all_seq_iter = left_it->all_seq_ids_iter;
+        auto& right_all_seq_iter = right_it->all_seq_ids_iter;
+
+        while (left_all_seq_iter.valid() && right_all_seq_iter.valid()) {
+            while (left_all_seq_iter.id() < right_all_seq_iter.id()) {
+                left_it->skip_to(right_all_seq_iter.id());
+
+                if (!left_all_seq_iter.valid()) {
+                    validity = invalid;
+                    return;
+                }
+            }
+
+            while (left_all_seq_iter.id() > right_all_seq_iter.id()) {
+                right_it->skip_to(left_all_seq_iter.id());
+
+                if (!right_all_seq_iter.valid()) {
+                    validity = invalid;
+                    return;
+                }
+            }
+
+            if (left_all_seq_iter.id() == right_all_seq_iter.id()) {
+                seq_id = left_all_seq_iter.id();
+                return;
+            }
+        }
+
+        validity = invalid;
+        return;
+    } else if (right_it->is_not_equals_iterator) {
+        std::swap(right_it, left_it);
+    }
+
+    if (left_it->is_not_equals_iterator) {
+        auto& left_all_seq_iter = left_it->all_seq_ids_iter;
+
+        while (left_all_seq_iter.valid() && right_it->validity) {
+            while (left_all_seq_iter.id() < right_it->seq_id) {
+                left_it->skip_to(right_it->seq_id);
+
+                if (!left_all_seq_iter.valid()) {
+                    validity = invalid;
+                    return;
+                }
+            }
+
+            while (left_all_seq_iter.id() > right_it->seq_id) {
+                right_it->skip_to(left_all_seq_iter.id());
+                if (!right_it->validity) {
+                    validity = invalid;
+                    return;
+                }
+            }
+
+            if (left_all_seq_iter.id() == right_it->seq_id) {
+                seq_id = right_it->seq_id;
+                reference.clear();
+
+                for (const auto& item: right_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
+                return;
+            }
+        }
+
+        validity = invalid;
+        return;
+    }
+
     while (left_it->validity && right_it->validity) {
         while (left_it->seq_id < right_it->seq_id) {
             left_it->skip_to(right_it->seq_id);
@@ -238,6 +310,59 @@ void filter_result_iterator_t::and_filter_iterators() {
 }
 
 void filter_result_iterator_t::or_filter_iterators() {
+    if (left_it->is_not_equals_iterator && right_it->is_not_equals_iterator) {
+        auto& left_all_seq_iter = left_it->all_seq_ids_iter;
+        auto& right_all_seq_iter = right_it->all_seq_ids_iter;
+
+        if (left_all_seq_iter.valid() && right_all_seq_iter.valid()) {
+            if (left_all_seq_iter.id() <= right_all_seq_iter.id()) {
+                seq_id = left_all_seq_iter.id();
+            } else {
+                seq_id = right_all_seq_iter.id();
+            }
+
+            return;
+        }
+
+        if (left_all_seq_iter.valid()) {
+            seq_id = left_all_seq_iter.id();
+        }
+
+        if (right_all_seq_iter.valid()) {
+            seq_id = right_all_seq_iter.id();
+        }
+
+        validity = invalid;
+        return;
+    } else if (right_it->is_not_equals_iterator) {
+        std::swap(right_it, left_it);
+    }
+
+    if (left_it->is_not_equals_iterator) {
+        auto& left_all_seq_iter = left_it->all_seq_ids_iter;
+
+        if (left_all_seq_iter.valid() && right_it->validity) {
+            if (left_all_seq_iter.id() <= right_it->seq_id) {
+                seq_id = left_all_seq_iter.id();
+            } else {
+                seq_id = right_it->seq_id;
+            }
+
+            return;
+        }
+
+        if (left_all_seq_iter.valid()) {
+            seq_id = left_all_seq_iter.id();
+        }
+
+        if (right_it->validity) {
+            seq_id = right_it->seq_id;
+        }
+
+        validity = invalid;
+        return;
+    }
+
     if (left_it->validity && right_it->validity) {
         if (left_it->seq_id < right_it->seq_id) {
             seq_id = left_it->seq_id;
@@ -488,32 +613,8 @@ void filter_result_iterator_t::next() {
         return;
     } else if (f.is_string()) {
         if (filter_node->filter_exp.apply_not_equals) {
-            do {
-                if (++seq_id >= result_index) {
-                    uint32_t previous_match;
-                    do {
-                        previous_match = seq_id;
-                        advance_string_filter_token_iterators();
-                        get_string_filter_next_match(f.is_array());
-                    } while (validity && previous_match + 1 == seq_id);
-
-                    if (!validity) {
-                        // We've reached the end of the index, no possible matches pending.
-                        if (previous_match >= index->seq_ids->last_id()) {
-                            return;
-                        }
-
-                        // (previous_match, last_doc_id] are a match for not equals.
-                        validity = valid;
-                        result_index = index->seq_ids->last_id() + 1;
-                        seq_id = previous_match + 1;
-                    } else {
-                        result_index = seq_id;
-                        seq_id = previous_match + 1;
-                    }
-                }
-                all_seq_ids_iter.skip_to(seq_id);
-            } while (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id); // Deleted id should not be considered a match.
+            LOG(ERROR) << "Calling `filter_result_iterator_t::next` is not supported for not equals iterator.";
+            validity = invalid;
             return;
         }
 
@@ -562,64 +663,28 @@ void apply_not_equals(uint32_t*&& all_ids,
 void filter_result_iterator_t::get_string_filter_first_match(const bool& field_is_array) {
     get_string_filter_next_match(field_is_array);
 
-    if (filter_node->filter_exp.apply_not_equals && index->seq_ids->num_ids() > 0) {
-        // filter didn't match any id. So by applying not equals, every id in the index is a match.
-        if (!validity) {
+    if (is_not_equals_iterator) {
+        if (validity == invalid) { // [0, last_doc_id] are a match for not equals.
+            seq_id = index->seq_ids->last_id() + 1;
             validity = valid;
-            seq_id = 0;
-            result_index = index->seq_ids->last_id() + 1;
-
-            all_seq_ids_iter.skip_to(seq_id);
-            if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
-                next();
-            }
-            return;
         }
 
-        // [0, seq_id) are a match for not equals.
-        if (seq_id > 0) {
-            result_index = seq_id;
-            seq_id = 0;
+        // We will exclude the ids that match the filter for not equals.
+        while (all_seq_ids_iter.valid() && all_seq_ids_iter.id() == seq_id) {
+            all_seq_ids_iter.next();
 
-            all_seq_ids_iter.skip_to(seq_id);
-            if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
-                next();
+            for (auto& filter_value_tokens : posting_list_iterators) {
+                for (auto& token: filter_value_tokens) {
+                    // We perform AND on tokens. Short-circuiting here.
+                    if (!token.valid()) {
+                        break;
+                    }
+
+                    token.skip_to(all_seq_ids_iter.id());
+                }
             }
-            return;
-        }
 
-        // Keep ignoring the consecutive matches.
-        uint32_t previous_match;
-        do {
-            previous_match = seq_id;
-            advance_string_filter_token_iterators();
             get_string_filter_next_match(field_is_array);
-        } while (validity && previous_match + 1 == seq_id);
-
-        if (!validity) {
-            // filter matched all the ids in the index. So for not equals, there's no match.
-            if (previous_match >= index->seq_ids->last_id()) {
-                return;
-            }
-
-            // (previous_match, last_doc_id] are a match for not equals.
-            validity = valid;
-            result_index = index->seq_ids->last_id() + 1;
-            seq_id = previous_match + 1;
-
-            all_seq_ids_iter.skip_to(seq_id);
-            if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
-                next();
-            }
-            return;
-        }
-
-        result_index = seq_id;
-        seq_id = previous_match + 1;
-
-        all_seq_ids_iter.skip_to(seq_id);
-        if (all_seq_ids_iter.valid() && all_seq_ids_iter.id() != seq_id) { // Deleted id should not be considered a match.
-            next();
         }
     }
 }
@@ -639,7 +704,7 @@ void filter_result_iterator_t::init() {
         }
 
         // Rearranging the subtree in hope to reduce computation if/when compute_iterators() is called.
-        if (left_it->approx_filter_ids_length > right_it->approx_filter_ids_length) {
+        if (!left_it->is_not_equals_iterator && left_it->approx_filter_ids_length > right_it->approx_filter_ids_length) {
             std::swap(left_it, right_it);
         }
 
@@ -1296,6 +1361,7 @@ void filter_result_iterator_t::init() {
             compute_iterators();
             return;
         } else if (a_filter.apply_not_equals) {
+            is_not_equals_iterator = true;
             all_seq_ids_iter = index->seq_ids->new_iterator();
         } else if (approx_filter_ids_length < string_filter_ids_threshold) {
             compute_iterators();
@@ -1337,7 +1403,7 @@ void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout
         right_it->skip_to(id);
 
         if (filter_node->filter_operator == AND) {
-            and_filter_iterators();
+            and_filter_iterators(id);
         } else {
             or_filter_iterators();
         }
@@ -1364,53 +1430,7 @@ void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout
         seq_id = bool_iterator.seq_id;
         return;
     } else if (f.is_string()) {
-        if (filter_node->filter_exp.apply_not_equals) {
-            if (id < seq_id) {
-                return;
-            }
-
-            if (id < result_index) {
-                seq_id = id;
-                return;
-            }
-
-            seq_id = result_index;
-            uint32_t previous_match;
-
-            // Keep ignoring the found gaps till they cannot contain id.
-            do {
-                do {
-                    previous_match = seq_id;
-                    advance_string_filter_token_iterators();
-                    get_string_filter_next_match(f.is_array());
-                } while (validity && previous_match + 1 == seq_id);
-            } while (validity && seq_id <= id);
-
-            if (!validity) {
-                // filter matched all the ids in the index. So for not equals, there's no match.
-                if (previous_match >= index->seq_ids->last_id()) {
-                    return;
-                }
-
-                validity = valid;
-                seq_id = previous_match + 1;
-                result_index = index->seq_ids->last_id() + 1;
-
-                // Skip to id, if possible.
-                if (seq_id < id && id < result_index) {
-                    seq_id = id;
-                }
-
-                return;
-            }
-
-            result_index = seq_id;
-            seq_id = previous_match + 1;
-
-            if (seq_id < id && id < result_index) {
-                seq_id = id;
-            }
-
+        if (is_not_equals_iterator ? id <= all_seq_ids_iter.id() : id <= seq_id) {
             return;
         }
 
@@ -1427,6 +1447,42 @@ void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout
         }
 
         get_string_filter_next_match(f.is_array());
+
+        if (is_not_equals_iterator) {
+            if (validity == invalid) { // [id, last_doc_id] are a match for not equals.
+                seq_id = index->seq_ids->last_id() + 1;
+                validity = valid;
+            }
+
+            all_seq_ids_iter.skip_to(id);
+            if (!all_seq_ids_iter.valid()) {
+                validity = invalid;
+                return;
+            }
+            // We will exclude the ids that match the filter for not equals.
+            while (all_seq_ids_iter.id() == seq_id) {
+                all_seq_ids_iter.next();
+                if (!all_seq_ids_iter.valid()) {
+                    break;
+                }
+
+                for (auto& filter_value_tokens : posting_list_iterators) {
+                    for (auto& token: filter_value_tokens) {
+                        // We perform AND on tokens. Short-circuiting here.
+                        if (!token.valid()) {
+                            break;
+                        }
+
+                        token.skip_to(all_seq_ids_iter.id());
+                    }
+                }
+
+                get_string_filter_next_match(f.is_array());
+            }
+
+            validity = all_seq_ids_iter.valid() ? valid : invalid;
+        }
+
         return;
     }
 }
@@ -1458,14 +1514,16 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
                     return -1;
                 }
 
+                auto const& left_id = left_it->is_not_equals_iterator ? left_it->all_seq_ids_iter.id() : left_it->seq_id;
+                auto const& right_id = right_it->is_not_equals_iterator ? right_it->all_seq_ids_iter.id() : right_it->seq_id;
                 // id did not match the filter but both of the sub-iterators are still valid.
                 // Updating seq_id to the next potential match.
                 if (left_validity == 0 && right_validity == 0) {
-                    seq_id = std::max(left_it->seq_id, right_it->seq_id);
+                    seq_id = std::max(left_id, right_id);
                 } else if (left_validity == 0) {
-                    seq_id = left_it->seq_id;
+                    seq_id = left_id;
                 } else {
-                    seq_id = right_it->seq_id;
+                    seq_id = right_id;
                 }
 
                 return 0;
@@ -1482,14 +1540,16 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
                     return -1;
                 }
 
+                auto const& left_id = left_it->is_not_equals_iterator ? left_it->all_seq_ids_iter.id() : left_it->seq_id;
+                auto const& right_id = right_it->is_not_equals_iterator ? right_it->all_seq_ids_iter.id() : right_it->seq_id;
                 // id did not match the filter; both of the sub-iterators or one of them might be valid.
                 // Updating seq_id to the next match.
                 if (left_validity == 0 && right_validity == 0) {
-                    seq_id = std::min(left_it->seq_id, right_it->seq_id);
+                    seq_id = std::min(left_id, right_id);
                 } else if (left_validity == 0) {
-                    seq_id = left_it->seq_id;
+                    seq_id = left_id;
                 } else {
-                    seq_id = right_it->seq_id;
+                    seq_id = right_id;
                 }
 
                 return 0;
@@ -1502,7 +1562,12 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
     }
 
     skip_to(id);
-    return validity ? (seq_id == id ? 1 : 0) : -1;
+
+    if (validity == valid) {
+        return is_not_equals_iterator ? (all_seq_ids_iter.id() == id ? 1 : 0) : (seq_id == id ? 1 : 0);
+    } else {
+        return -1;
+    }
 }
 
 Option<bool> filter_result_iterator_t::init_status() {
@@ -1637,7 +1702,6 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
             all_seq_ids_iter = index->seq_ids->new_iterator();
         }
 
-        get_string_filter_first_match(f.is_array());
         return;
     }
 }
@@ -1994,18 +2058,7 @@ void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
     auto& left_it = root_iterator->left_it;
     auto& right_it = root_iterator->right_it;
 
-    while (left_it->validity && right_it->validity && left_it->seq_id != right_it->seq_id) {
-        if (left_it->seq_id < right_it->seq_id) {
-            left_it->skip_to(right_it->seq_id);
-        } else {
-            right_it->skip_to(left_it->seq_id);
-        }
-    }
-
-    root_iterator->timeout_info = std::move(fit->timeout_info);
-    root_iterator->validity = (left_it->validity == timed_out || right_it->validity == timed_out) ? timed_out :
-                               (left_it->validity == invalid || right_it->validity == invalid) ? invalid : valid;
-    root_iterator->seq_id = left_it->seq_id;
+    root_iterator->and_filter_iterators();
     fit = root_iterator;
 }
 

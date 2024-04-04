@@ -2927,35 +2927,38 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
 
-            uint32_t filter_id_count = 0;
-            while (!no_filters_provided &&
-                    filter_id_count < vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid) {
-                auto& seq_id = filter_result_iterator->seq_id;
-                auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
-                filter_result_iterator->next();
-                std::vector<float> values;
+            filter_result_iterator->compute_iterators();
 
-                try {
-                    values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
-                } catch(...) {
-                    // likely not found
-                    continue;
+            uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
+            if (!no_filters_provided && filter_id_count < vector_query.flat_search_cutoff) {
+                while (filter_result_iterator->validity == filter_result_iterator_t::valid) {
+                    auto& seq_id = filter_result_iterator->seq_id;
+                    auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
+                    filter_result_iterator->next();
+                    std::vector<float> values;
+
+                    try {
+                        values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
+                    } catch(...) {
+                        // likely not found
+                        continue;
+                    }
+
+                    float dist;
+                    if(field_vector_index->distance_type == cosine) {
+                        std::vector<float> normalized_q(vector_query.values.size());
+                        hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                        dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
+                                                                          &field_vector_index->num_dim);
+                    } else {
+                        dist = field_vector_index->space->get_dist_func()(vector_query.values.data(), values.data(),
+                                                                          &field_vector_index->num_dim);
+                    }
+
+                    dist_results.emplace_back(dist, filter_result);
                 }
-
-                float dist;
-                if(field_vector_index->distance_type == cosine) {
-                    std::vector<float> normalized_q(vector_query.values.size());
-                    hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                    dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
-                                                                      &field_vector_index->num_dim);
-                } else {
-                    dist = field_vector_index->space->get_dist_func()(vector_query.values.data(), values.data(),
-                                                                      &field_vector_index->num_dim);
-                }
-
-                dist_results.emplace_back(dist, filter_result);
-                filter_id_count++;
             }
+
             filter_result_iterator->reset();
             search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 

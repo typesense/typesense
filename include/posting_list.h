@@ -114,6 +114,34 @@ public:
         posting_list_t::iterator_t clone() const;
     };
 
+    class not_iterator_t {
+        const std::map<last_id_t, block_t*>* id_block_map;
+        block_t* curr_block;
+        block_t* end_block;
+
+        uint32_t curr_index;
+        uint32_t ids_len = 0;
+        uint32_t* ids = nullptr;
+
+        uint32_t prev_block_last_id = 0;
+
+        void init_ids(const bool& is_first_block = false);
+        void reset_cache();
+
+    public:
+
+        explicit not_iterator_t(const std::map<last_id_t, block_t*>* id_block_map, block_t* start, block_t* end);
+        ~not_iterator_t();
+
+        not_iterator_t(not_iterator_t&& rhs) noexcept;
+        not_iterator_t& operator=(not_iterator_t&& rhs) noexcept;
+
+        [[nodiscard]] bool valid() const;
+        void next();
+        void skip_to(const uint32_t& id);
+        [[nodiscard]] uint32_t id() const;
+    };
+
 public:
 
     // maximum number of IDs (and associated offsets) to store in each block before another block is created
@@ -178,6 +206,8 @@ public:
     iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr, uint32_t field_id = 0);
 
     iterator_t new_rev_iterator();
+
+    not_iterator_t new_not_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr, uint32_t field_id = 0);
 
     static void merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 

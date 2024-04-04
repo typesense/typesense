@@ -254,7 +254,8 @@ private:
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
 
-    /// Used in case of a not equals string filter.
+    bool is_not_equals_iterator = false;
+    /// Used in case of a not equals iterator.
     /// The iterative logic to find not equals match is to return the ids that occur in between the equals match. This
     /// might lead to returning some ids that are deleted. So we use this iterator to check and return only the ids that
     /// exist in `index->seq_ids`.
@@ -271,7 +272,7 @@ private:
     void init();
 
     /// Performs AND on the subtrees of operator.
-    void and_filter_iterators();
+    void and_filter_iterators(uint32_t id = 0);
 
     /// Performs OR on the subtrees of operator.
     void or_filter_iterators();
@@ -382,5 +383,13 @@ public:
 
     [[nodiscard]] filter_result_iterator_t* _get_right_it() const {
         return right_it;
+    }
+
+    [[nodiscard]] bool _get_is_not_equals_iterator() const {
+        return is_not_equals_iterator;
+    }
+
+    [[nodiscard]] const id_list_t::iterator_t& _get_all_seq_ids_iter() const {
+        return all_seq_ids_iter;
     }
 };

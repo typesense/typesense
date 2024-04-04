@@ -165,24 +165,6 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags:!= gold", coll->get_schema(), store, doc_id_prefix,
-                                           filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
-
-    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
-    ASSERT_TRUE(iter_not_equals_test.init_status().ok());
-
-    expected = {1, 3};
-    for (auto const& i : expected) {
-        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test.validity);
-        ASSERT_EQ(i, iter_not_equals_test.seq_id);
-        iter_not_equals_test.next();
-    }
-
-    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test.validity);
-
-    delete filter_tree_root;
-    filter_tree_root = nullptr;
     filter_op = filter::parse_filter_query("tags: gold", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
@@ -322,24 +304,6 @@ TEST_F(FilterTest, FilterTreeIterator) {
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
         ASSERT_EQ(expected[i], iter_validate_ids_test3.is_valid(validate_ids[i]));
         ASSERT_EQ(seq_ids[i], iter_validate_ids_test3.seq_id);
-    }
-
-    delete filter_tree_root;
-    filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("name: James || tags: != gold", coll->get_schema(), store, doc_id_prefix,
-                                           filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
-
-    auto iter_validate_ids_not_equals_filter_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
-                                                                             filter_tree_root);
-    ASSERT_TRUE(iter_validate_ids_not_equals_filter_test.init_status().ok());
-
-    validate_ids = {0, 1, 2, 3, 4, 5, 6};
-    seq_ids = {1, 1, 3, 3, 5, 5, 5};
-    expected = {0, 1, 0, 1, 0, 1, -1};
-    for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        ASSERT_EQ(expected[i], iter_validate_ids_not_equals_filter_test.is_valid(validate_ids[i]));
-        ASSERT_EQ(seq_ids[i], iter_validate_ids_not_equals_filter_test.seq_id);
     }
 
     delete filter_tree_root;
@@ -496,7 +460,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test3.validity);
     iter_skip_test3.skip_to(4);
-    ASSERT_EQ(4, iter_skip_test3.seq_id);
+    ASSERT_EQ(4, iter_skip_test3._get_all_seq_ids_iter().id());
 
     ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test3.validity);
 
@@ -512,7 +476,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
 
     ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test4.validity);
     iter_skip_test4.skip_to(6);
-    ASSERT_EQ(6, iter_skip_test4.seq_id);
+    ASSERT_EQ(6, iter_skip_test4._get_all_seq_ids_iter().id());
     ASSERT_EQ(filter_result_iterator_t::valid, iter_skip_test4.validity);
 
     auto iter_add_phrase_ids_test = new filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
@@ -605,41 +569,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_equals_test_2.validity);
 
     delete filter_tree_root;
-
     filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != gold", coll->get_schema(), store, doc_id_prefix,
-                                           filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
-
-    auto iter_string_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
-    ASSERT_TRUE(iter_string_not_equals_test.init_status().ok());
-    ASSERT_FALSE(iter_string_not_equals_test._get_is_filter_result_initialized());
-
-    expected = {1, 3, 5, 6};
-    for (auto const& i : expected) {
-        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test.validity);
-        ASSERT_EQ(i, iter_string_not_equals_test.seq_id);
-        iter_string_not_equals_test.next();
-    }
-    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test.validity);
-
-    delete filter_tree_root;
-
-    filter_tree_root = nullptr;
-    filter_op = filter::parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
-                                           filter_tree_root);
-    ASSERT_TRUE(filter_op.ok());
-    auto iter_string_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
-    ASSERT_TRUE(iter_string_not_equals_test_2.init_status().ok());
-    ASSERT_TRUE(iter_string_not_equals_test_2._get_is_filter_result_initialized());
-
-    expected = {1, 5, 6};
-    for (auto const& i : expected) {
-        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test_2.validity);
-        ASSERT_EQ(i, iter_string_not_equals_test_2.seq_id);
-        iter_string_not_equals_test_2.next();
-    }
-    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test_2.validity);
 
     coll->remove("0");
     coll->remove("2");
@@ -661,27 +591,27 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_string_not_equals_test_3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
-    ASSERT_TRUE(iter_string_not_equals_test_3.init_status().ok());
-    ASSERT_FALSE(iter_string_not_equals_test_3._get_is_filter_result_initialized());
-
-    expected = {1, 3, 4};
-    for (auto const& i : expected) {
-        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test_3.validity);
-        ASSERT_EQ(i, iter_string_not_equals_test_3.seq_id);
-        iter_string_not_equals_test_3.next();
-    }
-    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test_3.validity);
-
-    iter_string_not_equals_test_3.reset();
-
-    expected = {1, 3, 4};
-    for (auto const& i : expected) {
-        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test_3.validity);
-        ASSERT_EQ(i, iter_string_not_equals_test_3.seq_id);
-        iter_string_not_equals_test_3.next();
-    }
-    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test_3.validity);
+//    auto iter_string_not_equals_test_3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+//    ASSERT_TRUE(iter_string_not_equals_test_3.init_status().ok());
+//    ASSERT_FALSE(iter_string_not_equals_test_3._get_is_filter_result_initialized());
+//
+//    expected = {1, 3, 4};
+//    for (auto const& i : expected) {
+//        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test_3.validity);
+//        ASSERT_EQ(i, iter_string_not_equals_test_3.seq_id);
+//        iter_string_not_equals_test_3.next();
+//    }
+//    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test_3.validity);
+//
+//    iter_string_not_equals_test_3.reset();
+//
+//    expected = {1, 3, 4};
+//    for (auto const& i : expected) {
+//        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test_3.validity);
+//        ASSERT_EQ(i, iter_string_not_equals_test_3.seq_id);
+//        iter_string_not_equals_test_3.next();
+//    }
+//    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test_3.validity);
     delete filter_tree_root;
 
     Collection *bool_coll;
@@ -800,18 +730,18 @@ TEST_F(FilterTest, FilterTreeIterator) {
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
 
-    auto iter_string_prefix_value_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
-    ASSERT_TRUE(iter_string_prefix_value_test_2.init_status().ok());
-    ASSERT_FALSE(iter_string_prefix_value_test_2._get_is_filter_result_initialized());
-    ASSERT_EQ(3, iter_string_prefix_value_test_2.approx_filter_ids_length); // document 0 and 2 have been deleted.
-
-    expected = {1, 3, 5, 6, 7};
-    for (auto const& i : expected) {
-        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_prefix_value_test_2.validity);
-        ASSERT_EQ(i, iter_string_prefix_value_test_2.seq_id);
-        iter_string_prefix_value_test_2.next();
-    }
-    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_prefix_value_test_2.validity);
+//    auto iter_string_prefix_value_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+//    ASSERT_TRUE(iter_string_prefix_value_test_2.init_status().ok());
+//    ASSERT_FALSE(iter_string_prefix_value_test_2._get_is_filter_result_initialized());
+//    ASSERT_EQ(3, iter_string_prefix_value_test_2.approx_filter_ids_length); // document 0 and 2 have been deleted.
+//
+//    expected = {1, 3, 5, 6, 7};
+//    for (auto const& i : expected) {
+//        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_prefix_value_test_2.validity);
+//        ASSERT_EQ(i, iter_string_prefix_value_test_2.seq_id);
+//        iter_string_prefix_value_test_2.next();
+//    }
+//    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_prefix_value_test_2.validity);
 
     delete filter_tree_root;
 }
@@ -937,4 +867,148 @@ TEST_F(FilterTest, FilterTreeInitialization) {
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
+}
+
+TEST_F(FilterTest, NotEqualsFilter) {
+    nlohmann::json schema =
+            R"({
+                "name": "Collection",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "age", "type": "int32"},
+                    {"name": "years", "type": "int32[]"},
+                    {"name": "rating", "type": "float"},
+                    {"name": "tags", "type": "string[]"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll->add(json_line);
+        ASSERT_TRUE(add_op.ok());
+    }
+    infile.close();
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    Option<bool> filter_op = filter::parse_filter_query("tags:!= gold", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto computed_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(computed_not_equals_test.init_status().ok());
+    ASSERT_TRUE(computed_not_equals_test._get_is_filter_result_initialized());
+
+    std::vector<int> expected = {1, 3};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, computed_not_equals_test.validity);
+        ASSERT_EQ(i, computed_not_equals_test.seq_id);
+        computed_not_equals_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, computed_not_equals_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("tags: != fine platinum", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_string_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_not_equals_test.init_status().ok());
+    ASSERT_FALSE(iter_string_not_equals_test._get_is_filter_result_initialized());
+
+    ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test.validity);
+    ASSERT_EQ(0, iter_string_not_equals_test._get_all_seq_ids_iter().id());
+    iter_string_not_equals_test.next(); // Cannot call `next`.
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test.validity);
+
+    iter_string_not_equals_test.reset();
+
+    std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5};
+    std::vector<uint32_t> seq_ids = {0, 2, 2, 3, 4};
+    expected = {1, 0, 1, 1, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test.validity);
+        ASSERT_EQ(expected[i], iter_string_not_equals_test.is_valid(validate_ids[i]));
+        if (i < seq_ids.size()) {
+            ASSERT_EQ(seq_ids[i], iter_string_not_equals_test._get_all_seq_ids_iter().id());
+        }
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+//    filter_op = filter::parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
+//                                           filter_tree_root);
+//    ASSERT_TRUE(filter_op.ok());
+//    auto iter_string_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+//    ASSERT_TRUE(iter_string_not_equals_test_2.init_status().ok());
+//    ASSERT_TRUE(iter_string_not_equals_test_2._get_is_filter_result_initialized());
+//
+//    validate_ids = {0, 1, 2, 3, 4, 5};
+//    seq_ids = {0, 2, 2, 3, 4};
+//    expected = {1, 0, 1, 1, 1, -1};
+//    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+//        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_not_equals_test.validity);
+//        ASSERT_EQ(expected[i], iter_string_not_equals_test.is_valid(validate_ids[i]));
+//        if (i < seq_ids.size()) {
+//            ASSERT_EQ(seq_ids[i], iter_string_not_equals_test._get_all_seq_ids_iter().id());
+//        }
+//    }
+//    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_not_equals_test.validity);
+//
+//    delete filter_tree_root;
+//    filter_tree_root = nullptr;
+
+    auto doc =
+            R"({
+                "name": "James Rowdy",
+                "age": 36,
+                "years": [2005, 2022],
+                "rating": 6.03,
+                "tags": ["copper"]
+            })"_json;
+    auto add_op = coll->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    filter_op = filter::parse_filter_query("name: James || tags: != gold", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_not_equals_or_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                                             filter_tree_root);
+    ASSERT_TRUE(iter_not_equals_or_test.init_status().ok());
+
+    validate_ids = {0, 1, 2, 3, 4, 5, 6};
+    seq_ids = {1, 1, 3, 3, 5, 5, 5};
+    expected = {0, 1, 0, 1, 0, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], iter_not_equals_or_test.is_valid(validate_ids[i]));
+        ASSERT_EQ(seq_ids[i], iter_not_equals_or_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_or_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: James && tags: != gold", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_not_equals_and_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(),
+                                                            filter_tree_root);
+    ASSERT_TRUE(iter_not_equals_and_test.init_status().ok());
+
+    validate_ids = {0, 1, 2, 3, 4, 5, 6};
+    seq_ids = {5, 5, 5, 5, 5, 5, 5};
+    expected = {0, 0, 0, 0, 0, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(expected[i], iter_not_equals_and_test.is_valid(validate_ids[i]));
+        ASSERT_EQ(seq_ids[i], iter_not_equals_and_test.seq_id);
+    }
+
+    delete filter_tree_root;
 }

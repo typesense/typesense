@@ -1003,6 +1003,11 @@ posting_list_t::iterator_t posting_list_t::new_rev_iterator() {
     return rev_it;
 }
 
+posting_list_t::not_iterator_t posting_list_t::new_not_iterator(block_t* start_block, block_t* end_block, uint32_t field_id) {
+    start_block = (start_block == nullptr) ? &root_block : start_block;
+    return posting_list_t::not_iterator_t(&id_block_map, start_block, end_block);
+}
+
 void posting_list_t::advance_all(std::vector<posting_list_t::iterator_t>& its) {
     for(auto& it: its) {
         it.next();
@@ -1891,8 +1896,129 @@ uint32_t result_iter_state_t::get_filter_id() const {
     }
 
     if (fit != nullptr && fit->validity == filter_result_iterator_t::valid) {
-        return fit->seq_id;
+        return fit->_get_is_not_equals_iterator() ? fit->_get_all_seq_ids_iter().id() : fit->seq_id;
     }
 
     return 0;
+}
+
+posting_list_t::not_iterator_t::not_iterator_t(const std::map<last_id_t, block_t *> *id_block_map,
+                                               posting_list_t::block_t *start, posting_list_t::block_t *end)
+                                               : id_block_map(id_block_map), curr_block(start), curr_index(0),
+                                                end_block(end) {
+    init_ids(true);
+}
+
+posting_list_t::not_iterator_t::~not_iterator_t() {
+    reset_cache();
+}
+
+posting_list_t::not_iterator_t::not_iterator_t(posting_list_t::not_iterator_t&& rhs) noexcept {
+    id_block_map = rhs.id_block_map;
+    curr_block = rhs.curr_block;
+    curr_index = rhs.curr_index;
+    end_block = rhs.end_block;
+    ids = rhs.ids;
+
+    rhs.id_block_map = nullptr;
+    rhs.curr_block = nullptr;
+    rhs.end_block = nullptr;
+    rhs.ids = nullptr;
+}
+
+posting_list_t::not_iterator_t& posting_list_t::not_iterator_t::operator=(posting_list_t::not_iterator_t&& rhs) noexcept {
+    reset_cache();
+
+    id_block_map = rhs.id_block_map;
+    curr_block = rhs.curr_block;
+    end_block = rhs.end_block;
+    curr_index = rhs.curr_index;
+    ids_len = rhs.ids_len;
+    ids = rhs.ids;
+    prev_block_last_id = rhs.prev_block_last_id;
+
+    rhs.id_block_map = nullptr;
+    rhs.curr_block = nullptr;
+    rhs.end_block = nullptr;
+    rhs.ids = nullptr;
+
+    return *this;
+}
+
+bool posting_list_t::not_iterator_t::valid() const {
+    return (curr_block != end_block) && (curr_index < ids_len);
+}
+
+void posting_list_t::not_iterator_t::reset_cache() {
+    delete [] ids;
+
+    ids = nullptr;
+    curr_index = 0;
+    curr_block = end_block = nullptr;
+}
+
+void posting_list_t::not_iterator_t::next() {
+    curr_index++;
+    if (curr_index < ids_len) {
+        return;
+    }
+
+    curr_block = curr_block->next;
+    init_ids();
+}
+
+void posting_list_t::not_iterator_t::skip_to(const uint32_t& id) {
+    // first look to skip within current block
+    if (id <= ids[ids_len - 1]) {
+        ArrayUtils::skip_index_to_id(curr_index, ids, ids_len, id);
+        return;
+    }
+
+    // identify the block where the id could exist and skip to that
+    reset_cache();
+
+    auto it = id_block_map->lower_bound(id);
+    if (it == id_block_map->end() || (it->first == id && ++it == id_block_map->end())) {
+        return;
+    }
+
+    curr_block = it->second;
+    std::map<last_id_t, block_t*>::const_reverse_iterator rit(it);
+    if (rit == id_block_map->rend()) {
+        prev_block_last_id = 0;
+    } else {
+        prev_block_last_id = rit->first;
+    }
+    init_ids();
+
+    ArrayUtils::skip_index_to_id(curr_index, ids, ids_len, id);
+}
+
+void posting_list_t::not_iterator_t::init_ids(const bool& is_first_block) {
+    if (curr_block == end_block || curr_block->size() == 0) {
+        return;
+    }
+
+    ids = curr_block->ids.uncompress();
+    auto curr_block_last_id = curr_block->ids.last();
+
+    // If we have following two blocks having ids:
+    // [1, 3]  [5, 7, 9]
+    // respective all_ids will be:
+    // [0, 1, 2, 3]  [4, 5, 6, 7, 8, 9]
+    // respective not ids will become:
+    // [0, 2]  [4, 6, 8]
+    std::vector<uint32_t> all_ids(curr_block_last_id - prev_block_last_id + is_first_block);
+    std::iota(all_ids.begin(), all_ids.end(), prev_block_last_id + !is_first_block);
+    uint32_t* result = nullptr;
+    ids_len = ArrayUtils::exclude_scalar(&all_ids[0], all_ids.size(), ids, curr_block->size(), &result);
+
+    delete [] ids;
+    ids = result;
+    curr_index = 0;
+    prev_block_last_id = curr_block_last_id;
+}
+
+uint32_t posting_list_t::not_iterator_t::id() const {
+    return ids[curr_index];
 }
