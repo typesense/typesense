@@ -589,7 +589,7 @@ public:
                                   bool enable_synonyms = true,
                                   bool synonym_prefix = false,
                                   uint32_t synonym_num_typos = 0,
-                                  bool enable_lazy_filter = true,
+                                  bool enable_lazy_filter = false,
                                   bool enable_typos_for_alpha_numerical_tokens = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;

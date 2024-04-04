@@ -3376,9 +3376,20 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     }
                     vec_results.emplace_back(seq_id, vec_dist_score);
                 }
-                
+
+                // iteration needs to happen on sorted sequence ID but score wise sort needed for compute rank fusion
                 std::sort(vec_results.begin(), vec_results.end(), [](const auto& a, const auto& b) {
                     return a.second < b.second;
+                });
+
+                std::unordered_map<uint32_t, uint32_t> seq_id_to_rank;
+
+                for(size_t vec_index = 0; vec_index < vec_results.size(); vec_index++) {
+                    seq_id_to_rank.emplace(vec_results[vec_index].first, vec_index);
+                }
+
+                std::sort(vec_results.begin(), vec_results.end(), [](const auto& a, const auto& b) {
+                    return a.first < b.first;
                 });
 
                 std::vector<KV*> kvs;
@@ -3393,8 +3404,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 } else {
                     topster->sort();
                 }
-
-                
 
                 // Reciprocal rank fusion
                 // Score is  sum of (1 / rank_of_document) * WEIGHT from each list (text match and vector search)
@@ -3453,7 +3462,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         found_kv->text_match_score  = found_kv->scores[found_kv->match_score_index];
                         int64_t match_score = float_to_int64_t(
                                 (int64_t_to_float(found_kv->scores[found_kv->match_score_index])) +
-                                ((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT));
+                                ((1.0 / (seq_id_to_rank[seq_id] + 1)) * VECTOR_SEARCH_WEIGHT));
                         int64_t match_score_index = -1;
                         int64_t scores[3] = {0};
 
@@ -3475,7 +3484,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         // Result has been found only in vector search: we have to add it to both KV and result_ids
                         // (1 / rank_of_document) * WEIGHT)
                         int64_t scores[3] = {0};
-                        int64_t match_score = float_to_int64_t((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT);
+                        int64_t match_score = float_to_int64_t((1.0 / (seq_id_to_rank[seq_id] + 1)) * VECTOR_SEARCH_WEIGHT);
                         int64_t match_score_index = -1;
 
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,

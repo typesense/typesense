@@ -41,8 +41,7 @@ Option<bool> AnalyticsManager::create_rule(nlohmann::json& payload, bool upsert,
     }
 
     if(payload["type"] == POPULAR_QUERIES_TYPE || payload["type"] == NOHITS_QUERIES_TYPE
-        || payload["type"] == COUNTER_TYPE || payload["type"] == CLICKS_TYPE || payload["type"] == CONVERSIONS_TYPE
-        || payload["type"] == VISITS_TYPE || payload["type"] == CUSTOM_EVENTS_TYPE) {
+        || payload["type"] == COUNTER_TYPE || payload["type"] == LOG_TYPE) {
         return create_index(payload, upsert, write_to_disk);
     }
 
@@ -53,8 +52,6 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     // params and name are validated upstream
     const std::string& suggestion_config_name = payload["name"].get<std::string>();
     bool already_exists = suggestion_configs.find(suggestion_config_name) != suggestion_configs.end();
-    bool is_event_type = (payload["type"] == CLICKS_TYPE || payload["type"] == CONVERSIONS_TYPE
-                          || payload["type"] == VISITS_TYPE || payload["type"] == CUSTOM_EVENTS_TYPE);
 
     if(!upsert && already_exists) {
         return Option<bool>(400, "There's already another configuration with the name `" +
@@ -87,89 +84,96 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
     suggestion_config.expand_query = expand_query;
     suggestion_config.rule_type = payload["type"];
 
-    if(is_event_type) {
-        if (!params.contains("name") || params["name"].empty()) {
+    if(payload["type"] == LOG_TYPE) {
+        if(!params.contains("name") || params["name"].empty()) {
             return Option<bool>(400, "Bad or missing name in params");
         }
 
-        if (!params["source"].contains("collection") || !params["source"]["collection"].is_string()) {
-            return Option<bool>(400, "Must contain a valid source collection.");
+        if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
+            return Option<bool>(400, "Must contain a valid list of source collections.");
         }
 
-        suggestion_collection = params["source"]["collection"].get<std::string>();
+        if(!params["source"].contains("events") || (params["source"].contains("events") &&
+                                                    (params["source"]["events"].empty()
+                                                     || !params["source"]["events"].is_array()
+                                                     || !params["source"]["events"][0].is_object()))) {
+            return Option<bool>(400, "Bad or missing events.");
+        }
+
+        suggestion_config.events = params["source"]["events"];
+
+        suggestion_collection = params["source"]["collections"][0].get<std::string>();
         suggestion_config.suggestion_collection = suggestion_collection;
 
-        if (event_collection_map.count(params["name"]) != 0) {
+        if(event_collection_map.count(params["name"]) != 0) {
             return Option<bool>(400, "Event name already exists.");
         }
     } else {
-        if (payload["type"] == COUNTER_TYPE) {
-            if (!params["source"].contains("events") || (params["source"].contains("events") &&
-                                                         (params["source"]["events"].empty()
-                                                          || !params["source"]["events"].is_array()
-                                                          || !params["source"]["events"][0].is_object()))) {
+        if(payload["type"] == COUNTER_TYPE) {
+            if(!params["source"].contains("events") || (params["source"].contains("events") &&
+                                                        (params["source"]["events"].empty()
+                                                         || !params["source"]["events"].is_array()
+                                                         || !params["source"]["events"][0].is_object()))) {
                 return Option<bool>(400, "Bad or missing events.");
             }
 
             suggestion_config.events = params["source"]["events"];
         }
 
-        if (!params.contains("destination") || !params["destination"].is_object()) {
+        if(!params.contains("destination") || !params["destination"].is_object()) {
             return Option<bool>(400, "Bad or missing destination.");
         }
 
-        if (!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
+        if(!params["source"].contains("collections") || !params["source"]["collections"].is_array()) {
             return Option<bool>(400, "Must contain a valid list of source collections.");
         }
 
-        if (!params["destination"].contains("collection") || !params["destination"]["collection"].is_string()) {
+        if(!params["destination"].contains("collection") || !params["destination"]["collection"].is_string()) {
             return Option<bool>(400, "Must contain a valid destination collection.");
         }
 
 
-        if (params["destination"].contains("counter_field")) {
-            if (!params["destination"]["counter_field"].is_string()) {
+        if(params["destination"].contains("counter_field")) {
+            if(!params["destination"]["counter_field"].is_string()) {
                 return Option<bool>(400, "Must contain a valid counter_field.");
             }
             counter_field = params["destination"]["counter_field"].get<std::string>();
             suggestion_config.counter_field = counter_field;
         }
 
-        for (const auto &coll: params["source"]["collections"]) {
-            if (!coll.is_string()) {
-                return Option<bool>(400, "Must contain a valid list of source collection names.");
-            }
-
-            const std::string &src_collection = coll.get<std::string>();
-            suggestion_config.query_collections.push_back(src_collection);
-        }
-
         suggestion_collection = params["destination"]["collection"].get<std::string>();
         suggestion_config.suggestion_collection = suggestion_collection;
+    }
 
+    for(const auto& coll: params["source"]["collections"]) {
+        if(!coll.is_string()) {
+            return Option<bool>(400, "Must contain a valid list of source collection names.");
+        }
 
-        if (payload["type"] == POPULAR_QUERIES_TYPE) {
-            if (!upsert && popular_queries.count(suggestion_collection) != 0) {
-                return Option<bool>(400, "There's already another configuration for this destination collection.");
-            }
-        } else if (payload["type"] == NOHITS_QUERIES_TYPE) {
-            if (!upsert && nohits_queries.count(suggestion_collection) != 0) {
-                return Option<bool>(400, "There's already another configuration for this destination collection.");
-            }
-        } else if (payload["type"] == COUNTER_TYPE) {
-            if (!upsert && counter_events.count(suggestion_collection) != 0) {
-                return Option<bool>(400, "There's already another configuration for this destination collection.");
-            }
+        const std::string& src_collection = coll.get<std::string>();
+        suggestion_config.query_collections.push_back(src_collection);
+    }
+    if(payload["type"] == POPULAR_QUERIES_TYPE) {
+        if(!upsert && popular_queries.count(suggestion_collection) != 0) {
+            return Option<bool>(400, "There's already another configuration for this destination collection.");
+        }
+    } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
+        if(!upsert && nohits_queries.count(suggestion_collection) != 0) {
+            return Option<bool>(400, "There's already another configuration for this destination collection.");
+        }
+    } else if(payload["type"] == COUNTER_TYPE) {
+        if(!upsert && counter_events.count(suggestion_collection) != 0) {
+            return Option<bool>(400, "There's already another configuration for this destination collection.");
+        }
 
-            auto coll = CollectionManager::get_instance().get_collection(suggestion_collection).get();
-            if (coll != nullptr) {
-                if (!coll->contains_field(counter_field)) {
-                    return Option<bool>(404,
-                                        "counter_field `" + counter_field + "` not found in destination collection.");
-                }
-            } else {
-                return Option<bool>(404, "Collection `" + suggestion_collection + "` not found.");
+        auto coll = CollectionManager::get_instance().get_collection(suggestion_collection).get();
+        if(coll != nullptr) {
+            if(!coll->contains_field(counter_field)) {
+                return Option<bool>(404,
+                                    "counter_field `" + counter_field + "` not found in destination collection.");
             }
+        } else {
+            return Option<bool>(404, "Collection `" + suggestion_collection + "` not found.");
         }
     }
 
@@ -194,7 +198,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         popularQueries->set_expand_query(suggestion_config.expand_query);
         popular_queries.emplace(suggestion_collection, popularQueries);
     } else if(payload["type"] == NOHITS_QUERIES_TYPE) {
-        QueryAnalytics *noresultsQueries = new QueryAnalytics(limit);
+        QueryAnalytics* noresultsQueries = new QueryAnalytics(limit);
         nohits_queries.emplace(suggestion_collection, noresultsQueries);
     } else if(payload["type"] == COUNTER_TYPE) {
         if(query_collection_events.count(suggestion_collection) == 0) {
@@ -203,7 +207,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         }
 
         std::map<std::string, uint16_t> event_weight_map;
-        for(const auto& event : params["source"]["events"]){
+        for(const auto& event: params["source"]["events"]) {
             if(!event.contains("name") || event_collection_map.count(event["name"]) != 0) {
                 return Option<bool>(400, "Events must contain a unique name.");
             }
@@ -211,23 +215,28 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             //which can be used to keep counter events separate from non counter events
             bool log_to_file = false;
             if(event.contains("log_to_file")) {
-             log_to_file = event["log_to_file"].get<bool>();
+                log_to_file = event["log_to_file"].get<bool>();
             }
             event_weight_map[event["name"]] = event["weight"];
-            event_type_collection ec {event["type"], suggestion_collection, log_to_file};
+            event_type_collection ec{event["type"], suggestion_collection, log_to_file};
             event_collection_map.emplace(event["name"], ec);
         }
         counter_events.emplace(suggestion_collection, counter_event_t{counter_field, {}, event_weight_map});
-    } else if(is_event_type) {
+    } else if(payload["type"] == LOG_TYPE) {
         //multiple event types can be used with one collection
         //hence if no events are created for collection then only initialize it
         if(query_collection_events.count(suggestion_collection) == 0) {
             std::vector<event_t> vec;
             query_collection_events.emplace(suggestion_collection, vec);
         }
-        auto sub_event_type = get_sub_event_type(payload["type"]);
-        event_type_collection ec {sub_event_type, suggestion_collection, true};
-        event_collection_map.emplace(params["name"], ec);
+
+        for(const auto& event: params["source"]["events"]) {
+            if(!event.contains("name") || event_collection_map.count(event["name"]) != 0) {
+                return Option<bool>(400, "Events must contain a unique name.");
+            }
+            event_type_collection ec{event["type"], suggestion_collection, true};
+            event_collection_map.emplace(event["name"], ec);
+        }
     }
 
     if(write_to_disk) {
@@ -717,19 +726,6 @@ void AnalyticsManager::resetToggleRateLimit(bool toggle) {
     std::unique_lock lk(mutex);
     events_cache.clear();
     isRateLimitEnabled = toggle;
-}
-
-std::string AnalyticsManager::get_sub_event_type(const std::string &event_type) {
-    if(event_type == AnalyticsManager::CLICKS_TYPE) {
-        return AnalyticsManager::CLICK_EVENT;
-    } else if(event_type == AnalyticsManager::CONVERSIONS_TYPE) {
-        return AnalyticsManager::CONVERSION_EVENT;
-    } else if(event_type == AnalyticsManager::VISITS_TYPE) {
-        return AnalyticsManager::VISIT_EVENT;
-    } else if(event_type == AnalyticsManager::CUSTOM_EVENTS_TYPE) {
-        return AnalyticsManager::CUSTOM_EVENT;
-    }
-    return "";
 }
 
 void counter_event_t::serialize_as_docs(std::string &docs) {

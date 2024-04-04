@@ -1609,7 +1609,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     text_match_type_t match_type = max_score;
     bool enable_typos_for_numerical_tokens = true;
     bool enable_typos_for_alpha_numerical_tokens = true;
-    bool enable_lazy_filter = true;
+    bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
 
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
