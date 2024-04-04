@@ -1479,6 +1479,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *VOICE_QUERY = "voice_query";
 
     const char *ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
+    const char *ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS = "enable_typos_for_alpha_numerical_tokens";
     const char *ENABLE_LAZY_FILTER = "enable_lazy_filter";
 
     const char *SYNONYM_PREFIX = "synonym_prefix";
@@ -1607,6 +1608,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
     bool enable_typos_for_numerical_tokens = true;
+    bool enable_typos_for_alpha_numerical_tokens = true;
     bool enable_lazy_filter = true;
 
     size_t remote_embedding_timeout_ms = 5000;
@@ -1684,6 +1686,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {ENABLE_SYNONYMS, &enable_synonyms},
         {SYNONYM_PREFIX, &synonym_prefix},
         {ENABLE_LAZY_FILTER, &enable_lazy_filter},
+        {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1902,7 +1905,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           enable_synonyms,
                                                           synonym_prefix,
                                                           synonym_num_typos,
-                                                          enable_lazy_filter);
+                                                          enable_lazy_filter,
+                                                          enable_typos_for_alpha_numerical_tokens);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

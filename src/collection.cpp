@@ -1763,7 +1763,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   bool enable_synonyms,
                                   bool synonym_prefix,
                                   uint32_t synonyms_num_typos,
-                                  bool enable_lazy_filter) const {
+                                  bool enable_lazy_filter,
+                                  bool enable_typos_for_alpha_numerical_tokens) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -2293,7 +2294,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                            false, stopwords_set);
 
         process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
-                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens);
+                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
+                                 enable_typos_for_alpha_numerical_tokens);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -2314,7 +2316,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         // included_ids, excluded_ids
         process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
-                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens);
+                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
+                                 enable_typos_for_alpha_numerical_tokens);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -2360,7 +2363,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     auto search_op = index->run_search(search_params, name, facet_index_type,
                                        enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
-                                       synonyms_num_typos);
+                                       synonyms_num_typos, enable_typos_for_alpha_numerical_tokens);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();
@@ -3395,12 +3398,14 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
                                           std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                           std::vector<uint32_t>& excluded_ids,
                                           nlohmann::json& override_metadata,
-                                          bool enable_typos_for_numerical_tokens) const {
+                                          bool enable_typos_for_numerical_tokens,
+                                          bool enable_typos_for_alpha_numerical_tokens) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
     index->process_filter_overrides(filter_overrides, q_include_tokens, token_order,
                                     filter_tree_root, matched_dynamic_overrides, override_metadata,
-                                    enable_typos_for_numerical_tokens);
+                                    enable_typos_for_numerical_tokens,
+                                    enable_typos_for_alpha_numerical_tokens);
 
     // we will check the dynamic overrides to see if they also have include/exclude
     std::set<uint32_t> excluded_set;
