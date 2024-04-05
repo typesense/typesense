@@ -1472,6 +1472,59 @@ TEST_F(CollectionVectorTest, HybridSearchWithEvalSort) {
     ASSERT_EQ("1", results_op.get()["hits"][2]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionVectorTest, VectorSearchWithEvalSort) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string", "facet": true},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Apple Fruit";
+    doc["category"] = "Fresh";
+    doc["vec"] = {0.1, 0.2, 0.3, 0.4};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "Apple";
+    doc["category"] = "Phone";
+    doc["vec"] = {0.2, 0.3, 0.1, 0.1};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["name"] = "Apple Pie";
+    doc["category"] = "Notebook";
+    doc["vec"] = {0.1, 0.3, 0.2, 0.4};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields;
+    CollectionManager::parse_sort_by_str("_eval([(category:Fresh):3,(category:Notebook):2,(category:Phone):1]):desc", sort_fields);
+
+    auto results_op = coll1->search("*", {"vec"}, "", {"name"}, sort_fields, {0}, 20, 1, FREQUENCY, {true},
+                                    Index::DROP_TOKENS_THRESHOLD,
+                                    spp::sparse_hash_set<std::string>(),
+                                    spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                    "", 10, {}, {}, {}, 0,
+                                    "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                    fallback,
+                                    4, {off}, 32767, 32767, 2,
+                                    false, true, "vec:([0.1, 0.4, 0.2, 0.3])");
+    ASSERT_EQ(true, results_op.ok());
+    ASSERT_EQ(3, results_op.get()["found"].get<size_t>());
+    ASSERT_EQ(3, results_op.get()["hits"].size());
+
+    ASSERT_EQ("0", results_op.get()["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results_op.get()["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results_op.get()["hits"][2]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
     nlohmann::json schema = R"({
                 "name": "objects",
