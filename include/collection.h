@@ -278,7 +278,8 @@ private:
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids,
                                   nlohmann::json& override_metadata,
-                                  bool enable_typos_for_numerical_tokens=true) const;
+                                  bool enable_typos_for_numerical_tokens=true,
+                                  bool enable_typos_for_alpha_numerical_tokens=true) const;
 
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
                                   const size_t total_tokens) const;
@@ -588,7 +589,8 @@ public:
                                   bool enable_synonyms = true,
                                   bool synonym_prefix = false,
                                   uint32_t synonym_num_typos = 0,
-                                  bool enable_lazy_filter = false) const;
+                                  bool enable_lazy_filter = false,
+                                  bool enable_typos_for_alpha_numerical_tokens = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
