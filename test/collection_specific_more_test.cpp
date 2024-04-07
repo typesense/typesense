@@ -2351,26 +2351,27 @@ TEST_F(CollectionSpecificMoreTest, SearchCutoffTest) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "fields": [
-            {"name": "title", "type": "string"}
+            {"name": "title", "type": "string"},
+            {"name": "desc", "type": "string"}
         ]
     })"_json;
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
-    for(size_t i = 0; i < 70000; i++) {
+    for(size_t i = 0; i < 70 * 1000; i++) {
         nlohmann::json doc;
-        doc["title"] = "1 2";
+        doc["title"] = "foobarbaz1";
+        doc["desc"] = "2";
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto coll_op = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
+    auto coll_op = coll1->search("foobarbar1 2", {"title", "desc"}, "", {}, {}, {2}, 3, 1, FREQUENCY, {false}, 5,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1);
 
-    ASSERT_FALSE(coll_op.ok());
-    ASSERT_EQ("Request Timeout", coll_op.error());
-    ASSERT_EQ(408, coll_op.code());
+    ASSERT_TRUE(coll_op.ok());
+    ASSERT_TRUE(coll_op.get()["search_cutoff"]);
 }
 
 TEST_F(CollectionSpecificMoreTest, ExhaustiveSearchWithoutExplicitDropTokens) {
