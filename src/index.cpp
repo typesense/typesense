@@ -4096,16 +4096,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                     }
                 }
 
-                if(last_token && leaf_tokens.size() < max_candidates) {
-                    // field-wise matching with previous token has failed, have to look at cross fields matching docs
-                    std::vector<uint32_t> prev_token_doc_ids;
-                    find_across_fields(token_candidates_vec.back().token,
-                                       token_candidates_vec.back().candidates[0],
-                                       the_fields, num_search_fields, filter_result_iterator, exclude_token_ids,
-                                       exclude_token_ids_size, prev_token_doc_ids, popular_field_ids);
-                    filter_result_iterator->reset();
-                    search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
-
+                if(last_token && num_search_fields > 1 && leaf_tokens.size() < max_candidates) {
+                    // matching previous token has failed, look at all fields
                     for(size_t field_id: query_field_ids) {
                         auto& the_field = the_fields[field_id];
                         const bool field_prefix = the_fields[field_id].prefix;
@@ -4233,14 +4225,14 @@ void Index::popular_fields_of_token(const spp::sparse_hash_map<std::string, art_
                                     const size_t num_search_fields,
                                     std::vector<size_t>& popular_field_ids) {
 
-    const auto token_c_str = (const unsigned char*) previous_token.c_str();
-    const int token_len = (int) previous_token.size() + 1;
+    const auto prev_token_c_str = (const unsigned char*) previous_token.c_str();
+    const int prev_token_len = (int) previous_token.size() + 1;
 
     std::vector<std::pair<size_t, size_t>> field_id_doc_counts;
 
     for(size_t i = 0; i < num_search_fields; i++) {
         const std::string& field_name = the_fields[i].name;
-        auto leaf = static_cast<art_leaf*>(art_search(search_index.at(field_name), token_c_str, token_len));
+        auto leaf = static_cast<art_leaf*>(art_search(search_index.at(field_name), prev_token_c_str, prev_token_len));
 
         if(!leaf) {
             continue;
