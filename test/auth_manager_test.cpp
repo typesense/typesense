@@ -587,4 +587,22 @@ TEST_F(AuthManagerTest, CollectionsByScope) {
 
     ASSERT_EQ(1, result_json.size());
     ASSERT_EQ("collection2", result_json[0]["name"]);
+
+    scoped_key_json = R"({
+        "description": "Write key",
+        "actions": [ "collections:*", "documents:*", "synonyms:*" ],
+        "collections": [ "*" ],
+        "value": "00071e2108"
+    })"_json;
+
+    req->body =scoped_key_json.dump();
+    ASSERT_TRUE(post_create_key(req, res));
+
+    req->api_auth_key = "00071e2108";
+    get_collections(req, res);
+    result_json = nlohmann::json::parse(res->body);
+
+    ASSERT_EQ(2, result_json.size());
+    ASSERT_EQ("collection2", result_json[0]["name"]);
+    ASSERT_EQ("collection_1", result_json[1]["name"]);
 }

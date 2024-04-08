@@ -2465,6 +2465,10 @@ std::unordered_set<std::string> CollectionManager::get_collection_references(con
 
 bool CollectionManager::is_valid_api_key_collection(const std::vector<std::string>& api_collections, Collection* coll) const {
     for(const auto& api_collection : api_collections) {
+        if(api_collection == "*") {
+            return true;
+        }
+
         const std::regex pattern(api_collection);
         if(std::regex_match(coll->get_name(), pattern)) {
             return true;
