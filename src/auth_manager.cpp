@@ -438,3 +438,11 @@ void AuthManager::remove_expired_keys() {
 void AuthManager::do_housekeeping() {
     remove_expired_keys();
 }
+
+std::vector<std::string> AuthManager::get_api_key_collections(const std::string& value) {
+    if(api_keys.find(value) != api_keys.end()) {
+        return api_keys.at(value).collections;
+    }
+
+    return std::vector<std::string>();
+}
