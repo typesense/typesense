@@ -492,6 +492,13 @@ void Index::validate_and_preprocess(Index *index,
                 get_doc_changes(index_rec.operation, embedding_fields, index_rec.doc, index_rec.old_doc,
                                 index_rec.new_doc, index_rec.del_doc);
 
+                /*if(index_rec.seq_id == 0) {
+                    LOG(INFO) << "index_rec.doc: " << index_rec.doc;
+                    LOG(INFO) << "index_rec.old_doc: " << index_rec.old_doc;
+                    LOG(INFO) << "index_rec.new_doc: " << index_rec.new_doc;
+                    LOG(INFO) << "index_rec.del_doc: " << index_rec.del_doc;
+                }*/
+
                 if(generate_embeddings) {
                     for(auto& field: index_rec.doc.items()) {
                         for(auto& embedding_field : embedding_fields) {
@@ -7125,6 +7132,8 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
 
     if(op == UPSERT) {
         new_doc = update_doc;
+        new_doc.merge_patch(update_doc);  // ensures that null valued keys are deleted
+
         // since UPSERT could replace a doc with lesser fields, we have to add those missing fields to del_doc
         for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
             if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
