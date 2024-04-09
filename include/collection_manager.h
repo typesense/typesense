@@ -137,7 +137,8 @@ public:
 
     void add_to_collections(Collection* collection);
 
-    Option<std::vector<Collection*>> get_collections(uint32_t limit = 0, uint32_t offset = 0) const;
+    Option<std::vector<Collection*>> get_collections(uint32_t limit = 0, uint32_t offset = 0,
+                                                     const std::vector<std::string>& api_key_collections = {}) const;
 
     std::vector<std::string> get_collection_names() const;
 
@@ -179,7 +180,8 @@ public:
 
     locked_resource_view_t<Collection> get_collection_with_id(uint32_t collection_id) const;
 
-    Option<nlohmann::json> get_collection_summaries(uint32_t limit = 0 , uint32_t offset = 0) const;
+    Option<nlohmann::json> get_collection_summaries(uint32_t limit = 0 , uint32_t offset = 0,
+                                                    const std::vector<std::string>& api_key_collections = {}) const;
 
     Option<nlohmann::json> drop_collection(const std::string& collection_name,
                                            const bool remove_from_store = true,
@@ -241,4 +243,6 @@ public:
                                          std::map<std::string, spp::sparse_hash_map<std::string, std::string>>& referenced_ins);
 
     std::unordered_set<std::string> get_collection_references(const std::string& coll_name);
+
+    bool is_valid_api_key_collection(const std::vector<std::string>& api_key_collections, Collection* coll) const;
 };

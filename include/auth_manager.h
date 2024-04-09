@@ -156,4 +156,6 @@ public:
                                    bool overwrite);
 
     void do_housekeeping();
+
+    std::vector<std::string> get_api_key_collections(const std::string& value);
 };

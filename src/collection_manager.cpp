@@ -581,7 +581,9 @@ locked_resource_view_t<Collection> CollectionManager::get_collection_with_id(uin
     return locked_resource_view_t<Collection>(mutex, nullptr);
 }
 
-Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t limit, uint32_t offset) const {
+Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t limit, uint32_t offset,
+                                                                    const std::vector<std::string>& api_key_collections) const {
+
     std::shared_lock lock(mutex);
 
     std::vector<Collection*> collection_vec;
@@ -603,7 +605,9 @@ Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t lim
     }
 
     for (collections_it; collections_it != collections_end; ++collections_it) {
-        collection_vec.push_back(collections_it->second);
+        if(is_valid_api_key_collection(api_key_collections, collections_it->second)) {
+            collection_vec.push_back(collections_it->second);
+        }
     }
 
 
@@ -1956,10 +1960,11 @@ ThreadPool* CollectionManager::get_thread_pool() const {
     return thread_pool;
 }
 
-Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limit, uint32_t offset) const {
+Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limit, uint32_t offset,
+                                                                   const std::vector<std::string>& api_key_collections) const {
     std::shared_lock lock(mutex);
 
-    auto collections_op = get_collections(limit, offset);
+    auto collections_op = get_collections(limit, offset, api_key_collections);
     if(!collections_op.ok()) {
         return Option<nlohmann::json>(collections_op.code(), collections_op.error());
     }
@@ -2456,4 +2461,18 @@ std::unordered_set<std::string> CollectionManager::get_collection_references(con
         references.insert(ref_pair.collection);
     }
     return references;
+}
+
+bool CollectionManager::is_valid_api_key_collection(const std::vector<std::string>& api_collections, Collection* coll) const {
+    for(const auto& api_collection : api_collections) {
+        if(api_collection == "*") {
+            return true;
+        }
+
+        const std::regex pattern(api_collection);
+        if(std::regex_match(coll->get_name(), pattern)) {
+            return true;
+        }
+    }
+    return api_collections.size() > 0 ? false : true;
 }
