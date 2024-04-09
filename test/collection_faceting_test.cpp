@@ -2251,8 +2251,11 @@ TEST_F(CollectionFacetingTest, FacetingReturnParent) {
     ASSERT_EQ("255", results["facet_counts"][1]["counts"][1]["value"]);
 
     ASSERT_EQ(1, results["facet_counts"][2]["counts"].size());
-    ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][2]["counts"][0]["parent"].dump());
     ASSERT_EQ("0", results["facet_counts"][2]["counts"][0]["value"]);
+
+    //same facet value appearing in multiple records can return any parent
+    ASSERT_TRUE(("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}" == results["facet_counts"][2]["counts"][0]["parent"].dump())
+                || ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}" == results["facet_counts"][2]["counts"][0]["parent"].dump()));
 
     ASSERT_EQ(2, results["facet_counts"][3]["counts"].size());
     ASSERT_EQ("{\"b\":0,\"color\":\"red\",\"g\":0,\"r\":255}", results["facet_counts"][3]["counts"][0]["parent"].dump());
