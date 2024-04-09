@@ -22,8 +22,7 @@
   <a href="https://github.com/orgs/typesense/projects/1">Roadmap</a> | 
   <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-2fetvh0pw-ft5y2YQlq4l_bPhhqpjXig">Slack Community</a> | 
   <a href="https://threads.typesense.org/kb">Community Threads</a> | 
-  <a href="https://twitter.com/typesense">Twitter</a> | 
-  <a href="https://calendly.com/jason-typesense/typesense-office-hours">Office Hours</a>
+  <a href="https://twitter.com/typesense">Twitter</a>
 </p>
 <br>
 <p align="center">
@@ -352,9 +351,7 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 
 ## Support
 
-👋 🌐 If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-2fetvh0pw-ft5y2YQlq4l_bPhhqpjXig). 
-
-We also do virtual office hours every Friday. Reserve a time slot [here](https://calendly.com/jason-typesense/typesense-office-hours).
+👋 🌐 If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our public [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-2fetvh0pw-ft5y2YQlq4l_bPhhqpjXig). 
 
 If you run into any problems or issues, please create a GitHub issue and we'll try our best to help.
 
@@ -363,10 +360,10 @@ We strive to provide good support through our issue trackers on GitHub. However,
 - Guaranteed SLAs
 - Phone / video calls to discuss your specific use case and get recommendations on best practices
 - Private discussions over Slack
-- Guidance around deployment, ops and scaling best practices
+- Guidance around scaling best practices
 - Prioritized feature requests
 
-We do offer Paid Support options. Please reach out to us at contact@typesense.org to sign up.
+We offer Paid Support options described [here](https://typesense.org/support/).
 
 ## Contributing
 
