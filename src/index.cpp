@@ -492,6 +492,13 @@ void Index::validate_and_preprocess(Index *index,
                 get_doc_changes(index_rec.operation, embedding_fields, index_rec.doc, index_rec.old_doc,
                                 index_rec.new_doc, index_rec.del_doc);
 
+                /*if(index_rec.seq_id == 0) {
+                    LOG(INFO) << "index_rec.doc: " << index_rec.doc;
+                    LOG(INFO) << "index_rec.old_doc: " << index_rec.old_doc;
+                    LOG(INFO) << "index_rec.new_doc: " << index_rec.new_doc;
+                    LOG(INFO) << "index_rec.del_doc: " << index_rec.del_doc;
+                }*/
+
                 if(generate_embeddings) {
                     for(auto& field: index_rec.doc.items()) {
                         for(auto& embedding_field : embedding_fields) {
@@ -3012,6 +3019,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     continue;
                 }
 
+                if(vector_query.query_doc_given && nearest_ids.size() >= k-1) {
+                    // When id based vector query is made, we ask for K+1 results to account for the query
+                    // record itself being returned. However, when the filter clause does not match the
+                    // query record, we will end up returning 1 extra hit.
+                    break;
+                }
+
                 uint64_t distinct_id = seq_id;
                 if (group_limit != 0) {
                     distinct_id = 1;
@@ -3049,6 +3063,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 if(group_limit != 0 && ret < 2) {
                     groups_processed[distinct_id]++;
                 }
+
                 nearest_ids.push_back(seq_id);
             }
 
@@ -4088,16 +4103,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                     }
                 }
 
-                if(last_token && leaf_tokens.size() < max_candidates) {
-                    // field-wise matching with previous token has failed, have to look at cross fields matching docs
-                    std::vector<uint32_t> prev_token_doc_ids;
-                    find_across_fields(token_candidates_vec.back().token,
-                                       token_candidates_vec.back().candidates[0],
-                                       the_fields, num_search_fields, filter_result_iterator, exclude_token_ids,
-                                       exclude_token_ids_size, prev_token_doc_ids, popular_field_ids);
-                    filter_result_iterator->reset();
-                    search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
-
+                if(last_token && num_search_fields > 1 && leaf_tokens.size() < max_candidates) {
+                    // matching previous token has failed, look at all fields
                     for(size_t field_id: query_field_ids) {
                         auto& the_field = the_fields[field_id];
                         const bool field_prefix = the_fields[field_id].prefix;
@@ -4225,14 +4232,14 @@ void Index::popular_fields_of_token(const spp::sparse_hash_map<std::string, art_
                                     const size_t num_search_fields,
                                     std::vector<size_t>& popular_field_ids) {
 
-    const auto token_c_str = (const unsigned char*) previous_token.c_str();
-    const int token_len = (int) previous_token.size() + 1;
+    const auto prev_token_c_str = (const unsigned char*) previous_token.c_str();
+    const int prev_token_len = (int) previous_token.size() + 1;
 
     std::vector<std::pair<size_t, size_t>> field_id_doc_counts;
 
     for(size_t i = 0; i < num_search_fields; i++) {
         const std::string& field_name = the_fields[i].name;
-        auto leaf = static_cast<art_leaf*>(art_search(search_index.at(field_name), token_c_str, token_len));
+        auto leaf = static_cast<art_leaf*>(art_search(search_index.at(field_name), prev_token_c_str, prev_token_len));
 
         if(!leaf) {
             continue;
@@ -6704,6 +6711,10 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
         return;
     }
 
+    if(search_field.optional && document[field_name].is_null()) {
+        return ;
+    }
+
     // Go through all the field names and find the keys+values so that they can be removed from in-memory index
     if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
         std::vector<std::string> tokens;
@@ -7121,6 +7132,8 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
 
     if(op == UPSERT) {
         new_doc = update_doc;
+        new_doc.merge_patch(update_doc);  // ensures that null valued keys are deleted
+
         // since UPSERT could replace a doc with lesser fields, we have to add those missing fields to del_doc
         for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
             if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
@@ -7158,7 +7171,7 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
         if(it.value().is_null()) {
             // null values should not be indexed
             new_doc.erase(it.key());
-            if(old_doc.contains(it.key())) {
+            if(old_doc.contains(it.key()) && !old_doc[it.key()].is_null()) {
                 del_doc[it.key()] = old_doc[it.key()];
             }
             it = update_doc.erase(it);
