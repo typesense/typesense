@@ -1115,7 +1115,7 @@ TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
                     {"name": "customer_id", "type": "string"},
                     {"name": "customer_name", "type": "string", "sort": true},
                     {"name": "product_price", "type": "float"},
-                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id", "optional": true}
                 ]
             })"_json;
     documents = {
@@ -1142,6 +1142,11 @@ TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
                 "customer_name": "Dan",
                 "product_price": 140,
                 "product_id": "product_b"
+            })"_json,
+            R"({
+                "customer_id": "customer_c",
+                "customer_name": "Jane",
+                "product_price": 0
             })"_json
     };
     collection_create_op = collectionManager.create_collection(schema_json);
@@ -1188,6 +1193,23 @@ TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
     ASSERT_EQ(1, res_obj["hits"].size());
     ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
     ASSERT_EQ(0, res_obj["hits"][0]["document"].at("product_price"));
+
+    auto doc = coll->get("4").get();
+    ASSERT_EQ(0, doc.count("product_id_sequence_id"));
+
+    update_op = coll->update_matching_filter("id: 4", R"({"product_id": "product_a"})", dirty_values);
+    ASSERT_TRUE(update_op.ok());
+
+    doc = coll->get("4").get();
+    ASSERT_EQ(1, doc.count("product_id_sequence_id"));
+    ASSERT_EQ(0, doc["product_id_sequence_id"]);
+
+    update_op = coll->update_matching_filter("id: 4", R"({"product_id": "product_b"})", dirty_values);
+    ASSERT_TRUE(update_op.ok());
+
+    doc = coll->get("4").get();
+    ASSERT_EQ(1, doc.count("product_id_sequence_id"));
+    ASSERT_EQ(1, doc["product_id_sequence_id"]);
 }
 
 TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
