@@ -1484,7 +1484,7 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
     Option<std::string> deleted_id_op = collection->remove(doc_id);
 
     if (!deleted_id_op.ok()) {
-        if (ignore_not_found && doc_option.code() == 404) {
+        if (ignore_not_found && deleted_id_op.code() == 404) {
             nlohmann::json resp;
             resp["id"] = doc_id;
             res->set_200(resp.dump());
