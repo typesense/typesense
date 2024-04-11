@@ -4372,6 +4372,7 @@ Option<nlohmann::json> Collection::get(const std::string & id) const {
 }
 
 void Collection::remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
+    LOG(INFO) << "Coll:remove_document, remove_from_store: " << remove_from_store << ", seq_id: " << seq_id;
     const std::string& id = document["id"];
 
     {
@@ -4382,9 +4383,13 @@ void Collection::remove_document(const nlohmann::json & document, const uint32_t
     }
 
     if(remove_from_store) {
-        store->remove(get_doc_id_key(id));
-        store->remove(get_seq_id_key(seq_id));
+        bool removed = store->remove(get_doc_id_key(id));
+        LOG(INFO) << "removed doc_id_key? " << removed;
+        removed = store->remove(get_seq_id_key(seq_id));
+        LOG(INFO) << "removed seq_id_key? " << removed;
     }
+
+    LOG(INFO) << "End of Coll:remove_document, seq_id: " << seq_id;
 
     if (referenced_in.empty()) {
         return;
@@ -4405,6 +4410,7 @@ void Collection::remove_document(const nlohmann::json & document, const uint32_t
 }
 
 Option<std::string> Collection::remove(const std::string & id, const bool remove_from_store) {
+    LOG(INFO) << "Collection::remove, id: " << id;
     std::string seq_id_str;
     StoreStatus seq_id_status = store->get(get_doc_id_key(id), seq_id_str);
 
@@ -4430,7 +4436,10 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
         return Option<std::string>(get_doc_op.code(), get_doc_op.error());
     }
 
+    LOG(INFO) << "collection::remove, calling remove_document for doc_id: " << id << ", seq_id: " << seq_id;
+
     remove_document(document, seq_id, remove_from_store);
+    LOG(INFO) << "End of collection::remove, id: " << id;
     return Option<std::string>(id);
 }
 
