@@ -254,11 +254,7 @@ private:
     std::vector<std::vector<posting_list_t::iterator_t>> posting_list_iterators;
     std::vector<posting_list_t*> expanded_plists;
 
-    /// Used in case of a not equals string filter.
-    /// The iterative logic to find not equals match is to return the ids that occur in between the equals match. This
-    /// might lead to returning some ids that are deleted. So we use this iterator to check and return only the ids that
-    /// exist in `index->seq_ids`.
-    id_list_t::iterator_t all_seq_ids_iter = id_list_t::iterator_t(nullptr, nullptr, nullptr, false);
+    bool is_not_equals_iterator = false;
 
     /// Used in case of a single boolean filter matching more than `bool_filter_ids_threshold` ids.
     num_tree_t::iterator_t bool_iterator = num_tree_t::iterator_t(nullptr, NUM_COMPARATOR::EQUALS, 0);
@@ -278,10 +274,6 @@ private:
 
     /// Advances all the token iterators that are at seq_id and finds the next intersection.
     void advance_string_filter_token_iterators();
-
-    /// Finds the first match for a filter on string field. Only used in `init()` and `reset()`. Handles `!` in string
-    /// filter.
-    void get_string_filter_first_match(const bool& field_is_array);
 
     /// Finds the next match for a filter on string field.
     void get_string_filter_next_match(const bool& field_is_array);
