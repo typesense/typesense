@@ -1498,6 +1498,13 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
 
         res->set(deleted_id_op.code(), deleted_id_op.error());
         return false;
+    } else {
+        auto fetch_doc_option = collection->get(doc_id);
+        if(fetch_doc_option.ok()) {
+            LOG(INFO) << "Found doc_id after deletion: " << doc_id;
+        } else {
+            LOG(INFO) << "Error during fetch after deletion, doc_id: " << doc_id << ", code: " << fetch_doc_option.code();
+        }
     }
 
     nlohmann::json doc = doc_option.get();
