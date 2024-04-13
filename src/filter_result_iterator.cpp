@@ -487,8 +487,12 @@ void filter_result_iterator_t::next() {
         seq_id = bool_iterator.seq_id;
         return;
     } else if (f.is_string()) {
-        LOG(ERROR) << "Calling `filter_result_iterator_t::next` is not supported.";
-        validity = invalid;
+        if (is_not_equals_iterator) {
+            return;
+        }
+
+        advance_string_filter_token_iterators();
+        get_string_filter_next_match(f.is_array());
         return;
     }
 }
@@ -1201,6 +1205,7 @@ void filter_result_iterator_t::init() {
             return;
         } else if (a_filter.apply_not_equals) {
             is_not_equals_iterator = true;
+            return;
         } else if (approx_filter_ids_length < string_filter_ids_threshold) {
             compute_iterators();
             return;
@@ -1312,6 +1317,7 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
                     return -1;
                 }
 
+                seq_id = std::max(left_it->seq_id, right_it->seq_id);
                 return 0;
             }
 
@@ -1333,6 +1339,7 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
                     return -1;
                 }
 
+                seq_id = std::min(left_it->seq_id, right_it->seq_id);
                 return 0;
             }
 
@@ -1355,7 +1362,14 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
 
     skip_to(id);
     if (validity == valid || is_not_equals_iterator) {
-        return is_not_equals_iterator ? (seq_id != id) : (seq_id == id);
+        if (is_not_equals_iterator && seq_id == id) {
+            seq_id++;
+            return 0;
+        } else if (is_not_equals_iterator) {
+            return 1;
+        } else {
+            return seq_id == id ? 1 : 0;
+        }
     } else {
         return -1;
     }
