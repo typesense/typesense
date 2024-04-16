@@ -461,7 +461,7 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
                                   "", 10,
                                   {}, {}, {"colors"}, 2).get();
 
-    ASSERT_EQ(9, res["found_docs"].get<size_t>());
+    ASSERT_EQ(11, res["found_docs"].get<size_t>());
     ASSERT_EQ(4, res["found"].get<size_t>());
     ASSERT_EQ(4, res["grouped_hits"].size());
 
@@ -1132,7 +1132,7 @@ TEST_F(CollectionGroupingTest, GroupByMultipleFacetFieldsWithPinning) {
                                   "", 10,
                                   {"3:1,4:2"}, {}, {"size"}, 2).get();
 
-    ASSERT_EQ(5, res["found_docs"].get<size_t>());
+    ASSERT_EQ(7, res["found_docs"].get<size_t>());
     ASSERT_EQ(4, res["found"].get<size_t>());
     ASSERT_EQ(4, res["grouped_hits"].size());
 

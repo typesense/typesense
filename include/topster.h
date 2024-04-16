@@ -135,11 +135,13 @@ struct Topster {
 
     spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
     size_t distinct;
+    std::set<uint64_t> distinct_ids;
 
     explicit Topster(size_t capacity): Topster(capacity, 0) {
     }
 
-    explicit Topster(size_t capacity, size_t distinct): MAX_SIZE(capacity), size(0), distinct(distinct) {
+    explicit Topster(size_t capacity, size_t distinct, const std::set<uint64_t>& distinct_ids = {}): MAX_SIZE(capacity),
+                    size(0), distinct(distinct), distinct_ids(distinct_ids) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
         // we use separate **kvs for easier pointer swaps
         data = new KV[capacity];
@@ -184,7 +186,6 @@ struct Topster {
             LOG(INFO) << "kv key: " << mkv.first << " => " << mkv.second->scores[mkv.second->match_score_index];
         }*/
 
-        int ret = 1;
        
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
@@ -196,12 +197,16 @@ struct Topster {
 
         bool SIFT_DOWN = true;
 
-        if(distinct) {
-            const auto& doc_seq_id_exists = 
+        if(distinct && !distinct_ids.empty()) {
+            if(distinct_ids.count(kv->distinct_key) == 0) {
+                return 0;
+            }
+
+            const auto& doc_seq_id_exists =
                 (group_doc_seq_ids.find(kv->key) != group_doc_seq_ids.end());
         
             if(doc_seq_id_exists) {
-                ret = 2;
+                return 0;
             }
             group_doc_seq_ids.emplace(kv->key);
             
@@ -215,7 +220,7 @@ struct Topster {
                 group_kv_map.insert({kv->distinct_key, g_topster});
             }
             
-            return ret;
+            return 1;
 
         } else { // not distinct
             //LOG(INFO) << "Searching for key: " << kv->key;
@@ -300,7 +305,7 @@ struct Topster {
             }
         }
 
-        return ret;
+        return 0;
     }
 
     static bool is_greater(const struct KV* i, const struct KV* j) {
@@ -339,5 +344,19 @@ struct Topster {
 
     KV* getKV(uint32_t index) {
         return kvs[index];
+    }
+
+    void populate_distinct_ids() {
+        for(auto& kv : kv_map) {
+            distinct_ids.insert(kv.second->distinct_key);
+        }
+    }
+
+    const std::set<uint64_t>& get_distinct_ids() {
+        return distinct_ids;
+    }
+
+    const size_t get_distinct_ids_count() {
+        return distinct_ids.size();
     }
 };
