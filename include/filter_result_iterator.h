@@ -255,6 +255,9 @@ private:
     std::vector<posting_list_t*> expanded_plists;
 
     bool is_not_equals_iterator = false;
+    uint32_t equals_iterator_id = 0;
+    bool is_equals_iterator_valid = true;
+    uint32_t last_valid_id = 0;
 
     /// Used in case of a single boolean filter matching more than `bool_filter_ids_threshold` ids.
     num_tree_t::iterator_t bool_iterator = num_tree_t::iterator_t(nullptr, NUM_COMPARATOR::EQUALS, 0);
@@ -286,6 +289,10 @@ private:
 
     /// Updates `validity` of the iterator to `timed_out` if condition is met. Assumes `timeout_info` is not null.
     inline bool is_timed_out();
+
+    /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
+    /// this operation.
+    void skip_to(uint32_t id);
 
 public:
     uint32_t seq_id = 0;
@@ -322,16 +329,18 @@ public:
     /// Recursively computes the result of each node and stores the final result in the root node.
     void compute_iterators();
 
-    /// Returns a tri-state:
-    ///     0: id is not valid
-    ///     1: id is valid
-    ///    -1: end of iterator / timed out
+    /// Handles moving the individual iterators to id internally and checks if `id` matches the filter.
     ///
-    ///  Handles moving the individual iterators internally.
-    [[nodiscard]] int is_valid(uint32_t id);
+    /// \return
+    /// 0 : id is not valid
+    /// 1 : id is valid
+    /// -1: end of iterator / timed out
+    [[nodiscard]] int is_valid(uint32_t id, const bool& override_timeout = false);
 
     /// Advances the iterator to get the next value of doc and reference. The iterator may become invalid during this
     /// operation.
+    ///
+    /// Should only be called after calling `compute_iterators()` or in conjunction with `is_valid(id)` when it returns `1`.
     void next();
 
     /// Collects n doc ids while advancing the iterator. The ids present in excluded_result_ids are ignored. The
@@ -341,17 +350,16 @@ public:
                    uint32_t const* const excluded_result_ids, const size_t& excluded_result_ids_size,
                    filter_result_t*& result, const bool& override_timeout = false);
 
-    /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
-    /// this operation.
-    void skip_to(uint32_t id, const bool& override_timeout = false);
-
     /// Returns true if at least one id from the posting list object matches the filter.
     bool contains_atleast_one(const void* obj);
 
     /// Returns to the initial state of the iterator.
     void reset(const bool& override_timeout = false);
 
-    /// Iterates and collects all the filter ids into filter_array.
+    /// Copies filter ids from `filter_result` into `filter_array`.
+    ///
+    /// Should only be called after calling `compute_iterators()`.
+    ///
     /// \return size of the filter array
     uint32_t to_filter_id_array(uint32_t*& filter_array);
 
@@ -374,5 +382,13 @@ public:
 
     [[nodiscard]] filter_result_iterator_t* _get_right_it() const {
         return right_it;
+    }
+
+    [[nodiscard]] uint32_t _get_equals_iterator_id() const {
+        return equals_iterator_id;
+    }
+
+    [[nodiscard]] bool _get_is_equals_iterator_valid() const {
+        return is_equals_iterator_valid;
     }
 };

@@ -2991,11 +2991,14 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             search_cutoff = true;
                         }
 
-                        // The doc_id must be valid otherwise it would've been filtered out upstream.
-                        filter_result_iterator->skip_to(pair.second, search_cutoff);
-                        auto filter_result = single_filter_result_t(pair.second,
+                        auto const& seq_id = pair.second;
+                        if (filter_result_iterator->is_valid(seq_id, search_cutoff) != 1) {
+                            continue;
+                        }
+                        // The seq_id must be valid otherwise it would've been filtered out upstream.
+                        auto filter_result = single_filter_result_t(seq_id,
                                                                     std::move(filter_result_iterator->reference));
-                        dist_results.emplace_back(pair.first, filter_result);
+                        dist_results.emplace_back(seq_id, filter_result);
                     }
                 } else {
                     for (const auto &pair: pairs) {
@@ -3449,7 +3452,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     auto& vec_result = vec_results[res_index];
                     auto seq_id = vec_result.first;
 
-                    filter_result_iterator->skip_to(seq_id);
+                    if (!no_filters_provided && filter_result_iterator->is_valid(seq_id) != 1) {
+                        continue;
+                    }
                     auto references = std::move(filter_result_iterator->reference);
                     filter_result_iterator->reset();
 
@@ -6150,6 +6155,8 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
                 if (!filter_init_op.ok()) {
                     return;
                 }
+
+                filter_result_iterator.compute_iterators();
                 uint32_t* eval_ids = nullptr;
                 auto eval_ids_count = filter_result_iterator.to_filter_id_array(eval_ids);
 

@@ -203,18 +203,44 @@ void filter_result_t::or_filter_results(const filter_result_t& a, const filter_r
 
 void filter_result_iterator_t::and_filter_iterators() {
     while (left_it->validity && right_it->validity) {
-        while (left_it->seq_id < right_it->seq_id) {
-            left_it->skip_to(right_it->seq_id);
-            if (!left_it->validity) {
+        if (left_it->seq_id < right_it->seq_id) {
+            auto const& left_validity = left_it->is_valid(right_it->seq_id);
+
+            if (left_validity == -1) {
                 validity = invalid;
+                return;
+            } else if (left_validity == 1) {
+                seq_id = right_it->seq_id;
+
+                reference.clear();
+                for (const auto& item: left_it->reference) {
+                    reference[item.first] = item.second;
+                }
+                for (const auto& item: right_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
                 return;
             }
         }
 
-        while (left_it->seq_id > right_it->seq_id) {
-            right_it->skip_to(left_it->seq_id);
-            if (!right_it->validity) {
+        if (left_it->seq_id > right_it->seq_id) {
+            auto const& right_validity = right_it->is_valid(left_it->seq_id);
+
+            if (right_validity == -1) {
                 validity = invalid;
+                return;
+            } else if (right_validity == 1) {
+                seq_id = left_it->seq_id;
+
+                reference.clear();
+                for (const auto& item: left_it->reference) {
+                    reference[item.first] = item.second;
+                }
+                for (const auto& item: right_it->reference) {
+                    reference[item.first] = item.second;
+                }
+
                 return;
             }
         }
@@ -414,10 +440,11 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
     }
 
     if (one_is_valid) {
-        seq_id = lowest_id;
+        equals_iterator_id = seq_id = lowest_id;
     }
 
-    validity = one_is_valid ? valid : invalid;
+    is_equals_iterator_valid = one_is_valid;
+    validity = one_is_valid || is_not_equals_iterator ? valid : invalid;
 }
 
 void filter_result_iterator_t::next() {
@@ -458,7 +485,7 @@ void filter_result_iterator_t::next() {
                 right_it->next();
             } else if (left_it->seq_id == seq_id) {
                 left_it->next();
-            } else {
+            } else if (right_it->seq_id == seq_id) {
                 right_it->next();
             }
 
@@ -477,6 +504,10 @@ void filter_result_iterator_t::next() {
 
     field f = index->search_schema.at(a_filter.field_name);
 
+    if (is_not_equals_iterator) {
+        return;
+    }
+
     if (f.is_bool()) {
         bool_iterator.next();
         if (!bool_iterator.is_valid) {
@@ -487,10 +518,6 @@ void filter_result_iterator_t::next() {
         seq_id = bool_iterator.seq_id;
         return;
     } else if (f.is_string()) {
-        if (is_not_equals_iterator) {
-            return;
-        }
-
         advance_string_filter_token_iterators();
         get_string_filter_next_match(f.is_array());
         return;
@@ -1198,30 +1225,31 @@ void filter_result_iterator_t::init() {
             return;
         }
 
-        if (a_filter.apply_not_equals &&
-                            index->seq_ids->num_ids() - approx_filter_ids_length < string_filter_ids_threshold) {
-            // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
-            compute_iterators();
-            return;
-        } else if (a_filter.apply_not_equals) {
-            is_not_equals_iterator = true;
-            return;
+        if (a_filter.apply_not_equals) {
+            auto const& num_ids = index->seq_ids->num_ids();
+            if (approx_filter_ids_length > num_ids || num_ids - approx_filter_ids_length < string_filter_ids_threshold) {
+                // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
+                compute_iterators();
+                return;
+            } else {
+                is_not_equals_iterator = true;
+            }
         } else if (approx_filter_ids_length < string_filter_ids_threshold) {
             compute_iterators();
             return;
         }
 
         get_string_filter_next_match(f.is_array());
+        if (is_not_equals_iterator) {
+            seq_id = 0;
+            last_valid_id = index->seq_ids->last_id();
+        }
+
         return;
     }
 }
 
-void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout) {
-    if (validity == invalid || (!override_timeout && timeout_info != nullptr && is_timed_out())) {
-        return;
-    }
-
-    // No need to traverse iterator tree if there's only one filter or compute_iterators() has been called.
+void filter_result_iterator_t::skip_to(uint32_t id) {
     if (is_filter_result_initialized) {
         ArrayUtils::skip_index_to_id(result_index, filter_result.docs, filter_result.count, id);
 
@@ -1235,20 +1263,6 @@ void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout
         if (filter_result.coll_to_references != nullptr) {
             auto& ref = filter_result.coll_to_references[result_index];
             reference.insert(ref.begin(), ref.end());
-        }
-
-        return;
-    }
-
-    if (filter_node->isOperator) {
-        // Skip the subtrees to id and then apply operators to arrive at the next valid doc.
-        left_it->skip_to(id);
-        right_it->skip_to(id);
-
-        if (filter_node->filter_operator == AND) {
-            and_filter_iterators();
-        } else {
-            or_filter_iterators();
         }
 
         return;
@@ -1290,8 +1304,8 @@ void filter_result_iterator_t::skip_to(uint32_t id, const bool& override_timeout
     }
 }
 
-int filter_result_iterator_t::is_valid(uint32_t id) {
-    if (validity != valid) {
+int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout) {
+    if (validity == invalid || (!override_timeout && timeout_info != nullptr && is_timed_out())) {
         return -1;
     }
 
@@ -1299,10 +1313,6 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
     if (is_filter_result_initialized) {
         skip_to(id);
         return validity ? (seq_id == id ? 1 : 0) : -1;
-    }
-
-    if (timeout_info != nullptr && is_timed_out()) {
-        return -1;
     }
 
     if (filter_node->isOperator) {
@@ -1322,8 +1332,8 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
             }
 
             seq_id = id;
-            reference.clear();
 
+            reference.clear();
             for (const auto& item: left_it->reference) {
                 reference[item.first] = item.second;
             }
@@ -1337,6 +1347,12 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
             if (left_validity < 1 && right_validity < 1) {
                 if (left_validity == -1 && right_validity == -1) {
                     return -1;
+                } else if (left_validity == -1) {
+                    seq_id = right_it->seq_id;
+                    return 0;
+                } else if (right_validity == -1) {
+                    seq_id = left_it->seq_id;
+                    return 0;
                 }
 
                 seq_id = std::min(left_it->seq_id, right_it->seq_id);
@@ -1344,8 +1360,8 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
             }
 
             seq_id = id;
-            reference.clear();
 
+            reference.clear();
             if (left_validity == 1) {
                 for (const auto& item: left_it->reference) {
                     reference[item.first] = item.second;
@@ -1360,19 +1376,35 @@ int filter_result_iterator_t::is_valid(uint32_t id) {
         }
     }
 
-    skip_to(id);
-    if (validity == valid || is_not_equals_iterator) {
-        if (is_not_equals_iterator && seq_id == id) {
-            seq_id++;
-            return 0;
-        } else if (is_not_equals_iterator) {
-            return 1;
-        } else {
-            return seq_id == id ? 1 : 0;
+    if (is_not_equals_iterator) {
+        if (id > last_valid_id) {
+            validity = invalid;
+            return -1;
         }
-    } else {
-        return -1;
+
+        validity = valid;
+        seq_id = id + 1;
+
+        if (!is_equals_iterator_valid || id < equals_iterator_id) {
+            return 1;
+        } else if (id == equals_iterator_id) {
+            return 0;
+        }
     }
+
+    skip_to(id);
+
+    if (is_not_equals_iterator) {
+        validity = valid;
+        seq_id = id + 1;
+
+        if (id == equals_iterator_id) {
+            return 0;
+        }
+        return 1;
+    }
+
+    return validity ? (seq_id == id ? 1 : 0) : -1;
 }
 
 Option<bool> filter_result_iterator_t::init_status() {
@@ -1396,15 +1428,29 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
             size_t num_existing_offsets = list->id_offsets[i];
             size_t existing_id = list->id_offsets[i + num_existing_offsets + 1];
 
-            if (existing_id == seq_id) {
-                return true;
-            }
-
-            // advance smallest value
             if (existing_id < seq_id) {
                 i += num_existing_offsets + 2;
-            } else {
-                skip_to(existing_id);
+
+                if (i >= list->length) {
+                    return false;
+                }
+
+                num_existing_offsets = list->id_offsets[i];
+                existing_id = list->id_offsets[i + num_existing_offsets + 1];
+            }
+
+            if (existing_id > seq_id) {
+                auto const& result = is_valid(existing_id);
+
+                if (result == -1) {
+                    return false;
+                } else if (result == 1) {
+                    return true;
+                }
+            }
+
+            if (existing_id == seq_id) {
+                return true;
             }
         }
     } else {
@@ -1412,16 +1458,22 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
         posting_list_t::iterator_t it = list->new_iterator();
 
         while(it.valid() && validity == valid) {
-            uint32_t id = it.id();
-
-            if(id == seq_id) {
-                return true;
+            if (it.id() < seq_id) {
+                it.skip_to(seq_id);
             }
 
-            if(id < seq_id) {
-                it.skip_to(seq_id);
-            } else {
-                skip_to(id);
+            if (it.id() > seq_id) {
+                auto const& result = is_valid(it.id());
+
+                if (result == -1) {
+                    return false;
+                } else if (result == 1) {
+                    return true;
+                }
+            }
+
+            if (it.id() == seq_id) {
+                return true;
             }
         }
     }
@@ -1503,31 +1555,22 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
         }
 
         get_string_filter_next_match(f.is_array());
+        if (is_not_equals_iterator) {
+            seq_id = 0;
+        }
+
         return;
     }
 }
 
 uint32_t filter_result_iterator_t::to_filter_id_array(uint32_t*& filter_array) {
-    if (validity != valid) {
+    if (!is_filter_result_initialized) {
         return 0;
     }
 
-    if (is_filter_result_initialized) {
-        filter_array = new uint32_t[filter_result.count];
-        std::copy(filter_result.docs, filter_result.docs + filter_result.count, filter_array);
-        return filter_result.count;
-    }
-
-    std::vector<uint32_t> filter_ids;
-    do {
-        filter_ids.push_back(seq_id);
-        next();
-    } while (validity == valid);
-
-    filter_array = new uint32_t[filter_ids.size()];
-    std::copy(filter_ids.begin(), filter_ids.end(), filter_array);
-
-    return filter_ids.size();
+    filter_array = new uint32_t[filter_result.count];
+    std::copy(filter_result.docs, filter_result.docs + filter_result.count, filter_array);
+    return filter_result.count;
 }
 
 uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& lenA, uint32_t*& results) {
@@ -1541,14 +1584,13 @@ uint32_t filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t&
 
     std::vector<uint32_t> filter_ids;
     for (uint32_t i = 0; i < lenA; i++) {
-        auto result = is_valid(A[i]);
-
-        if (result == -1) {
-            break;
-        }
+        auto const& id = A[i];
+        auto const& result = is_valid(id);
 
         if (result == 1) {
-            filter_ids.push_back(A[i]);
+            filter_ids.push_back(id);
+        } else if (result == -1) {
+            break;
         }
     }
 
@@ -1575,14 +1617,13 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
 
         std::vector<uint32_t> filter_ids;
         for (uint32_t i = 0; i < lenA; i++) {
-            auto _result = is_valid(A[i]);
-
-            if (_result == -1) {
-                break;
-            }
+            auto const& id = A[i];
+            auto const& _result = is_valid(id);
 
             if (_result == 1) {
-                filter_ids.push_back(A[i]);
+                filter_ids.push_back(id);
+            } else if (_result == -1) {
+                break;
             }
         }
 
@@ -1604,12 +1645,10 @@ void filter_result_iterator_t::and_scalar(const uint32_t* A, const uint32_t& len
     for (uint32_t i = 0; i < lenA; i++) {
         auto _result = is_valid(A[i]);
 
-        if (_result == -1) {
-            break;
-        }
-
         if (_result == 1) {
             match_indexes.push_back(result_index);
+        } else if (_result == -1) {
+            break;
         }
     }
 
@@ -1852,25 +1891,15 @@ filter_result_iterator_t::filter_result_iterator_t(uint32_t* ids, const uint32_t
 
 void filter_result_iterator_t::add_phrase_ids(filter_result_iterator_t*& fit,
                                               uint32_t* phrase_result_ids, const uint32_t& phrase_result_count) {
+    fit->reset();
+
     auto root_iterator = new filter_result_iterator_t(std::min(phrase_result_count, fit->approx_filter_ids_length));
     root_iterator->left_it = new filter_result_iterator_t(phrase_result_ids, phrase_result_count);
     root_iterator->right_it = fit;
-
-    auto& left_it = root_iterator->left_it;
-    auto& right_it = root_iterator->right_it;
-
-    while (left_it->validity && right_it->validity && left_it->seq_id != right_it->seq_id) {
-        if (left_it->seq_id < right_it->seq_id) {
-            left_it->skip_to(right_it->seq_id);
-        } else {
-            right_it->skip_to(left_it->seq_id);
-        }
-    }
-
     root_iterator->timeout_info = std::move(fit->timeout_info);
-    root_iterator->validity = (left_it->validity == timed_out || right_it->validity == timed_out) ? timed_out :
-                               (left_it->validity == invalid || right_it->validity == invalid) ? invalid : valid;
-    root_iterator->seq_id = left_it->seq_id;
+
+    root_iterator->and_filter_iterators();
+
     fit = root_iterator;
 }
 
