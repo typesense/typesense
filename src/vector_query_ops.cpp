@@ -135,7 +135,7 @@ Option<bool> VectorQueryOps::parse_vector_query_str(const std::string& vector_qu
                     }
 
                     for(auto& fvalue: document[vector_query.field_name]) {
-                        if(!fvalue.is_number_float()) {
+                        if(!fvalue.is_number()) {
                             return Option<bool>(400, "Document referenced in vector query does not contain a valid "
                                                      "vector field.");
                         }

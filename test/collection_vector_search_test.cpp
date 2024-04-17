@@ -265,6 +265,42 @@ TEST_F(CollectionVectorTest, VectorDistanceConfig) {
     ASSERT_EQ("ip", coll_summary["fields"][2]["vec_dist"].get<std::string>());
 }
 
+TEST_F(CollectionVectorTest, VectorQueryByIDWithZeroValuedFloat) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    auto coll_summary = coll1->get_summary_json();
+    ASSERT_EQ("cosine", coll_summary["fields"][2]["vec_dist"].get<std::string>());
+
+    nlohmann::json doc = R"(
+        {
+            "title": "Title 1",
+            "points": 100,
+            "vec": [0, 0, 0]
+        }
+    )"_json;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "vec:([], id: 0)");
+
+    ASSERT_TRUE(res_op.ok());
+}
+
 TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {
     nlohmann::json schema = R"({
             "name": "coll1",
