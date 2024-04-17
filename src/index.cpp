@@ -2998,7 +2998,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         // The seq_id must be valid otherwise it would've been filtered out upstream.
                         auto filter_result = single_filter_result_t(seq_id,
                                                                     std::move(filter_result_iterator->reference));
-                        dist_results.emplace_back(seq_id, filter_result);
+                        dist_results.emplace_back(pair.first, filter_result);
                     }
                 } else {
                     for (const auto &pair: pairs) {
