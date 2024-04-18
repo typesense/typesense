@@ -1450,9 +1450,7 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
 
                 num_existing_offsets = list->id_offsets[i];
                 existing_id = list->id_offsets[i + num_existing_offsets + 1];
-            }
-
-            if (existing_id > seq_id) {
+            } else if (existing_id > seq_id) {
                 auto const& result = is_valid(existing_id);
 
                 if (result == 1) {
@@ -1460,11 +1458,7 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
                 } else if (result == -1) {
                     return false;
                 }
-
-                continue;
-            }
-
-            if (existing_id == seq_id) {
+            } else {
                 return true;
             }
         }
@@ -1482,9 +1476,7 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
                 if (!it.valid()) {
                     return false;
                 }
-            }
-
-            if (it.id() > seq_id) {
+            } else if (it.id() > seq_id) {
                 auto const& result = is_valid(it.id());
 
                 if (result == 1) {
@@ -1492,11 +1484,7 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
                 } else if (result == -1) {
                     return false;
                 }
-
-                continue;
-            }
-
-            if (it.id() == seq_id) {
+            } else {
                 return true;
             }
         }
