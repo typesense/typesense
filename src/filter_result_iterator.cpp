@@ -1233,7 +1233,9 @@ void filter_result_iterator_t::init() {
 
         if (a_filter.apply_not_equals) {
             auto const& num_ids = index->seq_ids->num_ids();
-            if (approx_filter_ids_length > num_ids || num_ids - approx_filter_ids_length < string_filter_ids_threshold) {
+            approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+
+            if (approx_filter_ids_length < string_filter_ids_threshold) {
                 // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
                 compute_iterators();
                 return;

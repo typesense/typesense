@@ -669,7 +669,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     auto iter_string_prefix_value_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
     ASSERT_TRUE(iter_string_prefix_value_test_2.init_status().ok());
     ASSERT_FALSE(iter_string_prefix_value_test_2._get_is_filter_result_initialized());
-    ASSERT_EQ(3, iter_string_prefix_value_test_2.approx_filter_ids_length);
+    ASSERT_EQ(4, iter_string_prefix_value_test_2.approx_filter_ids_length); // 7 total docs, 3 approx count for equals.
 
     validate_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     seq_ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 9};
@@ -887,27 +887,24 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
     filter_op = filter::parse_filter_query("tags: != [gold, silver]", coll->get_schema(), store, doc_id_prefix,
                                            filter_tree_root);
     ASSERT_TRUE(filter_op.ok());
-    auto computed_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
-    ASSERT_TRUE(computed_not_equals_test_2.init_status().ok());
-    ASSERT_TRUE(computed_not_equals_test_2._get_is_filter_result_initialized());
+    auto iter_string_array_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_string_array_not_equals_test.init_status().ok());
+    ASSERT_FALSE(iter_string_array_not_equals_test._get_is_filter_result_initialized());
+    ASSERT_EQ(5, iter_string_array_not_equals_test.approx_filter_ids_length);
 
-    validate_ids = {1, 2, 3, 4, 5};
-    seq_ids = {1, 1, 1, 1, 1};
-    expected = {1, -1, -1, -1, -1, -1};
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 4, 5, 5};
+    expected = {0, 1, 0, 0, 0, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        if (i == 0) {
-            ASSERT_EQ(filter_result_iterator_t::valid, computed_not_equals_test_2.validity);
-        } else {
-            ASSERT_EQ(filter_result_iterator_t::invalid, computed_not_equals_test_2.validity);
-        }
-        ASSERT_EQ(expected[i], computed_not_equals_test_2.is_valid(validate_ids[i]));
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_string_array_not_equals_test.validity);
+        ASSERT_EQ(expected[i], iter_string_array_not_equals_test.is_valid(validate_ids[i]));
 
         if (expected[i] == 1) {
-            computed_not_equals_test_2.next();
+            iter_string_array_not_equals_test.next();
         }
-        ASSERT_EQ(seq_ids[i], computed_not_equals_test_2.seq_id);
+        ASSERT_EQ(seq_ids[i], iter_string_array_not_equals_test.seq_id);
     }
-    ASSERT_EQ(filter_result_iterator_t::invalid, computed_not_equals_test_2.validity);
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_string_array_not_equals_test.validity);
 
     delete filter_tree_root;
     filter_tree_root = nullptr;
