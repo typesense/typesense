@@ -461,7 +461,7 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
                                   "", 10,
                                   {}, {}, {"colors"}, 2).get();
 
-    ASSERT_EQ(11, res["found_docs"].get<size_t>());
+    ASSERT_EQ(10, res["found_docs"].get<size_t>());
     ASSERT_EQ(4, res["found"].get<size_t>());
     ASSERT_EQ(4, res["grouped_hits"].size());
 

@@ -2386,7 +2386,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
-        total = search_params->groups_processed.size() + override_result_kvs.size();
+        total = search_params->topster->get_unique_groups() + override_result_kvs.size();
     } else {
         total = search_params->all_result_ids_len;
     }

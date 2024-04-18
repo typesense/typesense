@@ -1571,7 +1571,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 }
 
 void Index::aggregate_topster(Topster* agg_topster, Topster* index_topster) {
-    if(index_topster->distinct && index_topster->get_distinct_ids_count() > 0) {
+    if(index_topster->distinct && index_topster->is_first_pass_completed) {
         for(auto &group_topster_entry: index_topster->group_kv_map) {
             Topster* group_topster = group_topster_entry.second;
             for(const auto& map_kv: group_topster->kv_map) {
@@ -2269,8 +2269,9 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                search_params->enable_lazy_filter,
                enable_typos_for_alpha_numerical_tokens
         );
-        search_params->topster->populate_distinct_ids();
-        search_params->curated_topster->populate_distinct_ids();
+        search_params->topster->set_first_pass_complete();
+        search_params->curated_topster->set_first_pass_complete();
+
     }
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
@@ -6023,7 +6024,8 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
         searched_queries.push_back({});
 
-        topsters[thread_id] = new Topster(topster->MAX_SIZE, topster->distinct, topster->get_distinct_ids());
+        topsters[thread_id] = new Topster(topster->MAX_SIZE, topster->distinct, topster->is_first_pass_completed);
+        topsters[thread_id]->kv_map = topster->kv_map;
         auto& compute_sort_score_status = compute_sort_score_statuses[thread_id] = nullptr;
 
         thread_pool->enqueue([this, &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,

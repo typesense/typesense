@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <field.h>
 #include "filter_result_iterator.h"
+#include "hll/distinct_counter.h"
 
 struct KV {
     int8_t match_score_index{};
@@ -135,13 +136,15 @@ struct Topster {
 
     spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
     size_t distinct;
-    std::set<uint64_t> distinct_ids;
+    hyperloglog_hip::distinct_counter<uint64_t> hyperloglog_counter;
+    std::set<uint64_t> groups_found;
+    bool is_first_pass_completed = false;
 
     explicit Topster(size_t capacity): Topster(capacity, 0) {
     }
 
-    explicit Topster(size_t capacity, size_t distinct, const std::set<uint64_t>& distinct_ids = {}): MAX_SIZE(capacity),
-                    size(0), distinct(distinct), distinct_ids(distinct_ids) {
+    explicit Topster(size_t capacity, size_t distinct, bool is_first_pass_completed = false): MAX_SIZE(capacity),
+                    size(0), distinct(distinct), is_first_pass_completed(is_first_pass_completed) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
         // we use separate **kvs for easier pointer swaps
         data = new KV[capacity];
@@ -197,8 +200,8 @@ struct Topster {
 
         bool SIFT_DOWN = true;
 
-        if(distinct && !distinct_ids.empty()) {
-            if(distinct_ids.count(kv->distinct_key) == 0) {
+        if(distinct && is_first_pass_completed) {
+            if(kv_map.count(kv->distinct_key) == 0) {
                 return 0;
             }
 
@@ -224,8 +227,9 @@ struct Topster {
 
         } else { // not distinct
             //LOG(INFO) << "Searching for key: " << kv->key;
+            auto key = distinct ? kv->distinct_key : kv->key;
 
-            const auto& found_it = kv_map.find(kv->key);
+            const auto& found_it = kv_map.find(key);
             bool is_duplicate_key = (found_it != kv_map.end());
 
             /*
@@ -249,7 +253,8 @@ struct Topster {
 
                 // replace existing kv and sift down
                 heap_op_index = existing_kv->array_index;
-                kv_map.erase(kvs[heap_op_index]->key);
+                auto heap_op_index_key = distinct ? kvs[heap_op_index]->distinct_key : kvs[heap_op_index]->key;
+                kv_map.erase(heap_op_index_key);
             } else {  // not duplicate
 
                 if(size < MAX_SIZE) {
@@ -262,12 +267,21 @@ struct Topster {
                     // we have to replace min heap element since array is full
                     SIFT_DOWN = true;
                     heap_op_index = 0;
-                    kv_map.erase(kvs[heap_op_index]->key);
+                    auto heap_op_index_key = distinct ? kvs[heap_op_index]->distinct_key : kvs[heap_op_index]->key;
+                    kv_map.erase(heap_op_index_key);
                 }
             }
 
             // kv will be copied into the pointer at heap_op_index
-            kv_map.emplace(kv->key, kvs[heap_op_index]);
+            kv_map.emplace(key, kvs[heap_op_index]);
+
+            if(distinct) {
+                hyperloglog_counter.insert(kv->distinct_key);
+
+                if(groups_found.size() < 512) {
+                    groups_found.insert(kv->distinct_key);
+                }
+            }
         }
 
         // we have to replace the existing element in the heap and sift down
@@ -346,17 +360,12 @@ struct Topster {
         return kvs[index];
     }
 
-    void populate_distinct_ids() {
-        for(auto& kv : kv_map) {
-            distinct_ids.insert(kv.second->distinct_key);
-        }
+    const size_t get_unique_groups() {
+        auto groups_count = groups_found.size();
+        return groups_count < 512 ? groups_count : hyperloglog_counter.count();
     }
 
-    const std::set<uint64_t>& get_distinct_ids() {
-        return distinct_ids;
-    }
-
-    const size_t get_distinct_ids_count() {
-        return distinct_ids.size();
+    void set_first_pass_complete() {
+        is_first_pass_completed = true;
     }
 };
