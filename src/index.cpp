@@ -2927,34 +2927,36 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
 
-            uint32_t filter_id_count = 0;
-            while (!no_filters_provided &&
-                    filter_id_count < vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid) {
-                auto& seq_id = filter_result_iterator->seq_id;
-                auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
-                filter_result_iterator->next();
-                std::vector<float> values;
+            filter_result_iterator->compute_iterators();
 
-                try {
-                    values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
-                } catch(...) {
-                    // likely not found
-                    continue;
+            uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
+            if (!no_filters_provided && filter_id_count < vector_query.flat_search_cutoff) {
+                while (filter_result_iterator->validity == filter_result_iterator_t::valid) {
+                    auto &seq_id = filter_result_iterator->seq_id;
+                    auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
+                    filter_result_iterator->next();
+                    std::vector<float> values;
+
+                    try {
+                        values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
+                    } catch (...) {
+                        // likely not found
+                        continue;
+                    }
+
+                    float dist;
+                    if (field_vector_index->distance_type == cosine) {
+                        std::vector<float> normalized_q(vector_query.values.size());
+                        hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                        dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
+                                                                          &field_vector_index->num_dim);
+                    } else {
+                        dist = field_vector_index->space->get_dist_func()(vector_query.values.data(), values.data(),
+                                                                          &field_vector_index->num_dim);
+                    }
+
+                    dist_results.emplace_back(dist, filter_result);
                 }
-
-                float dist;
-                if(field_vector_index->distance_type == cosine) {
-                    std::vector<float> normalized_q(vector_query.values.size());
-                    hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                    dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
-                                                                      &field_vector_index->num_dim);
-                } else {
-                    dist = field_vector_index->space->get_dist_func()(vector_query.values.data(), values.data(),
-                                                                      &field_vector_index->num_dim);
-                }
-
-                dist_results.emplace_back(dist, filter_result);
-                filter_id_count++;
             }
             filter_result_iterator->reset();
             search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
@@ -2989,9 +2991,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             search_cutoff = true;
                         }
 
-                        // The doc_id must be valid otherwise it would've been filtered out upstream.
-                        filter_result_iterator->skip_to(pair.second, search_cutoff);
-                        auto filter_result = single_filter_result_t(pair.second,
+                        auto const& seq_id = pair.second;
+                        if (filter_result_iterator->is_valid(seq_id, search_cutoff) != 1) {
+                            continue;
+                        }
+                        // The seq_id must be valid otherwise it would've been filtered out upstream.
+                        auto filter_result = single_filter_result_t(seq_id,
                                                                     std::move(filter_result_iterator->reference));
                         dist_results.emplace_back(pair.first, filter_result);
                     }
@@ -3447,7 +3452,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     auto& vec_result = vec_results[res_index];
                     auto seq_id = vec_result.first;
 
-                    filter_result_iterator->skip_to(seq_id);
+                    if (!no_filters_provided && filter_result_iterator->is_valid(seq_id) != 1) {
+                        continue;
+                    }
                     auto references = std::move(filter_result_iterator->reference);
                     filter_result_iterator->reset();
 
@@ -5404,6 +5411,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         return Option<bool>(true);
     }
 
+    filter_result_iterator->compute_iterators();
     all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
     filter_result_iterator->reset();
 
@@ -6147,6 +6155,8 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
                 if (!filter_init_op.ok()) {
                     return;
                 }
+
+                filter_result_iterator.compute_iterators();
                 uint32_t* eval_ids = nullptr;
                 auto eval_ids_count = filter_result_iterator.to_filter_id_array(eval_ids);
 
