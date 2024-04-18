@@ -206,10 +206,7 @@ void filter_result_iterator_t::and_filter_iterators() {
         if (left_it->seq_id < right_it->seq_id) {
             auto const& left_validity = left_it->is_valid(right_it->seq_id);
 
-            if (left_validity == -1) {
-                validity = invalid;
-                return;
-            } else if (left_validity == 1) {
+            if (left_validity == 1) {
                 seq_id = right_it->seq_id;
 
                 reference.clear();
@@ -222,15 +219,17 @@ void filter_result_iterator_t::and_filter_iterators() {
 
                 return;
             }
+
+            if (left_validity == -1) {
+                validity = invalid;
+                return;
+            }
         }
 
         if (left_it->seq_id > right_it->seq_id) {
             auto const& right_validity = right_it->is_valid(left_it->seq_id);
 
-            if (right_validity == -1) {
-                validity = invalid;
-                return;
-            } else if (right_validity == 1) {
+            if (right_validity == 1) {
                 seq_id = left_it->seq_id;
 
                 reference.clear();
@@ -243,6 +242,13 @@ void filter_result_iterator_t::and_filter_iterators() {
 
                 return;
             }
+
+            if (right_validity == -1) {
+                validity = invalid;
+                return;
+            }
+
+            continue;
         }
 
         if (left_it->seq_id == right_it->seq_id) {
