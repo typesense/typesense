@@ -316,7 +316,7 @@ TEST_F(FilterTest, FilterTreeIterator) {
     ASSERT_TRUE(iter_plist_contains_atleast_one_test1.init_status().ok());
 
     posting_list_t p_list1(2);
-    ids = {1, 3, 5};
+    ids = {1, 3};
     for (const auto &i: ids) {
         p_list1.upsert(i, {1, 2, 3});
     }

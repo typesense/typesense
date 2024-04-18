@@ -1420,14 +1420,21 @@ Option<bool> filter_result_iterator_t::init_status() {
 }
 
 bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
+    if (validity != valid) {
+        return false;
+    }
+
     if(IS_COMPACT_POSTING(obj)) {
         compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
+        if (list->length == 0) {
+            return false;
+        }
 
         size_t i = 0;
-        while(i < list->length && validity == valid) {
-            size_t num_existing_offsets = list->id_offsets[i];
-            size_t existing_id = list->id_offsets[i + num_existing_offsets + 1];
+        size_t num_existing_offsets = list->id_offsets[i];
+        size_t existing_id = list->id_offsets[i + num_existing_offsets + 1];
 
+        while (true) {
             if (existing_id < seq_id) {
                 i += num_existing_offsets + 2;
 
@@ -1442,11 +1449,13 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
             if (existing_id > seq_id) {
                 auto const& result = is_valid(existing_id);
 
-                if (result == -1) {
-                    return false;
-                } else if (result == 1) {
+                if (result == 1) {
                     return true;
+                } else if (result == -1) {
+                    return false;
                 }
+
+                continue;
             }
 
             if (existing_id == seq_id) {
@@ -1456,20 +1465,29 @@ bool filter_result_iterator_t::contains_atleast_one(const void *obj) {
     } else {
         auto list = (posting_list_t*)(obj);
         posting_list_t::iterator_t it = list->new_iterator();
+        if (!it.valid()) {
+            return false;
+        }
 
-        while(it.valid() && validity == valid) {
+        while (true) {
             if (it.id() < seq_id) {
                 it.skip_to(seq_id);
+
+                if (!it.valid()) {
+                    return false;
+                }
             }
 
             if (it.id() > seq_id) {
                 auto const& result = is_valid(it.id());
 
-                if (result == -1) {
-                    return false;
-                } else if (result == 1) {
+                if (result == 1) {
                     return true;
+                } else if (result == -1) {
+                    return false;
                 }
+
+                continue;
             }
 
             if (it.id() == seq_id) {
