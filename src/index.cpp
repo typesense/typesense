@@ -2932,7 +2932,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
             if (!no_filters_provided && filter_id_count < vector_query.flat_search_cutoff) {
                 while (filter_result_iterator->validity == filter_result_iterator_t::valid) {
-                    auto &seq_id = filter_result_iterator->seq_id;
+                    auto seq_id = filter_result_iterator->seq_id;
                     auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
                     filter_result_iterator->next();
                     std::vector<float> values;

@@ -779,6 +779,11 @@ TEST_F(CollectionVectorTest, VecSearchWithFiltering) {
 
     ASSERT_EQ(10, results["found"].get<size_t>());
     ASSERT_EQ(10, results["hits"].size());
+    ASSERT_FLOAT_EQ(3.409385e-05, results["hits"][0]["vector_distance"].get<float>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_FLOAT_EQ(0.016780376, results["hits"][1]["vector_distance"].get<float>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
 
     // single point
 
