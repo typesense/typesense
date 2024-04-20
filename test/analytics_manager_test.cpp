@@ -289,31 +289,18 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
     auto analytics_rule = R"({
-        "name": "product_click_events",
-        "type": "clicks",
+        "name": "product_events",
+        "type": "log",
         "params": {
-            "name": "AP",
+            "name": "product_events_logging",
             "source": {
-                "collection": "titles"
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AP"}, {"type": "visit", "name": "VP"}]
             }
         }
     })"_json;
 
     auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
-    ASSERT_TRUE(create_op.ok());
-
-    analytics_rule = R"({
-        "name": "product_visitors",
-        "type": "visits",
-        "params": {
-            "name": "VP",
-            "source": {
-                "collection": "titles"
-            }
-        }
-    })"_json;
-
-    create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_TRUE(create_op.ok());
 
     //wrong type
@@ -378,18 +365,19 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     //event name should be unique
     analytics_rule = R"({
         "name": "product_click_events2",
-        "type": "clicks",
+        "type": "log",
         "params": {
-            "name": "AP",
+            "name": "product_events_logging2",
             "source": {
-                "collection": "titles"
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AP"}]
             }
         }
     })"_json;
 
     create_op = analyticsManager.create_rule(analytics_rule, true, true);
     ASSERT_FALSE(create_op.ok());
-    ASSERT_EQ("Event name already exists.", create_op.error());
+    ASSERT_EQ("Events must contain a unique name.", create_op.error());
 
     //wrong event name
     nlohmann::json event4 = R"({
@@ -448,12 +436,13 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
 
     //custom event
     analytics_rule = R"({
-        "name": "product_custom_events",
-        "type": "custom_events",
+        "name": "product_events2",
+        "type": "log",
         "params": {
-            "name": "CP",
+            "name": "custom_events_logging",
             "source": {
-                "collection": "titles"
+                "collections": ["titles"],
+                 "events":  [{"type": "custom", "name": "CP"}]
             }
         }
     })"_json;
@@ -495,11 +484,12 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
 
     auto analytics_rule = R"({
         "name": "product_click_events",
-        "type": "clicks",
+        "type": "log",
         "params": {
-            "name": "APC",
+            "name": "product_click_events_logging",
             "source": {
-                "collection": "titles"
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "APC"}]
             }
         }
     })"_json;
@@ -582,12 +572,13 @@ TEST_F(AnalyticsManagerTest, EventsRateLimitTest) {
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
     auto analytics_rule = R"({
-        "name": "rate_limit",
-        "type": "clicks",
+        "name": "product_events2",
+        "type": "log",
         "params": {
-            "name": "AB",
+            "name": "product_events_logging2",
             "source": {
-                "collection": "titles"
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AB"}]
             }
         }
     })"_json;
@@ -675,6 +666,89 @@ TEST_F(AnalyticsManagerTest, NoresultsQueries) {
 
     noresults_queries = analyticsManager.get_nohits_queries();
     ASSERT_EQ(0, noresults_queries.size());
+}
+
+TEST_F(AnalyticsManagerTest, QueryLengthTruncation) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Cool trousers";
+    ASSERT_TRUE(titles_coll->add(doc.dump()).ok());
+
+    nlohmann::json suggestions_schema = R"({
+        "name": "queries",
+        "fields": [
+          {"name": "q", "type": "string" },
+          {"name": "count", "type": "int32" }
+        ]
+      })"_json;
+
+    Collection* suggestions_coll = collectionManager.create_collection(suggestions_schema).get();
+
+    nlohmann::json analytics_rule = R"({
+        "name": "search_queries",
+        "type": "nohits_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "queries"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    std::string q = StringUtils::randstring(1050);
+    analyticsManager.add_nohits_query("titles", q, true, "1");
+
+    auto noresults_queries = analyticsManager.get_nohits_queries();
+    auto userQueries = noresults_queries["queries"]->get_user_prefix_queries()["1"];
+
+    ASSERT_EQ(1, userQueries.size());
+    ASSERT_EQ(q.substr(0, 1024), userQueries[0].query);
+
+    // delete nohits_queries rule
+    ASSERT_TRUE(analyticsManager.remove_rule("search_queries").ok());
+
+    noresults_queries = analyticsManager.get_nohits_queries();
+    ASSERT_EQ(0, noresults_queries.size());
+
+    // add popularity rule
+    analytics_rule = R"({
+        "name": "top_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["titles"]
+            },
+            "destination": {
+                "collection": "queries"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    analyticsManager.add_suggestion("titles", q, "cool", true, "1");
+
+    auto popular_queries = analyticsManager.get_popular_queries();
+    userQueries = popular_queries["queries"]->get_user_prefix_queries()["1"];
+
+    ASSERT_EQ(1, userQueries.size());
+    ASSERT_EQ(q.substr(0, 1024), userQueries[0].query);
 }
 
 TEST_F(AnalyticsManagerTest, SuggestionConfigRule) {
@@ -1172,12 +1246,13 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
     //now add click event rule
     analytics_rule = R"({
-        "name": "book_click_events",
-        "type": "clicks",
+        "name": "click_event_rule",
+        "type": "log",
         "params": {
-            "name": "APC2",
+            "name": "click_event_log",
             "source": {
-                "collection": "books"
+                "collections": ["books"],
+                 "events":  [{"type": "click", "name": "APC2"}]
             }
         }
     })"_json;

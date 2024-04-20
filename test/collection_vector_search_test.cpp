@@ -174,6 +174,18 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
+    // when id does not match filter, don't return k+1 hits
+    results = coll1->search("*", {}, "id:!=1", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([], id: 1, k:1)").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
     // `k` value should overrides per_page
     results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                             spp::sparse_hash_set<std::string>(),
@@ -251,6 +263,42 @@ TEST_F(CollectionVectorTest, VectorDistanceConfig) {
 
     auto coll_summary = coll1->get_summary_json();
     ASSERT_EQ("ip", coll_summary["fields"][2]["vec_dist"].get<std::string>());
+}
+
+TEST_F(CollectionVectorTest, VectorQueryByIDWithZeroValuedFloat) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 3}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    auto coll_summary = coll1->get_summary_json();
+    ASSERT_EQ("cosine", coll_summary["fields"][2]["vec_dist"].get<std::string>());
+
+    nlohmann::json doc = R"(
+        {
+            "title": "Title 1",
+            "points": 100,
+            "vec": [0, 0, 0]
+        }
+    )"_json;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                           4, {off}, 32767, 32767, 2,
+                           false, true, "vec:([], id: 0)");
+
+    ASSERT_TRUE(res_op.ok());
 }
 
 TEST_F(CollectionVectorTest, VectorUnchangedUpsert) {
@@ -731,6 +779,11 @@ TEST_F(CollectionVectorTest, VecSearchWithFiltering) {
 
     ASSERT_EQ(10, results["found"].get<size_t>());
     ASSERT_EQ(10, results["hits"].size());
+    ASSERT_FLOAT_EQ(3.409385e-05, results["hits"][0]["vector_distance"].get<float>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_FLOAT_EQ(0.016780376, results["hits"][1]["vector_distance"].get<float>());
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
 
     // single point
 
@@ -1356,7 +1409,6 @@ TEST_F(CollectionVectorTest, DistanceThresholdTest) {
 
 }
 
-
 TEST_F(CollectionVectorTest, HybridSearchSortByGeopoint) {
     nlohmann::json schema = R"({
                 "name": "objects",
@@ -1423,6 +1475,107 @@ TEST_F(CollectionVectorTest, HybridSearchSortByGeopoint) {
     ASSERT_EQ("butterfly", search_res["hits"][2]["document"]["name"].get<std::string>());
 }
 
+TEST_F(CollectionVectorTest, HybridSearchWithEvalSort) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string", "facet": true},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "embed":{"from": ["name"], "model_config": {"model_name": "ts/e5-small"}}}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Apple Fruit";
+    doc["category"] = "Fresh";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "Apple";
+    doc["category"] = "Phone";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["name"] = "Apple Pie";
+    doc["category"] = "Notebook";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields;
+    CollectionManager::parse_sort_by_str("_eval([(category:Fresh):3,(category:Notebook):2,(category:Phone):1]):desc", sort_fields);
+
+    auto results_op = coll1->search("apple", {"name", "vec"}, "", {"name"}, sort_fields, {0}, 20, 1, FREQUENCY, {true},
+                                    Index::DROP_TOKENS_THRESHOLD,
+                                    spp::sparse_hash_set<std::string>(),
+                                    spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                    "", 10, {}, {}, {}, 0,
+                                    "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                    fallback,
+                                    4, {off}, 32767, 32767, 2);
+    ASSERT_EQ(true, results_op.ok());
+    ASSERT_EQ(3, results_op.get()["found"].get<size_t>());
+    ASSERT_EQ(3, results_op.get()["hits"].size());
+
+    ASSERT_EQ("0", results_op.get()["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results_op.get()["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results_op.get()["hits"][2]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionVectorTest, VectorSearchWithEvalSort) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "name", "type": "string", "facet": true},
+            {"name": "category", "type": "string", "facet": true},
+            {"name": "vec", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["name"] = "Apple Fruit";
+    doc["category"] = "Fresh";
+    doc["vec"] = {0.1, 0.2, 0.3, 0.4};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["name"] = "Apple";
+    doc["category"] = "Phone";
+    doc["vec"] = {0.2, 0.3, 0.1, 0.1};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "2";
+    doc["name"] = "Apple Pie";
+    doc["category"] = "Notebook";
+    doc["vec"] = {0.1, 0.3, 0.2, 0.4};
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields;
+    CollectionManager::parse_sort_by_str("_eval([(category:Fresh):3,(category:Notebook):2,(category:Phone):1]):desc", sort_fields);
+
+    auto results_op = coll1->search("*", {"vec"}, "", {"name"}, sort_fields, {0}, 20, 1, FREQUENCY, {true},
+                                    Index::DROP_TOKENS_THRESHOLD,
+                                    spp::sparse_hash_set<std::string>(),
+                                    spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                    "", 10, {}, {}, {}, 0,
+                                    "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                    fallback,
+                                    4, {off}, 32767, 32767, 2,
+                                    false, true, "vec:([0.1, 0.4, 0.2, 0.3])");
+    ASSERT_EQ(true, results_op.ok());
+    ASSERT_EQ(3, results_op.get()["found"].get<size_t>());
+    ASSERT_EQ(3, results_op.get()["hits"].size());
+
+    ASSERT_EQ("0", results_op.get()["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results_op.get()["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results_op.get()["hits"][2]["document"]["id"].get<std::string>());
+}
 
 TEST_F(CollectionVectorTest, EmbedFromOptionalNullField) {
     nlohmann::json schema = R"({

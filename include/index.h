@@ -468,13 +468,15 @@ private:
                           const std::vector<std::string>& query_tokens,
                           token_ordering token_order, std::set<std::string>& absorbed_tokens,
                           std::string& filter_by_clause,
-                          bool enable_typos_for_numerical_tokens) const;
+                          bool enable_typos_for_numerical_tokens,
+                          bool enable_typos_for_alpha_numerical_tokens) const;
 
     bool check_for_overrides(const token_ordering& token_order, const string& field_name, bool slide_window,
                              bool exact_rule_match, std::vector<std::string>& tokens,
                              std::set<std::string>& absorbed_tokens,
                              std::vector<std::string>& field_absorbed_tokens,
-                             bool enable_typos_for_numerical_tokens) const;
+                             bool enable_typos_for_numerical_tokens,
+                             bool enable_typos_for_alpha_numerical_tokens) const;
 
     static void aggregate_topster(Topster* agg_topster, Topster* index_topster);
 
@@ -638,7 +640,8 @@ public:
     facet_index_t* _get_facet_index() const;
 
     static int get_bounded_typo_cost(const size_t max_cost, const std::string& token, const size_t token_len,
-                                     size_t min_len_1typo, size_t min_len_2typo,  bool enable_typos_for_numerical_tokens=true);
+                                     size_t min_len_1typo, size_t min_len_2typo,  bool enable_typos_for_numerical_tokens=true,
+                                     bool enable_typos_for_alpha_numerical_tokens = true);
 
     static int64_t float_to_int64_t(float n);
 
@@ -662,7 +665,9 @@ public:
     // Public operations
 
     Option<bool> run_search(search_args* search_params, const std::string& collection_name,
-                            facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens);
+                            facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens,
+                            bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
+                            bool enable_typos_for_alpha_numerical_tokens);
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
@@ -693,7 +698,11 @@ public:
                 const drop_tokens_param_t drop_tokens_mode,
                 facet_index_type_t facet_index_type = DETECT,
                 bool enable_typos_for_numerical_tokens = true,
-                bool enable_lazy_filter = false
+                bool enable_synonyms = true,
+                bool synonym_prefix = false,
+                uint32_t synonym_num_typos = 0,
+                bool enable_lazy_filter = false,
+                bool enable_typos_for_alpha_numerical_tokens = true
                 ) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
@@ -916,7 +925,8 @@ public:
                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                    const std::vector<size_t>& geopoint_indices,
                                                    const std::string& collection_name = "",
-                                                   bool enable_typos_for_numerical_tokens = true) const;
+                                                   bool enable_typos_for_numerical_tokens = true,
+                                                   bool enable_typos_for_alpha_numerical_tokens = true) const;
 
     void find_across_fields(const token_t& previous_token,
                             const std::string& previous_token_str,
@@ -987,7 +997,8 @@ public:
                                   filter_node_t*& filter_tree_root,
                                   std::vector<const override_t*>& matched_dynamic_overrides,
                                   nlohmann::json& override_metadata,
-                                  bool enable_typos_for_numerical_tokens) const;
+                                  bool enable_typos_for_numerical_tokens,
+                                  bool enable_typos_for_alpha_numerical_tokens) const;
 
     Option<bool> compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                                      std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values,

@@ -7,6 +7,7 @@
 #include "option.h"
 #include "tokenizer.h"
 #include "store.h"
+#include "art.h"
 
 struct synonym_t {
     std::string id;
@@ -49,28 +50,39 @@ private:
 
     mutable std::shared_mutex mutex;
     Store* store;
-    spp::sparse_hash_map<std::string, synonym_t> synonym_definitions;
-    spp::sparse_hash_map<uint64_t, std::vector<std::string>> synonym_index;
+    spp::sparse_hash_map<std::string, uint32_t> synonym_ids_index_map;
+    art_tree* synonym_index_tree;
+    uint32_t synonym_index = 0;
+    std::map<uint32_t, synonym_t> synonym_definitions;
 
     void synonym_reduction_internal(const std::vector<std::string>& tokens,
                                     size_t start_window_size,
                                     size_t start_index_pos,
-                                    std::set<uint64_t>& processed_syn_hashes,
+                                    std::set<std::string>& processed_tokens,
                                     std::vector<std::vector<std::string>>& results,
-                                    const std::vector<std::string>& orig_tokens) const;
-
+                                    const std::vector<std::string>& orig_tokens,
+                                    bool synonym_prefix, uint32_t synonym_num_typos) const;
 public:
 
     static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
 
-    SynonymIndex(Store* store): store(store) { }
+    SynonymIndex(Store* store): store(store) {
+        synonym_index_tree = new art_tree;
+        art_tree_init(synonym_index_tree);
+    }
+
+    ~SynonymIndex() {
+        art_tree_destroy(synonym_index_tree);
+        delete synonym_index_tree;
+    }
 
     static std::string get_synonym_key(const std::string & collection_name, const std::string & synonym_id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
-                           std::vector<std::vector<std::string>>& results) const;
+                           std::vector<std::vector<std::string>>& results,
+                           bool synonym_prefix, uint32_t synonym_num_typos) const;
 
-    Option<spp::sparse_hash_map<std::string, synonym_t*>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
+    Option<std::map<uint32_t, synonym_t*>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 

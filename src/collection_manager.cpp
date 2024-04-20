@@ -210,7 +210,8 @@ void CollectionManager::add_to_collections(Collection* collection) {
 void CollectionManager::init(Store *store, ThreadPool* thread_pool,
                              const float max_memory_ratio,
                              const std::string & auth_key,
-                             std::atomic<bool>& quit) {
+                             std::atomic<bool>& quit,
+                             const uint16_t& filter_by_max_operations) {
     std::unique_lock lock(mutex);
 
     this->store = store;
@@ -218,13 +219,15 @@ void CollectionManager::init(Store *store, ThreadPool* thread_pool,
     this->bootstrap_auth_key = auth_key;
     this->max_memory_ratio = max_memory_ratio;
     this->quit = &quit;
+    this->filter_by_max_ops = filter_by_max_operations;
 }
 
 // used only in tests!
 void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key,
-                             std::atomic<bool>& quit) {
+                             std::atomic<bool>& quit,
+                             const uint16_t& filter_by_max_operations) {
     ThreadPool* thread_pool = new ThreadPool(8);
-    init(store, thread_pool, max_memory_ratio, auth_key, quit);
+    init(store, thread_pool, max_memory_ratio, auth_key, quit, filter_by_max_operations);
 }
 
 void CollectionManager::_populate_referenced_ins(const std::string& collection_meta_json,
@@ -578,7 +581,9 @@ locked_resource_view_t<Collection> CollectionManager::get_collection_with_id(uin
     return locked_resource_view_t<Collection>(mutex, nullptr);
 }
 
-Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t limit, uint32_t offset) const {
+Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t limit, uint32_t offset,
+                                                                    const std::vector<std::string>& api_key_collections) const {
+
     std::shared_lock lock(mutex);
 
     std::vector<Collection*> collection_vec;
@@ -600,7 +605,9 @@ Option<std::vector<Collection*>> CollectionManager::get_collections(uint32_t lim
     }
 
     for (collections_it; collections_it != collections_end; ++collections_it) {
-        collection_vec.push_back(collections_it->second);
+        if(is_valid_api_key_collection(api_key_collections, collections_it->second)) {
+            collection_vec.push_back(collections_it->second);
+        }
     }
 
 
@@ -1428,6 +1435,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *HIDDEN_HITS = "hidden_hits";
     const char *ENABLE_OVERRIDES = "enable_overrides";
     const char *FILTER_CURATED_HITS = "filter_curated_hits";
+    const char *ENABLE_SYNONYMS = "enable_synonyms";
 
     const char *MAX_CANDIDATES = "max_candidates";
 
@@ -1475,7 +1483,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *VOICE_QUERY = "voice_query";
 
     const char *ENABLE_TYPOS_FOR_NUMERICAL_TOKENS = "enable_typos_for_numerical_tokens";
+    const char *ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS = "enable_typos_for_alpha_numerical_tokens";
     const char *ENABLE_LAZY_FILTER = "enable_lazy_filter";
+
+    const char *SYNONYM_PREFIX = "synonym_prefix";
+    const char *SYNONYM_NUM_TYPOS = "synonym_num_typos";
 
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
@@ -1584,6 +1596,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool prioritize_token_position = false;
     bool pre_segmented_query = false;
     bool enable_overrides = true;
+    bool enable_synonyms = true;
+    bool synonym_prefix = false;
+    size_t synonym_num_typos = 0;
+
     size_t filter_curated_hits_option = 2;
     std::string highlight_fields;
     bool exhaustive_search = false;
@@ -1596,6 +1612,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool enable_highlight_v1 = true;
     text_match_type_t match_type = max_score;
     bool enable_typos_for_numerical_tokens = true;
+    bool enable_typos_for_alpha_numerical_tokens = true;
     bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
 
     size_t remote_embedding_timeout_ms = 5000;
@@ -1639,6 +1656,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
         {REMOTE_EMBEDDING_NUM_TRIES, &remote_embedding_num_tries},
+        {SYNONYM_NUM_TYPOS, &synonym_num_typos},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -1669,7 +1687,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {PRIORITIZE_NUM_MATCHING_FIELDS, &prioritize_num_matching_fields},
         {GROUP_MISSING_VALUES, &group_missing_values},
         {ENABLE_TYPOS_FOR_NUMERICAL_TOKENS, &enable_typos_for_numerical_tokens},
+        {ENABLE_SYNONYMS, &enable_synonyms},
+        {SYNONYM_PREFIX, &synonym_prefix},
         {ENABLE_LAZY_FILTER, &enable_lazy_filter},
+        {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1885,7 +1906,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           override_tags,
                                                           voice_query,
                                                           enable_typos_for_numerical_tokens,
-                                                          enable_lazy_filter);
+                                                          enable_synonyms,
+                                                          synonym_prefix,
+                                                          synonym_num_typos,
+                                                          enable_lazy_filter,
+                                                          enable_typos_for_alpha_numerical_tokens);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
@@ -1935,10 +1960,11 @@ ThreadPool* CollectionManager::get_thread_pool() const {
     return thread_pool;
 }
 
-Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limit, uint32_t offset) const {
+Option<nlohmann::json> CollectionManager::get_collection_summaries(uint32_t limit, uint32_t offset,
+                                                                   const std::vector<std::string>& api_key_collections) const {
     std::shared_lock lock(mutex);
 
-    auto collections_op = get_collections(limit, offset);
+    auto collections_op = get_collections(limit, offset, api_key_collections);
     if(!collections_op.ok()) {
         return Option<nlohmann::json>(collections_op.code(), collections_op.error());
     }
@@ -2435,4 +2461,18 @@ std::unordered_set<std::string> CollectionManager::get_collection_references(con
         references.insert(ref_pair.collection);
     }
     return references;
+}
+
+bool CollectionManager::is_valid_api_key_collection(const std::vector<std::string>& api_collections, Collection* coll) const {
+    for(const auto& api_collection : api_collections) {
+        if(api_collection == "*") {
+            return true;
+        }
+
+        const std::regex pattern(api_collection);
+        if(std::regex_match(coll->get_name(), pattern)) {
+            return true;
+        }
+    }
+    return api_collections.size() > 0 ? false : true;
 }

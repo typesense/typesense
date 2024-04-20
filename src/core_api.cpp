@@ -208,7 +208,10 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
         limit = std::stoi(limit_str);
     }
 
-    auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset);
+    AuthManager &auth_manager = collectionManager.getAuthManager();
+    auto api_key_collections = auth_manager.get_api_key_collections(req->api_auth_key);
+
+    auto collections_summaries_op = collectionManager.get_collection_summaries(limit, offset, api_key_collections);
     if(!collections_summaries_op.ok()) {
         res->set(collections_summaries_op.code(), collections_summaries_op.error());
         return false;
@@ -1481,7 +1484,7 @@ bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared
     Option<std::string> deleted_id_op = collection->remove(doc_id);
 
     if (!deleted_id_op.ok()) {
-        if (ignore_not_found && doc_option.code() == 404) {
+        if (ignore_not_found && deleted_id_op.code() == 404) {
             nlohmann::json resp;
             resp["id"] = doc_id;
             res->set_200(resp.dump());

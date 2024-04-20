@@ -276,7 +276,8 @@ private:
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids,
                                   nlohmann::json& override_metadata,
-                                  bool enable_typos_for_numerical_tokens=true) const;
+                                  bool enable_typos_for_numerical_tokens=true,
+                                  bool enable_typos_for_alpha_numerical_tokens=true) const;
 
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score, const text_match_type_t match_type,
                                   const size_t total_tokens) const;
@@ -581,7 +582,11 @@ public:
                                   const std::string& override_tags_str = "",
                                   const std::string& voice_query = "",
                                   bool enable_typos_for_numerical_tokens = true,
-                                  bool enable_lazy_filter = false) const;
+                                  bool enable_synonyms = true,
+                                  bool synonym_prefix = false,
+                                  uint32_t synonym_num_typos = 0,
+                                  bool enable_lazy_filter = false,
+                                  bool enable_typos_for_alpha_numerical_tokens = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 
@@ -623,7 +628,7 @@ public:
 
     // synonym operations
 
-    Option<spp::sparse_hash_map<std::string, synonym_t*>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
+    Option<std::map<uint32_t, synonym_t*>> get_synonyms(uint32_t limit=0, uint32_t offset=0);
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
@@ -632,7 +637,8 @@ public:
     Option<bool> remove_synonym(const std::string & id);
 
     void synonym_reduction(const std::vector<std::string>& tokens,
-                           std::vector<std::vector<std::string>>& results) const;
+                           std::vector<std::vector<std::string>>& results,
+                           bool synonym_prefix = false, uint32_t synonym_num_typos = 0) const;
 
     SynonymIndex* get_synonym_index();
 

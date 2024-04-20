@@ -81,7 +81,10 @@ private:
     bool enable_search_logging;
 
     int max_per_page;
+  
     std::atomic<size_t> default_topster_size;
+  
+    uint16_t filter_by_max_ops;
 
 protected:
 
@@ -116,8 +119,11 @@ protected:
         this->enable_lazy_filter = false;
 
         this->enable_search_logging = false;
+      
         this->max_per_page = 250;
         this->default_topster_size = 250;
+
+        this->filter_by_max_ops = FILTER_BY_DEFAULT_OPERATIONS;
     }
 
     Config(Config const&) {
@@ -125,6 +131,8 @@ protected:
     }
 
 public:
+
+    static constexpr uint16_t FILTER_BY_DEFAULT_OPERATIONS = 100;
 
     static Config & get_instance() {
         static Config instance;
@@ -397,6 +405,9 @@ public:
 
     size_t get_default_topster_size() const {
         return this->default_topster_size;
+
+    uint16_t get_filter_by_max_ops() const {
+        return filter_by_max_ops;
     }
 
     // loaders

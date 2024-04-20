@@ -2351,26 +2351,27 @@ TEST_F(CollectionSpecificMoreTest, SearchCutoffTest) {
     nlohmann::json schema = R"({
         "name": "coll1",
         "fields": [
-            {"name": "title", "type": "string"}
+            {"name": "title", "type": "string"},
+            {"name": "desc", "type": "string"}
         ]
     })"_json;
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
-    for(size_t i = 0; i < 70000; i++) {
+    for(size_t i = 0; i < 70 * 1000; i++) {
         nlohmann::json doc;
-        doc["title"] = "1 2";
+        doc["title"] = "foobarbaz1";
+        doc["desc"] = "2";
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto coll_op = coll1->search("1 2", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {false}, 5,
+    auto coll_op = coll1->search("foobarbar1 2", {"title", "desc"}, "", {}, {}, {2}, 3, 1, FREQUENCY, {false}, 5,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 1);
 
-    ASSERT_FALSE(coll_op.ok());
-    ASSERT_EQ("Request Timeout", coll_op.error());
-    ASSERT_EQ(408, coll_op.code());
+    ASSERT_TRUE(coll_op.ok());
+    ASSERT_TRUE(coll_op.get()["search_cutoff"]);
 }
 
 TEST_F(CollectionSpecificMoreTest, ExhaustiveSearchWithoutExplicitDropTokens) {
@@ -3012,4 +3013,85 @@ TEST_F(CollectionSpecificMoreTest, TestFieldStore) {
     ASSERT_EQ(1, res.get()["hits"].size());
     ASSERT_EQ("store", res.get()["hits"][0]["document"]["word_to_store"].get<std::string>());
     ASSERT_TRUE(res.get()["hits"][0]["document"].count("word_not_to_store") == 0);
+}
+
+TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ],
+        "symbols_to_index":["/"]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "c-136/14";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "13/14";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "(136)214";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "c136/14";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "A-136/14";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    bool enable_typos_for_alpha_numerical_tokens = false;
+
+    auto res = coll1->search("c-136/14", {"title"}, "", {},
+                           {}, {2}, 10, 1,FREQUENCY, {true},
+                           Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "",
+                           30, 4, "", 40,
+                           {}, {}, {}, 0,"<mark>",
+                           "</mark>", {}, 1000,true,
+                           false, true, "", false,
+                           6000*1000, 4, 7, fallback, 4,
+                           {off}, INT16_MAX, INT16_MAX,2,
+                           2, false, "", true,
+                           0, max_score, 100, 0, 0,
+                           HASH, 30000, 2, "",
+                           {},{}, "right_to_left", true,
+                           true, false, "", "", "",
+                           "", true, true, false, 0, true,
+                           enable_typos_for_alpha_numerical_tokens).get();
+
+    ASSERT_EQ(2, res["hits"].size());
+
+    ASSERT_EQ("c136/14", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("c-136/14", res["hits"][1]["document"]["title"].get<std::string>());
+
+    enable_typos_for_alpha_numerical_tokens = true;
+
+    res = coll1->search("c-136/14", {"title"}, "", {},
+                        {}, {2}, 10, 1,FREQUENCY, {true},
+                        Index::DROP_TOKENS_THRESHOLD, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "",
+                        30, 4, "", 40,
+                        {}, {}, {}, 0,"<mark>",
+                        "</mark>", {}, 1000,true,
+                        false, true, "", false,
+                        6000*1000, 4, 7, fallback, 4,
+                        {off}, INT16_MAX, INT16_MAX,2,
+                        2, false, "", true,
+                        0, max_score, 100, 0, 0,
+                        HASH, 30000, 2, "",
+                        {},{}, "right_to_left", true,
+                        true, false, "", "", "",
+                        "", true, true, false, 0, true,
+                        enable_typos_for_alpha_numerical_tokens).get();
+
+    ASSERT_EQ(5, res["hits"].size());
+
+    ASSERT_EQ("c136/14", res["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("c-136/14", res["hits"][1]["document"]["title"].get<std::string>());
+    ASSERT_EQ("A-136/14", res["hits"][2]["document"]["title"].get<std::string>());
+    ASSERT_EQ("(136)214", res["hits"][3]["document"]["title"].get<std::string>());
+    ASSERT_EQ("13/14", res["hits"][4]["document"]["title"].get<std::string>());
 }

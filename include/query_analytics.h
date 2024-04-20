@@ -22,6 +22,7 @@ private:
 
     size_t k;
     const size_t max_size;
+    const size_t max_query_length = 1024;
 
     bool expand_query = false;
 

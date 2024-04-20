@@ -209,12 +209,7 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
     }
 
     if (istate.fit != nullptr && istate.fit->approx_filter_ids_length > 0) {
-        if (istate.fit->is_valid(id) == 1) {
-            istate.fit->next();
-            return true;
-        }
-
-        return false;
+        return istate.fit->is_valid(id) == 1;
     }
 
     return true;
@@ -264,6 +259,7 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
         if (istate.fit->is_valid(id) == 1) {
             filter_result.seq_id = id;
             filter_result.reference_filter_results = std::move(istate.fit->reference);
+
             istate.fit->next();
             return true;
         }

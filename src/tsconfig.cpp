@@ -250,6 +250,10 @@ void Config::load_config_env() {
         this->memory_used_max_percentage = std::stoi(get_env("TYPESENSE_MEMORY_USED_MAX_PERCENTAGE"));
     }
 
+    if(!get_env("TYPESENSE_FILTER_BY_MAX_OPS").empty()) {
+        this->filter_by_max_ops = std::stoi(get_env("TYPESENSE_FILTER_BY_MAX_OPS"));
+    }
+
     this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
     this->enable_lazy_filter = ("TRUE" == get_env("TYPESENSE_ENABLE_LAZY_FILTER"));
     this->reset_peers_on_error = ("TRUE" == get_env("TYPESENSE_RESET_PEERS_ON_ERROR"));
@@ -467,6 +471,9 @@ void Config::load_config_file(cmdline::parser& options) {
 
     if(reader.Exists("server", "default-topster-size")) {
         this->default_topster_size = (size_t) reader.GetInteger("server", "default-topster-size", 250);
+
+    if(reader.Exists("server", "filter-by-max-ops")) {
+        this->filter_by_max_ops = (uint16_t) reader.GetInteger("server", "filter-by-max-ops", FILTER_BY_DEFAULT_OPERATIONS);
     }
 }
 
@@ -647,6 +654,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("default-topster-size")) {
         this->default_topster_size = options.get<size_t>("default-topster-size");
+
+    if(options.exist("filter-by-max-ops")) {
+        this->filter_by_max_ops = options.get<uint16_t>("filter-by-max-ops");
+
     }
 }
 

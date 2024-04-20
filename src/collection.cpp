@@ -97,7 +97,8 @@ Option<bool> single_value_filter_query(nlohmann::json& document, const std::stri
         filter_query[filter_query.size() - 1] = '=';
         filter_query += (" " + value.get<std::string>());
     } else if (value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                                             (ref_field_type == field_types::INT32 && StringUtils::is_int32_t(std::to_string(value.get<int64_t>()))))) {
+                                             (ref_field_type == field_types::INT32 &&
+                                              StringUtils::is_int32_t(std::to_string(value.get<int64_t>()))))) {
         filter_query += std::to_string(value.get<int64_t>());
     } else {
         return Option<bool>(400, "Field `" + field_name + "` must have `" + ref_field_type + "` value.");
@@ -293,7 +294,8 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
                     filter_query += item_value.get<std::string>();
                     filter_values_added = true;
                 } else if (item_value.is_number_integer() && (ref_field_type == field_types::INT64 ||
-                    (ref_field_type == field_types::INT32 && StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>()))))) {
+                                                              (ref_field_type == field_types::INT32 &&
+                                                               StringUtils::is_int32_t(std::to_string(item_value.get<int64_t>()))))) {
                     filter_query += std::to_string(item_value.get<int64_t>());
                     filter_values_added = true;
                 } else if (optional && item_value.is_null()) {
@@ -1677,7 +1679,7 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
             continue;
         }
 
-        if (exact_primitive_match || is_wildcard || text_embedding ||
+        if (exact_primitive_match || (is_wildcard && kv->index) || text_embedding ||
             // field_name prefix must be followed by a "." to indicate an object search
             (enable_nested_fields && kv.key().size() > field_name.size() && kv.key()[field_name.size()] == '.')) {
             processed_search_fields.push_back(kv.key());
@@ -1758,7 +1760,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const std::string& override_tags_str,
                                   const std::string& voice_query,
                                   bool enable_typos_for_numerical_tokens,
-                                  bool enable_lazy_filter) const {
+                                  bool enable_synonyms,
+                                  bool synonym_prefix,
+                                  uint32_t synonyms_num_typos,
+                                  bool enable_lazy_filter,
+                                  bool enable_typos_for_alpha_numerical_tokens) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -1806,6 +1812,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(facet_sample_percent > 100) {
         return Option<nlohmann::json>(400, "Value of `facet_sample_percent` must be less than 100.");
+    }
+
+    if(synonyms_num_typos > 2) {
+        return Option<nlohmann::json>(400, "Value of `synonym_num_typos` must not be greater than 2.");
     }
 
     if(raw_group_by_fields.empty()) {
@@ -2286,7 +2296,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                            false, stopwords_set);
 
         process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
-                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens);
+                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
+                                 enable_typos_for_alpha_numerical_tokens);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -2307,7 +2318,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         // included_ids, excluded_ids
         process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
-                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens);
+                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
+                                 enable_typos_for_alpha_numerical_tokens);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -2351,7 +2363,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
-    auto search_op = index->run_search(search_params, name, facet_index_type, enable_typos_for_numerical_tokens);
+    auto search_op = index->run_search(search_params, name, facet_index_type,
+                                       enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
+                                       synonyms_num_typos, enable_typos_for_alpha_numerical_tokens);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();
@@ -3386,12 +3400,14 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
                                           std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                           std::vector<uint32_t>& excluded_ids,
                                           nlohmann::json& override_metadata,
-                                          bool enable_typos_for_numerical_tokens) const {
+                                          bool enable_typos_for_numerical_tokens,
+                                          bool enable_typos_for_alpha_numerical_tokens) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
     index->process_filter_overrides(filter_overrides, q_include_tokens, token_order,
                                     filter_tree_root, matched_dynamic_overrides, override_metadata,
-                                    enable_typos_for_numerical_tokens);
+                                    enable_typos_for_numerical_tokens,
+                                    enable_typos_for_alpha_numerical_tokens);
 
     // we will check the dynamic overrides to see if they also have include/exclude
     std::set<uint32_t> excluded_set;
@@ -4747,9 +4763,10 @@ Option<bool> Collection::remove_synonym(const std::string &id) {
 }
 
 void Collection::synonym_reduction(const std::vector<std::string>& tokens,
-                                     std::vector<std::vector<std::string>>& results) const {
+                                     std::vector<std::vector<std::string>>& results,
+                                     bool synonym_prefix, uint32_t synonym_num_typos) const {
     std::shared_lock lock(mutex);
-    return synonym_index->synonym_reduction(tokens, results);
+    return synonym_index->synonym_reduction(tokens, results, synonym_prefix, synonym_num_typos);
 }
 
 Option<override_t> Collection::get_override(const std::string& override_id) {
@@ -4790,11 +4807,11 @@ Option<std::map<std::string, override_t*>> Collection::get_overrides(uint32_t li
     return Option<std::map<std::string, override_t*>>(overrides_map);
 }
 
-Option<spp::sparse_hash_map<std::string, synonym_t*>> Collection::get_synonyms(uint32_t limit, uint32_t offset) {
+Option<std::map<uint32_t, synonym_t*>> Collection::get_synonyms(uint32_t limit, uint32_t offset) {
     std::shared_lock lock(mutex);
-    auto synonyms_op =synonym_index->get_synonyms(limit, offset);
+    auto synonyms_op = synonym_index->get_synonyms(limit, offset);
     if(!synonyms_op.ok()) {
-        return Option<spp::sparse_hash_map<std::string, synonym_t*>>(synonyms_op.code(), synonyms_op.error());
+        return Option<std::map<uint32_t, synonym_t*>>(synonyms_op.code(), synonyms_op.error());
     }
 
     return synonyms_op;

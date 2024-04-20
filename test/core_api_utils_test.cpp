@@ -1737,7 +1737,7 @@ TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
     nlohmann::json expected_json = R"({
         "synonyms":[
                     {
-                        "id":"foobar4",
+                        "id":"foobar1",
                         "root":"",
                         "synonyms":["blazer","suit"]
                     }]

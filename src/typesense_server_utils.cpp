@@ -114,6 +114,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<uint32_t>("housekeeping-interval", '\0', "Frequency of housekeeping background job (in seconds).", false, 1800);
     options.add<bool>("enable-lazy-filter", '\0', "Filter clause will be evaluated lazily.", false, false);
     options.add<uint32_t>("db-compaction-interval", '\0', "Frequency of RocksDB compaction (in seconds).", false, 604800);
+    options.add<uint16_t>("filter-by-max-ops", '\0', "Maximum number of operations permitted in filtery_by.", false, Config::FILTER_BY_DEFAULT_OPERATIONS);
 
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
     options.add<size_t>("default-topster-size", '\0', "Default topster limi", false, 250);
@@ -440,7 +441,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
-                           config.get_api_key(), quit_raft_service);
+                           config.get_api_key(), quit_raft_service, config.get_filter_by_max_ops());
 
     StopwordsManager& stopwordsManager = StopwordsManager::get_instance();
     stopwordsManager.init(&store);

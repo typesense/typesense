@@ -492,6 +492,13 @@ void Index::validate_and_preprocess(Index *index,
                 get_doc_changes(index_rec.operation, embedding_fields, index_rec.doc, index_rec.old_doc,
                                 index_rec.new_doc, index_rec.del_doc);
 
+                /*if(index_rec.seq_id == 0) {
+                    LOG(INFO) << "index_rec.doc: " << index_rec.doc;
+                    LOG(INFO) << "index_rec.old_doc: " << index_rec.old_doc;
+                    LOG(INFO) << "index_rec.new_doc: " << index_rec.new_doc;
+                    LOG(INFO) << "index_rec.del_doc: " << index_rec.del_doc;
+                }*/
+
                 if(generate_embeddings) {
                     for(auto& field: index_rec.doc.items()) {
                         for(auto& embedding_field : embedding_fields) {
@@ -2211,7 +2218,9 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
-                               facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens) {
+                               facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens,
+                               bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
+                               bool enable_typos_for_alpha_numerical_tokens) {
     return search(search_params->field_query_tokens,
            search_params->search_fields,
            search_params->match_type,
@@ -2253,7 +2262,11 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
            search_params->drop_tokens_mode,
            facet_index_type,
            enable_typos_for_numerical_tokens,
-           search_params->enable_lazy_filter
+           enable_synonyms,
+           synonym_prefix,
+           synonym_num_typos,
+           search_params->enable_lazy_filter,
+           enable_typos_for_alpha_numerical_tokens
            );
 }
 
@@ -2342,7 +2355,8 @@ bool Index::static_filter_query_eval(const override_t* override,
 bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const bool exact_rule_match,
                              const std::vector<std::string>& query_tokens,
                              token_ordering token_order, std::set<std::string>& absorbed_tokens,
-                             std::string& filter_by_clause, bool enable_typos_for_numerical_tokens) const {
+                             std::string& filter_by_clause, bool enable_typos_for_numerical_tokens,
+                             bool enable_typos_for_alpha_numerical_tokens) const {
 
     bool resolved_override = false;
     size_t i = 0, j = 0;
@@ -2385,7 +2399,8 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
                 std::vector<std::string> field_absorbed_tokens;
                 resolved_override &= check_for_overrides(token_order, field_name, slide_window,
                                                          exact_rule_match, matched_tokens, absorbed_tokens,
-                                                         field_absorbed_tokens, enable_typos_for_numerical_tokens);
+                                                         field_absorbed_tokens, enable_typos_for_numerical_tokens,
+                                                         enable_typos_for_alpha_numerical_tokens);
 
                 if(!resolved_override) {
                     goto RETURN_EARLY;
@@ -2437,7 +2452,8 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                                      filter_node_t*& filter_tree_root,
                                      std::vector<const override_t*>& matched_dynamic_overrides,
                                      nlohmann::json& override_metadata,
-                                     bool enable_typos_for_numerical_tokens) const {
+                                     bool enable_typos_for_numerical_tokens,
+                                     bool enable_typos_for_alpha_numerical_tokens) const {
     std::shared_lock lock(mutex);
 
     for (auto& override : filter_overrides) {
@@ -2474,7 +2490,8 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
             std::set<std::string> absorbed_tokens;
             bool resolved_override = resolve_override(rule_parts, exact_rule_match, query_tokens,
                                                       token_order, absorbed_tokens, filter_by_clause,
-                                                      enable_typos_for_numerical_tokens);
+                                                      enable_typos_for_numerical_tokens,
+                                                      enable_typos_for_alpha_numerical_tokens);
 
             if (resolved_override) {
                 if(override_metadata.empty()) {
@@ -2532,7 +2549,8 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
                                 bool exact_rule_match, std::vector<std::string>& tokens,
                                 std::set<std::string>& absorbed_tokens,
                                 std::vector<std::string>& field_absorbed_tokens,
-                                bool enable_typos_for_numerical_tokens) const {
+                                bool enable_typos_for_numerical_tokens,
+                                bool enable_typos_for_alpha_numerical_tokens) const {
 
     for(size_t window_len = tokens.size(); window_len > 0; window_len--) {
         for(size_t start_index = 0; start_index+window_len-1 < tokens.size(); start_index++) {
@@ -2742,7 +2760,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const drop_tokens_param_t drop_tokens_mode,
                    facet_index_type_t facet_index_type,
                    bool enable_typos_for_numerical_tokens,
-                   bool enable_lazy_filter) const {
+                   bool enable_synonyms, bool synonym_prefix,
+                   uint32_t synonym_num_typos,
+                   bool enable_lazy_filter,
+                   bool enable_typos_for_alpha_numerical_tokens) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
@@ -2906,34 +2927,36 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
 
-            uint32_t filter_id_count = 0;
-            while (!no_filters_provided &&
-                    filter_id_count < vector_query.flat_search_cutoff && filter_result_iterator->validity == filter_result_iterator_t::valid) {
-                auto& seq_id = filter_result_iterator->seq_id;
-                auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
-                filter_result_iterator->next();
-                std::vector<float> values;
+            filter_result_iterator->compute_iterators();
 
-                try {
-                    values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
-                } catch(...) {
-                    // likely not found
-                    continue;
+            uint32_t filter_id_count = filter_result_iterator->approx_filter_ids_length;
+            if (!no_filters_provided && filter_id_count < vector_query.flat_search_cutoff) {
+                while (filter_result_iterator->validity == filter_result_iterator_t::valid) {
+                    auto seq_id = filter_result_iterator->seq_id;
+                    auto filter_result = single_filter_result_t(seq_id, std::move(filter_result_iterator->reference));
+                    filter_result_iterator->next();
+                    std::vector<float> values;
+
+                    try {
+                        values = field_vector_index->vecdex->getDataByLabel<float>(seq_id);
+                    } catch (...) {
+                        // likely not found
+                        continue;
+                    }
+
+                    float dist;
+                    if (field_vector_index->distance_type == cosine) {
+                        std::vector<float> normalized_q(vector_query.values.size());
+                        hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                        dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
+                                                                          &field_vector_index->num_dim);
+                    } else {
+                        dist = field_vector_index->space->get_dist_func()(vector_query.values.data(), values.data(),
+                                                                          &field_vector_index->num_dim);
+                    }
+
+                    dist_results.emplace_back(dist, filter_result);
                 }
-
-                float dist;
-                if(field_vector_index->distance_type == cosine) {
-                    std::vector<float> normalized_q(vector_query.values.size());
-                    hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
-                    dist = field_vector_index->space->get_dist_func()(normalized_q.data(), values.data(),
-                                                                      &field_vector_index->num_dim);
-                } else {
-                    dist = field_vector_index->space->get_dist_func()(vector_query.values.data(), values.data(),
-                                                                      &field_vector_index->num_dim);
-                }
-
-                dist_results.emplace_back(dist, filter_result);
-                filter_id_count++;
             }
             filter_result_iterator->reset();
             search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
@@ -2968,9 +2991,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                             search_cutoff = true;
                         }
 
-                        // The doc_id must be valid otherwise it would've been filtered out upstream.
-                        filter_result_iterator->skip_to(pair.second, search_cutoff);
-                        auto filter_result = single_filter_result_t(pair.second,
+                        auto const& seq_id = pair.second;
+                        if (filter_result_iterator->is_valid(seq_id, search_cutoff) != 1) {
+                            continue;
+                        }
+                        // The seq_id must be valid otherwise it would've been filtered out upstream.
+                        auto filter_result = single_filter_result_t(seq_id,
                                                                     std::move(filter_result_iterator->reference));
                         dist_results.emplace_back(pair.first, filter_result);
                     }
@@ -2996,6 +3022,13 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
                 if(vector_query.query_doc_given && vector_query.seq_id == seq_id) {
                     continue;
+                }
+
+                if(vector_query.query_doc_given && nearest_ids.size() >= k-1) {
+                    // When id based vector query is made, we ask for K+1 results to account for the query
+                    // record itself being returned. However, when the filter clause does not match the
+                    // query record, we will end up returning 1 extra hit.
+                    break;
                 }
 
                 uint64_t distinct_id = seq_id;
@@ -3035,6 +3068,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 if(group_limit != 0 && ret < 2) {
                     groups_processed[distinct_id]++;
                 }
+
                 nearest_ids.push_back(seq_id);
             }
 
@@ -3085,7 +3119,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         for(size_t j = 0; j < field_query_tokens[0].q_include_tokens.size(); j++) {
             q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
         }
-        synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms);
+
+        if(enable_synonyms) {
+            synonym_index->synonym_reduction(q_include_tokens, field_query_tokens[0].q_synonyms,
+                                             synonym_prefix, synonym_num_typos);
+        }
 
         const bool& do_stemming = (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem);
         if (do_stemming) {
@@ -3135,7 +3173,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                           typo_tokens_threshold, exhaustive_search,
                                                           max_candidates, min_len_1typo, min_len_2typo,
                                                           syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
-                                                          collection_name, enable_typos_for_numerical_tokens);
+                                                          collection_name, enable_typos_for_numerical_tokens,
+                                                          enable_typos_for_alpha_numerical_tokens);
         if (!fuzzy_search_fields_op.ok()) {
             return fuzzy_search_fields_op;
         }
@@ -3357,9 +3396,20 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     }
                     vec_results.emplace_back(seq_id, vec_dist_score);
                 }
-                
+
+                // iteration needs to happen on sorted sequence ID but score wise sort needed for compute rank fusion
                 std::sort(vec_results.begin(), vec_results.end(), [](const auto& a, const auto& b) {
                     return a.second < b.second;
+                });
+
+                std::unordered_map<uint32_t, uint32_t> seq_id_to_rank;
+
+                for(size_t vec_index = 0; vec_index < vec_results.size(); vec_index++) {
+                    seq_id_to_rank.emplace(vec_results[vec_index].first, vec_index);
+                }
+
+                std::sort(vec_results.begin(), vec_results.end(), [](const auto& a, const auto& b) {
+                    return a.first < b.first;
                 });
 
                 std::vector<KV*> kvs;
@@ -3374,8 +3424,6 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 } else {
                     topster->sort();
                 }
-
-                
 
                 // Reciprocal rank fusion
                 // Score is  sum of (1 / rank_of_document) * WEIGHT from each list (text match and vector search)
@@ -3404,7 +3452,9 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     auto& vec_result = vec_results[res_index];
                     auto seq_id = vec_result.first;
 
-                    filter_result_iterator->skip_to(seq_id);
+                    if (!no_filters_provided && filter_result_iterator->is_valid(seq_id) != 1) {
+                        continue;
+                    }
                     auto references = std::move(filter_result_iterator->reference);
                     filter_result_iterator->reset();
 
@@ -3434,7 +3484,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         found_kv->text_match_score  = found_kv->scores[found_kv->match_score_index];
                         int64_t match_score = float_to_int64_t(
                                 (int64_t_to_float(found_kv->scores[found_kv->match_score_index])) +
-                                ((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT));
+                                ((1.0 / (seq_id_to_rank[seq_id] + 1)) * VECTOR_SEARCH_WEIGHT));
                         int64_t match_score_index = -1;
                         int64_t scores[3] = {0};
 
@@ -3456,7 +3506,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         // Result has been found only in vector search: we have to add it to both KV and result_ids
                         // (1 / rank_of_document) * WEIGHT)
                         int64_t scores[3] = {0};
-                        int64_t match_score = float_to_int64_t((1.0 / (res_index + 1)) * VECTOR_SEARCH_WEIGHT);
+                        int64_t match_score = float_to_int64_t((1.0 / (seq_id_to_rank[seq_id] + 1)) * VECTOR_SEARCH_WEIGHT);
                         int64_t match_score_index = -1;
 
                         auto compute_sort_scores_op = compute_sort_scores(sort_fields_std, sort_order, field_values,
@@ -3905,7 +3955,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                         const std::vector<size_t>& geopoint_indices,
                                         const std::string& collection_name,
-                                        bool enable_typos_for_numerical_tokens) const {
+                                        bool enable_typos_for_numerical_tokens,
+                                        bool enable_typos_for_alpha_numerical_tokens) const {
 
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
@@ -3920,7 +3971,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
         std::vector<int> all_costs;
         // This ensures that we don't end up doing a cost of 1 for a single char etc.
         int bounded_cost = get_bounded_typo_cost(2, token , token.length(), min_len_1typo, min_len_2typo,
-                                                 enable_typos_for_numerical_tokens);
+                                                 enable_typos_for_numerical_tokens, enable_typos_for_alpha_numerical_tokens);
 
         for(int cost = 0; cost <= bounded_cost; cost++) {
             all_costs.push_back(cost);
@@ -4059,16 +4110,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                     }
                 }
 
-                if(last_token && leaf_tokens.size() < max_candidates) {
-                    // field-wise matching with previous token has failed, have to look at cross fields matching docs
-                    std::vector<uint32_t> prev_token_doc_ids;
-                    find_across_fields(token_candidates_vec.back().token,
-                                       token_candidates_vec.back().candidates[0],
-                                       the_fields, num_search_fields, filter_result_iterator, exclude_token_ids,
-                                       exclude_token_ids_size, prev_token_doc_ids, popular_field_ids);
-                    filter_result_iterator->reset();
-                    search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
-
+                if(last_token && num_search_fields > 1 && leaf_tokens.size() < max_candidates) {
+                    // matching previous token has failed, look at all fields
                     for(size_t field_id: query_field_ids) {
                         auto& the_field = the_fields[field_id];
                         const bool field_prefix = the_fields[field_id].prefix;
@@ -4196,14 +4239,14 @@ void Index::popular_fields_of_token(const spp::sparse_hash_map<std::string, art_
                                     const size_t num_search_fields,
                                     std::vector<size_t>& popular_field_ids) {
 
-    const auto token_c_str = (const unsigned char*) previous_token.c_str();
-    const int token_len = (int) previous_token.size() + 1;
+    const auto prev_token_c_str = (const unsigned char*) previous_token.c_str();
+    const int prev_token_len = (int) previous_token.size() + 1;
 
     std::vector<std::pair<size_t, size_t>> field_id_doc_counts;
 
     for(size_t i = 0; i < num_search_fields; i++) {
         const std::string& field_name = the_fields[i].name;
-        auto leaf = static_cast<art_leaf*>(art_search(search_index.at(field_name), token_c_str, token_len));
+        auto leaf = static_cast<art_leaf*>(art_search(search_index.at(field_name), prev_token_c_str, prev_token_len));
 
         if(!leaf) {
             continue;
@@ -5368,6 +5411,7 @@ Option<bool> Index::do_phrase_search(const size_t num_search_fields, const std::
         return Option<bool>(true);
     }
 
+    filter_result_iterator->compute_iterators();
     all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
     filter_result_iterator->reset();
 
@@ -6111,6 +6155,8 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
                 if (!filter_init_op.ok()) {
                     return;
                 }
+
+                filter_result_iterator.compute_iterators();
                 uint32_t* eval_ids = nullptr;
                 auto eval_ids_count = filter_result_iterator.to_filter_id_array(eval_ids);
 
@@ -6147,7 +6193,16 @@ void Index::populate_sort_mapping_with_lock(int* sort_order, std::vector<size_t>
 
 int Index::get_bounded_typo_cost(const size_t max_cost, const std::string& token, const size_t token_len,
                                  const size_t min_len_1typo, const size_t min_len_2typo,
-                                 bool enable_typos_for_numerical_tokens) {
+                                 bool enable_typos_for_numerical_tokens,
+                                 bool enable_typos_for_alpha_numerical_tokens) {
+
+    if(!enable_typos_for_alpha_numerical_tokens) {
+        for(auto c : token) {
+            if(!isalnum(c)) { //some special char which is indexed
+                return 0;
+            }
+        }
+    }
 
     if(!enable_typos_for_numerical_tokens && std::all_of(token.begin(), token.end(), ::isdigit)) {
         return 0;
@@ -6666,6 +6721,10 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
         return;
     }
 
+    if(search_field.optional && document[field_name].is_null()) {
+        return ;
+    }
+
     // Go through all the field names and find the keys+values so that they can be removed from in-memory index
     if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
         std::vector<std::string> tokens;
@@ -7083,6 +7142,8 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
 
     if(op == UPSERT) {
         new_doc = update_doc;
+        new_doc.merge_patch(update_doc);  // ensures that null valued keys are deleted
+
         // since UPSERT could replace a doc with lesser fields, we have to add those missing fields to del_doc
         for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
             if(it.value().is_object() || (it.value().is_array() && (it.value().empty() || it.value()[0].is_object()))) {
@@ -7120,7 +7181,7 @@ void Index::get_doc_changes(const index_operation_t op, const tsl::htrie_map<cha
         if(it.value().is_null()) {
             // null values should not be indexed
             new_doc.erase(it.key());
-            if(old_doc.contains(it.key())) {
+            if(old_doc.contains(it.key()) && !old_doc[it.key()].is_null()) {
                 del_doc[it.key()] = old_doc[it.key()];
             }
             it = update_doc.erase(it);
