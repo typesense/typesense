@@ -253,6 +253,14 @@ void Config::load_config_env() {
     this->skip_writes = ("TRUE" == get_env("TYPESENSE_SKIP_WRITES"));
     this->enable_lazy_filter = ("TRUE" == get_env("TYPESENSE_ENABLE_LAZY_FILTER"));
     this->reset_peers_on_error = ("TRUE" == get_env("TYPESENSE_RESET_PEERS_ON_ERROR"));
+
+    if(!get_env("TYPESENSE_MAX_PER_PAGE").empty()) {
+        this->max_per_page = std::stoi(get_env("TYPESENSE_MAX_PER_PAGE"));
+    }
+
+    if(!get_env("TYPESENSE_DEFAULT_TOPSTER_SIZE").empty()) {
+        this->default_topster_size = std::stoi(get_env("TYPESENSE_DEFAULT_TOPSTER_SIZE"));
+    }
 }
 
 void Config::load_config_file(cmdline::parser& options) {
@@ -452,6 +460,14 @@ void Config::load_config_file(cmdline::parser& options) {
         auto reset_peers_on_error_str = reader.Get("server", "reset-peers-on-error", "false");
         this->reset_peers_on_error = (reset_peers_on_error_str == "true");
     }
+
+    if(reader.Exists("server", "max-per-page")) {
+        this->max_per_page = reader.GetInteger("server", "max-per-page", 250);
+    }
+
+    if(reader.Exists("server", "default-topster-size")) {
+        this->default_topster_size = (size_t) reader.GetInteger("server", "default-topster-size", 250);
+    }
 }
 
 void Config::load_config_cmd_args(cmdline::parser& options)  {
@@ -623,6 +639,14 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("enable-search-logging")) {
         this->enable_search_logging = options.get<bool>("enable-search-logging");
+    }
+
+    if(options.exist("max-per-page")) {
+        this->max_per_page = options.get<int>("max-per-page");
+    }
+
+    if(options.exist("default-topster-size")) {
+        this->default_topster_size = options.get<size_t>("default-topster-size");
     }
 }
 
