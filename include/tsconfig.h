@@ -80,6 +80,9 @@ private:
 
     bool enable_search_logging;
 
+    int max_per_page;
+    std::atomic<size_t> default_topster_size;
+
 protected:
 
     Config() {
@@ -113,6 +116,8 @@ protected:
         this->enable_lazy_filter = false;
 
         this->enable_search_logging = false;
+        this->max_per_page = 250;
+        this->default_topster_size = 250;
     }
 
     Config(Config const&) {
@@ -201,6 +206,14 @@ public:
 
     void set_reset_peers_on_error(bool reset_peers_on_error) {
         this->reset_peers_on_error = reset_peers_on_error;
+    }
+
+    void set_max_per_page(int max_per_page) {
+        this->max_per_page = max_per_page;
+    }
+
+    void set_default_topster_size(size_t default_topster_size) {
+        this->default_topster_size = default_topster_size;
     }
 
     // getters
@@ -376,6 +389,14 @@ public:
 
     const std::atomic<bool>& get_skip_writes() const {
         return skip_writes;
+    }
+
+    int get_max_per_page() const {
+        return this->max_per_page;
+    }
+
+    size_t get_default_topster_size() const {
+        return this->default_topster_size;
     }
 
     // loaders
