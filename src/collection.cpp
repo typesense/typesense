@@ -5187,7 +5187,8 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
         }
 
         // Include nested join references.
-        if (!ref_include_exclude.nested_join_includes.empty() && !references.coll_to_references->empty()) {
+        if (!ref_include_exclude.nested_join_includes.empty() &&
+                references.coll_to_references != nullptr && !references.coll_to_references[0].empty()) {
             auto nested_include_exclude_op = include_references(nest_ref_doc ? doc[key] : doc, ref_doc_seq_id,
                                                                 ref_collection.get(), references.coll_to_references[0],
                                                                 ref_include_exclude.nested_join_includes);
@@ -5248,7 +5249,7 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
 
         // Include nested join references.
         if (!ref_include_exclude.nested_join_includes.empty() &&
-                references.coll_to_references != nullptr && !references.coll_to_references->empty()) {
+                references.coll_to_references != nullptr && !references.coll_to_references[i].empty()) {
             auto nested_include_exclude_op = include_references(nest_ref_doc ? doc[key].at(i) : doc, ref_doc_seq_id,
                                                                 ref_collection.get(), references.coll_to_references[i],
                                                                 ref_include_exclude.nested_join_includes);
