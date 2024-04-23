@@ -5189,9 +5189,14 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
         }
 
         // Include nested join references.
-        if (!ref_include_exclude.nested_join_includes.empty() && !references.coll_to_references->empty()) {
+        if (!ref_include_exclude.nested_join_includes.empty()) {
+            // Passing empty references in case the nested include collection is not joined, but it still can be included
+            // if we have a reference to it.
+            std::map<std::string, reference_filter_result_t> refs;
             auto nested_include_exclude_op = include_references(nest_ref_doc ? doc[key] : doc, ref_doc_seq_id,
-                                                                ref_collection.get(), references.coll_to_references[0],
+                                                                ref_collection.get(),
+                                                                references.coll_to_references == nullptr ? refs :
+                                                                                        references.coll_to_references[0],
                                                                 ref_include_exclude.nested_join_includes);
             if (!nested_include_exclude_op.ok()) {
                 return nested_include_exclude_op;
@@ -5249,10 +5254,14 @@ Option<bool> Collection::prune_ref_doc(nlohmann::json& doc,
         }
 
         // Include nested join references.
-        if (!ref_include_exclude.nested_join_includes.empty() &&
-                references.coll_to_references != nullptr && !references.coll_to_references->empty()) {
+        if (!ref_include_exclude.nested_join_includes.empty()) {
+            // Passing empty references in case the nested include collection is not joined, but it still can be included
+            // if we have a reference to it.
+            std::map<std::string, reference_filter_result_t> refs;
             auto nested_include_exclude_op = include_references(nest_ref_doc ? doc[key].at(i) : doc, ref_doc_seq_id,
-                                                                ref_collection.get(), references.coll_to_references[i],
+                                                                ref_collection.get(),
+                                                                references.coll_to_references == nullptr ? refs :
+                                                                                        references.coll_to_references[i],
                                                                 ref_include_exclude.nested_join_includes);
             if (!nested_include_exclude_op.ok()) {
                 return nested_include_exclude_op;

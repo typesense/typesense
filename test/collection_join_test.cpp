@@ -2258,7 +2258,6 @@ TEST_F(CollectionJoinTest, FilterByNestedReferences) {
     ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
-    LOG(INFO) << res_obj.dump();
     // coll_d_2 -> coll_c_2 -> coll_b_0, coll_b_1
     //
     // coll_d_1 -> coll_c_1 -> coll_b_1
@@ -2278,6 +2277,106 @@ TEST_F(CollectionJoinTest, FilterByNestedReferences) {
     ASSERT_EQ("coll_c_1", res_obj["hits"][1]["document"]["Coll_C"][0]["title"]);
     ASSERT_EQ(1, res_obj["hits"][1]["document"]["Coll_C"][0]["Coll_B"].size());
     ASSERT_EQ("coll_b_1", res_obj["hits"][1]["document"]["Coll_C"][0]["Coll_B"][0]["title"]);
+
+    auto doc = R"({
+                "title": "coll_b_3",
+                "ref_coll_a": "0"
+            })"_json;
+    auto doc_add_op = collectionManager.get_collection("Coll_B")->add(doc.dump());
+    if (!doc_add_op.ok()) {
+        LOG(INFO) << doc_add_op.error();
+    }
+    ASSERT_TRUE(doc_add_op.ok());
+
+    doc = R"({
+                "title": "coll_c_4",
+                "ref_coll_b": ["3"]
+            })"_json;
+    doc_add_op = collectionManager.get_collection("Coll_C")->add(doc.dump());
+    if (!doc_add_op.ok()) {
+        LOG(INFO) << doc_add_op.error();
+    }
+    ASSERT_TRUE(doc_add_op.ok());
+
+    doc = R"({
+                "title": "coll_d_3",
+                "ref_coll_c": ["4"]
+            })"_json;
+    doc_add_op = collectionManager.get_collection("Coll_D")->add(doc.dump());
+    if (!doc_add_op.ok()) {
+        LOG(INFO) << doc_add_op.error();
+    }
+    ASSERT_TRUE(doc_add_op.ok());
+
+    req_params = {
+            {"collection", "Coll_D"},
+            {"q", "coll_d_3"},
+            {"query_by", "title"},
+            {"filter_by", "$Coll_C(id:*)"},
+            // We will be able to include Coll_A document since we join on Coll_C that has reference to Coll_B that in
+            // turn has a reference to Coll_A.
+            {"include_fields", "title, $Coll_C(title), $Coll_B(title, $Coll_A(title))"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    // coll_d_3 -> coll_c_4 -> coll_b_3 -> coll_a_0
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(3, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("coll_d_3", res_obj["hits"][0]["document"]["title"]);
+
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_C"].size());
+    ASSERT_EQ("coll_c_4", res_obj["hits"][0]["document"]["Coll_C"]["title"]);
+
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_B"].size());
+    ASSERT_EQ("coll_b_3", res_obj["hits"][0]["document"]["Coll_B"][0]["title"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_B"][0]["Coll_A"].size());
+    ASSERT_EQ("coll_a_0", res_obj["hits"][0]["document"]["Coll_B"][0]["Coll_A"]["title"]);
+
+    schema_json =
+            R"({
+                "name": "Coll_E",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "ref_coll_b", "type": "string", "reference": "Coll_B.id"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    doc = R"({
+                "title": "coll_e_0",
+                "ref_coll_b": "3"
+            })"_json;
+    doc_add_op = collectionManager.get_collection("Coll_E")->add(doc.dump());
+    if (!doc_add_op.ok()) {
+        LOG(INFO) << doc_add_op.error();
+    }
+    ASSERT_TRUE(doc_add_op.ok());
+
+    req_params = {
+            {"collection", "Coll_D"},
+            {"q", "coll_d_3"},
+            {"query_by", "title"},
+            {"filter_by", "$Coll_C(id:*)"},
+            // We won't be able to include Coll_E document since we neither join on it nor we have any reference to it.
+            {"include_fields", "title, $Coll_C(title), $Coll_B(title, $Coll_E(title))"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(3, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("coll_d_3", res_obj["hits"][0]["document"]["title"]);
+
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_C"].size());
+    ASSERT_EQ("coll_c_4", res_obj["hits"][0]["document"]["Coll_C"]["title"]);
+
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Coll_B"].size());
+    ASSERT_EQ("coll_b_3", res_obj["hits"][0]["document"]["Coll_B"][0]["title"]);
+    ASSERT_EQ(0, res_obj["hits"][0]["document"]["Coll_B"][0].count("Coll_E"));
 
     schema_json =
             R"({
