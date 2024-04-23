@@ -138,6 +138,7 @@ struct Topster {
     size_t distinct;
     hyperloglog_hip::distinct_counter<uint64_t> hyperloglog_counter;
     std::set<uint64_t> groups_found;
+    uint32_t groups_found_count = 0;
     bool is_first_pass_completed = false;
 
     explicit Topster(size_t capacity): Topster(capacity, 0) {
@@ -221,6 +222,7 @@ struct Topster {
                 Topster* g_topster = new Topster(distinct, 0);
                 g_topster->add(kv);
                 group_kv_map.insert({kv->distinct_key, g_topster});
+                groups_found_count++;
             }
             
             return 1;
@@ -280,6 +282,9 @@ struct Topster {
 
                 if(groups_found.size() < 512) {
                     groups_found.insert(kv->distinct_key);
+                    groups_found_count = groups_found.size();
+                } else {
+                    groups_found_count = hyperloglog_counter.count();
                 }
             }
         }
@@ -360,12 +365,17 @@ struct Topster {
         return kvs[index];
     }
 
-    const size_t get_unique_groups() {
+    const size_t get_total_unique_groups() const {
         auto groups_count = groups_found.size();
         return groups_count < 512 ? groups_count : hyperloglog_counter.count();
     }
 
     void set_first_pass_complete() {
         is_first_pass_completed = true;
+        groups_found_count = 0;
+    }
+
+    const size_t get_current_groups_count() const {
+        return groups_found_count;
     }
 };

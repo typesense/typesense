@@ -4267,7 +4267,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
 
         resume_typo_loop:
 
-        auto results_count = group_limit != 0 ? groups_processed.size() : all_result_ids_len;
+        auto current_groups_count = topster ? topster->get_current_groups_count() : 0;
+        auto results_count = group_limit != 0 ? current_groups_count : all_result_ids_len;
         if(!exhaustive_search && results_count >= typo_tokens_threshold) {
             // if typo threshold is breached, we are done
             return Option<bool>(true);
