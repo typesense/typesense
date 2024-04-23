@@ -60,6 +60,8 @@ private:
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
+    const size_t DEFAULT_TOPSTER_SIZE = 250;
+
     struct highlight_t {
         size_t field_index;
         std::string field;

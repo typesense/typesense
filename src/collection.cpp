@@ -2158,7 +2158,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         return Option<nlohmann::json>(422, message);
     }
 
-    size_t max_hits = Config::get_instance().get_default_topster_size();
+    size_t max_hits = DEFAULT_TOPSTER_SIZE;
 
     // ensure that `max_hits` never exceeds number of documents in collection
     if(weighted_search_fields.size() <= 1 || query == "*") {
@@ -2402,7 +2402,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 0) {
         size_t num_buckets = sort_fields_std[match_score_index].text_match_buckets;
-        const size_t max_kvs_bucketed = std::min<size_t>(Config::get_instance().get_default_topster_size(), raw_result_kvs.size());
+        const size_t max_kvs_bucketed = std::min<size_t>(DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
 
         if(max_kvs_bucketed >= num_buckets) {
             spp::sparse_hash_map<uint64_t, int64_t> result_scores;

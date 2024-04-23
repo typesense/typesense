@@ -117,7 +117,6 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<uint16_t>("filter-by-max-ops", '\0', "Maximum number of operations permitted in filtery_by.", false, Config::FILTER_BY_DEFAULT_OPERATIONS);
 
     options.add<int>("max-per-page", '\0', "Max number of hits per page", false, 250);
-    options.add<size_t>("default-topster-size", '\0', "Default topster limi", false, 250);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");

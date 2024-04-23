@@ -31,7 +31,6 @@ TEST(ConfigTest, LoadCmdLineArguments) {
         "--api-key=abcd",
         "--listen-port=8080",
         "--max-per-page=250",
-        "--default-topster-size=250",
     };
 
     std::vector<char*> argv = get_argv(args);
@@ -147,7 +146,6 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
         "--listen-address=192.168.10.10",
         "--cors-domains=http://localhost:8108",
         "--max-per-page=250",
-        "--default-topster-size=250",
         std::string("--config=") + std::string(ROOT_DIR)+"test/valid_sparse_config.ini"
     };
 
@@ -177,7 +175,6 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
     ASSERT_EQ(1, config.get_cors_domains().size());  // cli parameter overrides file config
     ASSERT_EQ("http://localhost:8108", *(config.get_cors_domains().begin()));
     ASSERT_EQ(250, config.get_max_per_page());
-    ASSERT_EQ(250, config.get_default_topster_size());
 }
 
 TEST(ConfigTest, CorsDefaults) {
@@ -189,7 +186,6 @@ TEST(ConfigTest, CorsDefaults) {
         "--api-key=abcd",
         "--listen-address=192.168.10.10",
         "--max-per-page=250",
-        "--default-topster-size=20",
         std::string("--config=") + std::string(ROOT_DIR)+"test/valid_sparse_config.ini"
     };
 

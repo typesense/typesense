@@ -82,8 +82,6 @@ private:
 
     int max_per_page;
   
-    std::atomic<size_t> default_topster_size;
-  
     uint16_t filter_by_max_ops;
 
 protected:
@@ -121,7 +119,6 @@ protected:
         this->enable_search_logging = false;
       
         this->max_per_page = 250;
-        this->default_topster_size = 250;
 
         this->filter_by_max_ops = FILTER_BY_DEFAULT_OPERATIONS;
     }
@@ -218,10 +215,6 @@ public:
 
     void set_max_per_page(int max_per_page) {
         this->max_per_page = max_per_page;
-    }
-
-    void set_default_topster_size(size_t default_topster_size) {
-        this->default_topster_size = default_topster_size;
     }
 
     // getters
@@ -402,9 +395,6 @@ public:
     int get_max_per_page() const {
         return this->max_per_page;
     }
-
-    size_t get_default_topster_size() const {
-        return this->default_topster_size;
 
     uint16_t get_filter_by_max_ops() const {
         return filter_by_max_ops;
