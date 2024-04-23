@@ -80,7 +80,7 @@ private:
 
     bool enable_search_logging;
 
-    int max_per_page;
+    uint32_t max_per_page;
   
     uint16_t filter_by_max_ops;
 
