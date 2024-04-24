@@ -80,6 +80,8 @@ private:
 
     bool enable_search_logging;
 
+    uint32_t max_per_page;
+  
     uint16_t filter_by_max_ops;
 
 protected:
@@ -115,6 +117,8 @@ protected:
         this->enable_lazy_filter = false;
 
         this->enable_search_logging = false;
+      
+        this->max_per_page = 250;
 
         this->filter_by_max_ops = FILTER_BY_DEFAULT_OPERATIONS;
     }
@@ -207,6 +211,10 @@ public:
 
     void set_reset_peers_on_error(bool reset_peers_on_error) {
         this->reset_peers_on_error = reset_peers_on_error;
+    }
+
+    void set_max_per_page(int max_per_page) {
+        this->max_per_page = max_per_page;
     }
 
     // getters
@@ -382,6 +390,10 @@ public:
 
     const std::atomic<bool>& get_skip_writes() const {
         return skip_writes;
+    }
+
+    int get_max_per_page() const {
+        return this->max_per_page;
     }
 
     uint16_t get_filter_by_max_ops() const {

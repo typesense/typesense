@@ -2132,8 +2132,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
-    if(per_page > PER_PAGE_MAX) {
-        std::string message = "Only upto " + std::to_string(PER_PAGE_MAX) + " hits can be fetched per page.";
+    int per_page_max = Config::get_instance().get_max_per_page();
+
+    if(per_page > per_page_max) {
+        std::string message = "Only upto " + std::to_string(per_page_max) + " hits can be fetched per page.";
         return Option<nlohmann::json>(422, message);
     }
 
