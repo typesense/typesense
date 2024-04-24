@@ -1,3 +1,4 @@
+// Source : https://github.com/iwiwi/hyperloglog-hip
 #ifndef HYPERLOGLOG_HIP_DISTINCT_COUNTER_H_
 #define HYPERLOGLOG_HIP_DISTINCT_COUNTER_H_
 

@@ -1,3 +1,4 @@
+// Source : https://github.com/iwiwi/hyperloglog-hip
 #ifndef HYPERLOGLOG_HIP_DENSE_ARRAY_H_
 #define HYPERLOGLOG_HIP_DENSE_ARRAY_H_
 

@@ -9,6 +9,8 @@
 #include "filter_result_iterator.h"
 #include "hll/distinct_counter.h"
 
+#define HYPERLOGLOG_THRESHOLD 2048
+
 struct KV {
     int8_t match_score_index{};
     uint16_t query_index{};
@@ -136,9 +138,11 @@ struct Topster {
 
     spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
     size_t distinct;
+
+    //hyperloglog lib counter for counting total unique group values more than 512
     hyperloglog_hip::distinct_counter<uint64_t> hyperloglog_counter;
-    std::set<uint64_t> groups_found;
-    uint32_t groups_found_count = 0;
+    std::set<uint64_t> groups_found;    //to keep count of total unique group less than 512
+    uint32_t groups_found_count = 0;    //to keep track of groups found in current pass
     bool is_first_pass_completed = false;
 
     explicit Topster(size_t capacity): Topster(capacity, 0) {
@@ -190,27 +194,32 @@ struct Topster {
             LOG(INFO) << "kv key: " << mkv.first << " => " << mkv.second->scores[mkv.second->match_score_index];
         }*/
 
-       
+       /* returns either 0 or 1
+        * 1 -> distinct_id was added to group_kv_map in second pass, which will aggregate found counts to groups_processed
+        * 0 -> distinct_id was added to kv_map in first pass
+        * -1 -> distinct_id was not added
+        */
+
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
 
         if(!distinct && less_than_min_heap) {
             // for non-distinct, if incoming value is smaller than min-heap ignore
-            return 0;
+            return -1;
         }
 
         bool SIFT_DOWN = true;
 
         if(distinct && is_first_pass_completed) {
             if(kv_map.count(kv->distinct_key) == 0) {
-                return 0;
+                return -1;
             }
 
             const auto& doc_seq_id_exists =
                 (group_doc_seq_ids.find(kv->key) != group_doc_seq_ids.end());
         
             if(doc_seq_id_exists) {
-                return 0;
+                return -1;
             }
             group_doc_seq_ids.emplace(kv->key);
             
@@ -248,7 +257,7 @@ struct Topster {
 
                 bool smaller_than_existing = is_smaller(kv, existing_kv);
                 if(smaller_than_existing) {
-                    return 0;
+                    return -1;
                 }
 
                 SIFT_DOWN = true;
@@ -280,7 +289,7 @@ struct Topster {
             if(distinct) {
                 hyperloglog_counter.insert(kv->distinct_key);
 
-                if(groups_found.size() < 512) {
+                if(groups_found.size() < HYPERLOGLOG_THRESHOLD) {
                     groups_found.insert(kv->distinct_key);
                     groups_found_count = groups_found.size();
                 } else {
