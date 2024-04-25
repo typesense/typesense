@@ -1188,14 +1188,14 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                                                                      is_group_by_query,
                                                                                                      remote_embedding_timeout_ms,
                                                                                                      remote_embedding_num_tries);
-            if (!sort_validation_op.ok()) {
-                return Option<bool>(sort_validation_op.code(), "Referenced collection `" + ref_collection_name + "`: " +
-                                                                sort_validation_op.error());
-            }
-
             for (auto& ref_sort_field_std: ref_sort_fields_std) {
                 ref_sort_field_std.reference_collection_name = ref_collection_name;
                 sort_fields_std.emplace_back(ref_sort_field_std);
+            }
+
+            if (!sort_validation_op.ok()) {
+                return Option<bool>(sort_validation_op.code(), "Referenced collection `" + ref_collection_name + "`: " +
+                                                                sort_validation_op.error());
             }
 
             continue;
@@ -1205,6 +1205,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
             auto const& count = _sort_field.eval_expressions.size();
             sort_field_std.eval.filter_trees = new filter_node_t*[count]{nullptr};
+            sort_field_std.eval_expressions = _sort_field.eval_expressions;
+            sort_field_std.eval.scores = _sort_field.eval.scores;
 
             for (uint32_t j = 0; j < count; j++) {
                 auto const& filter_exp = _sort_field.eval_expressions[j];
@@ -1220,8 +1222,6 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
 
             eval_sort_count++;
-            sort_field_std.eval_expressions = _sort_field.eval_expressions;
-            sort_field_std.eval.scores = _sort_field.eval.scores;
             continue;
         }
 

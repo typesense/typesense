@@ -4377,6 +4377,42 @@ TEST_F(CollectionJoinTest, SortByReference) {
             {"collection", "Products"},
             {"q", "*"},
             {"query_by", "product_name"},
+            {"filter_by", "$Customers(id: *)"},
+            {"sort_by", "$Customers(_eval(product_available):asc)"},
+            {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Referenced collection `Customers`: Error parsing eval expression in sort_by clause.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(id: *)"},
+            {"sort_by", "$Customers(_eval([(): 3]):asc)"},
+            {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Referenced collection `Customers`: The eval expression in sort_by is empty.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(id: *)"},
+            {"sort_by", "$Customers(_eval([(customer_name: Dan && product_price: > 100): 3, (customer_name): 2]):asc)"},
+            {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_FALSE(search_op.ok());
+    ASSERT_EQ("Referenced collection `Customers`: Error parsing eval expression in sort_by clause.", search_op.error());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
             {"filter_by", "$Customers(customer_id:=customer_a)"},
             {"sort_by", "$Customers(_eval(product_available:true):asc)"},
             {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
@@ -4398,6 +4434,25 @@ TEST_F(CollectionJoinTest, SortByReference) {
             {"query_by", "product_name"},
             {"filter_by", "$Customers(customer_id:=customer_a)"},
             {"sort_by", "$Customers(_eval(product_available:true):desc)"},
+            {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"].at("product_id"));
+    ASSERT_EQ(143, res_obj["hits"][0]["document"].at("product_price"));
+    ASSERT_EQ("product_b", res_obj["hits"][1]["document"].at("product_id"));
+    ASSERT_EQ(73.5, res_obj["hits"][1]["document"].at("product_price"));
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"query_by", "product_name"},
+            {"filter_by", "$Customers(customer_id: customer_a)"},
+            {"sort_by", "$Customers(_eval(product_location:(48.87709, 2.33495, 1km)):desc)"}, // Closer to product_a
             {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
