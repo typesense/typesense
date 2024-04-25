@@ -578,7 +578,7 @@ struct sort_by {
     };
 
     struct eval_t {
-        filter_node_t* filter_trees = nullptr;
+        filter_node_t** filter_trees = nullptr; // Array of filter_node_t pointers.
         std::vector<uint32_t*> eval_ids_vec;
         std::vector<uint32_t> eval_ids_count_vec;
         std::vector<int64_t> scores;

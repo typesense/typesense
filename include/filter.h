@@ -2,8 +2,8 @@
 
 #include <string>
 #include <map>
-#include <tsl/htrie_map.h>
-#include <json.hpp>
+#include "tsl/htrie_map.h"
+#include "json.hpp"
 #include "store.h"
 
 enum NUM_COMPARATOR {
