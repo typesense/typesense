@@ -768,7 +768,7 @@ TEST_F(CollectionVectorTest, VecSearchWithFiltering) {
     ASSERT_EQ(10, results["hits"].size());
 
     // with points:<10, flat-search
-    results = coll1->search("*", {}, "points:<10", {}, {}, {0}, 20, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+    results = coll1->search("*", {}, "points:<10", {}, {}, {0}, 3, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                             "", 10, {}, {}, {}, 0,
@@ -778,12 +778,32 @@ TEST_F(CollectionVectorTest, VecSearchWithFiltering) {
                             false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488], flat_search_cutoff: 1000)").get();
 
     ASSERT_EQ(10, results["found"].get<size_t>());
-    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(3, results["hits"].size());
     ASSERT_FLOAT_EQ(3.409385e-05, results["hits"][0]["vector_distance"].get<float>());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
 
     ASSERT_FLOAT_EQ(0.016780376, results["hits"][1]["vector_distance"].get<float>());
     ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "points:<10", {}, {}, {0}, 3, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                            fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([], id: 3, flat_search_cutoff: 1000)").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+
+    LOG(INFO) << results["hits"][0];
+    LOG(INFO) << results["hits"][1];
+
+    ASSERT_EQ("9", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_FLOAT_EQ(0.050603985, results["hits"][0]["vector_distance"].get<float>());
+
+    ASSERT_EQ("5", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_FLOAT_EQ(0.100155532, results["hits"][1]["vector_distance"].get<float>());
 
     // single point
 
