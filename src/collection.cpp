@@ -1830,6 +1830,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     size_t num_embed_fields = 0;
     std::string query = raw_query;
     std::string transcribed_query;
+    std::string conversation_standalone_query = raw_query;
     if(!voice_query.empty()) {
         if(!vq_model) {
             return Option<nlohmann::json>(400, "Voice query is not enabled. Please set `voice_query_model` for this collection.");
@@ -1874,6 +1875,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(400, standalone_question_op.error());
         }
         query = standalone_question_op.get();
+        conversation_standalone_query = query;
     }
 
     for(size_t i = 0; i < raw_search_fields.size(); i++) {
@@ -2754,11 +2756,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(min_required_bytes_op.code(), min_required_bytes_op.error());
         }
         auto min_required_bytes = min_required_bytes_op.get();
-        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + raw_query.size()) { 
+        if(conversation_model["max_bytes"].get<size_t>() < min_required_bytes + conversation_standalone_query.size()) { 
             return Option<nlohmann::json>(400, "`max_bytes` of the conversation model is less than the minimum required bytes(" + std::to_string(min_required_bytes) + ").");
         }
         // remove document with lowest score until total tokens is less than MAX_TOKENS
-        while(docs_array.dump(0).size() > conversation_model["max_bytes"].get<size_t>() - min_required_bytes - raw_query.size()) {
+        while(docs_array.dump(0).size() > conversation_model["max_bytes"].get<size_t>() - min_required_bytes - conversation_standalone_query.size()) {
             try {
                 if(docs_array.empty()) {
                     break;
@@ -2770,7 +2772,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
 
         bool has_conversation_history = !conversation_id.empty();
-        auto qa_op = ConversationModel::get_answer(docs_array.dump(0), raw_query, conversation_model);
+        auto qa_op = ConversationModel::get_answer(docs_array.dump(0), conversation_standalone_query, conversation_model);
         if(!qa_op.ok()) {
             return Option<nlohmann::json>(qa_op.code(), qa_op.error());
         }
