@@ -2970,13 +2970,15 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         if (!vector_query.field_name.empty()) {
             auto k = vector_query.k == 0 ? std::max<size_t>(vector_query.k, fetch_size) : vector_query.k;
 
-            if(vector_query.query_doc_given) {
-                // since we will omit the query doc from results
+            VectorFilterFunctor filterFunctor(filter_result_iterator, excluded_result_ids, excluded_result_ids_size);
+            auto& field_vector_index = vector_index.at(vector_query.field_name);
+
+            if(vector_query.query_doc_given && filterFunctor(vector_query.seq_id)) {
+                // since query doc will be omitted from results, we will request for 1 more doc
                 k++;
             }
 
-            VectorFilterFunctor filterFunctor(filter_result_iterator, excluded_result_ids, excluded_result_ids_size);
-            auto& field_vector_index = vector_index.at(vector_query.field_name);
+            filter_result_iterator->reset();
 
             std::vector<std::pair<float, single_filter_result_t>> dist_results;
 
@@ -3069,23 +3071,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 group_by_field_it_vec = get_group_by_field_iterators(group_by_fields);
             }
 
-            std::sort(dist_results.begin(), dist_results.end(), [](const auto& p1, const auto& p2) {
-                return p1.first < p2.first;
-            });
-
             for (auto& dist_result : dist_results) {
                 auto& seq_id = dist_result.second.seq_id;
                 auto references = std::move(dist_result.second.reference_filter_results);
 
                 if(vector_query.query_doc_given && vector_query.seq_id == seq_id) {
                     continue;
-                }
-
-                if(vector_query.query_doc_given && nearest_ids.size() == k-1) {
-                    // When id based vector query is made, we ask for K+1 results to account for the query
-                    // record itself being returned. However, when the filter clause does not match the
-                    // query record, we will end up returning 1 extra hit.
-                    break;
                 }
 
                 uint64_t distinct_id = seq_id;
