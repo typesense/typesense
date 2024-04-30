@@ -2938,8 +2938,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                         get_distinct_id(kv.it, seq_id, kv.is_array, group_missing_values, distinct_id, true);
                     }
                     if(excluded_group_ids.count(distinct_id) != 0) {
-                       continue;
-                   }
+                        continue;
+                    }
+                    if(topster->get_current_groups_count() == fetch_size) {
+                        break;
+                    }
                 }
 
                 int64_t scores[3] = {0};
@@ -2954,7 +2957,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     groups_processed[distinct_id]++;
                 }
 
-                if (result_ids.size() == fetch_size) {
+                if (result_ids.size() == fetch_size && group_limit == 0) {
                     break;
                 }
 
