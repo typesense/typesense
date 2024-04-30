@@ -183,6 +183,12 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         }
     }
 
+    nlohmann::json metadata;
+
+    if(collection_meta.count(Collection::COLLECTION_METADATA) != 0) {
+        metadata = collection_meta[Collection::COLLECTION_METADATA];
+    }
+
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
                                             created_at,
@@ -194,7 +200,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             fallback_field_type,
                                             symbols_to_index,
                                             token_separators,
-                                            enable_nested_fields, model, std::move(referenced_in));
+                                            enable_nested_fields, model, std::move(referenced_in),
+                                            metadata);
 
     return collection;
 }
@@ -540,7 +547,9 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 default_sorting_field,
                                                 this->max_memory_ratio, fallback_field_type,
                                                 symbols_to_index, token_separators,
-                                                enable_nested_fields, model);
+                                                enable_nested_fields, model,
+                                                spp::sparse_hash_map<std::string, std::string>(),
+                                                metadata);
 
     add_to_collections(new_collection);
 

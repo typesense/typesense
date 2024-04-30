@@ -53,7 +53,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const std::vector<std::string>& symbols_to_index,
                        const std::vector<std::string>& token_separators,
                        const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model,
-                       spp::sparse_hash_map<std::string, std::string> referenced_in) :
+                       spp::sparse_hash_map<std::string, std::string> referenced_in,
+                       const nlohmann::json& metadata) :
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
@@ -61,7 +62,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         index(init_index()), vq_model(vq_model),
-        referenced_in(std::move(referenced_in)) {
+        referenced_in(std::move(referenced_in)),
+        metadata(metadata) {
     
     if (vq_model) {
         vq_model->inc_collection_ref_count();
@@ -509,7 +511,10 @@ nlohmann::json Collection::get_summary_json() const {
 
     json_response["fields"] = fields_arr;
     json_response["default_sorting_field"] = default_sorting_field;
-    
+    if(!metadata.empty()) {
+        json_response["metadata"] = metadata;
+    }
+
     if(vq_model) {
         json_response["voice_query_model"] = nlohmann::json::object();
         json_response["voice_query_model"]["model_name"] = vq_model->get_model_name();

@@ -155,6 +155,10 @@ private:
     // Keep index as the last field since it is initialized in the constructor via init_index(). Add a new field before it.
     Index* index;
 
+    std::shared_ptr<VQModel> vq_model = nullptr;
+
+    nlohmann::json metadata;
+
     // methods
 
     std::string get_doc_id_key(const std::string & doc_id) const;
@@ -343,8 +347,6 @@ private:
                                                      const size_t remote_embedding_num_tries,
                                                      size_t& per_page) const;
 
-    std::shared_ptr<VQModel> vq_model = nullptr;
-
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -383,7 +385,8 @@ public:
                const float max_memory_ratio, const std::string& fallback_field_type,
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
                const bool enable_nested_fields, std::shared_ptr<VQModel> vq_model = nullptr,
-               spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>());
+               spp::sparse_hash_map<std::string, std::string> referenced_in = spp::sparse_hash_map<std::string, std::string>(),
+               const nlohmann::json& metadata = {});
 
     ~Collection();
 

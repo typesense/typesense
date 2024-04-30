@@ -1830,7 +1830,6 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
     ASSERT_TRUE(op.ok());
     Collection* coll1 = op.get();
 
-
     std::string collection_meta_json;
     nlohmann::json collection_meta;
     std::string next_seq_id;
@@ -1915,6 +1914,24 @@ TEST_F(CollectionManagerTest, CollectionCreationWithMetadata) {
     expected_meta_json["created_at"] = actual_json["created_at"];
 
     ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
+
+    // metadata should exist as part of collection summary
+    auto coll_summary = coll1->get_summary_json();
+    ASSERT_EQ(expected_meta_json["metadata"].dump(), coll_summary["metadata"].dump());
+
+    // if no metadata is given, the key should not be present in response
+    schema2 = R"({
+        "name": "coll2",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "value.color", "type": "string"}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema2);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+    ASSERT_EQ(0, coll2->get_summary_json().count("metadata"));
 }
 
 TEST_F(CollectionManagerTest, PopulateReferencedIns) {
