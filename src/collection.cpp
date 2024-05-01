@@ -1732,7 +1732,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t facet_sample_percent,
                                   const size_t facet_sample_threshold,
                                   const size_t page_offset,
-                                  facet_index_type_t facet_index_type,
+                                  const std::string& facet_index_type,
                                   const size_t remote_embedding_timeout_ms,
                                   const size_t remote_embedding_num_tries,
                                   const std::string& stopwords_set,
@@ -2073,6 +2073,37 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
+
+    std::vector<facet_index_type_t> facet_index_types;
+    std::vector<std::string> facet_index_str_types;
+    StringUtils::split(facet_index_type, facet_index_str_types, ",");
+    if(facet_index_str_types.empty()) {
+        for(size_t i = 0; i < facet_fields.size(); i++) {
+            facet_index_types.push_back(detect);
+        }
+    } else if(facet_index_str_types.size() == 1) {
+        auto match_op = magic_enum::enum_cast<facet_index_type_t>(facet_index_str_types[0]);
+        if(!match_op.has_value()) {
+            return Option<nlohmann::json>(400, "Invalid facet index type: " + facet_index_str_types[0]);
+        }
+        for(size_t i = 0; i < facet_fields.size(); i++) {
+            facet_index_types.push_back(match_op.value());
+        }
+    } else {
+        for(const auto& facet_index_str_type: facet_index_str_types) {
+            auto match_op = magic_enum::enum_cast<facet_index_type_t>(facet_index_str_type);
+            if(match_op.has_value()) {
+                facet_index_types.push_back(match_op.value());
+            } else {
+                return Option<nlohmann::json>(400, "Invalid facet index type: " + facet_index_str_type);
+            }
+        }
+    }
+
+    if(facets.size() != facet_index_types.size()) {
+        return Option<nlohmann::json>(400, "Size of facet_index_type does not match size of facets.");
+    }
+
     // parse facet query
     facet_query_t facet_query = {"", ""};
 
@@ -2352,7 +2383,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     std::unique_ptr<search_args> search_params_guard(search_params);
 
-    auto search_op = index->run_search(search_params, name, facet_index_type,
+    auto search_op = index->run_search(search_params, name, facet_index_types,
                                        enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
                                        synonyms_num_typos, enable_typos_for_alpha_numerical_tokens);
 
@@ -3047,7 +3078,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             facet_result["stats"]["avg"] = (a_facet.stats.fvsum / a_facet.stats.fvcount);
         }
 
-        facet_result["stats"]["total_values"] = facet_values.size();
+        facet_result["stats"]["total_values"] = facet_counts.size();
         result["facet_counts"].push_back(facet_result);
     }
 
