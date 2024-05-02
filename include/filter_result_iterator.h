@@ -84,6 +84,7 @@ struct single_filter_result_t {
     // Collection name -> Reference filter result
     std::map<std::string, reference_filter_result_t> reference_filter_results = {};
     bool is_reference_array_field = true;
+    bool is_excluded = false;
 
     single_filter_result_t() = default;
 

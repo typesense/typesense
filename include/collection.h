@@ -205,7 +205,8 @@ private:
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                         std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
                         bool& filter_curated_hits,
-                        std::string& curated_sort_by, nlohmann::json& override_metadata) const;
+                        std::string& curated_sort_by, nlohmann::json& override_metadata,
+                        std::map<uint32_t, bool>& pinned_hits_found) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,

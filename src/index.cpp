@@ -1616,7 +1616,9 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                           std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                           const std::vector<size_t>& geopoint_indices,
                                           std::set<uint64>& query_hashes,
-                                          std::vector<uint32_t>& id_buff, const std::string& collection_name) const {
+                                          std::vector<uint32_t>& id_buff,
+                                          std::map<uint32_t, bool>& pinned_hits_found,
+                                          const std::string& collection_name) const {
 
     /*if(!token_candidates_vec.empty()) {
         LOG(INFO) << "Prefix candidates size: " << token_candidates_vec.back().candidates.size();
@@ -1667,7 +1669,7 @@ Option<bool> Index::search_all_candidates(const size_t num_search_fields,
                                                              exclude_token_ids, exclude_token_ids_size, excluded_group_ids,
                                                              sort_order, field_values, geopoint_indices,
                                                              id_buff, all_result_ids, all_result_ids_len,
-                                                             collection_name);
+                                                             pinned_hits_found, collection_name);
         if (!search_across_fields_op.ok()) {
             return search_across_fields_op;
         }
@@ -2220,7 +2222,7 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
                                facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens,
                                bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                               bool enable_typos_for_alpha_numerical_tokens) {
+                               bool enable_typos_for_alpha_numerical_tokens, std::map<uint32_t, bool>& pinned_hits_found) {
     if(search_params->group_limit != 0) {
         search(search_params->field_query_tokens,
                search_params->search_fields,
@@ -2261,6 +2263,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                search_params->facet_sample_threshold,
                collection_name,
                search_params->drop_tokens_mode,
+               pinned_hits_found,
                facet_index_type,
                enable_typos_for_numerical_tokens,
                enable_synonyms,
@@ -2312,6 +2315,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   search_params->facet_sample_threshold,
                   collection_name,
                   search_params->drop_tokens_mode,
+                  pinned_hits_found,
                   facet_index_type,
                   enable_typos_for_numerical_tokens,
                   enable_synonyms,
@@ -2641,13 +2645,14 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
             std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values{};
             const std::vector<size_t> geopoint_indices;
             tsl::htrie_map<char, token_leaf> qtoken_set;
+            std::map<uint32_t, bool> pinned_hits_found;
 
             auto fuzzy_search_fields_op = fuzzy_search_fields(
                     fq_fields, window_tokens, {}, text_match_type_t::max_score, nullptr, 0,
                     &filter_result_it, {}, {}, sort_fields, {0}, searched_queries,
                     qtoken_set, topster, groups_processed, result_ids, result_ids_len,
                     0, group_by_fields, false, true, false, false, query_hashes, MAX_SCORE, {false}, 1,
-                    false, 4, 3, 7, 0, nullptr, field_values, geopoint_indices, "", true);
+                    false, 4, 3, 7, 0, nullptr, field_values, geopoint_indices, pinned_hits_found, "", true);
 
             if(!fuzzy_search_fields_op.ok()) {
                 continue;
@@ -2811,6 +2816,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    size_t facet_sample_percent, size_t facet_sample_threshold,
                    const std::string& collection_name,
                    const drop_tokens_param_t drop_tokens_mode,
+                   std::map<uint32_t, bool>& pinned_hits_found,
                    facet_index_type_t facet_index_type,
                    bool enable_typos_for_numerical_tokens,
                    bool enable_synonyms, bool synonym_prefix,
@@ -3221,7 +3227,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                           typo_tokens_threshold, exhaustive_search,
                                                           max_candidates, min_len_1typo, min_len_2typo,
                                                           syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
-                                                          collection_name, enable_typos_for_numerical_tokens,
+                                                          pinned_hits_found, collection_name, enable_typos_for_numerical_tokens,
                                                           enable_typos_for_alpha_numerical_tokens);
         if (!fuzzy_search_fields_op.ok()) {
             return fuzzy_search_fields_op;
@@ -3268,7 +3274,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                                   prefixes, typo_tokens_threshold, exhaustive_search,
                                                                   max_candidates, min_len_1typo, min_len_2typo,
                                                                   syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
-                                                                  collection_name);
+                                                                  pinned_hits_found, collection_name);
                 if (!fuzzy_search_fields_op.ok()) {
                     return fuzzy_search_fields_op;
                 }
@@ -3286,7 +3292,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                      groups_processed, searched_queries, all_result_ids, all_result_ids_len,
                                                      filter_result_iterator, query_hashes,
                                                      sort_order, field_values, geopoint_indices,
-                                                     qtoken_set, collection_name);
+                                                     qtoken_set, pinned_hits_found, collection_name);
         if (!do_synonym_search_op.ok()) {
             return do_synonym_search_op;
         }
@@ -3372,7 +3378,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                                                           token_order, prefixes, typo_tokens_threshold,
                                                                           exhaustive_search, max_candidates, min_len_1typo,
                                                                           min_len_2typo, -1, sort_order, field_values, geopoint_indices,
-                                                                          collection_name);
+                                                                          pinned_hits_found, collection_name);
                         if (!fuzzy_search_fields_op.ok()) {
                             return fuzzy_search_fields_op;
                         }
@@ -4002,6 +4008,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                         const int* sort_order,
                                         std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                         const std::vector<size_t>& geopoint_indices,
+                                        std::map<uint32_t, bool>& pinned_hits_found,
                                         const std::string& collection_name,
                                         bool enable_typos_for_numerical_tokens,
                                         bool enable_typos_for_alpha_numerical_tokens) const {
@@ -4250,7 +4257,7 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                                                                   num_typos, prefixes, prioritize_exact_match, prioritize_token_position,
                                                                   prioritize_num_matching_fields, exhaustive_search, max_candidates,
                                                                   syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
-                                                                  query_hashes, id_buff, collection_name);
+                                                                  query_hashes, id_buff, pinned_hits_found, collection_name);
             if (!search_all_candidates_op.ok()) {
                 return search_all_candidates_op;
             }
@@ -4423,6 +4430,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
                                          const std::vector<size_t>& geopoint_indices,
                                          std::vector<uint32_t>& id_buff,
                                          uint32_t*& all_result_ids, size_t& all_result_ids_len,
+                                         std::map<uint32_t, bool>& pinned_hits_found,
                                          const std::string& collection_name) const {
 
     std::vector<art_leaf*> query_suggestion;
@@ -4544,6 +4552,13 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
     or_iterator_t::intersect(token_its, istate,
                              [&](single_filter_result_t& filter_result, const std::vector<or_iterator_t>& its) {
         auto& seq_id = filter_result.seq_id;
+
+        if(filter_result.is_excluded) {
+            if(!pinned_hits_found.empty() && pinned_hits_found.count(seq_id) != 0) {
+                pinned_hits_found[seq_id] = true;
+            }
+            return;
+        }
 
         if(topster == nullptr) {
             result_ids.push_back(seq_id);
@@ -5524,7 +5539,7 @@ Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fie
                                       const std::vector<sort_by>& sort_fields_std, Topster* curated_topster,
                                       const token_ordering& token_order,
                                       const size_t typo_tokens_threshold, const size_t group_limit,
-                                      const std::vector<std::string>& group_by_fields, 
+                                      const std::vector<std::string>& group_by_fields,
                                       const bool group_missing_values,
                                       bool prioritize_exact_match,
                                       const bool prioritize_token_position,
@@ -5548,6 +5563,7 @@ Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fie
                                       std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                       const std::vector<size_t>& geopoint_indices,
                                       tsl::htrie_map<char, token_leaf>& qtoken_set,
+                                      std::map<uint32_t, bool>& pinned_hits_found,
                                       const std::string& collection_name) const {
 
     for (const auto& syn_tokens : q_pos_synonyms) {
@@ -5564,7 +5580,7 @@ Option<bool> Index::do_synonym_search(const std::vector<search_field_t>& the_fie
                                                           token_order, prefixes, typo_tokens_threshold, exhaustive_search,
                                                           max_candidates, min_len_1typo, min_len_2typo,
                                                           syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
-                                                          collection_name);
+                                                          pinned_hits_found, collection_name);
         if (!fuzzy_search_fields_op.ok()) {
             return fuzzy_search_fields_op;
         }
@@ -5836,12 +5852,13 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
             tsl::htrie_map<char, token_leaf> qtoken_set;
             std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values{};
             const std::vector<size_t> geopoint_indices;
+            std::map<uint32_t, bool> pinned_hits_found;
 
             auto fuzzy_search_fields_op = fuzzy_search_fields(fq_fields, qtokens, {}, text_match_type_t::max_score, nullptr, 0,
                                 &filter_result_it, {}, {}, sort_fields, {facet_query_num_typos}, searched_queries,
                                 qtoken_set, topster, groups_processed, field_result_ids, field_result_ids_len,
                                 group_limit, group_by_fields, false, true, false, false, query_hashes, MAX_SCORE, {true}, 1,
-                                false, max_candidates, 3, 7, 0, nullptr, field_values, geopoint_indices, "", true);
+                                false, max_candidates, 3, 7, 0, nullptr, field_values, geopoint_indices, pinned_hits_found, "", true);
 
             if(!fuzzy_search_fields_op.ok()) {
                 continue;

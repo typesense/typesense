@@ -511,7 +511,8 @@ private:
                                        std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                        const std::vector<size_t>& geopoint_indices,
                                        std::set<uint64>& query_hashes,
-                                       std::vector<uint32_t>& id_buff, const std::string& collection_name = "") const;
+                                       std::vector<uint32_t>& id_buff, std::map<uint32_t, bool>& pinned_hits_found,
+                                       const std::string& collection_name = "") const;
 
     static void popular_fields_of_token(const spp::sparse_hash_map<std::string, art_tree*>& search_index,
                                         const std::string& previous_token,
@@ -667,7 +668,7 @@ public:
     Option<bool> run_search(search_args* search_params, const std::string& collection_name,
                             facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens,
                             bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                            bool enable_typos_for_alpha_numerical_tokens);
+                            bool enable_typos_for_alpha_numerical_tokens, std::map<uint32_t, bool>& pinned_hits_found);
 
     Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
@@ -696,6 +697,7 @@ public:
                 const vector_query_t& vector_query, size_t facet_sample_percent, size_t facet_sample_threshold,
                 const std::string& collection_name,
                 const drop_tokens_param_t drop_tokens_mode,
+                std::map<uint32_t, bool>& pinned_hits_found,
                 facet_index_type_t facet_index_type = DETECT,
                 bool enable_typos_for_numerical_tokens = true,
                 bool enable_synonyms = true,
@@ -869,6 +871,7 @@ public:
                                                  std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                  const std::vector<size_t>& geopoint_indices,
                                                  tsl::htrie_map<char, token_leaf>& qtoken_set,
+                                                 std::map<uint32_t, bool>& pinned_hits_found,
                                                  const std::string& collection_name = "") const;
 
     Option<bool> do_phrase_search(const size_t num_search_fields, const std::vector<search_field_t>& search_fields,
@@ -924,6 +927,7 @@ public:
                                                    const int* sort_order,
                                                    std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
                                                    const std::vector<size_t>& geopoint_indices,
+                                                   std::map<uint32_t, bool>& pinned_hits_found,
                                                    const std::string& collection_name = "",
                                                    bool enable_typos_for_numerical_tokens = true,
                                                    bool enable_typos_for_alpha_numerical_tokens = true) const;
@@ -967,6 +971,7 @@ public:
                                       const std::vector<size_t>& geopoint_indices,
                                       std::vector<uint32_t>& id_buff,
                                       uint32_t*& all_result_ids, size_t& all_result_ids_len,
+                                      std::map<uint32_t, bool>& pinned_hits_found,
                                       const std::string& collection_name = "") const;
 
     void
