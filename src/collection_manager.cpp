@@ -183,6 +183,12 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         }
     }
 
+    nlohmann::json metadata;
+
+    if(collection_meta.count(Collection::COLLECTION_METADATA) != 0) {
+        metadata = collection_meta[Collection::COLLECTION_METADATA];
+    }
+
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
                                             created_at,
@@ -194,7 +200,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             fallback_field_type,
                                             symbols_to_index,
                                             token_separators,
-                                            enable_nested_fields, model, std::move(referenced_in));
+                                            enable_nested_fields, model, std::move(referenced_in),
+                                            metadata);
 
     return collection;
 }
@@ -540,7 +547,9 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                 default_sorting_field,
                                                 this->max_memory_ratio, fallback_field_type,
                                                 symbols_to_index, token_separators,
-                                                enable_nested_fields, model);
+                                                enable_nested_fields, model,
+                                                spp::sparse_hash_map<std::string, std::string>(),
+                                                metadata);
 
     add_to_collections(new_collection);
 
@@ -1416,6 +1425,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_QUERY = "facet_query";
     const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
     const char *MAX_FACET_VALUES = "max_facet_values";
+    const char *FACET_INDEX_TYPE = "facet_index_type";
 
     const char *FACET_RETURN_PARENT = "facet_return_parent";
 
@@ -1621,6 +1631,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool enable_typos_for_alpha_numerical_tokens = true;
     bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
 
+    std::string facet_index_type;
+
     size_t remote_embedding_timeout_ms = 5000;
     size_t remote_embedding_num_tries = 2;
     
@@ -1680,6 +1692,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {OVERRIDE_TAGS, &override_tags},
         {CONVERSATION_MODEL_ID, &conversation_model_id},
         {VOICE_QUERY, &voice_query},
+        {FACET_INDEX_TYPE, &facet_index_type},
     };
 
     std::unordered_map<std::string, bool*> bool_values = {
@@ -1897,7 +1910,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           facet_sample_percent,
                                                           facet_sample_threshold,
                                                           offset,
-                                                          HASH,
+                                                          facet_index_type,
                                                           remote_embedding_timeout_ms,
                                                           remote_embedding_num_tries,
                                                           stopwords_set,

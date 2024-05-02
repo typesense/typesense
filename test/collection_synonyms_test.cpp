@@ -1124,7 +1124,7 @@ TEST_F(CollectionSynonymsTest, EnableSynonymFlag) {
                            {off}, INT16_MAX, INT16_MAX,2,
                            2, false, "", true,
                            0, max_score, 100, 0, 0,
-                           HASH, 30000, 2, "",
+                           "hash", 30000, 2, "",
                            {},{}, "right_to_left", true,
                            true, false, "", "", "",
                            "", false, enable_synonyms).get();
@@ -1144,7 +1144,7 @@ TEST_F(CollectionSynonymsTest, EnableSynonymFlag) {
                         {off}, INT16_MAX, INT16_MAX,2,
                         2, false, "", true,
                         0, max_score, 100, 0, 0,
-                        HASH, 30000, 2, "",
+                        "hash", 30000, 2, "",
                         {},{}, "right_to_left", true,
                         true, false, "", "", "",
                         "", false, enable_synonyms).get();
@@ -1200,7 +1200,7 @@ TEST_F(CollectionSynonymsTest, SynonymTypos) {
                         {off}, INT16_MAX, INT16_MAX,2,
                         2, false, "", true,
                         0, max_score, 100, 0, 0,
-                        HASH, 30000, 2, "",
+                        "hash", 30000, 2, "",
                         {},{}, "right_to_left", true,
                         true, false, "", "", "",
                         "", false, true, false, synonym_num_typos).get();
@@ -1220,7 +1220,7 @@ TEST_F(CollectionSynonymsTest, SynonymTypos) {
                         {off}, INT16_MAX, INT16_MAX,2,
                         2, false, "", true,
                         0, max_score, 100, 0, 0,
-                        HASH, 30000, 2, "",
+                        "hash", 30000, 2, "",
                         {},{}, "right_to_left", true,
                         true, false, "", "", "",
                         "", false, true, false, synonym_num_typos).get();
@@ -1240,7 +1240,7 @@ TEST_F(CollectionSynonymsTest, SynonymTypos) {
                         {off}, INT16_MAX, INT16_MAX,2,
                         2, false, "", true,
                         0, max_score, 100, 0, 0,
-                        HASH, 30000, 2, "",
+                        "hash", 30000, 2, "",
                         {},{}, "right_to_left", true,
                         true, false, "", "", "",
                         "", false, true, false, synonym_num_typos);
@@ -1293,7 +1293,7 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
                                    {off}, INT16_MAX, INT16_MAX,2,
                                    2, false, "", true,
                                    0, max_score, 100, 0, 0,
-                                   HASH, 30000, 2, "",
+                                   "hash", 30000, 2, "",
                                    {},{}, "right_to_left", true,
                                    true, false, "", "", "",
                                    "", false, true, synonym_prefix).get();
@@ -1314,7 +1314,7 @@ TEST_F(CollectionSynonymsTest, SynonymPrefix) {
                              {off}, INT16_MAX, INT16_MAX,2,
                              2, false, "", true,
                              0, max_score, 100, 0, 0,
-                             HASH, 30000, 2, "",
+                             "hash", 30000, 2, "",
                              {},{}, "right_to_left", true,
                              true, false, "", "", "",
                              "", false, true, synonym_prefix).get();

@@ -225,9 +225,9 @@ struct search_args {
 };
 
 enum facet_index_type_t {
-    HASH,
-    VALUE,
-    DETECT,
+    hash,
+    value,
+    detect,
 };
 
 struct offsets_facet_hashes_t {
@@ -459,7 +459,7 @@ private:
                    const bool group_missing_values,
                    const uint32_t* result_ids, size_t results_size,
                    int max_facet_count, bool is_wildcard_query,
-                   facet_index_type_t facet_index_type) const;
+                   const std::vector<facet_index_type_t>& facet_index_types) const;
 
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   filter_node_t*& filter_tree_root) const;
@@ -666,7 +666,7 @@ public:
     // Public operations
 
     Option<bool> run_search(search_args* search_params, const std::string& collection_name,
-                            facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens,
+                            const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                             bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
                             bool enable_typos_for_alpha_numerical_tokens, std::map<uint32_t, bool>& pinned_hits_found);
 
@@ -698,7 +698,7 @@ public:
                 const std::string& collection_name,
                 const drop_tokens_param_t drop_tokens_mode,
                 std::map<uint32_t, bool>& pinned_hits_found,
-                facet_index_type_t facet_index_type = DETECT,
+                const std::vector<facet_index_type_t>& facet_index_types,
                 bool enable_typos_for_numerical_tokens = true,
                 bool enable_synonyms = true,
                 bool synonym_prefix = false,
@@ -810,7 +810,8 @@ public:
                              const std::vector<std::string>& group_by_fields,
                              size_t group_limit, bool is_wildcard_no_filter_query,
                              size_t max_candidates,
-                             std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type
+                             std::vector<facet_info_t>& facet_infos,
+                             const std::vector<facet_index_type_t>& facet_index_types
                              ) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,

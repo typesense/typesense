@@ -1353,7 +1353,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                       const bool group_missing_values,
                       const uint32_t* result_ids, size_t results_size, 
                       int max_facet_count, bool is_wildcard_no_filter_query,
-                      facet_index_type_t facet_index_type) const {
+                      const std::vector<facet_index_type_t>& facet_index_types) const {
 
     if(results_size == 0) {
         return ;
@@ -1385,13 +1385,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             continue;
         }
 
-        bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
-
-#ifdef TEST_BUILD
-        if(facet_index_type == VALUE) {
-#else
-        if(facet_value_index_exists && use_value_index) {
-#endif
+        if(use_value_index) {
             // LOG(INFO) << "Using intersection to find facets";
             a_facet.is_intersected = true;
 
@@ -2220,7 +2214,7 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 }
 
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
-                               facet_index_type_t facet_index_type, bool enable_typos_for_numerical_tokens,
+                               const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                                bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
                                bool enable_typos_for_alpha_numerical_tokens, std::map<uint32_t, bool>& pinned_hits_found) {
     if(search_params->group_limit != 0) {
@@ -2264,7 +2258,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                collection_name,
                search_params->drop_tokens_mode,
                pinned_hits_found,
-               facet_index_type,
+               facet_index_types,
                enable_typos_for_numerical_tokens,
                enable_synonyms,
                synonym_prefix,
@@ -2316,7 +2310,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   collection_name,
                   search_params->drop_tokens_mode,
                   pinned_hits_found,
-                  facet_index_type,
+                  facet_index_types,
                   enable_typos_for_numerical_tokens,
                   enable_synonyms,
                   synonym_prefix,
@@ -2817,7 +2811,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    const std::string& collection_name,
                    const drop_tokens_param_t drop_tokens_mode,
                    std::map<uint32_t, bool>& pinned_hits_found,
-                   facet_index_type_t facet_index_type,
+                   const std::vector<facet_index_type_t>& facet_index_types,
                    bool enable_typos_for_numerical_tokens,
                    bool enable_synonyms, bool synonym_prefix,
                    uint32_t synonym_num_typos,
@@ -3636,7 +3630,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         std::vector<facet_info_t> facet_infos(facets.size());
         compute_facet_infos(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
                             group_by_fields, group_limit, is_wildcard_no_filter_query,
-                            max_candidates, facet_infos, facet_index_type);
+                            max_candidates, facet_infos, facet_index_types);
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
         std::vector<std::vector<facet>> value_facets(concurrency);
@@ -3644,11 +3638,8 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
         for(size_t i = 0; i < facets.size(); i++) {
             const auto& this_facet = facets[i];
-#ifdef TEST_BUILD
-            if(facet_index_type == VALUE) {
-#else
+
             if(facet_infos[i].use_value_index) {
-#endif
                 // value based faceting on a single thread
                 value_facets[num_value_facets % num_threads].emplace_back(this_facet.field_name, this_facet.orig_index,
                                           this_facet.facet_range_map,
@@ -3693,7 +3684,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          is_wildcard_no_filter_query, estimate_facets,
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
-                                         &num_processed, &m_process, &cv_process, facet_index_type]() {
+                                         &num_processed, &m_process, &cv_process, &facet_index_types]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = false;
@@ -3702,7 +3693,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 do_facets(facet_batches[thread_id], fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields, group_missing_values,
                           batch_result_ids, batch_res_len, max_facet_values,
-                          is_wildcard_no_filter_query, facet_index_type);
+                          is_wildcard_no_filter_query, facet_index_types);
 
                 std::unique_lock<std::mutex> lock(m_process);
 
@@ -3733,7 +3724,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                          is_wildcard_no_filter_query, estimate_facets,
                                          facet_sample_percent, group_missing_values,
                                          &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
-                                         &num_processed, &m_process, &cv_process, facet_index_type]() {
+                                         &num_processed, &m_process, &cv_process, facet_index_types]() {
                 search_begin_us = parent_search_begin;
                 search_stop_us = parent_search_stop_ms;
                 search_cutoff = false;
@@ -3743,7 +3734,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                 do_facets({value_facets[thread_id]}, fq, estimate_facets, facet_sample_percent,
                           facet_infos, group_limit, group_by_fields, group_missing_values,
                           all_result_ids, all_result_ids_len, max_facet_values,
-                          is_wildcard_no_filter_query, facet_index_type);
+                          is_wildcard_no_filter_query, facet_index_types);
 
                 std::unique_lock<std::mutex> lock(m_process);
 
@@ -3789,11 +3780,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     compute_facet_infos(facets, facet_query, facet_query_num_typos,
                         &included_ids_vec[0], included_ids_vec.size(), group_by_fields,
                         group_limit, is_wildcard_no_filter_query,
-                        max_candidates, facet_infos, facet_index_type);
+                        max_candidates, facet_infos, facet_index_types);
     do_facets(facets, facet_query, estimate_facets, facet_sample_percent,
               facet_infos, group_limit, group_by_fields, group_missing_values, &included_ids_vec[0], 
               included_ids_vec.size(), max_facet_values, is_wildcard_no_filter_query,
-              facet_index_type);
+              facet_index_types);
 
     all_result_ids_len += curated_topster->size;
 
@@ -5779,7 +5770,8 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                                 const std::vector<std::string>& group_by_fields,
                                 const size_t group_limit, const bool is_wildcard_no_filter_query,
                                 const size_t max_candidates,
-                                std::vector<facet_info_t>& facet_infos, facet_index_type_t facet_index_type) const {
+                                std::vector<facet_info_t>& facet_infos,
+                                const std::vector<facet_index_type_t>& facet_index_types) const {
 
     if(all_result_ids_len == 0) {
         return;
@@ -5790,6 +5782,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
     for(size_t findex=0; findex < facets.size(); findex++) {
         const auto& a_facet = facets[findex];
         const field &facet_field = search_schema.at(a_facet.field_name);
+        const auto facet_index_type = facet_index_types[a_facet.orig_index];
 
         facet_infos[findex].facet_field = facet_field;
         facet_infos[findex].use_facet_query = false;
@@ -5798,14 +5791,26 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                                                     facet_field.type != field_types::STRING_ARRAY &&
                                                     facet_field.type != field_types::BOOL_ARRAY);
 
-        size_t num_facet_values = facet_index_v4->get_facet_count(facet_field.name);
-        facet_infos[findex].use_value_index = (group_limit == 0) && (a_facet.sort_field.empty()) &&
-                                                ( is_wildcard_no_filter_query ||
-                                                (all_result_ids_len > 1000 && num_facet_values < 250) ||
-                                                (all_result_ids_len > 1000 && all_result_ids_len * 2 > total_docs) ||
-                                                (a_facet.is_sort_by_alpha));
-
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
+
+        if(facet_index_type == hash) {
+            facet_infos[findex].use_value_index = false;
+        }
+        else if(facet_value_index_exists) {
+            if(facet_index_type == value) {
+                facet_infos[findex].use_value_index = true;
+            } else {
+                // facet_index_type = detect
+                size_t num_facet_values = facet_index_v4->get_facet_count(facet_field.name);
+                facet_infos[findex].use_value_index = (group_limit == 0) && (a_facet.sort_field.empty()) &&
+                                                      ( is_wildcard_no_filter_query ||
+                                                        (all_result_ids_len > 1000 && num_facet_values < 250) ||
+                                                        (all_result_ids_len > 1000 && all_result_ids_len * 2 > total_docs) ||
+                                                        (a_facet.is_sort_by_alpha));
+            }
+        } else {
+            facet_infos[findex].use_value_index = false;
+        }
 
         if(a_facet.field_name == facet_query.field_name && !facet_query.query.empty()) {
             facet_infos[findex].use_facet_query = true;
@@ -5882,11 +5887,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
                 //LOG(INFO) << "si: " << si << ", field_result_ids_len: " << field_result_ids_len;
 
-#ifdef TEST_BUILD
-                if(facet_index_type == VALUE) {
-#else
-                if(facet_value_index_exists && facet_infos[findex].use_value_index) {
-#endif
+                if(facet_infos[findex].use_value_index) {
                     size_t num_tokens_found = 0;
                     for(auto pl: posting_lists) {
                         if(posting_t::contains_atleast_one(pl, field_result_ids, field_result_ids_len)) {
