@@ -1153,3 +1153,122 @@ TEST_F(CollectionGroupingTest, GroupByPinnedHitsOrder) {
     ASSERT_EQ(1, res["grouped_hits"][2]["hits"].size());
     ASSERT_EQ("0", res["grouped_hits"][2]["hits"][0]["document"]["id"]);
 }
+
+TEST_F(CollectionGroupingTest, GroupByPerPage) {
+    std::vector<field> fields = {
+            field("name", field_types::STRING, false, false),
+            field("id", field_types::STRING, true, true),
+    };
+
+    Collection* fabric = collectionManager.get_collection("fabric").get();
+    if(fabric == nullptr) {
+        fabric = collectionManager.create_collection("fabric", 1, fields).get();
+    }
+
+
+    nlohmann::json doc;
+
+    doc["id"] = "1001";
+    doc["name"] = "Cotton";
+    ASSERT_TRUE(fabric->add(doc.dump()).ok());
+
+    doc["id"] = "1002";
+    doc["name"] = "Nylon";
+    ASSERT_TRUE(fabric->add(doc.dump()).ok());
+
+    doc["id"] = "1003";
+    doc["name"] = "Polyester";
+    ASSERT_TRUE(fabric->add(doc.dump()).ok());
+
+    doc["id"] = "1004";
+    doc["name"] = "Linen";
+    ASSERT_TRUE(fabric->add(doc.dump()).ok());
+
+    doc["id"] = "1005";
+    doc["name"] = "Silk";
+    ASSERT_TRUE(fabric->add(doc.dump()).ok());
+
+    fields = {
+            field("name", field_types::STRING, false, false),
+            field("fabric_id", field_types::STRING, true, false, true,
+            "", -1, -1, false, 0, 0, cosine, "fabric.id"),
+            field("size", field_types::STRING, false, false),
+    };
+
+    Collection* garments = collectionManager.get_collection("garments").get();
+    if(garments == nullptr) {
+        garments = collectionManager.create_collection("garments", 1, fields).get();
+    }
+
+    nlohmann::json doc2;
+
+    doc2["name"] = "Tshirt";
+    doc2["fabric_id"] = "1001";
+    doc2["size"] = "Medium";
+    ASSERT_TRUE(garments->add(doc2.dump()).ok());
+
+    doc2["name"] = "Tshirt";
+    doc2["fabric_id"] = "1003";
+    doc2["size"] = "Large";
+    ASSERT_TRUE(garments->add(doc2.dump()).ok());
+
+    doc2["name"] = "Shirt";
+    doc2["fabric_id"] = "1004";
+    doc2["size"] = "Xtra Large";
+    ASSERT_TRUE(garments->add(doc2.dump()).ok());
+
+    doc2["name"] = "Trouser";
+    doc2["fabric_id"] = "1002";
+    doc2["size"] = "Small";
+    ASSERT_TRUE(garments->add(doc2.dump()).ok());
+
+    doc2["name"] = "Veshti";
+    doc2["fabric_id"] = "1005";
+    doc2["size"] = "Free";
+    ASSERT_TRUE(garments->add(doc2.dump()).ok());
+
+    doc2["name"] = "Shorts";
+    doc2["fabric_id"] = "1002";
+    doc2["size"] = "Medium";
+    ASSERT_TRUE(garments->add(doc2.dump()).ok());
+
+    doc2["name"] = "Shirt";
+    doc2["fabric_id"] = "1005";
+    doc2["size"] = "Large";
+    ASSERT_TRUE(garments->add(doc2.dump()).ok());
+
+    //limit per page to 4
+    auto res = garments->search("*", {"name"}, "", {}, {}, {0}, 4, 1, NOT_SET,
+                             {false}, Index::DROP_TOKENS_THRESHOLD,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4,
+                             "", 1,
+                             {}, {}, {"fabric_id"}, 1).get();
+
+    ASSERT_EQ(4, res["found"].get<size_t>());
+    ASSERT_EQ(4, res["grouped_hits"].size());
+    ASSERT_EQ(7, res["found_docs"].get<size_t>());
+
+    ASSERT_EQ("1005", res["grouped_hits"][0]["group_key"][0]);
+    ASSERT_EQ("1002", res["grouped_hits"][1]["group_key"][0]);
+    ASSERT_EQ("1004", res["grouped_hits"][2]["group_key"][0]);
+    ASSERT_EQ("1003", res["grouped_hits"][3]["group_key"][0]);
+
+    //per page 10
+    res = garments->search("*", {"name"}, "", {}, {}, {0}, 10, 1, NOT_SET,
+                                {false}, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4,
+                                "", 1,
+                                {}, {}, {"fabric_id"}, 1).get();
+
+    ASSERT_EQ(5, res["found"].get<size_t>());
+    ASSERT_EQ(5, res["grouped_hits"].size());
+    ASSERT_EQ(7, res["found_docs"].get<size_t>());
+
+    ASSERT_EQ("1005", res["grouped_hits"][0]["group_key"][0]);
+    ASSERT_EQ("1002", res["grouped_hits"][1]["group_key"][0]);
+    ASSERT_EQ("1004", res["grouped_hits"][2]["group_key"][0]);
+    ASSERT_EQ("1003", res["grouped_hits"][3]["group_key"][0]);
+    ASSERT_EQ("1001", res["grouped_hits"][4]["group_key"][0]);
+}
