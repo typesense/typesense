@@ -49,7 +49,7 @@ public:
 
     static bool take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded);
 
-    static bool take_id(result_iter_state_t& istate, uint32_t id, single_filter_result_t& filter_result);
+    static bool take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded, single_filter_result_t& filter_result);
 
     template<class T>
     static bool intersect(std::vector<or_iterator_t>& its, result_iter_state_t& istate, T func);
@@ -61,6 +61,7 @@ template<class T>
 bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state_t& istate, T func) {
     size_t it_size = its.size();
     size_t num_processed = 0;
+    bool is_excluded = false;
 
     switch (its.size()) {
         case 0:
@@ -80,11 +81,11 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
 
                 auto id = its[0].id();
                 single_filter_result_t filter_result;
-                if(take_id(istate, id,filter_result)) {
+                if(take_id(istate, id, is_excluded, filter_result)) {
                     func(filter_result, its);
                 }
 
-                if(istate.is_filter_provided() && !filter_result.is_excluded) {
+                if(istate.is_filter_provided() && !is_excluded) {
                     if(istate.is_filter_valid()) {
                         // skip iterator till next id available in filter
                         its[0].skip_to(istate.get_filter_id());
@@ -113,11 +114,11 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
                 if(equals2(its)) {
                     auto id = its[0].id();
                     single_filter_result_t filter_result;
-                    if(take_id(istate, id,filter_result)) {
+                    if(take_id(istate, id, is_excluded, filter_result)) {
                         func(filter_result, its);
                     }
 
-                    if(istate.is_filter_provided() != 0 && !filter_result.is_excluded) {
+                    if(istate.is_filter_provided() != 0 && !is_excluded) {
                         if(istate.is_filter_valid()) {
                             // skip iterator till next id available in filter
                             its[0].skip_to(istate.get_filter_id());
@@ -151,11 +152,11 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
                 if(equals(its)) {
                     auto id = its[0].id();
                     single_filter_result_t filter_result;
-                    if(take_id(istate, id, filter_result)) {
+                    if(take_id(istate, id, is_excluded, filter_result)) {
                         func(filter_result, its);
                     }
 
-                    if(istate.is_filter_provided() && !filter_result.is_excluded) {
+                    if(istate.is_filter_provided() && !is_excluded) {
                         if(istate.is_filter_valid()) {
                             // skip iterator till next id available in filter
                             for(auto& it: its) {

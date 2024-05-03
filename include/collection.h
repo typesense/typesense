@@ -210,7 +210,8 @@ private:
                         std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
                         bool& filter_curated_hits,
                         std::string& curated_sort_by, nlohmann::json& override_metadata,
-                        std::map<uint32_t, bool>& pinned_hits_found) const;
+                        bool filter_pinned_hits,
+                        std::set<uint32_t>& pinned_ids_to_filter) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
@@ -592,7 +593,8 @@ public:
                                   bool synonym_prefix = false,
                                   uint32_t synonym_num_typos = 0,
                                   bool enable_lazy_filter = false,
-                                  bool enable_typos_for_alpha_numerical_tokens = true) const;
+                                  bool enable_typos_for_alpha_numerical_tokens = true,
+                                  bool filter_pinned_hits = false) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

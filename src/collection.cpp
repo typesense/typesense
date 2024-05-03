@@ -993,7 +993,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
                                 nlohmann::json& override_metadata,
-                                std::map<uint32_t, bool>& pinned_hits_found) const {
+                                bool filter_pinned_hits,
+                                std::set<uint32_t>& pinned_ids_to_filter) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1131,10 +1132,11 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                 bool excluded = (excluded_set.count(seq_id) != 0);
                 if(!excluded) {
                     included_ids.emplace_back(seq_id, pos);
-                }
 
-                //initialize pinned ids here
-                pinned_hits_found[seq_id] = false;
+                    if(filter_pinned_hits) {
+                        pinned_ids_to_filter.insert(seq_id);
+                    }
+                }
             }
         }
     }
@@ -1755,7 +1757,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   bool synonym_prefix,
                                   uint32_t synonyms_num_typos,
                                   bool enable_lazy_filter,
-                                  bool enable_typos_for_alpha_numerical_tokens) const {
+                                  bool enable_typos_for_alpha_numerical_tokens,
+                                  bool filter_pinned_hits) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -2214,7 +2217,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<uint32_t> excluded_ids;
     std::vector<std::pair<uint32_t, uint32_t>> included_ids; // ID -> position
     std::map<size_t, std::vector<std::string>> pinned_hits;
-    std::map<uint32_t, bool> pinned_hits_found;
 
     Option<bool> pinned_hits_op = parse_pinned_hits(pinned_hits_str, pinned_hits);
 
@@ -2237,9 +2239,10 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         override_tag_set.insert(tag);
     }
 
+    std::set<uint32_t> pinned_ids_to_filter;
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
                    pinned_hits, hidden_hits, included_ids, excluded_ids, filter_overrides, filter_curated_hits,
-                   curated_sort_by, override_metadata, pinned_hits_found);
+                   curated_sort_by, override_metadata, filter_pinned_hits, pinned_ids_to_filter);
 
     if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
         // When query param has explicit value set, override level configuration takes lower precedence.
@@ -2390,8 +2393,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     auto search_op = index->run_search(search_params, name, facet_index_types,
                                        enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
-                                       synonyms_num_typos, enable_typos_for_alpha_numerical_tokens,
-                                       pinned_hits_found);
+                                       synonyms_num_typos, enable_typos_for_alpha_numerical_tokens, pinned_ids_to_filter);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();
@@ -2411,39 +2413,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     populate_result_kvs(&topster, raw_result_kvs, search_params->groups_processed, sort_fields_std);
     populate_result_kvs(&curated_topster, override_result_kvs, search_params->groups_processed, sort_fields_std);
-
-    // Sort based on position in overridden list
-    std::sort(
-            override_result_kvs.begin(), override_result_kvs.end(),
-            [](const std::vector<KV*>& a, std::vector<KV*>& b) -> bool {
-                return a[0]->distinct_key < b[0]->distinct_key;
-            }
-    );
-
-    //remove pinned ids which doesnt match search result
-    if(filter_curated_hits) {
-        auto i = 0;
-        while(i < override_result_kvs.size()) {
-            auto it = pinned_hits_found.find(override_result_kvs[i][0]->key);
-            if(it != pinned_hits_found.end()) {
-                //it's a pinned id in override results list
-                if(it->second == false) {
-                    //pinned id was not found matching search result
-                    auto distinct_key = override_result_kvs[i][0]->distinct_key;
-
-                    if(i != override_result_kvs.size() - 1) {
-                        //assign current position to next id in list
-                        override_result_kvs[i+1][0]->distinct_key = distinct_key;
-                    }
-                    //erase not matching pinned id
-                    override_result_kvs.erase(override_result_kvs.begin() + i);
-                    search_params->all_result_ids_len--;
-                    continue;
-                }
-            }
-            ++i;
-        }
-    }
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
@@ -2493,6 +2462,13 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         }
     }
 
+    // Sort based on position in overridden list
+    std::sort(
+            override_result_kvs.begin(), override_result_kvs.end(),
+            [](const std::vector<KV*>& a, std::vector<KV*>& b) -> bool {
+                return a[0]->distinct_key < b[0]->distinct_key;
+            }
+    );
 
     std::vector<std::vector<KV*>> result_group_kvs;
     size_t override_kv_index = 0;

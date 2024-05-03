@@ -1505,6 +1505,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *SYNONYM_PREFIX = "synonym_prefix";
     const char *SYNONYM_NUM_TYPOS = "synonym_num_typos";
 
+    const char *FILTER_PINNED_HITS = "filter_pinned_hits";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -1630,6 +1632,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool enable_typos_for_numerical_tokens = true;
     bool enable_typos_for_alpha_numerical_tokens = true;
     bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
+    bool filter_pinned_hits = false;
 
     std::string facet_index_type;
 
@@ -1710,6 +1713,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {SYNONYM_PREFIX, &synonym_prefix},
         {ENABLE_LAZY_FILTER, &enable_lazy_filter},
         {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
+        {FILTER_PINNED_HITS, &filter_pinned_hits},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1929,7 +1933,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           synonym_prefix,
                                                           synonym_num_typos,
                                                           enable_lazy_filter,
-                                                          enable_typos_for_alpha_numerical_tokens);
+                                                          enable_typos_for_alpha_numerical_tokens,
+                                                          filter_pinned_hits);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

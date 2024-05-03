@@ -215,16 +215,16 @@ bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_e
     return true;
 }
 
-bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id,
+bool or_iterator_t::take_id(result_iter_state_t& istate, uint32_t id, bool& is_excluded,
                             single_filter_result_t& filter_result) {
 
+    is_excluded = false;
     // decide if this result id should be excluded
     if(istate.excluded_result_ids_size != 0) {
         if (std::binary_search(istate.excluded_result_ids,
                                istate.excluded_result_ids + istate.excluded_result_ids_size, id)) {
-            filter_result.is_excluded = true;
-            filter_result.seq_id = id;
-            return true;
+            is_excluded = true;
+            return false;
         }
     }
 

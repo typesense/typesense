@@ -1155,7 +1155,6 @@ void filter_result_iterator_t::init() {
                 size_t min_len_2typo = 0;
                 std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values{};
                 const std::vector<size_t> geopoint_indices;
-                std::map<uint32_t, bool> pinned_hits_found;
                 auto fuzzy_search_fields_op = index->fuzzy_search_fields(fq_fields, value_tokens, {}, text_match_type_t::max_score,
                                                                          nullptr, 0, &filter_result_it, {}, {}, sort_fields,
                                                                          {0}, searched_filters, qtoken_set, topster,
@@ -1163,7 +1162,7 @@ void filter_result_iterator_t::init() {
                                                                          0, group_by_fields, false, false, false, false,
                                                                          query_hashes, MAX_SCORE, {true}, typo_tokens_threshold,
                                                                          false, max_candidates, min_len_1typo, min_len_2typo,
-                                                                         0, nullptr, field_values, geopoint_indices, pinned_hits_found, "", false);
+                                                                         0, nullptr, field_values, geopoint_indices, "", false);
                 delete[] all_result_ids;
                 if(!fuzzy_search_fields_op.ok()) {
                     continue;
