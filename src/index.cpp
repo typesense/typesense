@@ -3912,6 +3912,10 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
 
             auto result = filter_result_iterator->is_valid(included_id);
 
+            if(result == -1) {
+                filter_result_iterator->reset();
+            }
+
             if(result == 1) {
                 included_ids_set.insert(included_id);
             }
