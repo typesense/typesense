@@ -653,7 +653,7 @@ Option<uint32_t> validator_t::validate_index_in_memory(nlohmann::json& document,
 
         bool is_auto_embedding = a_field.type == field_types::FLOAT_ARRAY && a_field.embed.count(fields::from) > 0;
 
-        if(document.count(field_name) == 0 && !is_auto_embedding) {
+        if(document.count(field_name) == 0 && !is_auto_embedding && a_field.store) {
             return Option<>(400, "Field `" + field_name  + "` has been declared in the schema, "
                                                            "but is not found in the document.");
         }
