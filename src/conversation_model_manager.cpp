@@ -11,14 +11,15 @@ Option<nlohmann::json> ConversationModelManager::get_model(const std::string& mo
     return Option<nlohmann::json>(it->second);
 }
 
-Option<nlohmann::json> ConversationModelManager::add_model(nlohmann::json model) {
+Option<nlohmann::json> ConversationModelManager::add_model(nlohmann::json model, const std::string& model_id) {
     std::unique_lock lock(models_mutex);
     auto validate_res = ConversationModel::validate_model(model);
     if (!validate_res.ok()) {
         return Option<nlohmann::json>(validate_res.code(), validate_res.error());
     }
-    auto model_id = sole::uuid4().str();
-    model["id"] = model_id;
+
+
+    model["id"] = model_id.empty() ? sole::uuid4().str() : model_id;
 
     auto model_key = get_model_key(model_id);
     bool insert_op = store->insert(model_key, model.dump(0));

@@ -11,6 +11,7 @@
 #include "raft_server.h"
 #include "logger.h"
 #include "ratelimit_manager.h"
+#include "sole.hpp"
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
@@ -543,6 +544,10 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     if(rpath->action == "keys:create") {
         // we enrich incoming request with a random API key here so that leader and replicas will use the same key
         request->metadata = StringUtils::randstring(AuthManager::GENERATED_KEY_LEN);
+    }
+
+    if(rpath->action == "conversations/models:create") {
+        request->metadata = sole::uuid4().str();
     }
 
     if(req->proceed_req == nullptr) {
