@@ -5780,11 +5780,11 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
 
-        if(facet_index_type == hash) {
+        if(facet_index_type == exhaustive) {
             facet_infos[findex].use_value_index = false;
         }
         else if(facet_value_index_exists) {
-            if(facet_index_type == value) {
+            if(facet_index_type == top_values) {
                 facet_infos[findex].use_value_index = true;
             } else {
                 // facet_index_type = detect

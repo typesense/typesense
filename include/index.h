@@ -225,9 +225,9 @@ struct search_args {
 };
 
 enum facet_index_type_t {
-    hash,
-    value,
-    detect,
+    exhaustive,
+    top_values,
+    automatic,
 };
 
 struct offsets_facet_hashes_t {

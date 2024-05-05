@@ -2079,7 +2079,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     StringUtils::split(facet_index_type, facet_index_str_types, ",");
     if(facet_index_str_types.empty()) {
         for(size_t i = 0; i < facet_fields.size(); i++) {
-            facet_index_types.push_back(detect);
+            facet_index_types.push_back(automatic);
         }
     } else if(facet_index_str_types.size() == 1) {
         auto match_op = magic_enum::enum_cast<facet_index_type_t>(facet_index_str_types[0]);
