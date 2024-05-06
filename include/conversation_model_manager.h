@@ -17,7 +17,7 @@ class ConversationModelManager
         ConversationModelManager& operator=(const ConversationModelManager&) = delete;
 
         static Option<nlohmann::json> get_model(const std::string& model_id);
-        static Option<nlohmann::json> add_model(nlohmann::json model, const std::string& model_id);
+        static Option<nlohmann::json> add_model(nlohmann::json model, const std::string& model_id = "");
         static Option<nlohmann::json> delete_model(const std::string& model_id);
         static Option<nlohmann::json> update_model(const std::string& model_id, nlohmann::json model);
         static Option<nlohmann::json> get_all_models();
