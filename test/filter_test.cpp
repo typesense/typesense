@@ -1074,3 +1074,80 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
 
     delete filter_tree_root;
 }
+
+TEST_F(FilterTest, NumericFilterIterator) {
+    nlohmann::json schema =
+            R"({
+                "name": "Collection",
+                "fields": [
+                    {"name": "rating", "type": "float"},
+                    {"name": "age", "type": "int32"},
+                    {"name": "years", "type": "int32[]"},
+                    {"name": "timestamps", "type": "int64[]"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll->add(json_line);
+        ASSERT_TRUE(add_op.ok());
+    }
+    infile.close();
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    Option<bool> filter_op = filter::parse_filter_query("age: > 32", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto computed_greater_than_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(computed_greater_than_test.init_status().ok());
+    ASSERT_TRUE(computed_greater_than_test._get_is_filter_result_initialized());
+
+    std::vector<int> expected = {1, 3};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, computed_greater_than_test.validity);
+        ASSERT_EQ(i, computed_greater_than_test.seq_id);
+        computed_greater_than_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, computed_greater_than_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("age: >= 32", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_greater_than_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_greater_than_test.init_status().ok());
+    ASSERT_FALSE(iter_greater_than_test._get_is_filter_result_initialized());
+
+    std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5};
+    std::vector<uint32_t> seq_ids = {1, 3, 3, 4, 4, 4};
+    expected = {0, 1, 0, 1, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_greater_than_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test.validity);
+        }
+        ASSERT_EQ(expected[i], iter_greater_than_test.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_greater_than_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_greater_than_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test.validity);
+
+    delete filter_tree_root;
+
+//    std::vector<bool> equals_iterator_valid = {true, true, false, false, false, false};
+//    ASSERT_EQ(equals_iterator_valid[i], iter_greater_than_test._get_is_equals_iterator_valid());
+//    std::vector<uint32_t> equals_match_seq_ids = {0, 1, 1, 0, 1, 1};
+//    ASSERT_EQ(equals_match_seq_ids[i], iter_greater_than_test._get_equals_iterator_id());
+}
