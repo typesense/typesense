@@ -535,6 +535,7 @@ void filter_result_iterator_t::advance_numeric_filter_iterators() {
         }
     }
 
+    is_equals_iterator_valid = one_is_valid;
     validity = one_is_valid ? valid : invalid;
 }
 
@@ -1604,6 +1605,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
         }
 
         if (!one_is_valid) {
+            is_equals_iterator_valid = false;
             validity = invalid;
             return;
         }
