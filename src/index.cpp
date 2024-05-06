@@ -2215,8 +2215,7 @@ Option<filter_result_t> Index::do_filtering_with_reference_ids(const std::string
 Option<bool> Index::run_search(search_args* search_params, const std::string& collection_name,
                                const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                                bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
-                               bool enable_typos_for_alpha_numerical_tokens,
-                               const std::set<uint32_t>& pinned_ids_to_filter) {
+                               bool enable_typos_for_alpha_numerical_tokens) {
     if(search_params->group_limit != 0) {
         search(search_params->field_query_tokens,
                search_params->search_fields,
@@ -2263,13 +2262,12 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                synonym_prefix,
                synonym_num_typos,
                search_params->enable_lazy_filter,
-               enable_typos_for_alpha_numerical_tokens,
-               pinned_ids_to_filter
+               enable_typos_for_alpha_numerical_tokens
         );
         search_params->topster->set_first_pass_complete();
         search_params->curated_topster->set_first_pass_complete();
-
     }
+
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
                   search_params->match_type,
@@ -2315,8 +2313,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   synonym_prefix,
                   synonym_num_typos,
                   search_params->enable_lazy_filter,
-                  enable_typos_for_alpha_numerical_tokens,
-                  pinned_ids_to_filter
+                  enable_typos_for_alpha_numerical_tokens
     );
     return res;
 }
@@ -2814,8 +2811,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                    bool enable_synonyms, bool synonym_prefix,
                    uint32_t synonym_num_typos,
                    bool enable_lazy_filter,
-                   bool enable_typos_for_alpha_numerical_tokens,
-                   const std::set<uint32_t>& pinned_ids_to_filter) const {
+                   bool enable_typos_for_alpha_numerical_tokens) const {
     std::shared_lock lock(mutex);
 
     auto filter_result_iterator = new filter_result_iterator_t(collection_name, this, filter_tree_root,
@@ -2853,7 +2849,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
     process_curated_ids(included_ids, excluded_ids, group_by_fields, group_limit, 
                         group_missing_values, filter_curated_hits,
                         filter_result_iterator, curated_ids, included_ids_map,
-                        included_ids_vec, excluded_group_ids, pinned_ids_to_filter);
+                        included_ids_vec, excluded_group_ids);
     filter_result_iterator->reset();
     search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
@@ -3878,8 +3874,7 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
                                 std::set<uint32_t>& curated_ids,
                                 std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
                                 std::vector<uint32_t>& included_ids_vec,
-                                std::unordered_set<uint32_t>& excluded_group_ids,
-                                const std::set<uint32_t>& pinned_ids_to_filter) const {
+                                std::unordered_set<uint32_t>& excluded_group_ids) const {
 
     for(const auto& seq_id_pos: included_ids) {
         included_ids_vec.push_back(seq_id_pos.first);
@@ -3894,7 +3889,7 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
 
         for(auto seq_id: included_ids_vec) {
             uint64_t distinct_id = 1;
-            for(auto& kv : group_by_field_it_vec) {
+            for(auto& kv: group_by_field_it_vec) {
                 get_distinct_id(kv.it, seq_id, kv.is_array, group_missing_values, distinct_id);
             }
 
@@ -3905,23 +3900,20 @@ void Index::process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>
     // if `filter_curated_hits` is enabled, we will remove curated hits that don't match filter condition
     std::set<uint32_t> included_ids_set;
 
-    for (const auto &included_id: included_ids_vec) {
-
-        if(filter_result_iterator->validity == filter_result_iterator_t::valid
-           && (filter_curated_hits || pinned_ids_to_filter.count(included_id) != 0)) {
-
+    if(filter_result_iterator->validity == filter_result_iterator_t::valid && filter_curated_hits) {
+        for(const auto& included_id: included_ids_vec) {
             auto result = filter_result_iterator->is_valid(included_id);
 
             if(result == -1) {
-                filter_result_iterator->reset();
+                break;
             }
 
             if(result == 1) {
                 included_ids_set.insert(included_id);
             }
-        } else {
-            included_ids_set.insert(included_id);
         }
+    } else {
+        included_ids_set.insert(included_ids_vec.begin(), included_ids_vec.end());
     }
 
     std::map<size_t, std::vector<uint32_t>> included_ids_grouped;  // pos -> seq_ids

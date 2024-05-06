@@ -992,9 +992,7 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                                 std::vector<const override_t*>& filter_overrides,
                                 bool& filter_curated_hits,
                                 std::string& curated_sort_by,
-                                nlohmann::json& override_metadata,
-                                bool filter_pinned_hits,
-                                std::set<uint32_t>& pinned_ids_to_filter) const {
+                                nlohmann::json& override_metadata) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -1132,10 +1130,6 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                 bool excluded = (excluded_set.count(seq_id) != 0);
                 if(!excluded) {
                     included_ids.emplace_back(seq_id, pos);
-
-                    if(filter_pinned_hits) {
-                        pinned_ids_to_filter.insert(seq_id);
-                    }
                 }
             }
         }
@@ -1729,7 +1723,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t max_extra_prefix,
                                   const size_t max_extra_suffix,
                                   const size_t facet_query_num_typos,
-                                  const size_t filter_curated_hits_option,
+                                  const bool filter_curated_hits_option,
                                   const bool prioritize_token_position,
                                   const std::string& vector_query_str,
                                   const bool enable_highlight_v1,
@@ -1757,8 +1751,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   bool synonym_prefix,
                                   uint32_t synonyms_num_typos,
                                   bool enable_lazy_filter,
-                                  bool enable_typos_for_alpha_numerical_tokens,
-                                  bool filter_pinned_hits) const {
+                                  bool enable_typos_for_alpha_numerical_tokens) const {
     std::shared_lock lock(mutex);
 
     // setup thread local vars
@@ -2229,9 +2222,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     nlohmann::json override_metadata;
     std::vector<const override_t*> filter_overrides;
-    bool filter_curated_hits = false;
     std::string curated_sort_by;
     std::set<std::string> override_tag_set;
+    bool filter_curated_hits_override = false;
 
     std::vector<std::string> override_tags_vec;
     StringUtils::split(override_tags_str, override_tags_vec, ",");
@@ -2239,16 +2232,11 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         override_tag_set.insert(tag);
     }
 
-    std::set<uint32_t> pinned_ids_to_filter;
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
-                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_overrides, filter_curated_hits,
-                   curated_sort_by, override_metadata, filter_pinned_hits, pinned_ids_to_filter);
+                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_overrides, filter_curated_hits_override,
+                   curated_sort_by, override_metadata);
 
-    if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
-        // When query param has explicit value set, override level configuration takes lower precedence.
-        filter_curated_hits = bool(filter_curated_hits_option);
-    }
-
+    auto filter_curated_hits = filter_curated_hits_override || filter_curated_hits_option;
     /*for(auto& kv: included_ids) {
         LOG(INFO) << "key: " << kv.first;
         for(auto val: kv.second) {
@@ -2393,7 +2381,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     auto search_op = index->run_search(search_params, name, facet_index_types,
                                        enable_typos_for_numerical_tokens, enable_synonyms, synonym_prefix,
-                                       synonyms_num_typos, enable_typos_for_alpha_numerical_tokens, pinned_ids_to_filter);
+                                       synonyms_num_typos, enable_typos_for_alpha_numerical_tokens);
 
     // filter_tree_root might be updated in Index::static_filter_query_eval.
     filter_tree_root_guard.release();

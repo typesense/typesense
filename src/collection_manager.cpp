@@ -1505,8 +1505,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *SYNONYM_PREFIX = "synonym_prefix";
     const char *SYNONYM_NUM_TYPOS = "synonym_num_typos";
 
-    const char *FILTER_PINNED_HITS = "filter_pinned_hits";
-
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -1618,7 +1616,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool synonym_prefix = false;
     size_t synonym_num_typos = 0;
 
-    size_t filter_curated_hits_option = 2;
+    bool filter_curated_hits = false;
     std::string highlight_fields;
     bool exhaustive_search = false;
     size_t search_cutoff_ms = 30 * 1000;
@@ -1632,7 +1630,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool enable_typos_for_numerical_tokens = true;
     bool enable_typos_for_alpha_numerical_tokens = true;
     bool enable_lazy_filter = Config::get_instance().get_enable_lazy_filter();
-    bool filter_pinned_hits = false;
 
     std::string facet_index_type;
 
@@ -1672,7 +1669,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {MAX_EXTRA_SUFFIX, &max_extra_suffix},
         {MAX_CANDIDATES, &max_candidates},
         {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
-        {FILTER_CURATED_HITS, &filter_curated_hits_option},
         {FACET_SAMPLE_PERCENT, &facet_sample_percent},
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
@@ -1713,7 +1709,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {SYNONYM_PREFIX, &synonym_prefix},
         {ENABLE_LAZY_FILTER, &enable_lazy_filter},
         {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
-        {FILTER_PINNED_HITS, &filter_pinned_hits},
+        {FILTER_CURATED_HITS, &filter_curated_hits},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1905,7 +1901,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           max_extra_prefix,
                                                           max_extra_suffix,
                                                           facet_query_num_typos,
-                                                          filter_curated_hits_option,
+                                                          filter_curated_hits,
                                                           prioritize_token_position,
                                                           vector_query,
                                                           enable_highlight_v1,
@@ -1933,8 +1929,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           synonym_prefix,
                                                           synonym_num_typos,
                                                           enable_lazy_filter,
-                                                          enable_typos_for_alpha_numerical_tokens,
-                                                          filter_pinned_hits);
+                                                          enable_typos_for_alpha_numerical_tokens);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();

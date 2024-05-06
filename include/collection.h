@@ -209,9 +209,7 @@ private:
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                         std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
                         bool& filter_curated_hits,
-                        std::string& curated_sort_by, nlohmann::json& override_metadata,
-                        bool filter_pinned_hits,
-                        std::set<uint32_t>& pinned_ids_to_filter) const;
+                        std::string& curated_sort_by, nlohmann::json& override_metadata) const;
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
@@ -565,7 +563,7 @@ public:
                                   const size_t max_extra_prefix = INT16_MAX,
                                   const size_t max_extra_suffix = INT16_MAX,
                                   const size_t facet_query_num_typos = 2,
-                                  const size_t filter_curated_hits_option = 2,
+                                  const bool filter_curated_hits = false,
                                   const bool prioritize_token_position = false,
                                   const std::string& vector_query_str = "",
                                   const bool enable_highlight_v1 = true,
@@ -593,8 +591,7 @@ public:
                                   bool synonym_prefix = false,
                                   uint32_t synonym_num_typos = 0,
                                   bool enable_lazy_filter = false,
-                                  bool enable_typos_for_alpha_numerical_tokens = true,
-                                  bool filter_pinned_hits = false) const;
+                                  bool enable_typos_for_alpha_numerical_tokens = true) const;
 
     Option<bool> get_filter_ids(const std::string & filter_query, filter_result_t& filter_result) const;
 

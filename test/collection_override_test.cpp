@@ -375,7 +375,7 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                                       30, 5,
                                       "", 10, {}, {}, {}, 0,
                                       "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                                      4, {off}, 32767, 32767, 2, 1).get();
+                                      4, {off}, 32767, 32767, 2, true).get();
 
     ASSERT_EQ(1, results["hits"].size());
 
@@ -392,7 +392,7 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                                       30, 5,
                                       "", 10, {}, {}, {}, 0,
                                       "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                                      4, {off}, 32767, 32767, 2, 1).get();
+                                      4, {off}, 32767, 32767, 2, true).get();
 
     ASSERT_EQ(1, results["hits"].size());
 
@@ -408,9 +408,9 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                                       30, 5,
                                       "", 10, {}, {}, {}, 0,
                                       "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
-                                      4, {off}, 32767, 32767, 2, 0).get();
+                                      4, {off}, 32767, 32767, 2, false).get();
 
-    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(1, results["hits"].size());
 
 }
 
@@ -4258,7 +4258,7 @@ TEST_F(CollectionOverrideTest, FilterPinnedHits) {
 
     auto pinned_hits = "3:1, 4:2";
 
-    bool filter_pinned_ids = false;
+    bool filter_curated_hits = false;
     auto results = coll3->search("2023", {"title"}, "title: snapdragon", {}, {},
                                  {0}, 50, 1, FREQUENCY,
                                  {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -4270,10 +4270,7 @@ TEST_F(CollectionOverrideTest, FilterPinnedHits) {
                                  true, false, true, "",
                                  false, 6000 * 1000, 4, 7,
                                  fallback, 4, {off}, INT16_MAX,
-                                 INT16_MAX, 2, 2, false, "",
-                                 true, 0, max_score, 100, 0, 0, "hash", 30000, 2, "", {},
-                                 {}, "right_to_left", true, true, false, "", "", "", "", true, true,
-                                 false, 0, false, true, filter_pinned_ids).get();
+                                 INT16_MAX, 2, filter_curated_hits ).get();
 
 
     ASSERT_EQ(5, results["hits"].size());
@@ -4283,7 +4280,7 @@ TEST_F(CollectionOverrideTest, FilterPinnedHits) {
     ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][4]["document"]["id"].get<std::string>());
 
-    filter_pinned_ids = true;
+    filter_curated_hits = true;
     results = coll3->search("2023", {"title"}, "title: snapdragon", {}, {},
                                  {0}, 50, 1, FREQUENCY,
                                  {false}, Index::DROP_TOKENS_THRESHOLD,
@@ -4295,10 +4292,7 @@ TEST_F(CollectionOverrideTest, FilterPinnedHits) {
                                  true, false, true, "",
                                  false, 6000 * 1000, 4, 7,
                                  fallback, 4, {off}, INT16_MAX,
-                                 INT16_MAX, 2, 2, false, "",
-                                 true, 0, max_score, 100, 0, 0, "hash", 30000, 2, "", {},
-                                 {}, "right_to_left", true, true, false, "", "", "", "", true, true,
-                                 false, 0, false, true, filter_pinned_ids).get();
+                                 INT16_MAX, 2, filter_curated_hits).get();
 
 
     ASSERT_EQ(3, results["hits"].size());
@@ -4318,10 +4312,7 @@ TEST_F(CollectionOverrideTest, FilterPinnedHits) {
                             true, false, true, "",
                             false, 6000 * 1000, 4, 7,
                             fallback, 4, {off}, INT16_MAX,
-                            INT16_MAX, 2, 2, false, "",
-                            true, 0, max_score, 100, 0, 0, "hash", 30000, 2, "", {},
-                            {}, "right_to_left", true, true, false, "", "", "", "", true, true,
-                            false, 0, false, true, filter_pinned_ids).get();
+                            INT16_MAX, 2, filter_curated_hits).get();
 
 
     ASSERT_EQ(4, results["hits"].size());
