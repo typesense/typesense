@@ -563,7 +563,7 @@ public:
                                   const size_t max_extra_prefix = INT16_MAX,
                                   const size_t max_extra_suffix = INT16_MAX,
                                   const size_t facet_query_num_typos = 2,
-                                  const size_t filter_curated_hits_option = 2,
+                                  const bool filter_curated_hits_option = false,
                                   const bool prioritize_token_position = false,
                                   const std::string& vector_query_str = "",
                                   const bool enable_highlight_v1 = true,

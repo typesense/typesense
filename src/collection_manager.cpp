@@ -1616,7 +1616,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool synonym_prefix = false;
     size_t synonym_num_typos = 0;
 
-    size_t filter_curated_hits_option = 2;
+    bool filter_curated_hits_option = false;
     std::string highlight_fields;
     bool exhaustive_search = false;
     size_t search_cutoff_ms = 30 * 1000;
@@ -1669,7 +1669,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {MAX_EXTRA_SUFFIX, &max_extra_suffix},
         {MAX_CANDIDATES, &max_candidates},
         {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
-        {FILTER_CURATED_HITS, &filter_curated_hits_option},
         {FACET_SAMPLE_PERCENT, &facet_sample_percent},
         {FACET_SAMPLE_THRESHOLD, &facet_sample_threshold},
         {REMOTE_EMBEDDING_TIMEOUT_MS, &remote_embedding_timeout_ms},
@@ -1710,6 +1709,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {SYNONYM_PREFIX, &synonym_prefix},
         {ENABLE_LAZY_FILTER, &enable_lazy_filter},
         {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
+        {FILTER_CURATED_HITS, &filter_curated_hits_option},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
