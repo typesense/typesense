@@ -336,8 +336,12 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
                                      &referenced_ins, collection_name]() {
 
             //auto begin = std::chrono::high_resolution_clock::now();
+            // Avoid modifying referenced_ins since it is shared with other threads.
+            const auto& referenced_in = referenced_ins.contains(collection_name) ?
+                referenced_ins[collection_name]
+                : spp::sparse_hash_map<std::string, std::string>();
             Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit,
-                                               referenced_ins[collection_name]);
+                                               referenced_in);
             /*long long int timeMillis =
                     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
             LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
