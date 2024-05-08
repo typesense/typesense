@@ -462,16 +462,18 @@ void filter_result_iterator_t::advance_numeric_filter_iterators() {
         }
 
         auto& its = id_list_iterators[i];
+        // Iterators get ORed, so we only advance the iterator that is at seq_id.
         switch (its.size()) {
             case 0:
                 continue;
 
             case 1:
                 if (!its[0].valid()) {
+                    its.clear();
                     continue;
                 }
 
-                if (its[0].id() <= seq_id) {
+                if (its[0].id() == seq_id) {
                     its[0].next();
                 }
 
@@ -483,13 +485,14 @@ void filter_result_iterator_t::advance_numeric_filter_iterators() {
 
             case 2:
                 if (!its[0].valid() && !its[1].valid()) {
+                    its.clear();
                     continue;
                 }
 
-                if (its[0].valid() && its[0].id() <= seq_id) {
+                if (its[0].valid() && its[0].id() == seq_id) {
                     its[0].next();
                 }
-                if (its[1].valid() && its[1].id() <= seq_id) {
+                if (its[1].valid() && its[1].id() == seq_id) {
                     its[1].next();
                 }
 
@@ -515,7 +518,7 @@ void filter_result_iterator_t::advance_numeric_filter_iterators() {
                         continue;
                     }
 
-                    if (it->id() <= seq_id) {
+                    if (it->id() == seq_id) {
                         it->next();
                     }
 
@@ -545,14 +548,14 @@ void filter_result_iterator_t::get_numeric_filter_match(const bool init) {
         // Initialize seq_ids and get the first match.
         auto one_is_valid = false;
         for (uint32_t i = 0; i < id_list_iterators.size(); i++) {
-            auto& its = id_list_iterators[i];
-
             if (numerical_not_iterator_index.count(i) > 0) {
                 seq_ids[i] = 0;
                 one_is_valid = true;
                 continue;
             }
 
+            // Iterators get ORed, so the lowest id is the match.
+            auto& its = id_list_iterators[i];
             switch (its.size()) {
                 case 0:
                     continue;
@@ -561,6 +564,8 @@ void filter_result_iterator_t::get_numeric_filter_match(const bool init) {
                     if (its[0].valid()) {
                         seq_ids[i] = its[0].id();
                         one_is_valid = true;
+                    } else {
+                        its.clear();
                     }
                     continue;
 
@@ -574,6 +579,8 @@ void filter_result_iterator_t::get_numeric_filter_match(const bool init) {
                     } else if (its[1].valid()) {
                         seq_ids[i] = its[1].id();
                         one_is_valid = true;
+                    } else {
+                        its.clear();
                     }
                     continue;
 
@@ -604,6 +611,7 @@ void filter_result_iterator_t::get_numeric_filter_match(const bool init) {
         }
     }
 
+    // Multiple filter values get ORed, so the lowest id is the match.
     auto one_is_valid = false;
     auto lowest_id = UINT32_MAX;
     for (const auto& id: seq_ids) {
@@ -916,9 +924,20 @@ void filter_result_iterator_t::init() {
                 }
             }
 
+            if (a_filter.apply_not_equals) {
+                apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                 filter_result.docs, filter_result.count);
+            }
+
+            if (filter_result.count == 0) {
+                validity = invalid;
+                return;
+            }
+
             seq_id = filter_result.docs[result_index];
             is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
+            return;
         } else {
             auto const& filter_values_count = a_filter.values.size();
 
@@ -1539,6 +1558,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
                 case 1:
                     if (!its[0].valid()) {
+                        its.clear();
                         continue;
                     }
                     if (its[0].id() >= id) {
@@ -1555,6 +1575,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
                 case 2:
                     if (!its[0].valid() && !its[1].valid()) {
+                        its.clear();
                         continue;
                     }
 

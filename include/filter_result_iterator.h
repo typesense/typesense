@@ -272,6 +272,8 @@ private:
     std::vector<std::vector<id_list_t*>> id_lists;
     std::vector<std::vector<id_list_t::iterator_t>> id_list_iterators;
     std::vector<id_list_t*> expanded_id_lists;
+
+    /// Stores the the current seq_id of filter values.
     std::vector<uint32_t> seq_ids;
 
     /// Numerical filters can have `!` operator individually.
