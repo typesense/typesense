@@ -1723,7 +1723,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                   const size_t max_extra_prefix,
                                   const size_t max_extra_suffix,
                                   const size_t facet_query_num_typos,
-                                  const size_t filter_curated_hits_option,
+                                  const bool filter_curated_hits_option,
                                   const bool prioritize_token_position,
                                   const std::string& vector_query_str,
                                   const bool enable_highlight_v1,
@@ -2222,7 +2222,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     nlohmann::json override_metadata;
     std::vector<const override_t*> filter_overrides;
-    bool filter_curated_hits = false;
     std::string curated_sort_by;
     std::set<std::string> override_tag_set;
 
@@ -2232,14 +2231,13 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         override_tag_set.insert(tag);
     }
 
+    bool filter_curated_hits_overrides = false;
+
     curate_results(query, filter_query, enable_overrides, pre_segmented_query, override_tag_set,
-                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_overrides, filter_curated_hits,
+                   pinned_hits, hidden_hits, included_ids, excluded_ids, filter_overrides, filter_curated_hits_overrides,
                    curated_sort_by, override_metadata);
 
-    if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
-        // When query param has explicit value set, override level configuration takes lower precedence.
-        filter_curated_hits = bool(filter_curated_hits_option);
-    }
+    bool filter_curated_hits = filter_curated_hits_option || filter_curated_hits_overrides;
 
     /*for(auto& kv: included_ids) {
         LOG(INFO) << "key: " << kv.first;
