@@ -1565,7 +1565,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 }
 
 void Index::aggregate_topster(Topster* agg_topster, Topster* index_topster) {
-    if(index_topster->distinct && index_topster->is_first_pass_completed) {
+    if(index_topster->distinct) {
         for(auto &group_topster_entry: index_topster->group_kv_map) {
             Topster* group_topster = group_topster_entry.second;
             for(const auto& map_kv: group_topster->kv_map) {
@@ -2215,59 +2215,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                                const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                                bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
                                bool enable_typos_for_alpha_numerical_tokens) {
-    if(search_params->group_limit != 0) {
-        search(search_params->field_query_tokens,
-               search_params->search_fields,
-               search_params->match_type,
-               search_params->filter_tree_root, search_params->facets, search_params->facet_query,
-               search_params->max_facet_values,
-               search_params->included_ids, search_params->excluded_ids,
-               search_params->sort_fields_std, search_params->num_typos,
-               search_params->topster, search_params->curated_topster,
-               search_params->per_page, search_params->offset, search_params->token_order,
-               search_params->prefixes, search_params->drop_tokens_threshold,
-               search_params->all_result_ids_len, search_params->groups_processed,
-               search_params->searched_queries,
-               search_params->qtoken_set,
-               search_params->raw_result_kvs, search_params->override_result_kvs,
-               search_params->typo_tokens_threshold,
-               search_params->group_limit,
-               search_params->group_by_fields,
-               search_params->group_missing_values,
-               search_params->default_sorting_field,
-               search_params->prioritize_exact_match,
-               search_params->prioritize_token_position,
-               search_params->prioritize_num_matching_fields,
-               search_params->exhaustive_search,
-               search_params->concurrency,
-               search_params->search_cutoff_ms,
-               search_params->min_len_1typo,
-               search_params->min_len_2typo,
-               search_params->max_candidates,
-               search_params->infixes,
-               search_params->max_extra_prefix,
-               search_params->max_extra_suffix,
-               search_params->facet_query_num_typos,
-               search_params->filter_curated_hits,
-               search_params->split_join_tokens,
-               search_params->vector_query,
-               search_params->facet_sample_percent,
-               search_params->facet_sample_threshold,
-               collection_name,
-               search_params->drop_tokens_mode,
-               facet_index_types,
-               enable_typos_for_numerical_tokens,
-               enable_synonyms,
-               synonym_prefix,
-               synonym_num_typos,
-               search_params->enable_lazy_filter,
-               enable_typos_for_alpha_numerical_tokens
-        );
-        search_params->topster->set_first_pass_complete();
-        search_params->curated_topster->set_first_pass_complete();
-
-    }
-    auto res = search(search_params->field_query_tokens,
+    return search(search_params->field_query_tokens,
                   search_params->search_fields,
                   search_params->match_type,
                   search_params->filter_tree_root, search_params->facets, search_params->facet_query,
@@ -2314,7 +2262,6 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                   search_params->enable_lazy_filter,
                   enable_typos_for_alpha_numerical_tokens
     );
-    return res;
 }
 
 void Index::collate_included_ids(const std::vector<token_t>& q_included_tokens,
@@ -6032,8 +5979,7 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
 
         searched_queries.push_back({});
 
-        topsters[thread_id] = new Topster(topster->MAX_SIZE, topster->distinct, topster->is_first_pass_completed);
-        topsters[thread_id]->kv_map = topster->kv_map;
+        topsters[thread_id] = new Topster(topster->MAX_SIZE, topster->distinct);
         auto& compute_sort_score_status = compute_sort_score_statuses[thread_id] = nullptr;
 
         thread_pool->enqueue([this, &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff,
