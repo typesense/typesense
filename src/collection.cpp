@@ -154,9 +154,57 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
 
         auto const reference_helper_field = field_name + fields::REFERENCE_HELPER_FIELD_SUFFIX;
 
+        bool is_object_reference_field = flat_fields.count(field_name) != 0;
+        std::string object_key;
+        bool is_object_array = false;
+        if (is_object_reference_field) {
+            object_reference_helper_fields.insert(reference_helper_field);
+
+            std::vector<std::string> tokens;
+            StringUtils::split(field_name, tokens, ".");
+            if (schema.count(tokens[0]) == 0) {
+                return Option<bool>(400, "Could not find `" + tokens[0] + "` object/object[] field in the schema.");
+            }
+            object_key = tokens[0];
+            is_object_array = schema.at(object_key).is_array();
+        }
+
         if (reference_field_name == "id") {
             auto id_field_type_error_op =  Option<bool>(400, "Field `" + field_name + "` must have string value.");
-            if (document[field_name].is_array()) {
+            if (is_object_array) {
+                if (!document[field_name].is_array()) {
+                    return Option<bool>(400, "Expected `" + field_name + "` to be an array.");
+                }
+
+                document[reference_helper_field] = nlohmann::json::array();
+                document[fields::reference_helper_fields] += reference_helper_field;
+
+                std::vector<std::string> keys;
+                StringUtils::split(field_name, keys, ".");
+                auto const& object_array = document[keys[0]];
+
+                for (uint32_t i = 0; i < object_array.size(); i++) {
+                    if (optional && object_array[i].count(keys[1]) == 0) {
+                        continue;
+                    } else if (object_array[i].count(keys[1]) == 0) {
+                        return Option<bool>(400, "Object at index `" + std::to_string(i) + "` is missing `" + field_name + "`.");
+                    } else if (!object_array[i].at(keys[1]).is_string()) {
+                        return id_field_type_error_op;
+                    }
+
+                    auto id = object_array[i].at(keys[1]).get<std::string>();
+                    auto ref_doc_id_op = ref_collection->doc_id_to_seq_id_with_lock(id);
+                    if (!ref_doc_id_op.ok()) {
+                        return Option<bool>(400, "Referenced document having `id: " + id +
+                                                 "` not found in the collection `" +
+                                                 reference_collection_name + "`." );
+                    }
+
+                    // Adding the index of the object along with referenced doc id to account for the scenario where a
+                    // reference field of an object array might be optional and missing.
+                    document[reference_helper_field] += nlohmann::json::array({i, ref_doc_id_op.get()});
+                }
+            } else if (document[field_name].is_array()) {
                 document[reference_helper_field] = nlohmann::json::array();
                 document[fields::reference_helper_fields] += reference_helper_field;
 
@@ -219,22 +267,7 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
                                 "` of type `" + ref_field.type + "`.");
         }
 
-        bool is_object_reference_field = flat_fields.count(field_name) != 0;
-        std::string object_key;
-        bool is_object_array;
-        if (is_object_reference_field) {
-            object_reference_helper_fields.insert(reference_helper_field);
-
-            std::vector<std::string> tokens;
-            StringUtils::split(field_name, tokens, ".");
-            if (schema.count(tokens[0]) == 0) {
-                return Option<bool>(400, "Could not find `" + tokens[0] + "` object/object[] field in the schema.");
-            }
-            object_key = tokens[0];
-            is_object_array = schema.at(object_key).is_array();
-        }
-
-        if (is_object_reference_field && is_object_array) {
+        if (is_object_array) {
             if (!document[field_name].is_array()) {
                 return Option<bool>(400, "Expected `" + field_name + "` to be an array.");
             }

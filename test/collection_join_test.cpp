@@ -3803,6 +3803,89 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
 
     schema_json =
             R"({
+                "name": "coll3",
+                "fields": [
+                    {"name": "coll_id", "type": "string"},
+                    {"name": "object.reference_array", "type": "string[]", "reference": "Products.id", "optional": true},
+                    {"name": "object", "type": "object"}
+                ],
+                "enable_nested_fields": true
+            })"_json;
+    documents = {
+            R"({
+                "coll_id": "a",
+                "object": {}
+            })"_json,
+            R"({
+                "coll_id": "b",
+                "object": {
+                    "reference_array": ["0", "1"]
+                }
+            })"_json
+    };
+
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "coll3"},
+            {"q", "*"},
+            {"include_fields", "$Products(product_id)"}
+    };
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(3, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("b", res_obj["hits"][0]["document"]["coll_id"]);
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["object"].size());
+    ASSERT_EQ("0", res_obj["hits"][0]["document"]["object"]["reference_array"][0]);
+    ASSERT_EQ("1", res_obj["hits"][0]["document"]["object"]["reference_array"][1]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"].count("Products"));
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["object"]["Products"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"]["Products"][0].count("product_id"));
+    ASSERT_EQ("product_a", res_obj["hits"][0]["document"]["object"]["Products"][0]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["object"]["Products"][1].count("product_id"));
+    ASSERT_EQ("product_b", res_obj["hits"][0]["document"]["object"]["Products"][1]["product_id"]);
+    ASSERT_EQ(3, res_obj["hits"][1]["document"].size());
+    ASSERT_EQ("a", res_obj["hits"][1]["document"]["coll_id"]);
+    ASSERT_EQ(0, res_obj["hits"][1]["document"]["object"].size());
+
+    req_params = {
+            {"collection", "Products"},
+            {"q", "*"},
+            {"filter_by", "$coll3(id: *)"},
+            {"include_fields", "$coll3(coll_id)"}
+    };
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(5, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ("product_b", res_obj["hits"][0]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("coll3"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["coll3"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["coll3"][0].count("coll_id"));
+    ASSERT_EQ("b", res_obj["hits"][0]["document"]["coll3"][0]["coll_id"]);
+    ASSERT_EQ("product_a", res_obj["hits"][1]["document"]["product_id"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("coll3"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["coll3"].size());
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["coll3"][0].count("coll_id"));
+    ASSERT_EQ("b", res_obj["hits"][1]["document"]["coll3"][0]["coll_id"]);
+
+    schema_json =
+            R"({
                 "name": "Portions",
                 "fields": [
                     {"name": "portion_id", "type": "string"},
