@@ -204,6 +204,9 @@ bool del_conversation(const std::shared_ptr<http_req>& req, const std::shared_pt
 
 bool put_conversation(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool post_activate_conversation_store(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool post_deactivate_conversation_store(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 

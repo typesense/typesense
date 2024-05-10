@@ -31,7 +31,32 @@ protected:
         collectionManager.load(8, 1000);
 
         ConversationModelManager::init(store);
-        ConversationManager::get_instance().init(store);
+        nlohmann::json schema_json = R"({
+            "name": "conversation_store",
+            "fields": [
+                {
+                    "name": "conversation_id",
+                    "type": "string",
+                    "facet": true
+                },
+                {
+                    "name": "role",
+                    "type": "string"
+                },
+                {
+                    "name": "message",
+                    "type": "string"
+                },
+                {
+                    "name": "timestamp",
+                    "type": "int32",
+                    "sort": true
+                }
+            ]
+        })"_json;
+
+        collectionManager.create_collection(schema_json);
+        ConversationManager::get_instance().activate_conversation_store("conversation_store");
     }
 
     virtual void SetUp() {

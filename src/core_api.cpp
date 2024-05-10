@@ -866,43 +866,26 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
 
-        if(conversation_history) {
-            std::string conversation_id = orig_req_params["conversation_id"];
-            ConversationManager::get_instance().append_conversation(conversation_id, formatted_question_op.get());
-            ConversationManager::get_instance().append_conversation(conversation_id, formatted_answer_op.get());
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
-            if(!get_conversation_op.ok()) {
-                res->set_400(get_conversation_op.error());
-                return false;
-            }
+        nlohmann::json conversation_history = nlohmann::json::array();
+        conversation_history.push_back(formatted_question_op.get());
+        conversation_history.push_back(formatted_answer_op.get());
+        std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
 
-            auto conversation_history = get_conversation_op.get();
-            if(!exclude_conversation_history) {
-                response["conversation"]["conversation_history"] = conversation_history;
-            } else {
-                response["conversation"]["conversation_id"] = conversation_id;
-            }
-        } else {
-            nlohmann::json conversation_history = nlohmann::json::array();
-            conversation_history.push_back(formatted_question_op.get());
-            conversation_history.push_back(formatted_answer_op.get());
-
-            auto create_conversation_op = ConversationManager::get_instance().create_conversation(conversation_history);
-            if(!create_conversation_op.ok()) {
-                res->set_400(create_conversation_op.error());
-                return false;
-            }
-
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(create_conversation_op.get());
-            if(!get_conversation_op.ok()) {
-                res->set_400(get_conversation_op.error());
-                return false;
-            }
-            if(!exclude_conversation_history) {
-                response["conversation"]["conversation_history"] = get_conversation_op.get();
-            }
-            response["conversation"]["conversation_id"] = create_conversation_op.get();
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_id);
+        if(!add_conversation_op.ok()) {
+            res->set_400(add_conversation_op.error());
+            return false;
         }
+
+        auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
+        if(!get_conversation_op.ok()) {
+            res->set_400(get_conversation_op.error());
+            return false;
+        }
+        if(!exclude_conversation_history) {
+            response["conversation"]["conversation_history"] = get_conversation_op.get();
+        }
+        response["conversation"]["conversation_id"] = add_conversation_op.get();
 
     }
 
@@ -2978,5 +2961,45 @@ bool put_conversation_model(const std::shared_ptr<http_req>& req, const std::sha
     Collection::hide_credential(model, "api_key");
 
     res->set_200(model.dump());
+    return true;
+}
+
+bool post_activate_conversation_store(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    if(!req_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    auto activate_op = ConversationManager::get_instance().activate_conversation_store(req_json["collection"].get<std::string>());
+
+    if(!activate_op.ok()) {
+        res->set(activate_op.code(), activate_op.error());
+        return false;
+    }
+
+    res->set_200(activate_op.get().dump());
+    return true;
+}
+
+bool post_deactivate_conversation_store(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    
+    auto deactivate_op = ConversationManager::get_instance().deactivate_conversation_store();
+
+    if(!deactivate_op.ok()) {
+        res->set(deactivate_op.code(), deactivate_op.error());
+        return false;
+    }
+
+    res->set_200("OK");
     return true;
 }

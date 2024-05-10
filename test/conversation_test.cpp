@@ -4,11 +4,43 @@
 
 class ConversationTest : public ::testing::Test {
     protected:
+        CollectionManager & collectionManager = CollectionManager::get_instance();
+        Store* store;
+        std::atomic<bool> quit = false;
         void SetUp() override {
             std::string state_dir_path = "/tmp/typesense_test/conversation_test";
             system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+
             store = new Store(state_dir_path);
-            ConversationManager::get_instance().init(store);
+            collectionManager.init(store, 1.0, "auth_key", quit);
+            collectionManager.load(8, 1000);
+
+            nlohmann::json schema_json = R"({
+                "name": "conversation_store",
+                "fields": [
+                    {
+                        "name": "conversation_id",
+                        "type": "string",
+                        "facet": true
+                    },
+                    {
+                        "name": "role",
+                        "type": "string"
+                    },
+                    {
+                        "name": "message",
+                        "type": "string"
+                    },
+                    {
+                        "name": "timestamp",
+                        "type": "int32",
+                        "sort": true
+                    }
+                ]
+            })"_json;
+
+            collectionManager.create_collection(schema_json);
+            ConversationManager::get_instance().activate_conversation_store("conversation_store");
         }
 
         void TearDown() override {
@@ -16,22 +48,22 @@ class ConversationTest : public ::testing::Test {
             for (auto& conversation : conversations.get()) {
                 ConversationManager::get_instance().delete_conversation(conversation["id"]);
             }
+            collectionManager.dispose();
             delete store;
         }
-
-        Store* store;
 };
 
 
 TEST_F(ConversationTest, CreateConversation) {
     nlohmann::json conversation = nlohmann::json::array();
-    auto create_res = ConversationManager::get_instance().create_conversation(conversation);
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation);
+    LOG(INFO) << create_res.error();
     ASSERT_TRUE(create_res.ok());
 }
 
 TEST_F(ConversationTest, CreateConversationInvalidType) {
     nlohmann::json conversation = nlohmann::json::object();
-    auto create_res = ConversationManager::get_instance().create_conversation(conversation);
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation);
     ASSERT_FALSE(create_res.ok());
     ASSERT_EQ(create_res.code(), 400);
     ASSERT_EQ(create_res.error(), "Conversation is not an array");
@@ -49,14 +81,14 @@ TEST_F(ConversationTest, AppendConversation) {
     nlohmann::json message = nlohmann::json::object();
     message["user"] = "Hello";
     conversation.push_back(message);
-    auto create_res = ConversationManager::get_instance().create_conversation(conversation);
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation);
 
     ASSERT_TRUE(create_res.ok());
     std::string conversation_id = create_res.get();
 
-    auto append_res = ConversationManager::get_instance().append_conversation(conversation_id, message);
+    auto append_res = ConversationManager::get_instance().add_conversation(conversation, conversation_id);
     ASSERT_TRUE(append_res.ok());
-    ASSERT_EQ(append_res.get(), true);
+    ASSERT_EQ(append_res.get(), conversation_id);
     
     auto get_res = ConversationManager::get_instance().get_conversation(conversation_id);
 
@@ -73,32 +105,36 @@ TEST_F(ConversationTest, AppendInvalidConversation) {
     nlohmann::json conversation = nlohmann::json::array();
     nlohmann::json message = nlohmann::json::object();
     message["user"] = "Hello";
-    auto create_res = ConversationManager::get_instance().create_conversation(conversation);
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation);
 
     ASSERT_TRUE(create_res.ok());
     std::string conversation_id = create_res.get();
 
     message = "invalid";
 
-    auto append_res = ConversationManager::get_instance().append_conversation(conversation_id, message);
+    auto append_res = ConversationManager::get_instance().add_conversation(message, conversation_id);
     ASSERT_FALSE(append_res.ok());
     ASSERT_EQ(append_res.code(), 400);
-    ASSERT_EQ(append_res.error(), "Message is not an object or array");
+    ASSERT_EQ(append_res.error(), "Conversation is not an array");
 }
 
 TEST_F(ConversationTest, DeleteConversation) {
     nlohmann::json conversation = nlohmann::json::array();
-    auto create_res = ConversationManager::get_instance().create_conversation(conversation);
+    nlohmann::json message = nlohmann::json::object();
+    message["user"] = "Hello";
+    conversation.push_back(message);
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation);
     ASSERT_TRUE(create_res.ok());
     std::string conversation_id = create_res.get();
+    LOG(INFO) << conversation_id;
 
     auto delete_res = ConversationManager::get_instance().delete_conversation(conversation_id);
+    LOG(INFO) << delete_res.error();
     ASSERT_TRUE(delete_res.ok());
 
     auto delete_res_json = delete_res.get();
 
     ASSERT_EQ(delete_res_json["id"], conversation_id);
-    ASSERT_TRUE(delete_res_json["conversation"].is_array());
 
     auto get_res = ConversationManager::get_instance().get_conversation(conversation_id);
     ASSERT_FALSE(get_res.ok());
@@ -155,7 +191,7 @@ TEST_F(ConversationTest, TestConversationExpire) {
     nlohmann::json message = nlohmann::json::object();
     message["user"] = "Hello";
     conversation.push_back(message);
-    auto create_res = ConversationManager::get_instance().create_conversation(conversation);
+    auto create_res = ConversationManager::get_instance().add_conversation(conversation);
 
     ASSERT_TRUE(create_res.ok());
     std::string conversation_id = create_res.get();
