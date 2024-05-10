@@ -691,7 +691,7 @@ void filter_result_iterator_t::next() {
         return;
     }
 
-    if (f.is_integer()) {
+    if (f.is_integer() || f.is_float()) {
         advance_numeric_filter_iterators();
         get_numeric_filter_match();
         return;
@@ -937,7 +937,6 @@ void filter_result_iterator_t::init() {
             seq_id = filter_result.docs[result_index];
             is_filter_result_initialized = true;
             approx_filter_ids_length = filter_result.count;
-            return;
         } else {
             auto const& filter_values_count = a_filter.values.size();
 
@@ -1050,45 +1049,97 @@ void filter_result_iterator_t::init() {
                                            filter_result.docs, filter_result.count);
                 }
             }
-        } else {
-            auto num_tree = index->numerical_index.at(a_filter.field_name);
 
-            for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+            if (a_filter.apply_not_equals) {
+                apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                 filter_result.docs, filter_result.count);
+            }
+
+            if (filter_result.count == 0) {
+                validity = invalid;
+                return;
+            }
+
+            seq_id = filter_result.docs[result_index];
+            is_filter_result_initialized = true;
+            approx_filter_ids_length = filter_result.count;
+        } else {
+            auto const& filter_values_count = a_filter.values.size();
+
+            auto num_tree = index->numerical_index.at(a_filter.field_name);
+            size_t i = 0;
+            for (size_t fi = 0; fi < filter_values_count; fi++, i++) {
                 const std::string& filter_value = a_filter.values[fi];
                 float value = (float)std::atof(filter_value.c_str());
                 int64_t float_int64 = Index::float_to_int64_t(value);
+                auto const& comparator = a_filter.comparators[fi];
 
-                size_t result_size = filter_result.count;
-                if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
-                    const std::string& next_filter_value = a_filter.values[fi+1];
-                    int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
-                    num_tree->range_inclusive_search(float_int64, range_end_value, &filter_result.docs, result_size);
-                    fi++;
-                } else if (a_filter.comparators[fi] == NOT_EQUALS) {
-                    numeric_not_equals_filter(num_tree, float_int64,
-                                              index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                                              filter_result.docs, result_size);
-                } else {
-                    num_tree->search(a_filter.comparators[fi], float_int64, &filter_result.docs, result_size);
+                if (comparator == NOT_EQUALS) {
+                    numerical_not_iterator_index.emplace(i);
                 }
 
-                filter_result.count = result_size;
+                std::vector<void*> raw_id_lists;
+                if (comparator == RANGE_INCLUSIVE && fi+1 < filter_values_count) {
+                    const std::string& next_filter_value = a_filter.values[fi + 1];
+                    int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
+
+                    raw_id_lists = num_tree->search(comparator, float_int64, range_end_value);
+                    fi++;
+                } else {
+                    raw_id_lists = num_tree->search(comparator, float_int64);
+                }
+
+                std::vector<id_list_t*> lists;
+                ids_t::to_expanded_id_lists(raw_id_lists, lists, expanded_id_lists);
+
+                std::vector<id_list_t::iterator_t> iters;
+                for (const auto& id_list: lists) {
+                    iters.emplace_back(id_list->new_iterator());
+
+                    if (comparator == NOT_EQUALS) {
+                        auto const& filter_ids_length = id_list->num_ids();
+                        auto const& num_ids = index->seq_ids->num_ids();
+
+                        approx_filter_ids_length += (num_ids - filter_ids_length);
+                    } else {
+                        approx_filter_ids_length += id_list->num_ids();
+                    }
+                }
+
+                id_lists.emplace_back(std::move(lists));
+                id_list_iterators.emplace_back(std::move(iters));
             }
+
+            seq_ids = std::vector<uint32_t>(id_lists.size(), UINT32_MAX);
+
+            if (a_filter.values.size() > 10) {
+                compute_iterators();
+                return;
+            }
+
+            if (a_filter.apply_not_equals) {
+                auto const& num_ids = index->seq_ids->num_ids();
+                approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+
+                if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                    // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
+                    compute_iterators();
+                    return;
+                } else {
+                    is_not_equals_iterator = true;
+                }
+            } else if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                compute_iterators();
+                return;
+            }
+
+            get_numeric_filter_match(true);
+            if (is_not_equals_iterator) {
+                seq_id = 0;
+            }
+            last_valid_id = index->seq_ids->last_id();
         }
 
-        if (a_filter.apply_not_equals) {
-            apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                             filter_result.docs, filter_result.count);
-        }
-
-        if (filter_result.count == 0) {
-            validity = invalid;
-            return;
-        }
-
-        seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
-        approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_bool()) {
         if (f.range_index) {
@@ -1519,7 +1570,7 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_integer()) {
+    if (f.is_integer() || f.is_float()) {
         // Skip all the iterators and find a new match.
         auto one_is_valid = false;
         for (uint32_t i = 0; i < id_list_iterators.size(); i++) {
@@ -1925,7 +1976,7 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_integer()) {
+    if (f.is_integer() || f.is_float()) {
         for (uint32_t i = 0; i < id_lists.size(); i++) {
             auto const& lists = id_lists[i];
 
@@ -2365,7 +2416,7 @@ void filter_result_iterator_t::compute_iterators() {
     const filter a_filter = filter_node->filter_exp;
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_integer()) {
+    if (f.is_integer() || f.is_float()) {
         uint32_t* filter_ids = nullptr;
         size_t filter_ids_len = 0;
 
