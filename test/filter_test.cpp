@@ -1074,3 +1074,242 @@ TEST_F(FilterTest, NotEqualsStringFilter) {
 
     delete filter_tree_root;
 }
+
+TEST_F(FilterTest, NumericFilterIterator) {
+    nlohmann::json schema =
+            R"({
+                "name": "Collection",
+                "fields": [
+                    {"name": "rating", "type": "float"},
+                    {"name": "age", "type": "int32"},
+                    {"name": "years", "type": "int32[]"},
+                    {"name": "timestamps", "type": "int64[]"}
+                ]
+            })"_json;
+
+    Collection* coll = collectionManager.create_collection(schema).get();
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll->add(json_line);
+        ASSERT_TRUE(add_op.ok());
+    }
+    infile.close();
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    Option<bool> filter_op = filter::parse_filter_query("age: > 32", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto computed_greater_than_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(computed_greater_than_test.init_status().ok());
+    ASSERT_TRUE(computed_greater_than_test._get_is_filter_result_initialized());
+
+    std::vector<int> expected = {1, 3};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, computed_greater_than_test.validity);
+        ASSERT_EQ(i, computed_greater_than_test.seq_id);
+        computed_greater_than_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, computed_greater_than_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("age: >= 32", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_greater_than_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_greater_than_test.init_status().ok());
+    ASSERT_FALSE(iter_greater_than_test._get_is_filter_result_initialized());
+
+    std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5};
+    std::vector<uint32_t> seq_ids = {1, 3, 3, 4, 4, 4};
+    expected = {0, 1, 0, 1, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_greater_than_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test.validity);
+        }
+        ASSERT_EQ(expected[i], iter_greater_than_test.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_greater_than_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_greater_than_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test.validity);
+
+    iter_greater_than_test.reset();
+    validate_ids = {0, 1, 3, 5};
+    seq_ids = {1, 3, 4, 4};
+    expected = {0, 1, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_greater_than_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test.validity);
+        }
+        ASSERT_EQ(expected[i], iter_greater_than_test.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_greater_than_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_greater_than_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("age: != 21", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_not_equals_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_not_equals_test.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_test._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 4, 5, 5};
+    expected = {1, 1, 0, 1, 1, -1};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test.validity);
+        ASSERT_EQ(expected[i], iter_not_equals_test.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_not_equals_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_equals_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("age: != [21]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_not_equals_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_not_equals_test_2.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_test_2._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 4, 5, 5};
+    expected = {1, 1, 0, 1, 1, -1};
+    std::vector<bool> equals_iterator_valid = {true, true, true, false, false, false};
+    std::vector<uint32_t> equals_match_seq_ids = {2, 2, 2, 2, 2, 2};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test_2.validity);
+        ASSERT_EQ(expected[i], iter_not_equals_test_2.is_valid(validate_ids[i]));
+
+        ASSERT_EQ(equals_iterator_valid[i], iter_not_equals_test_2._get_is_equals_iterator_valid());
+        ASSERT_EQ(equals_match_seq_ids[i], iter_not_equals_test_2._get_equals_iterator_id());
+
+        if (expected[i] == 1) {
+            iter_not_equals_test_2.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_equals_test_2.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_2.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("age: [<=21, >32]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_multivalue_filter = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_multivalue_filter.init_status().ok());
+    ASSERT_FALSE(iter_multivalue_filter._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 3, 3, 3};
+    expected = {0, 1, 1, 1, -1, -1};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 4) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter.validity);
+        }
+        ASSERT_EQ(expected[i], iter_multivalue_filter.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_multivalue_filter.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_multivalue_filter.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("age: != [<24, >44]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_multivalue_filter_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_multivalue_filter_2.init_status().ok());
+    ASSERT_FALSE(iter_multivalue_filter_2._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 4, 5, 5};
+    expected = {1, 1, 0, 0, 1, -1};
+    equals_iterator_valid = {true, true, true, true, false, false};
+    equals_match_seq_ids = {2, 2, 2, 3, 3, 3};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_2.validity);
+        ASSERT_EQ(expected[i], iter_multivalue_filter_2.is_valid(validate_ids[i]));
+
+        ASSERT_EQ(equals_iterator_valid[i], iter_multivalue_filter_2._get_is_equals_iterator_valid());
+        ASSERT_EQ(equals_match_seq_ids[i], iter_multivalue_filter_2._get_equals_iterator_id());
+
+        if (expected[i] == 1) {
+            iter_multivalue_filter_2.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_multivalue_filter_2.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_2.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("age: [21..32, >44]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_multivalue_filter_3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_multivalue_filter_3.init_status().ok());
+    ASSERT_FALSE(iter_multivalue_filter_3._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {2, 2, 3, 4, 4, 4};
+    expected = {1, 0, 1, 1, 1, -1};
+    equals_iterator_valid = {true, true, true, true, true, false};
+    equals_match_seq_ids = {0, 2, 2, 3, 4, 4};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_3.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_3.validity);
+        }
+        ASSERT_EQ(expected[i], iter_multivalue_filter_3.is_valid(validate_ids[i]));
+
+        ASSERT_EQ(equals_iterator_valid[i], iter_multivalue_filter_3._get_is_equals_iterator_valid());
+        ASSERT_EQ(equals_match_seq_ids[i], iter_multivalue_filter_3._get_equals_iterator_id());
+
+        if (expected[i] == 1) {
+            iter_multivalue_filter_3.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_multivalue_filter_3.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_3.validity);
+
+    delete filter_tree_root;
+}

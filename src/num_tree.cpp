@@ -187,6 +187,61 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
     }
 }
 
+std::vector<void*> num_tree_t::search(const NUM_COMPARATOR& comparator, const int64_t& value,
+                                      const int64_t& range_end_value) const {
+    if (int64map.empty()) {
+        return {};
+    }
+
+    std::vector<void*> raw_id_lists;
+    auto const& range_start_value = value;
+    if (comparator == EQUALS || comparator == NOT_EQUALS) {
+        const auto& it = int64map.find(value);
+        if (it == int64map.end()) {
+            return {};
+        }
+
+        raw_id_lists.emplace_back(it->second);
+    } else if (comparator == GREATER_THAN || comparator == GREATER_THAN_EQUALS) {
+        // iter entries will be >= value, or end() if all entries are before value
+        auto iter_ge_value = int64map.lower_bound(value);
+        if (iter_ge_value == int64map.end()) {
+            return {};
+        }
+
+        if (comparator == GREATER_THAN && iter_ge_value->first == value) {
+            iter_ge_value++;
+        }
+
+        while (iter_ge_value != int64map.end()) {
+            raw_id_lists.emplace_back(iter_ge_value->second);
+            iter_ge_value++;
+        }
+    }  else if (comparator == LESS_THAN || comparator == LESS_THAN_EQUALS) {
+        // iter entries will be >= value, or end() if all entries are before value
+        auto iter_ge_value = int64map.lower_bound(value);
+        auto it = int64map.begin();
+
+        while (it != iter_ge_value) {
+            raw_id_lists.emplace_back(it->second);
+            it++;
+        }
+
+        // for LESS_THAN_EQUALS, check if last iter entry is equal to value
+        if (it != int64map.end() && comparator == LESS_THAN_EQUALS && it->first == value) {
+            raw_id_lists.emplace_back(it->second);
+        }
+    } else if (comparator == RANGE_INCLUSIVE) {
+        auto it_start = int64map.lower_bound(range_start_value);  // iter values will be >= range_start_value
+        while (it_start != int64map.end() && it_start->first <= range_end_value) {
+            raw_id_lists.emplace_back(it_start->second);
+            it_start++;
+        }
+    }
+
+    return raw_id_lists;
+}
+
 uint32_t num_tree_t::approx_search_count(NUM_COMPARATOR comparator, int64_t value) {
     if (int64map.empty()) {
         return 0;

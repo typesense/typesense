@@ -216,10 +216,12 @@ struct filter_result_t {
     constexpr uint16_t function_call_modulo = 10;
     constexpr uint16_t string_filter_ids_threshold = 3;
     constexpr uint16_t bool_filter_ids_threshold = 3;
+    constexpr uint16_t numeric_filter_ids_threshold = 3;
 #else
     constexpr uint16_t function_call_modulo = 16'384;
     constexpr uint16_t string_filter_ids_threshold = 20'000;
     constexpr uint16_t bool_filter_ids_threshold = 20'000;
+    constexpr uint16_t numeric_filter_ids_threshold = 20'000;
 #endif
 
 struct filter_result_iterator_timeout_info {
@@ -262,6 +264,22 @@ private:
     /// Used in case of a single boolean filter matching more than `bool_filter_ids_threshold` ids.
     num_tree_t::iterator_t bool_iterator = num_tree_t::iterator_t(nullptr, NUM_COMPARATOR::EQUALS, 0);
 
+    /// Initialized in case of filter on a numeric field.
+    /// Sample filter: [10..100, 150]. Operators other than `=` and `!` can match more than one values. We get id list
+    /// iterator for each value.
+    ///
+    /// Multiple filters: Multiple values: id list iterator
+    std::vector<std::vector<id_list_t*>> id_lists;
+    std::vector<std::vector<id_list_t::iterator_t>> id_list_iterators;
+    std::vector<id_list_t*> expanded_id_lists;
+
+    /// Stores the the current seq_id of filter values.
+    std::vector<uint32_t> seq_ids;
+
+    /// Numerical filters can have `!` operator individually.
+    /// Sample filter: [>10, !15].
+    std::unordered_set<uint32_t> numerical_not_iterator_index;
+
     bool delete_filter_node = false;
 
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
@@ -275,11 +293,17 @@ private:
     /// Performs OR on the subtrees of operator.
     void or_filter_iterators();
 
-    /// Advances all the token iterators that are at seq_id and finds the next intersection.
+    /// Advances all the token iterators that are at seq_id.
     void advance_string_filter_token_iterators();
 
     /// Finds the next match for a filter on string field.
     void get_string_filter_next_match(const bool& field_is_array);
+
+    /// Advances all the iterators that are at seq_id.
+    void advance_numeric_filter_iterators();
+
+    /// Computes the match for a filter on numeric field.
+    void get_numeric_filter_match(const bool init = false);
 
     explicit filter_result_iterator_t(uint32_t approx_filter_ids_length);
 

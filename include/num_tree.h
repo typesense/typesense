@@ -42,6 +42,9 @@ public:
 
     void search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids, size_t& ids_len);
 
+    std::vector<void*> search(const NUM_COMPARATOR& comparator, const int64_t& value,
+                              const int64_t& range_end_value = 0) const;
+
     uint32_t approx_search_count(NUM_COMPARATOR comparator, int64_t value);
 
     void remove(uint64_t value, uint32_t id);
