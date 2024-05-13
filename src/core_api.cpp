@@ -871,7 +871,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         conversation_history.push_back(formatted_answer_op.get());
         std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
 
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_model["conversation_collection"], conversation_id);
         if(!add_conversation_op.ok()) {
             res->set_400(add_conversation_op.error());
             return false;
