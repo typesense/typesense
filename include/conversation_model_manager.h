@@ -22,8 +22,8 @@ class ConversationModelManager
         static Option<nlohmann::json> update_model(const std::string& model_id, nlohmann::json model);
         static Option<nlohmann::json> get_all_models();
         static Option<bool> delete_models_With_conversation_collection(const std::string& collection);
-        
         static Option<int> init(Store* store);
+        static Option<nlohmann::json> migrate_model(nlohmann::json model);
     private:
         static inline std::unordered_map<std::string, nlohmann::json> models;
         static inline std::shared_mutex models_mutex;
@@ -33,4 +33,6 @@ class ConversationModelManager
 
         static inline Store* store;
         static const std::string get_model_key(const std::string& model_id);
+        static Option<Collection*> get_default_conversation_collection();
+
 };

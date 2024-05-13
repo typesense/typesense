@@ -104,6 +104,13 @@ Option<int> ConversationModelManager::init(Store* store) {
         nlohmann::json model_json = nlohmann::json::parse(model_str);
         std::string model_id = model_json["id"];
         models[model_id] = model_json;
+        if(model_json.count("conversation_collection") == 0) {
+            auto migrate_op = migrate_model(model_json);
+            if(!migrate_op.ok()) {
+                return Option<int>(migrate_op.code(), migrate_op.error());
+            }
+            model_json = migrate_op.get();
+        }
         ConversationManager::get_instance().add_conversation_collection(model_json["conversation_collection"]);
         loaded_models++;
     }
@@ -132,4 +139,58 @@ Option<bool> ConversationModelManager::delete_models_With_conversation_collectio
     }
 
     return Option<bool>(true);
+}
+
+Option<Collection*> ConversationModelManager::get_default_conversation_collection() {
+    auto time_epoch = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string collection_id = "default_conversation_history_" + std::to_string(time_epoch);
+    nlohmann::json schema_json = R"({
+        "fields": [
+            {
+                "name": "conversation_id",
+                "type": "string",
+                "facet": true
+            },
+            {
+                "name": "role",
+                "type": "string"
+            },
+            {
+                "name": "message",
+                "type": "string"
+            },
+            {
+                "name": "timestamp",
+                "type": "int32",
+                "sort": true
+            }
+        ]
+    })"_json;
+    schema_json["name"] = collection_id;
+
+    auto get_res = CollectionManager::get_instance().get_collection(collection_id).get();
+    if(get_res) {
+        return Option<Collection*>(get_res);
+    }
+
+    auto create_res = CollectionManager::get_instance().create_collection(schema_json);
+    if(!create_res.ok()) {
+        return Option<Collection*>(create_res.code(), create_res.error());
+    }
+    return Option<Collection*>(create_res.get());
+}
+
+Option<nlohmann::json> ConversationModelManager::migrate_model(nlohmann::json model) {
+    auto model_id = model["id"];
+    delete_model(model_id);
+    auto default_collection = get_default_conversation_collection();
+    if(!default_collection.ok()) {
+        return Option<int>(default_collection.code(), default_collection.error());
+    }
+    model_json["conversation_collection"] = default_collection.get()->get_name();
+    auto add_res = add_model(model_json, model_id);
+    if(!add_res.ok()) {
+        return Option<int>(add_res.code(), add_res.error());
+    }
+    return Option<nlohmann::json>(model);
 }
