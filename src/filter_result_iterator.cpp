@@ -453,6 +453,183 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
     validity = one_is_valid || is_not_equals_iterator ? valid : invalid;
 }
 
+void filter_result_iterator_t::advance_numeric_filter_iterators() {
+    auto one_is_valid = false;
+    for (uint32_t i = 0; i < id_list_iterators.size(); i++) {
+        if (seq_ids[i] > seq_id || numerical_not_iterator_index.count(i) > 0) {
+            one_is_valid = true;
+            continue;
+        }
+
+        auto& its = id_list_iterators[i];
+        // Iterators get ORed, so we only advance the iterator that is at seq_id.
+        switch (its.size()) {
+            case 0:
+                continue;
+
+            case 1:
+                if (!its[0].valid()) {
+                    its.clear();
+                    continue;
+                }
+
+                if (its[0].id() == seq_id) {
+                    its[0].next();
+                }
+
+                if (its[0].valid()) {
+                    seq_ids[i] = its[0].id();
+                    one_is_valid = true;
+                }
+                continue;
+
+            case 2:
+                if (!its[0].valid() && !its[1].valid()) {
+                    its.clear();
+                    continue;
+                }
+
+                if (its[0].valid() && its[0].id() == seq_id) {
+                    its[0].next();
+                }
+                if (its[1].valid() && its[1].id() == seq_id) {
+                    its[1].next();
+                }
+
+                if (its[0].valid() && its[1].valid()) {
+                    seq_ids[i] = its[0].id() < its[1].id() ? its[0].id() : its[1].id();
+                    one_is_valid = true;
+                } else if (its[0].valid()) {
+                    seq_ids[i] = its[0].id();
+                    one_is_valid = true;
+                } else if (its[1].valid()) {
+                    seq_ids[i] = its[1].id();
+                    one_is_valid = true;
+                }
+                continue;
+
+            default:
+                auto is_valid = false;
+                auto lowest_id = UINT32_MAX;
+
+                for (auto it = its.begin(); it != its.end();) {
+                    if (!it->valid()) {
+                        it = its.erase(it);
+                        continue;
+                    }
+
+                    if (it->id() == seq_id) {
+                        it->next();
+                    }
+
+                    if (it->valid()) {
+                        lowest_id = std::min(it->id(), lowest_id);
+                        is_valid = true;
+                        it++;
+                    } else {
+                        it = its.erase(it);
+                    }
+                }
+
+                if (is_valid) {
+                    seq_ids[i] = lowest_id;
+                    one_is_valid = true;
+                }
+        }
+    }
+
+    is_equals_iterator_valid = one_is_valid;
+    validity = one_is_valid ? valid : invalid;
+}
+
+void filter_result_iterator_t::get_numeric_filter_match(const bool init) {
+    if (init) {
+        seq_id = 0;
+        // Initialize seq_ids and get the first match.
+        auto one_is_valid = false;
+        for (uint32_t i = 0; i < id_list_iterators.size(); i++) {
+            if (numerical_not_iterator_index.count(i) > 0) {
+                seq_ids[i] = 0;
+                one_is_valid = true;
+                continue;
+            }
+
+            // Iterators get ORed, so the lowest id is the match.
+            auto& its = id_list_iterators[i];
+            switch (its.size()) {
+                case 0:
+                    continue;
+
+                case 1:
+                    if (its[0].valid()) {
+                        seq_ids[i] = its[0].id();
+                        one_is_valid = true;
+                    } else {
+                        its.clear();
+                    }
+                    continue;
+
+                case 2:
+                    if (its[0].valid() && its[1].valid()) {
+                        seq_ids[i] = its[0].id() < its[1].id() ? its[0].id() : its[1].id();
+                        one_is_valid = true;
+                    } else if (its[0].valid()) {
+                        seq_ids[i] = its[0].id();
+                        one_is_valid = true;
+                    } else if (its[1].valid()) {
+                        seq_ids[i] = its[1].id();
+                        one_is_valid = true;
+                    } else {
+                        its.clear();
+                    }
+                    continue;
+
+                default:
+                    auto is_valid = false;
+                    auto lowest_id = UINT32_MAX;
+
+                    for (auto it = its.begin(); it != its.end();) {
+                        if (it->valid()) {
+                            lowest_id = std::min(it->id(), lowest_id);
+                            is_valid = true;
+                            it++;
+                        } else {
+                            it = its.erase(it);
+                        }
+                    }
+
+                    if (is_valid) {
+                        seq_ids[i] = lowest_id;
+                        one_is_valid = true;
+                    }
+            }
+        }
+
+        if (!one_is_valid) {
+            validity = invalid;
+            return;
+        }
+    }
+
+    // Multiple filter values get ORed, so the lowest id is the match.
+    auto one_is_valid = false;
+    auto lowest_id = UINT32_MAX;
+    for (const auto& id: seq_ids) {
+        if (id < seq_id || (!init && id == seq_id)) {
+            continue;
+        }
+
+        lowest_id = std::min(id, lowest_id);
+        one_is_valid = true;
+    }
+
+    if (one_is_valid) {
+        equals_iterator_id = seq_id = lowest_id;
+    }
+
+    validity = one_is_valid ? valid : invalid;
+}
+
 void filter_result_iterator_t::next() {
     if (validity != valid) {
         return;
@@ -514,14 +691,18 @@ void filter_result_iterator_t::next() {
         return;
     }
 
-    if (f.is_bool()) {
+    if (f.is_integer() || f.is_float()) {
+        advance_numeric_filter_iterators();
+        get_numeric_filter_match();
+        return;
+    } else if (f.is_bool()) {
         bool_iterator.next();
         if (!bool_iterator.is_valid) {
             validity = invalid;
             return;
         }
 
-        seq_id = bool_iterator.seq_id;
+        equals_iterator_id = seq_id = bool_iterator.seq_id;
         return;
     } else if (f.is_string()) {
         advance_string_filter_token_iterators();
@@ -742,44 +923,96 @@ void filter_result_iterator_t::init() {
                                            filter_result.docs, filter_result.count);
                 }
             }
+
+            if (a_filter.apply_not_equals) {
+                apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                 filter_result.docs, filter_result.count);
+            }
+
+            if (filter_result.count == 0) {
+                validity = invalid;
+                return;
+            }
+
+            seq_id = filter_result.docs[result_index];
+            is_filter_result_initialized = true;
+            approx_filter_ids_length = filter_result.count;
         } else {
-            auto num_tree = index->numerical_index.at(a_filter.field_name);
+            auto const& filter_values_count = a_filter.values.size();
 
-            for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+            auto const& num_tree = index->numerical_index.at(a_filter.field_name);
+            size_t i = 0;
+            for (size_t fi = 0; fi < filter_values_count; fi++, i++) {
                 const std::string& filter_value = a_filter.values[fi];
-                int64_t value = (int64_t)std::stol(filter_value);
+                auto const value = (int64_t)std::stol(filter_value);
+                auto const& comparator = a_filter.comparators[fi];
 
-                size_t result_size = filter_result.count;
-                if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
-                    const std::string& next_filter_value = a_filter.values[fi + 1];
-                    auto const range_end_value = (int64_t)std::stol(next_filter_value);
-                    num_tree->range_inclusive_search(value, range_end_value, &filter_result.docs, result_size);
-                    fi++;
-                } else if (a_filter.comparators[fi] == NOT_EQUALS) {
-                    numeric_not_equals_filter(num_tree, value,
-                                              index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                                              filter_result.docs, result_size);
-                } else {
-                    num_tree->search(a_filter.comparators[fi], value, &filter_result.docs, result_size);
+                if (comparator == NOT_EQUALS) {
+                    numerical_not_iterator_index.emplace(i);
                 }
 
-                filter_result.count = result_size;
+                std::vector<void*> raw_id_lists;
+                if (comparator == RANGE_INCLUSIVE && fi+1 < filter_values_count) {
+                    const std::string& next_filter_value = a_filter.values[fi + 1];
+                    auto const range_end_value = (int64_t)std::stol(next_filter_value);
+
+                    raw_id_lists = num_tree->search(comparator, value, range_end_value);
+                    fi++;
+                } else {
+                    raw_id_lists = num_tree->search(comparator, value);
+                }
+
+                std::vector<id_list_t*> lists;
+                ids_t::to_expanded_id_lists(raw_id_lists, lists, expanded_id_lists);
+
+                std::vector<id_list_t::iterator_t> iters;
+                for (const auto& id_list: lists) {
+                    iters.emplace_back(id_list->new_iterator());
+
+                    if (comparator == NOT_EQUALS) {
+                        auto const& filter_ids_length = id_list->num_ids();
+                        auto const& num_ids = index->seq_ids->num_ids();
+
+                        approx_filter_ids_length += (num_ids - filter_ids_length);
+                    } else {
+                        approx_filter_ids_length += id_list->num_ids();
+                    }
+                }
+
+                id_lists.emplace_back(std::move(lists));
+                id_list_iterators.emplace_back(std::move(iters));
             }
+
+            seq_ids = std::vector<uint32_t>(id_lists.size(), UINT32_MAX);
+
+            if (a_filter.values.size() > 10) {
+                compute_iterators();
+                return;
+            }
+
+            if (a_filter.apply_not_equals) {
+                auto const& num_ids = index->seq_ids->num_ids();
+                approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+
+                if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                    // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
+                    compute_iterators();
+                    return;
+                } else {
+                    is_not_equals_iterator = true;
+                }
+            } else if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                compute_iterators();
+                return;
+            }
+
+            get_numeric_filter_match(true);
+            if (is_not_equals_iterator) {
+                seq_id = 0;
+            }
+            last_valid_id = index->seq_ids->last_id();
         }
 
-        if (a_filter.apply_not_equals) {
-            apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                             filter_result.docs, filter_result.count);
-        }
-
-        if (filter_result.count == 0) {
-            validity = invalid;
-            return;
-        }
-
-        seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
-        approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_float()) {
         if (f.range_index) {
@@ -816,45 +1049,97 @@ void filter_result_iterator_t::init() {
                                            filter_result.docs, filter_result.count);
                 }
             }
-        } else {
-            auto num_tree = index->numerical_index.at(a_filter.field_name);
 
-            for (size_t fi = 0; fi < a_filter.values.size(); fi++) {
+            if (a_filter.apply_not_equals) {
+                apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                 filter_result.docs, filter_result.count);
+            }
+
+            if (filter_result.count == 0) {
+                validity = invalid;
+                return;
+            }
+
+            seq_id = filter_result.docs[result_index];
+            is_filter_result_initialized = true;
+            approx_filter_ids_length = filter_result.count;
+        } else {
+            auto const& filter_values_count = a_filter.values.size();
+
+            auto num_tree = index->numerical_index.at(a_filter.field_name);
+            size_t i = 0;
+            for (size_t fi = 0; fi < filter_values_count; fi++, i++) {
                 const std::string& filter_value = a_filter.values[fi];
                 float value = (float)std::atof(filter_value.c_str());
                 int64_t float_int64 = Index::float_to_int64_t(value);
+                auto const& comparator = a_filter.comparators[fi];
 
-                size_t result_size = filter_result.count;
-                if (a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
-                    const std::string& next_filter_value = a_filter.values[fi+1];
-                    int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
-                    num_tree->range_inclusive_search(float_int64, range_end_value, &filter_result.docs, result_size);
-                    fi++;
-                } else if (a_filter.comparators[fi] == NOT_EQUALS) {
-                    numeric_not_equals_filter(num_tree, float_int64,
-                                              index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                                              filter_result.docs, result_size);
-                } else {
-                    num_tree->search(a_filter.comparators[fi], float_int64, &filter_result.docs, result_size);
+                if (comparator == NOT_EQUALS) {
+                    numerical_not_iterator_index.emplace(i);
                 }
 
-                filter_result.count = result_size;
+                std::vector<void*> raw_id_lists;
+                if (comparator == RANGE_INCLUSIVE && fi+1 < filter_values_count) {
+                    const std::string& next_filter_value = a_filter.values[fi + 1];
+                    int64_t range_end_value = Index::float_to_int64_t((float) std::atof(next_filter_value.c_str()));
+
+                    raw_id_lists = num_tree->search(comparator, float_int64, range_end_value);
+                    fi++;
+                } else {
+                    raw_id_lists = num_tree->search(comparator, float_int64);
+                }
+
+                std::vector<id_list_t*> lists;
+                ids_t::to_expanded_id_lists(raw_id_lists, lists, expanded_id_lists);
+
+                std::vector<id_list_t::iterator_t> iters;
+                for (const auto& id_list: lists) {
+                    iters.emplace_back(id_list->new_iterator());
+
+                    if (comparator == NOT_EQUALS) {
+                        auto const& filter_ids_length = id_list->num_ids();
+                        auto const& num_ids = index->seq_ids->num_ids();
+
+                        approx_filter_ids_length += (num_ids - filter_ids_length);
+                    } else {
+                        approx_filter_ids_length += id_list->num_ids();
+                    }
+                }
+
+                id_lists.emplace_back(std::move(lists));
+                id_list_iterators.emplace_back(std::move(iters));
             }
+
+            seq_ids = std::vector<uint32_t>(id_lists.size(), UINT32_MAX);
+
+            if (a_filter.values.size() > 10) {
+                compute_iterators();
+                return;
+            }
+
+            if (a_filter.apply_not_equals) {
+                auto const& num_ids = index->seq_ids->num_ids();
+                approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
+
+                if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                    // Since there are very few matches, and we have to apply not equals, iteration will be inefficient.
+                    compute_iterators();
+                    return;
+                } else {
+                    is_not_equals_iterator = true;
+                }
+            } else if (approx_filter_ids_length < numeric_filter_ids_threshold) {
+                compute_iterators();
+                return;
+            }
+
+            get_numeric_filter_match(true);
+            if (is_not_equals_iterator) {
+                seq_id = 0;
+            }
+            last_valid_id = index->seq_ids->last_id();
         }
 
-        if (a_filter.apply_not_equals) {
-            apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
-                             filter_result.docs, filter_result.count);
-        }
-
-        if (filter_result.count == 0) {
-            validity = invalid;
-            return;
-        }
-
-        seq_id = filter_result.docs[result_index];
-        is_filter_result_initialized = true;
-        approx_filter_ids_length = filter_result.count;
         return;
     } else if (f.is_bool()) {
         if (f.range_index) {
@@ -1285,14 +1570,158 @@ void filter_result_iterator_t::skip_to(uint32_t id) {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_bool()) {
+    if (f.is_integer() || f.is_float()) {
+        // Skip all the iterators and find a new match.
+        auto one_is_valid = false;
+        for (uint32_t i = 0; i < id_list_iterators.size(); i++) {
+            auto& its = id_list_iterators[i];
+
+            if (numerical_not_iterator_index.count(i) > 0) {
+                if (id > last_valid_id) {
+                    continue;
+                }
+
+                one_is_valid = true;
+                if (!its[0].valid() || id < its[0].id()) {
+                    seq_ids[i] = id;
+                    continue;
+                } else if (id == its[0].id()) {
+                    seq_ids[i] = id + 1;
+                    continue;
+                }
+
+                its[0].skip_to(id);
+
+                if (!its[0].valid() || id < its[0].id()) {
+                    seq_ids[i] = id;
+                    continue;
+                } else if (id == its[0].id()) {
+                    seq_ids[i] = id + 1;
+                    continue;
+                }
+
+                continue;
+            }
+
+            switch (its.size()) {
+                case 0:
+                    continue;
+
+                case 1:
+                    if (!its[0].valid()) {
+                        its.clear();
+                        continue;
+                    }
+                    if (its[0].id() >= id) {
+                        one_is_valid = true;
+                        continue;
+                    }
+
+                    its[0].skip_to(id);
+                    if (its[0].valid()) {
+                        seq_ids[i] = its[0].id();
+                        one_is_valid = true;
+                    }
+                    continue;
+
+                case 2:
+                    if (!its[0].valid() && !its[1].valid()) {
+                        its.clear();
+                        continue;
+                    }
+
+                    if (its[0].valid() && its[0].id() < id) {
+                        its[0].skip_to(id);
+                    }
+                    if (its[1].valid() && its[1].id() < id) {
+                        its[1].skip_to(id);
+                    }
+
+                    if (its[0].valid() && its[1].valid()) {
+                        seq_ids[i] = its[0].id() < its[1].id() ? its[0].id() : its[1].id();
+                        one_is_valid = true;
+                    } else if (its[0].valid()) {
+                        seq_ids[i] = its[0].id();
+                        one_is_valid = true;
+                    } else if (its[1].valid()) {
+                        seq_ids[i] = its[1].id();
+                        one_is_valid = true;
+                    }
+                    continue;
+
+                default:
+                    auto is_valid = false;
+                    auto lowest_id = UINT32_MAX;
+
+                    for (auto it = its.begin(); it != its.end();) {
+                        if (!it->valid()) {
+                            it = its.erase(it);
+                            continue;
+                        }
+
+                        it->skip_to(id);
+                        if (it->valid()) {
+                            lowest_id = std::min(it->id(), lowest_id);
+                            is_valid = true;
+                            it++;
+                        } else {
+                            it = its.erase(it);
+                        }
+                    }
+
+                    if (is_valid) {
+                        seq_ids[i] = lowest_id;
+                        one_is_valid = true;
+                    }
+            }
+        }
+
+        if (!one_is_valid) {
+            is_equals_iterator_valid = false;
+            validity = invalid;
+            return;
+        }
+
+        auto lowest_id = UINT32_MAX;
+        for (uint32_t i = 0; i < seq_ids.size(); i++) {
+            if (numerical_not_iterator_index.count(i) == 0) {
+                if (id > seq_ids[i]) {
+                    continue;
+                }
+
+                lowest_id = std::min(seq_ids[i], lowest_id);
+                one_is_valid = true;
+                continue;
+            }
+
+            // NOT_EQUALS comparator
+            if (id == seq_ids[i]) {
+                // In case id is match for not equals iterator, we need to set seq_id to id + 1.
+                seq_ids[i]++;
+                lowest_id = id;
+                one_is_valid = true;
+            } else if (id < seq_ids[i]) {
+                lowest_id = std::min(seq_ids[i], lowest_id);
+                one_is_valid = true;
+                continue;
+            }
+        }
+
+        if (one_is_valid) {
+            equals_iterator_id = seq_id = lowest_id;
+        }
+
+        is_equals_iterator_valid = one_is_valid;
+        validity = one_is_valid || is_not_equals_iterator ? valid : invalid;
+        return;
+    } else if (f.is_bool()) {
         bool_iterator.skip_to(id);
         if (!bool_iterator.is_valid) {
             validity = invalid;
             return;
         }
 
-        seq_id = bool_iterator.seq_id;
+        equals_iterator_id = seq_id = bool_iterator.seq_id;
         return;
     } else if (f.is_string()) {
         // Skip all the token iterators and find a new match.
@@ -1412,7 +1841,7 @@ int filter_result_iterator_t::is_valid(uint32_t id, const bool& override_timeout
         return 1;
     }
 
-    return validity ? (seq_id == id ? 1 : 0) : -1;
+    return validity ? (id == equals_iterator_id ? 1 : 0) : -1;
 }
 
 Option<bool> filter_result_iterator_t::init_status() {
@@ -1547,16 +1976,28 @@ void filter_result_iterator_t::reset(const bool& override_timeout) {
 
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_bool()) {
-        auto num_tree = index->numerical_index.at(a_filter.field_name);
-        bool_iterator = num_tree_t::iterator_t(num_tree, EQUALS, (a_filter.values[0] == "1" ? 1 : 0));
-        if (!bool_iterator.is_valid) {
-            validity = invalid;
-            return;
+    if (f.is_integer() || f.is_float()) {
+        for (uint32_t i = 0; i < id_lists.size(); i++) {
+            auto const& lists = id_lists[i];
+
+            id_list_iterators[i].clear();
+            for (auto const& list: lists) {
+                id_list_iterators[i].emplace_back(list->new_iterator());
+            }
         }
 
+        seq_ids = std::vector<uint32_t>(id_lists.size(), UINT32_MAX);
+
+        get_numeric_filter_match(true);
+        if (is_not_equals_iterator) {
+            seq_id = 0;
+        }
+
+        return;
+    } else if (f.is_bool()) {
+        bool_iterator.reset();
         seq_id = bool_iterator.seq_id;
-        validity = valid;
+        validity = bool_iterator.is_valid ? valid : invalid;
         return;
     } else if (f.is_string()) {
         for (uint32_t i = 0; i < posting_lists.size(); i++) {
@@ -1722,6 +2163,11 @@ filter_result_iterator_t::~filter_result_iterator_t() {
     // In case the filter was on string field.
     for(auto expanded_plist: expanded_plists) {
         delete expanded_plist;
+    }
+
+    // In case the filter was on int/float field.
+    for (auto item: expanded_id_lists) {
+        delete item;
     }
 
     if (delete_filter_node) {
@@ -1970,7 +2416,65 @@ void filter_result_iterator_t::compute_iterators() {
     const filter a_filter = filter_node->filter_exp;
     field f = index->search_schema.at(a_filter.field_name);
 
-    if (f.is_bool()) {
+    if (f.is_integer() || f.is_float()) {
+        uint32_t* filter_ids = nullptr;
+        size_t filter_ids_len = 0;
+
+        // aggregates IDs to reduce excessive ORing
+        std::vector<uint32_t> f_id_buff;
+
+        for (uint32_t i = 0; i < id_lists.size(); i++) {
+            auto& lists = id_lists[i];
+            for (const auto& list: lists) {
+                if (numerical_not_iterator_index.count(i) == 0) {
+                    list->uncompress(f_id_buff);
+                    continue;
+                }
+
+                // NOT_EQUALS comparator
+                std::vector<uint32_t> equals_ids;
+                list->uncompress(equals_ids);
+
+                uint32_t* not_equals_ids = nullptr;
+                auto const not_equals_ids_len = ArrayUtils::exclude_scalar(index->seq_ids->uncompress(), index->seq_ids->num_ids(),
+                                                                           &equals_ids[0], equals_ids.size(),
+                                                                           &not_equals_ids);
+
+                std::copy(not_equals_ids, not_equals_ids + not_equals_ids_len, std::back_inserter(f_id_buff));
+            }
+
+            if (f_id_buff.size() >= 100'000) {
+                gfx::timsort(f_id_buff.begin(), f_id_buff.end());
+                f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+
+                uint32_t* out = nullptr;
+                filter_ids_len = ArrayUtils::or_scalar(filter_ids, filter_ids_len, f_id_buff.data(), f_id_buff.size(),
+                                                       &out);
+                delete[] filter_ids;
+                filter_ids = out;
+                std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
+            }
+        }
+
+        if (!f_id_buff.empty()) {
+            gfx::timsort(f_id_buff.begin(), f_id_buff.end());
+            f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+
+            uint32_t* out = nullptr;
+            filter_ids_len = ArrayUtils::or_scalar(filter_ids, filter_ids_len, f_id_buff.data(), f_id_buff.size(),
+                                                   &out);
+            delete[] filter_ids;
+            filter_ids = out;
+            std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
+        }
+
+        filter_result.docs = filter_ids;
+        filter_result.count = filter_ids_len;
+
+        if (a_filter.apply_not_equals) {
+            apply_not_equals(index->seq_ids->uncompress(), index->seq_ids->num_ids(), filter_result.docs, filter_result.count);
+        }
+    } else if (f.is_bool()) {
         auto num_tree = index->numerical_index.at(a_filter.field_name);
 
         int64_t bool_int64 = (a_filter.values[0] == "1") ? 1 : 0;
