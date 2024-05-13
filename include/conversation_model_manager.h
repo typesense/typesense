@@ -21,7 +21,7 @@ class ConversationModelManager
         static Option<nlohmann::json> delete_model(const std::string& model_id);
         static Option<nlohmann::json> update_model(const std::string& model_id, nlohmann::json model);
         static Option<nlohmann::json> get_all_models();
-
+        static Option<bool> delete_models_With_conversation_collection(const std::string& collection);
         
         static Option<int> init(Store* store);
     private:

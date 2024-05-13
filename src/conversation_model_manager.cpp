@@ -1,5 +1,6 @@
 #include "conversation_model_manager.h"
 #include "conversation_model.h"
+#include "conversation_manager.h"
 
 Option<nlohmann::json> ConversationModelManager::get_model(const std::string& model_id) {
     std::shared_lock lock(models_mutex);
@@ -29,6 +30,8 @@ Option<nlohmann::json> ConversationModelManager::add_model(nlohmann::json model,
 
     models[model_id] = model;
 
+
+    ConversationManager::get_instance().add_conversation_collection(model["conversation_collection"]);
     return Option<nlohmann::json>(model);
 }
 
@@ -43,7 +46,8 @@ Option<nlohmann::json> ConversationModelManager::delete_model(const std::string&
 
     auto model_key = get_model_key(model_id);
     bool delete_op = store->remove(model_key);
-
+    
+    ConversationManager::get_instance().remove_conversation_collection(model["conversation_collection"]);
     models.erase(it);
     return Option<nlohmann::json>(model);
 }
@@ -78,6 +82,11 @@ Option<nlohmann::json> ConversationModelManager::update_model(const std::string&
         return Option<nlohmann::json>(500, "Error while inserting model into the store");
     }
 
+    if(it->second["conversation_collection"] != model["conversation_collection"]) {
+        ConversationManager::get_instance().remove_conversation_collection(it->second["conversation_collection"]);
+        ConversationManager::get_instance().add_conversation_collection(model["conversation_collection"]);
+    }
+
     models[model_id] = model;
 
     return Option<nlohmann::json>(model);
@@ -95,6 +104,7 @@ Option<int> ConversationModelManager::init(Store* store) {
         nlohmann::json model_json = nlohmann::json::parse(model_str);
         std::string model_id = model_json["id"];
         models[model_id] = model_json;
+        ConversationManager::get_instance().add_conversation_collection(model_json["conversation_collection"]);
         loaded_models++;
     }
 
@@ -103,4 +113,23 @@ Option<int> ConversationModelManager::init(Store* store) {
 
 const std::string ConversationModelManager::get_model_key(const std::string& model_id) {
     return std::string(MODEL_KEY_PREFIX) + "_" + model_id;
+}
+
+Option<bool> ConversationModelManager::delete_models_With_conversation_collection(const std::string& collection) {
+    std::unique_lock lock(models_mutex);
+    std::vector<std::string> model_ids;
+    for(auto& [model_id, model] : models) {
+        if(model["conversation_collection"] == collection) {
+            model_ids.push_back(model_id);
+        }
+    }
+
+    for(auto& model_id : model_ids) {
+        auto delete_res = delete_model(model_id);
+        if(!delete_res.ok()) {
+            return Option<bool>(delete_res.code(), delete_res.error());
+        }
+    }
+
+    return Option<bool>(true);
 }

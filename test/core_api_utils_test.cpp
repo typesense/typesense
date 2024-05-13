@@ -54,7 +54,7 @@ protected:
         })"_json;
 
         collectionManager.create_collection(schema_json);
-        ConversationManager::get_instance().activate_conversation_store("conversation_store");
+        ConversationManager::get_instance().add_conversation_collection("conversation_store");
     }
 
     virtual void SetUp() {
@@ -1414,7 +1414,8 @@ TEST_F(CoreAPIUtilsTest, SampleGzipIndexTest) {
 TEST_F(CoreAPIUtilsTest, TestConversationModels) {
     nlohmann::json model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
-        "max_bytes": 10000
+        "max_bytes": 10000,
+        "conversation_collection": "conversation_store"
     })"_json;
 
     EmbedderManager::set_model_dir("/tmp/typesense_test/models");
@@ -1455,6 +1456,7 @@ TEST_F(CoreAPIUtilsTest, TestConversationModels) {
 TEST_F(CoreAPIUtilsTest, TestInvalidConversationModels) {
     // test with no model_name
     nlohmann::json model_config = R"({
+        "conversation_collection": "conversation_store"
     })"_json;
 
     if (std::getenv("api_key") == nullptr) {
@@ -1542,6 +1544,25 @@ TEST_F(CoreAPIUtilsTest, TestInvalidConversationModels) {
 
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("Property `max_bytes` must be a positive number.", nlohmann::json::parse(resp->body)["message"]);
+
+    model_config["max_bytes"] = 10000;
+    model_config["conversation_collection"] = 123;
+
+    // test with conversation_collection as integer
+    req->body = model_config.dump();
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Property `conversation_collection` is not provided or not a string.", nlohmann::json::parse(resp->body)["message"]);
+
+    // test with conversation_collection as empty string
+    model_config["conversation_collection"] = "";
+
+    req->body = model_config.dump();
+    post_conversation_model(req, resp);
+
+    ASSERT_EQ(400, resp->status_code);
+    ASSERT_EQ("Collection not found", nlohmann::json::parse(resp->body)["message"]);
 }
 
 TEST_F(CoreAPIUtilsTest, DeleteNonExistingDoc) {

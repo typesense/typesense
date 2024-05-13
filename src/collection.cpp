@@ -77,6 +77,9 @@ Collection::~Collection() {
             VQModelManager::get_instance().delete_model(vq_model->get_model_name());
         }
     }
+
+    ConversationManager::get_instance().remove_conversation_collection(name);
+    //ConversationModelManager::delete_models_With_conversation_collection(name);
 }
 
 uint32_t Collection::get_next_seq_id() {
@@ -2795,7 +2798,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         conversation_history.push_back(formatted_question_op.get());
         conversation_history.push_back(formatted_answer_op.get());
 
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_model["conversation_collection"].get<std::string>(), conversation_id);
         if(!add_conversation_op.ok()) {
             return Option<nlohmann::json>(add_conversation_op.code(), add_conversation_op.error());
         }

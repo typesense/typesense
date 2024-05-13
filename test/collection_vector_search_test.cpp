@@ -56,7 +56,6 @@ protected:
         })"_json;
 
         collectionManager.create_collection(schema_json);
-        ConversationManager::get_instance().activate_conversation_store("conversation_store");
     }
 
     virtual void SetUp() {
@@ -2898,7 +2897,8 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
 
     auto conversation_model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
-        "max_bytes: 1000
+        "max_bytes: 1000,
+        "conversation_collection": "conversation_store",
     })"_json;
 
     conversation_model_config["api_key"] = api_key;
@@ -3345,7 +3345,8 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
 
     auto conversation_model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
-        "max_bytes": 1000
+        "max_bytes": 1000,
+        "conversation_collection": "conversation_store"
     })"_json;
 
     conversation_model_config["api_key"] = api_key;

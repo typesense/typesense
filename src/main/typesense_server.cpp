@@ -101,8 +101,6 @@ void master_server_routes() {
     server->get("/conversations/models/:id", get_conversation_model);
     server->del("/conversations/models/:id", del_conversation_model);
 
-    server->post("/conversations/activate", post_activate_conversation_store);
-    server->post("/conversations/deactivate", post_deactivate_conversation_store);
     server->get("/conversations", get_conversations);
     server->get("/conversations/:id", get_conversation);
     server->del("/conversations/:id", del_conversation);
