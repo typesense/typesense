@@ -105,6 +105,10 @@ Option<int> ConversationModelManager::init(Store* store) {
         std::string model_id = model_json["id"];
         models[model_id] = model_json;
         if(model_json.count("conversation_collection") == 0) {
+            auto delete_op = delete_model(model_id);
+            if(!delete_op.ok()) {
+                return Option<int>(delete_op.code(), delete_op.error());
+            }
             auto migrate_op = migrate_model(model_json);
             if(!migrate_op.ok()) {
                 return Option<int>(migrate_op.code(), migrate_op.error());
@@ -142,7 +146,14 @@ Option<bool> ConversationModelManager::delete_models_With_conversation_collectio
 }
 
 Option<Collection*> ConversationModelManager::get_default_conversation_collection() {
-    auto time_epoch = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    int64_t time_epoch;
+    if(DEFAULT_CONVERSATION_COLLECTION_SUFFIX == 0) {
+        time_epoch = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        DEFAULT_CONVERSATION_COLLECTION_SUFFIX = time_epoch;
+    } else {
+        time_epoch = DEFAULT_CONVERSATION_COLLECTION_SUFFIX;
+    }
+    
     std::string collection_id = "default_conversation_history_" + std::to_string(time_epoch);
     nlohmann::json schema_json = R"({
         "fields": [
@@ -182,15 +193,14 @@ Option<Collection*> ConversationModelManager::get_default_conversation_collectio
 
 Option<nlohmann::json> ConversationModelManager::migrate_model(nlohmann::json model) {
     auto model_id = model["id"];
-    delete_model(model_id);
     auto default_collection = get_default_conversation_collection();
     if(!default_collection.ok()) {
-        return Option<int>(default_collection.code(), default_collection.error());
+        return Option<nlohmann::json>(default_collection.code(), default_collection.error());
     }
-    model_json["conversation_collection"] = default_collection.get()->get_name();
-    auto add_res = add_model(model_json, model_id);
+    model["conversation_collection"] = default_collection.get()->get_name();
+    auto add_res = add_model(model, model_id);
     if(!add_res.ok()) {
-        return Option<int>(add_res.code(), add_res.error());
+        return Option<nlohmann::json>(add_res.code(), add_res.error());
     }
     return Option<nlohmann::json>(model);
 }

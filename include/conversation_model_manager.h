@@ -7,6 +7,7 @@
 #include <option.h>
 #include "store.h"
 #include "sole.hpp"
+#include "collection.h"
 
 class ConversationModelManager
 {
@@ -30,7 +31,7 @@ class ConversationModelManager
 
         static constexpr char* MODEL_NEXT_ID = "$CVMN";
         static constexpr char* MODEL_KEY_PREFIX = "$CVMP";
-
+        static inline int64_t DEFAULT_CONVERSATION_COLLECTION_SUFFIX = 0;
         static inline Store* store;
         static const std::string get_model_key(const std::string& model_id);
         static Option<Collection*> get_default_conversation_collection();

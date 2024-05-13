@@ -3422,6 +3422,28 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     ASSERT_EQ(res_json["message"], "`conversation` cannot be used in POST body. Please set `conversation` as a query parameter in the request, instead of inside the POST body");
 }
 
+TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
+    auto conversation_model_config = R"({
+        "model_name": "openai/gpt-3.5-turbo",
+        "max_bytes": 1000,
+        "conversation_collection": "conversation_store"
+    })"_json;
+
+    if (std::getenv("api_key") == nullptr) {
+        LOG(INFO) << "Skipping test as api_key is not set.";
+        return;
+    }
+
+    auto api_key = std::string(std::getenv("api_key"));
+
+    auto migrate_res = ConversationModelManager::migrate_model(conversation_model_config);
+    ASSERT_TRUE(migrate_res.ok());
+    auto migrated_model = migrate_res.get();
+    ASSERT_TRUE(migrated_model.count("conversation_collection") == 1);
+
+    auto collection = CollectionManager::get_instance().get_collection("conversation_store").get();
+    ASSERT_TRUE(collection != nullptr);
+}
 
 
 TEST_F(CollectionVectorTest, TestVectorQueryQs) {
