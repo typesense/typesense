@@ -2941,7 +2941,7 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetRangeLabelWithSpace) {
     ASSERT_EQ("small tvs with display size", results["facet_counts"][0]["counts"][0]["value"]);
 }
 
-TEST_F(CollectionOptimizedFacetingTest, RangeFacetsWithFilter) {
+TEST_F(CollectionOptimizedFacetingTest, RangeFacetsWithSortDisabled) {
     std::vector<field> fields = {field("name", field_types::STRING, false, false, true, "", 1),
                                  field("brand", field_types::STRING, true, false, true, "", -1),
                                  field("price", field_types::FLOAT, true, false, true, "", -1)};
