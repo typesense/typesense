@@ -79,7 +79,6 @@ Collection::~Collection() {
     }
 
     ConversationManager::get_instance().remove_conversation_collection(name);
-    //ConversationModelManager::delete_models_With_conversation_collection(name);
 }
 
 uint32_t Collection::get_next_seq_id() {

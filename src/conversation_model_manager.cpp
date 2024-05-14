@@ -126,24 +126,6 @@ const std::string ConversationModelManager::get_model_key(const std::string& mod
     return std::string(MODEL_KEY_PREFIX) + "_" + model_id;
 }
 
-Option<bool> ConversationModelManager::delete_models_With_conversation_collection(const std::string& collection) {
-    std::unique_lock lock(models_mutex);
-    std::vector<std::string> model_ids;
-    for(auto& [model_id, model] : models) {
-        if(model["conversation_collection"] == collection) {
-            model_ids.push_back(model_id);
-        }
-    }
-
-    for(auto& model_id : model_ids) {
-        auto delete_res = delete_model(model_id);
-        if(!delete_res.ok()) {
-            return Option<bool>(delete_res.code(), delete_res.error());
-        }
-    }
-
-    return Option<bool>(true);
-}
 
 Option<Collection*> ConversationModelManager::get_default_conversation_collection() {
     int64_t time_epoch;
