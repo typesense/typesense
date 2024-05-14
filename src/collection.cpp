@@ -6208,7 +6208,7 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
     const std::string _alpha = "_alpha";
 
    if ((facet_field.find(":") != std::string::npos)
-        && (facet_field.find("sort") == std::string::npos)) { //range based facet
+        && (facet_field.find("sort_by") == std::string::npos)) { //range based facet
 
        if (!std::regex_match(facet_field, base_pattern)) {
             std::string error = "Facet range value is not valid.";
@@ -6221,6 +6221,13 @@ Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector
         if(search_schema.count(field_name) == 0) {
             std::string error = "Could not find a facet field named `" + field_name + "` in the schema.";
             return Option<bool>(404, error);
+        }
+
+        if((field_name.find("sort") == std::string::npos)
+            && (facet_field.find("sort") != std::string::npos)) {
+            //sort keyword is found in facet string but not in facet field
+            std::string error = "Invalid sort format.";
+            return Option<bool>(400, error);
         }
 
         const field& a_field = search_schema.at(field_name);
