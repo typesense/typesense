@@ -2982,6 +2982,7 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetsWithSortDisabled) {
                                  6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
                                  2, 2, false, "", true, 0, max_score, 100, 0, 0, "top_values").get();
 
+    //when value index is forced it works
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
 
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"]);

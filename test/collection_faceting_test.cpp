@@ -3162,13 +3162,11 @@ TEST_F(CollectionFacetingTest, RangeFacetsWithSortDisabled) {
 
     auto results = coll2->search("*", {}, "brand:=Logitech",
                                  {"price(Low:[0, 30], Medium:[30, 75], High:[75, ])"}, {}, {2},
-                                 10, 1, FREQUENCY, {true}).get();
+                                 10, 1, FREQUENCY, {true});
 
-    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    //if no facet index is provided then it uses hash index
+    //hash index requires sort enabled for field for range faceting
 
-    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"]);
-    ASSERT_EQ("Low", results["facet_counts"][0]["counts"][0]["value"]);
-
-    ASSERT_EQ(1, results["facet_counts"][0]["counts"][1]["count"]);
-    ASSERT_EQ("Medium", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Range facets require sort enabled for the field.", results.error());
 }

@@ -5779,14 +5779,13 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                                                     facet_field.type != field_types::BOOL_ARRAY);
 
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
-        bool should_use_value_index = a_facet.is_range_query && (sort_index.count(a_facet.field_name) == 0);
 
         //as we use sort index for range facets with hash based index, sort index should be present
-        if(facet_index_type == exhaustive && !should_use_value_index) {
+        if(facet_index_type == exhaustive) {
             facet_infos[findex].use_value_index = false;
         }
         else if(facet_value_index_exists) {
-            if(facet_index_type == top_values || should_use_value_index) {
+            if(facet_index_type == top_values) {
                 facet_infos[findex].use_value_index = true;
             } else {
                 // facet_index_type = detect
