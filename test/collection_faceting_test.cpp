@@ -1230,6 +1230,7 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
             field("rank", field_types::INT32, true),
             field("range", field_types::INT32, true),
             field("review", field_types::FLOAT, true),
+            field("sortindex", field_types::INT32, true),
             field("scale", field_types::INT32, false),
     };
 
@@ -1355,6 +1356,13 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
             FAIL();
         }
     }
+
+    //facetfield containing sort keyword should parse successfully
+    std::vector<facet> range_facets_with_sort_as_field;
+    auto facet_range = "sortindex(Top:[85, 100], Average:[60, 85])";
+
+    coll1->parse_facet(facet_range, range_facets_with_sort_as_field);
+    ASSERT_EQ(1, range_facets_with_sort_as_field.size());
 }
 
 TEST_F(CollectionFacetingTest, RangeFacetTest) {
