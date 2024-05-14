@@ -1149,11 +1149,7 @@ TEST_F(FilterTest, NumericFilterIterator) {
     seq_ids = {1, 3, 4, 4};
     expected = {0, 1, 1, -1};
     for (uint32_t i = 0; i < validate_ids.size(); i++) {
-        if (i < 5) {
-            ASSERT_EQ(filter_result_iterator_t::valid, iter_greater_than_test.validity);
-        } else {
-            ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test.validity);
-        }
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_greater_than_test.validity);
         ASSERT_EQ(expected[i], iter_greater_than_test.is_valid(validate_ids[i]));
 
         if (expected[i] == 1) {
@@ -1310,6 +1306,219 @@ TEST_F(FilterTest, NumericFilterIterator) {
         ASSERT_EQ(seq_ids[i], iter_multivalue_filter_3.seq_id);
     }
     ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_3.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("rating: <5", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto computed_greater_than_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(computed_greater_than_test_2.init_status().ok());
+    ASSERT_TRUE(computed_greater_than_test_2._get_is_filter_result_initialized());
+
+    expected = {0, 3};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, computed_greater_than_test_2.validity);
+        ASSERT_EQ(i, computed_greater_than_test_2.seq_id);
+        computed_greater_than_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, computed_greater_than_test_2.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("rating: >5", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_greater_than_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_greater_than_test_2.init_status().ok());
+    ASSERT_FALSE(iter_greater_than_test_2._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 4, 4, 4, 4};
+    expected = {0, 1, 1, 0, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_greater_than_test_2.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test_2.validity);
+        }
+        ASSERT_EQ(expected[i], iter_greater_than_test_2.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_greater_than_test_2.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_greater_than_test_2.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test_2.validity);
+
+    iter_greater_than_test_2.reset();
+    validate_ids = {0, 1, 4, 5};
+    seq_ids = {1, 2, 4, 4};
+    expected = {0, 1, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 3) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_greater_than_test_2.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test_2.validity);
+        }
+        ASSERT_EQ(expected[i], iter_greater_than_test_2.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_greater_than_test_2.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_greater_than_test_2.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_greater_than_test_2.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("rating: != 7.812", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_not_equals_test_3 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_not_equals_test_3.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_test_3._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 4, 5, 5};
+    expected = {1, 1, 0, 1, 1, -1};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test_3.validity);
+        ASSERT_EQ(expected[i], iter_not_equals_test_3.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_not_equals_test_3.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_equals_test_3.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_3.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("rating: != [7.812]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_not_equals_test_4 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_not_equals_test_4.init_status().ok());
+    ASSERT_FALSE(iter_not_equals_test_4._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 4, 5, 5};
+    expected = {1, 1, 0, 1, 1, -1};
+    equals_iterator_valid = {true, true, true, false, false, false};
+    equals_match_seq_ids = {2, 2, 2, 2, 2, 2};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_not_equals_test_4.validity);
+        ASSERT_EQ(expected[i], iter_not_equals_test_4.is_valid(validate_ids[i]));
+
+        ASSERT_EQ(equals_iterator_valid[i], iter_not_equals_test_4._get_is_equals_iterator_valid());
+        ASSERT_EQ(equals_match_seq_ids[i], iter_not_equals_test_4._get_equals_iterator_id());
+
+        if (expected[i] == 1) {
+            iter_not_equals_test_4.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_not_equals_test_4.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_not_equals_test_4.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("rating: [< 1, >6]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_multivalue_filter_4 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_multivalue_filter_4.init_status().ok());
+    ASSERT_FALSE(iter_multivalue_filter_4._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 3, 3, 3};
+    expected = {0, 1, 1, 1, -1, -1};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 4) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_4.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_4.validity);
+        }
+        ASSERT_EQ(expected[i], iter_multivalue_filter_4.is_valid(validate_ids[i]));
+
+        if (expected[i] == 1) {
+            iter_multivalue_filter_4.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_multivalue_filter_4.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_4.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("rating: != [<1, >8]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_multivalue_filter_5 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_multivalue_filter_5.init_status().ok());
+    ASSERT_FALSE(iter_multivalue_filter_5._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 4, 5, 5};
+    expected = {1, 0, 1, 0, 1, -1};
+    equals_iterator_valid = {true, true, true, true, false, false};
+    equals_match_seq_ids = {1, 1, 3, 3, 3, 3};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_5.validity);
+        ASSERT_EQ(expected[i], iter_multivalue_filter_5.is_valid(validate_ids[i]));
+
+        ASSERT_EQ(equals_iterator_valid[i], iter_multivalue_filter_5._get_is_equals_iterator_valid());
+        ASSERT_EQ(equals_match_seq_ids[i], iter_multivalue_filter_5._get_equals_iterator_id());
+
+        if (expected[i] == 1) {
+            iter_multivalue_filter_5.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_multivalue_filter_5.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_5.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("rating: [0..6, >8]", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_multivalue_filter_6 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_multivalue_filter_6.init_status().ok());
+    ASSERT_FALSE(iter_multivalue_filter_6._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 3, 3, 4, 4, 4};
+    expected = {1, 1, 0, 1, 1, -1};
+    equals_iterator_valid = {true, true, true, true, true, false};
+    equals_match_seq_ids = {0, 1, 3, 3, 4, 4};
+
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_multivalue_filter_6.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_6.validity);
+        }
+        ASSERT_EQ(expected[i], iter_multivalue_filter_6.is_valid(validate_ids[i]));
+
+        ASSERT_EQ(equals_iterator_valid[i], iter_multivalue_filter_6._get_is_equals_iterator_valid());
+        ASSERT_EQ(equals_match_seq_ids[i], iter_multivalue_filter_6._get_equals_iterator_id());
+
+        if (expected[i] == 1) {
+            iter_multivalue_filter_6.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_multivalue_filter_6.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_multivalue_filter_6.validity);
 
     delete filter_tree_root;
 }
