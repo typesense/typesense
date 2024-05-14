@@ -957,6 +957,7 @@ TEST_F(CollectionOptimizedFacetingTest, FacetParseTest){
             field("grade", field_types::INT32, true),
             field("rank", field_types::INT32, true),
             field("range", field_types::INT32, true),
+            field("sortindex", field_types::INT32, true),
             field("scale", field_types::INT32, false),
     };
 
@@ -1053,6 +1054,13 @@ TEST_F(CollectionOptimizedFacetingTest, FacetParseTest){
 
     ASSERT_EQ("rank", mixed_facets_ptr[2]->field_name);
     ASSERT_EQ("range", mixed_facets_ptr[1]->field_name);
+
+    //facetfield containing sort keyword should parse successfully
+    std::vector<facet> range_facets_with_sort_as_field;
+    auto facet_range = "sortindex(Top:[85, 100], Average:[60, 85])";
+
+    coll1->parse_facet(facet_range, range_facets_with_sort_as_field);
+    ASSERT_EQ(1, range_facets_with_sort_as_field.size());
 }
 
 TEST_F(CollectionOptimizedFacetingTest, RangeFacetTest) {
