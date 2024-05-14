@@ -84,6 +84,8 @@ Collection::~Collection() {
             VQModelManager::get_instance().delete_model(vq_model->get_model_name());
         }
     }
+
+    ConversationManager::get_instance().remove_conversation_collection(name);
 }
 
 uint32_t Collection::get_next_seq_id() {
@@ -2856,39 +2858,24 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             return Option<nlohmann::json>(formatted_answer_op.code(), formatted_answer_op.error());
         }
 
-        if(has_conversation_history) {
-            ConversationManager::get_instance().append_conversation(conversation_id, formatted_question_op.get());
-            ConversationManager::get_instance().append_conversation(conversation_id, formatted_answer_op.get());
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(conversation_id);
-            if(!get_conversation_op.ok()) {
-                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
-            }
+        nlohmann::json conversation_history = nlohmann::json::array();
+        conversation_history.push_back(formatted_question_op.get());
+        conversation_history.push_back(formatted_answer_op.get());
 
-            auto conversation_history = get_conversation_op.get();
-            if(exclude_fields.count("conversation_history") == 0) {
-                result["conversation"]["conversation_history"] = conversation_history;
-            }
-            result["conversation"]["conversation_id"] = conversation_id;
-        } else {
-            nlohmann::json conversation_history = nlohmann::json::array();
-            conversation_history.push_back(formatted_question_op.get());
-            conversation_history.push_back(formatted_answer_op.get());
-
-            auto create_conversation_op = ConversationManager::get_instance().create_conversation(conversation_history);
-            if(!create_conversation_op.ok()) {
-                return Option<nlohmann::json>(create_conversation_op.code(), create_conversation_op.error());
-            }
-
-            auto get_conversation_op = ConversationManager::get_instance().get_conversation(create_conversation_op.get());
-            if(!get_conversation_op.ok()) {
-                return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
-            }
-
-            if(exclude_fields.count("conversation_history") == 0) {
-                result["conversation"]["conversation_history"] = get_conversation_op.get();
-            }
-            result["conversation"]["conversation_id"] = create_conversation_op.get();
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_model["conversation_collection"].get<std::string>(), conversation_id);
+        if(!add_conversation_op.ok()) {
+            return Option<nlohmann::json>(add_conversation_op.code(), add_conversation_op.error());
         }
+
+        auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
+        if(!get_conversation_op.ok()) {
+            return Option<nlohmann::json>(get_conversation_op.code(), get_conversation_op.error());
+        }
+
+        if(exclude_fields.count("conversation_history") == 0) {
+            result["conversation"]["conversation_history"] = get_conversation_op.get();
+        }
+        result["conversation"]["conversation_id"] = add_conversation_op.get();
     }
 
     result["facet_counts"] = nlohmann::json::array();
