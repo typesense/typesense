@@ -28,6 +28,15 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
         return Option<bool>(400, "Property `max_bytes` is not provided or not a positive integer.");
     }
 
+    if(model_config.count("conversation_collection") == 0 || !model_config["conversation_collection"].is_string()) {
+        return Option<bool>(400, "Property `conversation_collection` is not provided or not a string.");
+    }
+
+    auto validate_converson_collection_op = ConversationManager::get_instance().validate_conversation_store_collection(model_config["conversation_collection"].get<std::string>());
+    if(!validate_converson_collection_op.ok()) {
+        return Option<bool>(400, validate_converson_collection_op.error());
+    }
+
     const std::string model_namespace = get_model_namespace(model_config["model_name"].get<std::string>());
     if(model_namespace == "openai") {
         return OpenAIConversationModel::validate_model(model_config);

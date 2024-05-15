@@ -453,13 +453,6 @@ int run_server(const Config & config, const std::string & version, void (*master
     }
     EmbedderManager::set_model_dir(config.get_data_dir() + "/models");
 
-    auto conversations_init = ConversationManager::get_instance().init(&store);
-
-    if(!conversations_init.ok()) {
-        LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
-    } else {
-        LOG(INFO) << "Loaded " << conversations_init.get() << "(s) conversations.";
-    }
 
     auto conversation_models_init = ConversationModelManager::init(&store);
 
@@ -477,6 +470,12 @@ int run_server(const Config & config, const std::string & version, void (*master
                                        &config,
                                        num_collections_parallel_load,
                                        config.get_num_documents_parallel_load());
+
+    auto conversations_init = ConversationManager::get_instance().init(&replication_state);
+
+    if(!conversations_init.ok()) {
+        LOG(INFO) << "Failed to initialize conversation manager: " << conversations_init.error();
+    }
 
     std::thread raft_thread([&replication_state, &config, &state_dir,
                              &app_thread_pool, &server_thread_pool, &replication_thread_pool, batch_indexer]() {
