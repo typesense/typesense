@@ -3137,3 +3137,36 @@ TEST_F(CollectionFacetingTest, FacetingWithCoercedString) {
     ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"]);
 }
+
+TEST_F(CollectionFacetingTest, RangeFacetsWithSortDisabled) {
+    std::vector<field> fields = {field("name", field_types::STRING, false, false, true, "", 1),
+                                 field("brand", field_types::STRING, true, false, true, "", 0),
+                                 field("price", field_types::FLOAT, true, false, true, "", 0)};
+
+    Collection* coll2 = collectionManager.create_collection(
+            "coll2", 1, fields, "", 0, "",
+            {},{}).get();
+
+    nlohmann::json doc;
+    doc["name"] = "keyboard";
+    doc["id"] = "pd-1";
+    doc["brand"] = "Logitech";
+    doc["price"] = 49.99;
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["name"] = "mouse";
+    doc["id"] = "pd-2";
+    doc["brand"] = "Logitech";
+    doc["price"] = 29.99;
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    auto results = coll2->search("*", {}, "brand:=Logitech",
+                                 {"price(Low:[0, 30], Medium:[30, 75], High:[75, ])"}, {}, {2},
+                                 10, 1, FREQUENCY, {true});
+
+    //if no facet index is provided then it uses hash index
+    //hash index requires sort enabled for field for range faceting
+
+    ASSERT_FALSE(results.ok());
+    ASSERT_EQ("Range facets require sort enabled for the field.", results.error());
+}

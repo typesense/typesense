@@ -2948,3 +2948,46 @@ TEST_F(CollectionOptimizedFacetingTest, RangeFacetRangeLabelWithSpace) {
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ("small tvs with display size", results["facet_counts"][0]["counts"][0]["value"]);
 }
+
+TEST_F(CollectionOptimizedFacetingTest, RangeFacetsWithSortDisabled) {
+    std::vector<field> fields = {field("name", field_types::STRING, false, false, true, "", 1),
+                                 field("brand", field_types::STRING, true, false, true, "", -1),
+                                 field("price", field_types::FLOAT, true, false, true, "", -1)};
+
+    Collection* coll2 = collectionManager.create_collection(
+            "coll2", 1, fields, "", 0, "",
+            {},{}).get();
+
+    nlohmann::json doc;
+    doc["name"] = "keyboard";
+    doc["id"] = "pd-1";
+    doc["brand"] = "Logitech";
+    doc["price"] = 49.99;
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    doc["name"] = "mouse";
+    doc["id"] = "pd-2";
+    doc["brand"] = "Logitech";
+    doc["price"] = 29.99;
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    auto results = coll2->search("*", {},
+                                 "brand:=Logitech", {"price(Low:[0, 30], Medium:[30, 75], High:[75, ])"},
+                                 {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true,
+                                 6000*1000, 4, 7, fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                 2, 2, false, "", true, 0, max_score, 100, 0, 0, "top_values").get();
+
+    //when value index is forced it works
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("Low", results["facet_counts"][0]["counts"][0]["value"]);
+
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("Medium", results["facet_counts"][0]["counts"][1]["value"]);
+}
