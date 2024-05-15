@@ -5780,6 +5780,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
         bool facet_value_index_exists = facet_index_v4->has_value_index(facet_field.name);
 
+        //as we use sort index for range facets with hash based index, sort index should be present
         if(facet_index_type == exhaustive) {
             facet_infos[findex].use_value_index = false;
         }
