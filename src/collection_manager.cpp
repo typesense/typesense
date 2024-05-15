@@ -924,6 +924,11 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
 
                 sort_fields.emplace_back(sort_field_expr, "");
                 sort_field_expr = "";
+
+                // Skip the space in between the sort_by expressions.
+                while (i + 1 < sort_by_str.size() && sort_by_str[i + 1] == ' ') {
+                    i++;
+                }
                 continue;
             } else if (sort_by_str.substr(i, 5) == sort_field_const::eval) {
                 // Optional filtering
@@ -939,6 +944,11 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
                                                         parse_eval(sort_by_str, --i, sort_fields);
                 if (!result) {
                     return false;
+                }
+
+                // Skip the space in between the sort_by expressions.
+                while (i + 1 < sort_by_str.size() && sort_by_str[i + 1] == ' ') {
+                    i++;
                 }
                 continue;
             }
@@ -972,6 +982,11 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
 
             sort_fields.emplace_back(field_name, order_str);
             sort_field_expr = "";
+
+            // Skip the space in between the sort_by expressions.
+            while (i + 1 < sort_by_str.size() && sort_by_str[i + 1] == ' ') {
+                i++;
+            }
         } else {
             sort_field_expr += sort_by_str[i];
         }

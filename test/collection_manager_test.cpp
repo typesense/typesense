@@ -1268,7 +1268,7 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ("DESC", sort_fields[0].order);
 
     sort_fields.clear();
-    sort_by_parsed = CollectionManager::parse_sort_by_str("points:desc,loc(24.56,10.45):ASC,"
+    sort_by_parsed = CollectionManager::parse_sort_by_str("points:desc, loc(24.56,10.45):ASC, "
                                                           "$Customers(product_price:DESC)", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
     ASSERT_EQ(3, sort_fields.size());
@@ -1277,6 +1277,27 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ("loc(24.56,10.45)", sort_fields[1].name);
     ASSERT_EQ("ASC", sort_fields[1].order);
     ASSERT_EQ("$Customers(product_price:DESC)", sort_fields[2].name);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(brand:nike && foo:bar):DESC, "
+                                                          "$Customers(product_price:DESC)", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(2, sort_fields.size());
+    ASSERT_EQ("_eval", sort_fields[0].name);
+    ASSERT_FALSE(sort_fields[0].eval_expressions.empty());
+    ASSERT_EQ("brand:nike && foo:bar", sort_fields[0].eval_expressions[0]);
+    ASSERT_EQ(1, sort_fields[0].eval.scores.size());
+    ASSERT_EQ(1, sort_fields[0].eval.scores[0]);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+    ASSERT_EQ("$Customers(product_price:DESC)", sort_fields[1].name);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("$foo(bar:ASC), "
+                                                          "$Customers(product_price:DESC)", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(2, sort_fields.size());
+    ASSERT_EQ("$foo(bar:ASC)", sort_fields[0].name);
+    ASSERT_EQ("$Customers(product_price:DESC)", sort_fields[1].name);
 
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("$foo( _eval(brand:nike && foo:bar):DESC,points:desc) ",
