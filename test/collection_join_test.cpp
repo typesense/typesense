@@ -4557,7 +4557,7 @@ TEST_F(CollectionJoinTest, SortByReference) {
             {"q", "*"},
             {"query_by", "product_name"},
             {"filter_by", "$Customers(customer_id: customer_a)"},
-            {"sort_by", "$Customers(_eval(product_location:(48.87709, 2.33495, 1km)):desc)"}, // Closer to product_a
+            {"sort_by", "_eval(id:!foo):desc, $Customers(_eval(product_location:(48.87709, 2.33495, 1km)):desc)"}, // Closer to product_a
             {"include_fields", "product_id, $Customers(product_price, strategy:merge)"},
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
