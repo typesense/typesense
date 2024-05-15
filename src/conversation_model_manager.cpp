@@ -37,6 +37,11 @@ Option<nlohmann::json> ConversationModelManager::add_model(nlohmann::json model,
 
 Option<nlohmann::json> ConversationModelManager::delete_model(const std::string& model_id) {
     std::unique_lock lock(models_mutex);
+
+    return delete_model_unsafe(model_id);
+}
+
+Option<nlohmann::json> ConversationModelManager::delete_model_unsafe(const std::string& model_id) {
     auto it = models.find(model_id);
     if (it == models.end()) {
         return Option<nlohmann::json>(404, "Model not found");
@@ -105,7 +110,7 @@ Option<int> ConversationModelManager::init(Store* store) {
         std::string model_id = model_json["id"];
         models[model_id] = model_json;
         if(model_json.count("conversation_collection") == 0) {
-            auto delete_op = delete_model(model_id);
+            auto delete_op = delete_model_unsafe(model_id);
             if(!delete_op.ok()) {
                 return Option<int>(delete_op.code(), delete_op.error());
             }
