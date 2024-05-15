@@ -35,5 +35,6 @@ class ConversationModelManager
         static const std::string get_model_key(const std::string& model_id);
         static Option<Collection*> get_default_conversation_collection();
         static Option<nlohmann::json> delete_model_unsafe(const std::string& model_id);
+        static Option<nlohmann::json> add_model_unsafe(nlohmann::json model, const std::string& model_id);
 
 };
