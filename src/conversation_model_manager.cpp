@@ -14,6 +14,11 @@ Option<nlohmann::json> ConversationModelManager::get_model(const std::string& mo
 
 Option<nlohmann::json> ConversationModelManager::add_model(nlohmann::json model, const std::string& model_id) {
     std::unique_lock lock(models_mutex);
+
+    return add_model_unsafe(model, model_id);
+}
+
+Option<nlohmann::json> ConversationModelManager::add_model_unsafe(nlohmann::json model, const std::string& model_id) {
     auto validate_res = ConversationModel::validate_model(model);
     if (!validate_res.ok()) {
         return Option<nlohmann::json>(validate_res.code(), validate_res.error());
@@ -52,7 +57,9 @@ Option<nlohmann::json> ConversationModelManager::delete_model_unsafe(const std::
     auto model_key = get_model_key(model_id);
     bool delete_op = store->remove(model_key);
     
-    ConversationManager::get_instance().remove_conversation_collection(model["conversation_collection"]);
+    if(model.count("conversation_collection") != 0) {
+        ConversationManager::get_instance().remove_conversation_collection(model["conversation_collection"].get<std::string>());
+    }
     models.erase(it);
     return Option<nlohmann::json>(model);
 }
@@ -120,7 +127,7 @@ Option<int> ConversationModelManager::init(Store* store) {
             }
             model_json = migrate_op.get();
         }
-        ConversationManager::get_instance().add_conversation_collection(model_json["conversation_collection"]);
+        ConversationManager::get_instance().add_conversation_collection(model_json["conversation_collection"].get<std::string>());
         loaded_models++;
     }
 
@@ -185,7 +192,7 @@ Option<nlohmann::json> ConversationModelManager::migrate_model(nlohmann::json mo
         return Option<nlohmann::json>(default_collection.code(), default_collection.error());
     }
     model["conversation_collection"] = default_collection.get()->get_name();
-    auto add_res = add_model(model, model_id);
+    auto add_res = add_model_unsafe(model, model_id);
     if(!add_res.ok()) {
         return Option<nlohmann::json>(add_res.code(), add_res.error());
     }
