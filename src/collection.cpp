@@ -2441,7 +2441,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
-        total = search_params->topster->get_total_unique_groups() + override_result_kvs.size();
+        total = search_params->groups_processed.size() + override_result_kvs.size();
     } else {
         total = search_params->all_result_ids_len;
     }
@@ -3630,7 +3630,7 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
                 if(group_count_index >= 0) {
                     const auto& itr = groups_processed.find(kv_head->distinct_key);
                     if(itr != groups_processed.end()) {
-                        kv_head->scores[group_count_index] = (int)itr->second * group_sort_order;
+                        kv_head->scores[group_count_index] = itr->second * group_sort_order;
                     }
                 }
                 gtopster.add(kv_head);
