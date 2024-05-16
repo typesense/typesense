@@ -2883,6 +2883,10 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                     if(excluded_group_ids.count(distinct_id) != 0) {
                         continue;
                     }
+
+                    if(groups_processed.size() == fetch_size) {
+                        break;
+                    }
                 }
 
                 int64_t scores[3] = {0};
