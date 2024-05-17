@@ -1520,6 +1520,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *SYNONYM_PREFIX = "synonym_prefix";
     const char *SYNONYM_NUM_TYPOS = "synonym_num_typos";
 
+    const char *HIDE_FROM_ANALYTICS = "hide_from_analytics";
+
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -1663,7 +1665,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::string override_tags;
 
     std::string voice_query;
-
+    bool hide_from_analytics = false;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
@@ -1725,6 +1727,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {ENABLE_LAZY_FILTER, &enable_lazy_filter},
         {ENABLE_TYPOS_FOR_ALPHA_NUMERICAL_TOKENS, &enable_typos_for_alpha_numerical_tokens},
         {FILTER_CURATED_HITS, &filter_curated_hits_option},
+        {HIDE_FROM_ANALYTICS, &hide_from_analytics},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -1959,7 +1962,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     nlohmann::json result = result_op.get();
 
     if(Config::get_instance().get_enable_search_analytics()) {
-        if(result.contains("found")) {
+        if(!hide_from_analytics && result.contains("found")) {
             std::string analytics_query = Tokenizer::normalize_ascii_no_spaces(raw_query);
             if(result["found"].get<size_t>() != 0) {
                 const std::string& expanded_query = Tokenizer::normalize_ascii_no_spaces(
