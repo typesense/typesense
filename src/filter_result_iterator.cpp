@@ -985,11 +985,6 @@ void filter_result_iterator_t::init() {
 
             seq_ids = std::vector<uint32_t>(id_lists.size(), UINT32_MAX);
 
-            if (a_filter.values.size() > 10) {
-                compute_iterators();
-                return;
-            }
-
             if (a_filter.apply_not_equals) {
                 auto const& num_ids = index->seq_ids->num_ids();
                 approx_filter_ids_length = approx_filter_ids_length >= num_ids ? num_ids : (num_ids - approx_filter_ids_length);
@@ -1111,11 +1106,6 @@ void filter_result_iterator_t::init() {
             }
 
             seq_ids = std::vector<uint32_t>(id_lists.size(), UINT32_MAX);
-
-            if (a_filter.values.size() > 10) {
-                compute_iterators();
-                return;
-            }
 
             if (a_filter.apply_not_equals) {
                 auto const& num_ids = index->seq_ids->num_ids();
@@ -1509,11 +1499,6 @@ void filter_result_iterator_t::init() {
 
             // Multiple filter values get OR.
             approx_filter_ids_length += approx_filter_value_match;
-        }
-
-        if (a_filter.values.size() > 10) {
-            compute_iterators();
-            return;
         }
 
         if (a_filter.apply_not_equals) {
