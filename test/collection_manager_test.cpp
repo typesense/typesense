@@ -2111,7 +2111,7 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
     req_params["collection"] = "coll3";
     req_params["q"] = "tom";
     req_params["query_by"] = "title";
-    req_params["hide_from_analytics"] = "true";
+    req_params["enable_analytics"] = "false";
 
     auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -2122,7 +2122,7 @@ TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
     auto popular_queries = AnalyticsManager::get_instance().get_popular_queries();
     ASSERT_EQ(0, popular_queries["top_queries2"]->get_user_prefix_queries().size());
 
-    req_params["hide_from_analytics"] = "false";
+    req_params["enable_analytics"] = "true";
 
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
