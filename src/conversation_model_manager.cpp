@@ -124,7 +124,7 @@ Option<int> ConversationModelManager::init(Store* store) {
             model_json["model_name"] = "cloudflare/" + EmbedderManager::get_model_name_without_namespace(model_json["model_name"]);
             auto add_res = add_model(model_json, model_id);
             if(!add_res.ok()) {
-                return Option<nlohmann::json>(add_res.code(), add_res.error());
+                return Option<int>(add_res.code(), add_res.error());
             }
         }
 
