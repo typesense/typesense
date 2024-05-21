@@ -7,9 +7,6 @@
 #include <unordered_map>
 #include <field.h>
 #include "filter_result_iterator.h"
-#include "hll/distinct_counter.h"
-
-#define HYPERLOGLOG_THRESHOLD 2048
 
 struct KV {
     int8_t match_score_index{};
@@ -139,17 +136,10 @@ struct Topster {
     spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
     size_t distinct;
 
-    //hyperloglog lib counter for counting total unique group values more than 512
-    hyperloglog_hip::distinct_counter<uint64_t> hyperloglog_counter;
-    std::set<uint64_t> groups_found;    //to keep count of total unique group less than 512
-    uint32_t groups_found_count = 0;    //to keep track of groups found in current pass
-    bool is_first_pass_completed = false;
-
     explicit Topster(size_t capacity): Topster(capacity, 0) {
     }
 
-    explicit Topster(size_t capacity, size_t distinct, bool is_first_pass_completed = false): MAX_SIZE(capacity),
-                    size(0), distinct(distinct), is_first_pass_completed(is_first_pass_completed) {
+    explicit Topster(size_t capacity, size_t distinct): MAX_SIZE(capacity), size(0), distinct(distinct) {
         // we allocate data first to get a memory block whose indices are then assigned to `kvs`
         // we use separate **kvs for easier pointer swaps
         data = new KV[capacity];
@@ -194,32 +184,24 @@ struct Topster {
             LOG(INFO) << "kv key: " << mkv.first << " => " << mkv.second->scores[mkv.second->match_score_index];
         }*/
 
-       /* returns either 0 or 1
-        * 1 -> distinct_id was added to group_kv_map in second pass, which will aggregate found counts to groups_processed
-        * 0 -> distinct_id was added to kv_map in first pass
-        * -1 -> distinct_id was not added
-        */
-
+        int ret = 1;
+       
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
 
         if(!distinct && less_than_min_heap) {
             // for non-distinct, if incoming value is smaller than min-heap ignore
-            return -1;
+            return 0;
         }
 
         bool SIFT_DOWN = true;
 
-        if(distinct && is_first_pass_completed) {
-            if(kv_map.count(kv->distinct_key) == 0) {
-                return -1;
-            }
-
-            const auto& doc_seq_id_exists =
+        if(distinct) {
+            const auto& doc_seq_id_exists = 
                 (group_doc_seq_ids.find(kv->key) != group_doc_seq_ids.end());
         
             if(doc_seq_id_exists) {
-                return -1;
+                ret = 2;
             }
             group_doc_seq_ids.emplace(kv->key);
             
@@ -231,16 +213,14 @@ struct Topster {
                 Topster* g_topster = new Topster(distinct, 0);
                 g_topster->add(kv);
                 group_kv_map.insert({kv->distinct_key, g_topster});
-                groups_found_count++;
             }
             
-            return 1;
+            return ret;
 
         } else { // not distinct
             //LOG(INFO) << "Searching for key: " << kv->key;
-            auto key = distinct ? kv->distinct_key : kv->key;
 
-            const auto& found_it = kv_map.find(key);
+            const auto& found_it = kv_map.find(kv->key);
             bool is_duplicate_key = (found_it != kv_map.end());
 
             /*
@@ -257,15 +237,14 @@ struct Topster {
 
                 bool smaller_than_existing = is_smaller(kv, existing_kv);
                 if(smaller_than_existing) {
-                    return -1;
+                    return 0;
                 }
 
                 SIFT_DOWN = true;
 
                 // replace existing kv and sift down
                 heap_op_index = existing_kv->array_index;
-                auto heap_op_index_key = distinct ? kvs[heap_op_index]->distinct_key : kvs[heap_op_index]->key;
-                kv_map.erase(heap_op_index_key);
+                kv_map.erase(kvs[heap_op_index]->key);
             } else {  // not duplicate
 
                 if(size < MAX_SIZE) {
@@ -278,24 +257,12 @@ struct Topster {
                     // we have to replace min heap element since array is full
                     SIFT_DOWN = true;
                     heap_op_index = 0;
-                    auto heap_op_index_key = distinct ? kvs[heap_op_index]->distinct_key : kvs[heap_op_index]->key;
-                    kv_map.erase(heap_op_index_key);
+                    kv_map.erase(kvs[heap_op_index]->key);
                 }
             }
 
             // kv will be copied into the pointer at heap_op_index
-            kv_map.emplace(key, kvs[heap_op_index]);
-
-            if(distinct) {
-                hyperloglog_counter.insert(kv->distinct_key);
-
-                if(groups_found.size() < HYPERLOGLOG_THRESHOLD) {
-                    groups_found.insert(kv->distinct_key);
-                    groups_found_count = groups_found.size();
-                } else {
-                    groups_found_count = hyperloglog_counter.count();
-                }
-            }
+            kv_map.emplace(kv->key, kvs[heap_op_index]);
         }
 
         // we have to replace the existing element in the heap and sift down
@@ -333,7 +300,7 @@ struct Topster {
             }
         }
 
-        return 0;
+        return ret;
     }
 
     static bool is_greater(const struct KV* i, const struct KV* j) {
@@ -372,19 +339,5 @@ struct Topster {
 
     KV* getKV(uint32_t index) {
         return kvs[index];
-    }
-
-    const size_t get_total_unique_groups() const {
-        auto groups_count = groups_found.size();
-        return groups_count < 512 ? groups_count : hyperloglog_counter.count();
-    }
-
-    void set_first_pass_complete() {
-        is_first_pass_completed = true;
-        groups_found_count = 0;
-    }
-
-    const size_t get_current_groups_count() const {
-        return groups_found_count;
     }
 };

@@ -135,6 +135,7 @@ void crash_callback(int sig, backward::StackTrace& st) {
         }
     }
 
+    log_running_queries();
     LOG(ERROR) << "Typesense " << TYPESENSE_VERSION << " is terminating abruptly.";
 }
 
