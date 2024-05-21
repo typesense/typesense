@@ -4296,7 +4296,11 @@ TEST_F(CollectionJoinTest, CascadeDeletion) {
             R"({
                 "id": "2",
                 "name": "doc_2"
-            })"_json
+            })"_json,
+            R"({
+                "id": "3",
+                "name": "doc_3"
+            })"_json,
     };
     collection_create_op = collectionManager.create_collection(schema_json);
     ASSERT_TRUE(collection_create_op.ok());
@@ -4385,6 +4389,51 @@ TEST_F(CollectionJoinTest, CascadeDeletion) {
     ASSERT_EQ("1", res_obj["hits"][2]["document"].at("documentId"));
 
     collectionManager.get_collection_unsafe("document")->remove("1");
+
+    req_params = {
+            {"collection", "lead_document"},
+            {"q", "*"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+
+    ASSERT_EQ("3", res_obj["hits"][0]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][0]["document"].at("documentId"));
+
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("documentId"));
+
+    auto doc = R"({
+                "id": "1",
+                "leadId": "1",
+                "documentId": "3"
+            })"_json;
+    auto add_doc_op = collectionManager.get_collection_unsafe("lead_document")->add(doc.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    req_params = {
+            {"collection", "lead_document"},
+            {"q", "*"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+
+    ASSERT_EQ("1", res_obj["hits"][0]["document"].at("leadId"));
+    ASSERT_EQ("3", res_obj["hits"][0]["document"].at("documentId"));
+
+    ASSERT_EQ("3", res_obj["hits"][1]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("documentId"));
+
+    ASSERT_EQ("2", res_obj["hits"][2]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][2]["document"].at("documentId"));
+
+    collectionManager.get_collection_unsafe("lead")->remove("1");
 
     req_params = {
             {"collection", "lead_document"},
