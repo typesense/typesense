@@ -554,7 +554,7 @@ Option<std::string> CFConversationModel::get_standalone_question(const nlohmann:
     auto res_code = RemoteEmbedder::call_remote_api("POST_STREAM", url, req_body.dump(), res, res_headers, headers);
 
     if(res_code == 408) {
-        return Option<std::string>(400, "OpenAI API timeout.");
+        return Option<std::string>(400, "Cloudflare API timeout.");
     }
 
     if (res_code != 200) {
@@ -573,30 +573,7 @@ Option<std::string> CFConversationModel::get_standalone_question(const nlohmann:
         return Option<std::string>(400, "Cloudflare API error: " + json_res["message"].get<std::string>());
     }
     
-    try {
-        auto json_res = nlohmann::json::parse(res);
-        std::string parsed_response = "";
-        std::vector<std::string> lines = json_res["response"].get<std::vector<std::string>>();
-        for(auto& line : lines) {
-            while(line.find("data:") != std::string::npos) {
-                auto substr_line = line.substr(line.find("data:") + 6);
-                if(substr_line.find("[DONE]") != std::string::npos) {
-                    break;
-                }
-                nlohmann::json json_line;
-                if(substr_line.find("\n") != std::string::npos) {
-                   json_line = nlohmann::json::parse(substr_line.substr(0, substr_line.find("\n")));
-                } else {
-                    json_line = nlohmann::json::parse(substr_line);
-                }
-                parsed_response += json_line["response"];
-                line = substr_line;
-            }
-        }
-        return Option<std::string>(parsed_response);
-    } catch (const std::exception& e) {
-        return Option<std::string>(400, "Got malformed response from Cloudflare API.");
-    }
+    return parse_stream_response(res);
 }
 
 Option<nlohmann::json> CFConversationModel::format_question(const std::string& message) {
