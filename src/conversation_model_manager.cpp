@@ -102,15 +102,22 @@ Option<int> ConversationModelManager::init(Store* store) {
     int loaded_models = 0;
     for(auto& model_str : model_strs) {
         nlohmann::json model_json = nlohmann::json::parse(model_str);
-
+        std::string model_id = model_json["id"];
         // Migrate cloudflare models to new namespace convention, change namespace from `cf` to `cloudflare`
         if(EmbedderManager::get_model_namespace(model_json["model_name"]) == "cf") {
+            auto delete_op = delete_model(model_id);
+            if(!delete_op.ok()) {
+                return Option<int>(delete_op.code(), delete_op.error());
+            }
             model_json["model_name"] = "cloudflare/" + EmbedderManager::get_model_name_without_namespace(model_json["model_name"]);
+            auto add_res = add_model(model_json, model_id);
+            if(!add_res.ok()) {
+                return Option<nlohmann::json>(add_res.code(), add_res.error());
+            }
         }
 
-        std::string model_id = model_json["id"];
-        models[model_id] = model_json;
-
+        
+        
         // Migrate models that don't have a conversation collection
         if(model_json.count("conversation_collection") == 0) {
             auto delete_op = delete_model(model_id);
@@ -123,6 +130,8 @@ Option<int> ConversationModelManager::init(Store* store) {
             }
             model_json = migrate_op.get();
         }
+
+        models[model_id] = model_json;
         ConversationManager::get_instance().add_conversation_collection(model_json["conversation_collection"]);
         loaded_models++;
     }
