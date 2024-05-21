@@ -14,6 +14,11 @@ Option<nlohmann::json> ConversationModelManager::get_model(const std::string& mo
 
 Option<nlohmann::json> ConversationModelManager::add_model(nlohmann::json model, const std::string& model_id) {
     std::unique_lock lock(models_mutex);
+
+    return add_model_unsafe(model, model_id);
+}
+
+Option<nlohmann::json> ConversationModelManager::add_model_unsafe(nlohmann::json model, const std::string& model_id) {
     auto validate_res = ConversationModel::validate_model(model);
     if (!validate_res.ok()) {
         return Option<nlohmann::json>(validate_res.code(), validate_res.error());
@@ -37,6 +42,11 @@ Option<nlohmann::json> ConversationModelManager::add_model(nlohmann::json model,
 
 Option<nlohmann::json> ConversationModelManager::delete_model(const std::string& model_id) {
     std::unique_lock lock(models_mutex);
+
+    return delete_model_unsafe(model_id);
+}
+
+Option<nlohmann::json> ConversationModelManager::delete_model_unsafe(const std::string& model_id) {
     auto it = models.find(model_id);
     if (it == models.end()) {
         return Option<nlohmann::json>(404, "Model not found");
@@ -47,7 +57,9 @@ Option<nlohmann::json> ConversationModelManager::delete_model(const std::string&
     auto model_key = get_model_key(model_id);
     bool delete_op = store->remove(model_key);
     
-    ConversationManager::get_instance().remove_conversation_collection(model["conversation_collection"]);
+    if(model.count("conversation_collection") != 0) {
+        ConversationManager::get_instance().remove_conversation_collection(model["conversation_collection"].get<std::string>());
+    }
     models.erase(it);
     return Option<nlohmann::json>(model);
 }
@@ -103,9 +115,24 @@ Option<int> ConversationModelManager::init(Store* store) {
     for(auto& model_str : model_strs) {
         nlohmann::json model_json = nlohmann::json::parse(model_str);
         std::string model_id = model_json["id"];
-        models[model_id] = model_json;
-        if(model_json.count("conversation_collection") == 0) {
+        // Migrate cloudflare models to new namespace convention, change namespace from `cf` to `cloudflare`
+        if(EmbedderManager::get_model_namespace(model_json["model_name"]) == "cf") {
             auto delete_op = delete_model(model_id);
+            if(!delete_op.ok()) {
+                return Option<int>(delete_op.code(), delete_op.error());
+            }
+            model_json["model_name"] = "cloudflare/" + EmbedderManager::get_model_name_without_namespace(model_json["model_name"]);
+            auto add_res = add_model(model_json, model_id);
+            if(!add_res.ok()) {
+                return Option<int>(add_res.code(), add_res.error());
+            }
+        }
+
+        
+        
+        // Migrate models that don't have a conversation collection
+        if(model_json.count("conversation_collection") == 0) {
+            auto delete_op = delete_model_unsafe(model_id);
             if(!delete_op.ok()) {
                 return Option<int>(delete_op.code(), delete_op.error());
             }
@@ -115,7 +142,9 @@ Option<int> ConversationModelManager::init(Store* store) {
             }
             model_json = migrate_op.get();
         }
-        ConversationManager::get_instance().add_conversation_collection(model_json["conversation_collection"]);
+
+        models[model_id] = model_json;
+        ConversationManager::get_instance().add_conversation_collection(model_json["conversation_collection"].get<std::string>());
         loaded_models++;
     }
 
@@ -180,7 +209,7 @@ Option<nlohmann::json> ConversationModelManager::migrate_model(nlohmann::json mo
         return Option<nlohmann::json>(default_collection.code(), default_collection.error());
     }
     model["conversation_collection"] = default_collection.get()->get_name();
-    auto add_res = add_model(model, model_id);
+    auto add_res = add_model_unsafe(model, model_id);
     if(!add_res.ok()) {
         return Option<nlohmann::json>(add_res.code(), add_res.error());
     }

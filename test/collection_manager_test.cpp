@@ -2069,3 +2069,66 @@ TEST_F(CollectionManagerTest, CollectionPagination) {
     ASSERT_FALSE(collection_op.ok());
     ASSERT_EQ("Invalid offset param.", collection_op.error());
 }
+
+TEST_F(CollectionManagerTest, HideQueryFromAnalytics) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("year", field_types::INT32, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll3 = collectionManager.create_collection("coll3", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Tom Sawyer";
+    doc1["year"] = 1876;
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll3->add(doc1.dump()).ok());
+
+    Config::get_instance().set_enable_search_analytics(true);
+
+    nlohmann::json analytics_rule = R"({
+        "name": "hide_search_queries",
+        "type": "popular_queries",
+        "params": {
+            "limit": 100,
+            "source": {
+                "collections": ["coll3"]
+            },
+            "destination": {
+                "collection": "top_queries2"
+            }
+        }
+    })"_json;
+
+    auto create_op = AnalyticsManager::get_instance().create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    nlohmann::json embedded_params;
+    std::string json_res;
+
+    std::map<std::string, std::string> req_params;
+    req_params["collection"] = "coll3";
+    req_params["q"] = "tom";
+    req_params["query_by"] = "title";
+    req_params["enable_analytics"] = "false";
+
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto popular_queries = AnalyticsManager::get_instance().get_popular_queries();
+    ASSERT_EQ(0, popular_queries["top_queries2"]->get_user_prefix_queries().size());
+
+    req_params["enable_analytics"] = "true";
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    popular_queries = AnalyticsManager::get_instance().get_popular_queries();
+    ASSERT_EQ(1, popular_queries["top_queries2"]->get_user_prefix_queries().size());
+
+    collectionManager.drop_collection("coll3");
+}
