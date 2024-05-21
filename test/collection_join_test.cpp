@@ -4280,6 +4280,176 @@ TEST_F(CollectionJoinTest, CascadeDeletion) {
     ASSERT_EQ(1, res_obj["found"].get<size_t>());
     ASSERT_EQ("product_b", res_obj["hits"][0]["document"].at("product_id"));
     ASSERT_EQ("user_a", res_obj["hits"][0]["document"].at("user_id"));
+
+    schema_json =
+            R"({
+                "name": "document",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "1",
+                "name": "doc_1"
+            })"_json,
+            R"({
+                "id": "2",
+                "name": "doc_2"
+            })"_json,
+            R"({
+                "id": "3",
+                "name": "doc_3"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "lead",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "1",
+                "name": "lead_1"
+            })"_json,
+            R"({
+                "id": "2",
+                "name": "lead_2"
+            })"_json,
+            R"({
+                "id": "3",
+                "name": "lead_3"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "lead_document",
+                "fields": [
+                    {"name": "leadId", "type": "string", "reference":"lead.id"},
+                    {"name": "documentId", "type": "string", "reference":"document.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "1",
+                "leadId": "1",
+                "documentId": "1"
+            })"_json,
+            R"({
+                "id": "2",
+                "leadId": "2",
+                "documentId": "2"
+            })"_json,
+            R"({
+                "id": "3",
+                "leadId": "3",
+                "documentId": "2"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "lead_document"},
+            {"q", "*"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+
+    ASSERT_EQ("3", res_obj["hits"][0]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][0]["document"].at("documentId"));
+
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("documentId"));
+
+    ASSERT_EQ("1", res_obj["hits"][2]["document"].at("leadId"));
+    ASSERT_EQ("1", res_obj["hits"][2]["document"].at("documentId"));
+
+    collectionManager.get_collection_unsafe("document")->remove("1");
+
+    req_params = {
+            {"collection", "lead_document"},
+            {"q", "*"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+
+    ASSERT_EQ("3", res_obj["hits"][0]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][0]["document"].at("documentId"));
+
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("documentId"));
+
+    auto doc = R"({
+                "id": "1",
+                "leadId": "1",
+                "documentId": "3"
+            })"_json;
+    auto add_doc_op = collectionManager.get_collection_unsafe("lead_document")->add(doc.dump());
+    ASSERT_TRUE(add_doc_op.ok());
+
+    req_params = {
+            {"collection", "lead_document"},
+            {"q", "*"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+
+    ASSERT_EQ("1", res_obj["hits"][0]["document"].at("leadId"));
+    ASSERT_EQ("3", res_obj["hits"][0]["document"].at("documentId"));
+
+    ASSERT_EQ("3", res_obj["hits"][1]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("documentId"));
+
+    ASSERT_EQ("2", res_obj["hits"][2]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][2]["document"].at("documentId"));
+
+    collectionManager.get_collection_unsafe("lead")->remove("1");
+
+    req_params = {
+            {"collection", "lead_document"},
+            {"q", "*"},
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+
+    ASSERT_EQ("3", res_obj["hits"][0]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][0]["document"].at("documentId"));
+
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("leadId"));
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("documentId"));
 }
 
 TEST_F(CollectionJoinTest, SortByReference) {

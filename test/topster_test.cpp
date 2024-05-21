@@ -179,7 +179,7 @@ TEST(TopsterTest, MaxFloatValues) {
 }
 
 TEST(TopsterTest, DistinctIntValues) {
-   Topster dist_topster(5, 2);
+    Topster dist_topster(5, 2);
 
     struct {
         uint16_t query_index;
@@ -214,20 +214,9 @@ TEST(TopsterTest, DistinctIntValues) {
         dist_topster.add(&kv);
     }
 
-    dist_topster.set_first_pass_complete();
-    for(int i = 0; i < 14; i++) {
-        int64_t scores[3];
-        scores[0] = int64_t(data[i].match_score);
-        scores[1] = data[i].primary_attr;
-        scores[2] = data[i].secondary_attr;
-
-        KV kv(data[i].query_index, i+100, data[i].distinct_key, 0, scores);
-        dist_topster.add(&kv);
-    }
-
     dist_topster.sort();
 
-    std::vector<uint64_t> distinct_ids = {10, 5, 8, 4, 1};
+    std::vector<uint64_t> distinct_ids = {4, 1, 8, 5, 9};
 
     for(uint32_t i = 0; i < dist_topster.size; i++) {
         EXPECT_EQ(distinct_ids[i], dist_topster.getDistinctKeyAt(i));
@@ -235,15 +224,15 @@ TEST(TopsterTest, DistinctIntValues) {
         if(distinct_ids[i] == 1) {
             EXPECT_EQ(12, (int) dist_topster.getKV(i)->scores[dist_topster.getKV(i)->match_score_index]);
             EXPECT_EQ(2, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->size);
-            EXPECT_EQ(11, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->getKV(0)->scores[0]);
-            EXPECT_EQ(12, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->getKV(1)->scores[0]);
+            EXPECT_EQ(12, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->getKV(0)->scores[0]);
+            EXPECT_EQ(11, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->getKV(1)->scores[0]);
         }
 
         if(distinct_ids[i] == 5) {
-            EXPECT_EQ(10, (int) dist_topster.getKV(i)->scores[dist_topster.getKV(i)->match_score_index]);
+            EXPECT_EQ(9, (int) dist_topster.getKV(i)->scores[dist_topster.getKV(i)->match_score_index]);
             EXPECT_EQ(2, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->size);
-            EXPECT_EQ(9, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->getKV(0)->scores[0]);
-            EXPECT_EQ(10, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->getKV(1)->scores[0]);
+            EXPECT_EQ(10, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->getKV(0)->scores[0]);
+            EXPECT_EQ(9, dist_topster.group_kv_map[dist_topster.getDistinctKeyAt(i)]->getKV(1)->scores[0]);
         }
     }
 }

@@ -2441,7 +2441,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
-        total = search_params->topster->get_total_unique_groups() + override_result_kvs.size();
+        total = search_params->groups_processed.size() + override_result_kvs.size();
     } else {
         total = search_params->all_result_ids_len;
     }
@@ -3630,7 +3630,7 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
                 if(group_count_index >= 0) {
                     const auto& itr = groups_processed.find(kv_head->distinct_key);
                     if(itr != groups_processed.end()) {
-                        kv_head->scores[group_count_index] = (int)itr->second * group_sort_order;
+                        kv_head->scores[group_count_index] = itr->second * group_sort_order;
                     }
                 }
                 gtopster.add(kv_head);
@@ -4435,12 +4435,33 @@ void Collection::remove_document(const nlohmann::json & document, const uint32_t
     for (const auto &item: referenced_in) {
         auto ref_coll = collectionManager.get_collection(item.first);
         if (ref_coll != nullptr) {
+            // Delete all the docs where reference helper field has value `seq_id`.
             filter_result_t filter_result;
-            ref_coll->get_filter_ids(item.second + ":=" + id, filter_result);
-            for (uint32_t i = 0; i < filter_result.count; i++) {
-                ref_coll->remove(std::to_string(filter_result.docs[i]));
-            }
+            ref_coll->get_filter_ids(item.second + ":" + std::to_string(seq_id), filter_result);
+
+            ref_coll->remove_ref_docs(filter_result.count, filter_result.docs, remove_from_store);
         }
+    }
+}
+
+void Collection::remove_ref_docs(const uint32_t& count, uint32_t const* const docs, bool remove_from_store) {
+    for (uint32_t i = 0; i < count; i++) {
+        auto const& seq_id = docs[i];
+
+        nlohmann::json document;
+        auto get_doc_op = get_document_from_store(get_seq_id_key(seq_id), document);
+
+        if( !get_doc_op.ok()) {
+            if (get_doc_op.code() == 404) {
+                LOG(ERROR) << "`" << name << "` collection: Sequence ID `" << seq_id << "` exists, but document is missing.";
+                continue;
+            }
+
+            LOG(ERROR) << "`" << name << "` collection: " << get_doc_op.error();
+            continue;
+        }
+
+        remove_document(document, seq_id, remove_from_store);
     }
 }
 

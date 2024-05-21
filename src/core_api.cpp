@@ -27,6 +27,27 @@ LRU::Cache<uint64_t, cached_res_t> res_cache;
 
 std::atomic<bool> alter_in_progress = false;
 
+// used to log the queries that were in-flight during a crash
+std::mutex ifq_mutex;
+std::unordered_map<uint64_t, std::shared_ptr<http_req>> in_flight_queries;
+
+class in_flight_req_guard_t {
+    uint64_t req_id;
+public:
+    in_flight_req_guard_t(const std::shared_ptr<http_req>& req) {
+        std::unique_lock ifq_lock(ifq_mutex);
+        in_flight_queries.emplace(req->start_ts, req);
+        req_id = req->start_ts;
+        ifq_lock.unlock();
+    }
+
+    ~in_flight_req_guard_t() {
+        std::unique_lock ifq_lock(ifq_mutex);
+        in_flight_queries.erase(req_id);
+        ifq_lock.unlock();
+    }
+};
+
 void init_api(uint32_t cache_num_entries) {
     res_cache.capacity(cache_num_entries);
 }
@@ -37,6 +58,29 @@ void set_alter_in_progress(bool in_progress) {
 
 bool get_alter_in_progress() {
     return alter_in_progress;
+}
+
+void log_running_queries() {
+    std::unique_lock ifq_lock(ifq_mutex);
+    if(in_flight_queries.empty()) {
+        LOG(ERROR) << "No in-flight search queries were found.";
+        return ;
+    }
+
+    LOG(ERROR) << "Dump of in-flight search queries:";
+
+    for(const auto& kv: in_flight_queries) {
+        std::string query_string = "?";
+        std::string search_payload = kv.second->body;
+        StringUtils::erase_char(search_payload, '\n');
+        for(const auto& param_kv: kv.second->params) {
+            if(param_kv.first != http_req::AUTH_HEADER && param_kv.first != http_req::USER_HEADER) {
+                query_string += param_kv.first + "=" + param_kv.second + "&";
+            }
+        }
+
+        LOG(ERROR) << "id=" << kv.first << ", qs=" << query_string << ", body=" << search_payload;
+    }
 }
 
 bool handle_authentication(std::map<std::string, std::string>& req_params,
@@ -145,7 +189,7 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params,
                 }
             }
         } else {
-            LOG(ERROR) << "Multi search request body is malformed, body: " << body;
+            //LOG(ERROR) << "Multi search request body is malformed, body: " << body;
         }
     } else {
         if(rpath.handler == post_create_collection) {
@@ -440,6 +484,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
     uint64_t req_hash = 0;
 
+    in_flight_req_guard_t in_flight_req_guard(req);
+
     if(use_cache) {
         // cache enabled, let's check if request is already in the cache
         req_hash = hash_request(req);
@@ -510,6 +556,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     const auto use_cache_it = req->params.find("use_cache");
     bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
     uint64_t req_hash = 0;
+
+    in_flight_req_guard_t in_flight_req_guard(req);
 
     if(use_cache) {
         // cache enabled, let's check if request is already in the cache
