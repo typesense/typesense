@@ -2865,7 +2865,9 @@ bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::sh
         return false;
     }
 
-    auto add_model_op = ConversationModelManager::add_model(req_json);
+    const std::string& model_id = req->metadata;
+
+    auto add_model_op = ConversationModelManager::add_model(req_json, model_id);
 
     if(!add_model_op.ok()) {
         res->set(add_model_op.code(), add_model_op.error());
