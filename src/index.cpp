@@ -1158,7 +1158,6 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
     std::string token;
     std::string last_token;
     size_t token_index = 0;
-    LOG(INFO) << "text: " << text;
     while(tokenizer.next(token, token_index)) {
         if(token.empty()) {
             continue;
@@ -2199,6 +2198,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                                bool enable_typos_for_alpha_numerical_tokens) {
     if(search_params->group_limit != 0) {
         search(search_params->field_query_tokens,
+               search_params->field_query_tokens_non_stemmed,
                search_params->search_fields,
                search_params->match_type,
                search_params->filter_tree_root, search_params->facets, search_params->facet_query,
@@ -2250,6 +2250,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
 
     }
     auto res = search(search_params->field_query_tokens,
+                  search_params->field_query_tokens_non_stemmed,
                   search_params->search_fields,
                   search_params->match_type,
                   search_params->filter_tree_root, search_params->facets, search_params->facet_query,
@@ -2760,7 +2761,7 @@ Option<bool> Index::search_infix(const std::string& query, const std::string& fi
     return Option<bool>(true);
 }
 
-Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
+Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, std::vector<query_tokens_t>& field_query_tokens_non_stemmed, const std::vector<search_field_t>& the_fields,
                    const text_match_type_t match_type,
                    filter_node_t*& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                    const int max_facet_values,
@@ -3139,12 +3140,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         std::set<uint64> query_hashes;
 
         // resolve synonyms so that we can compute `syn_orig_num_tokens`
-        std::vector<std::vector<token_t>> all_queries = {field_query_tokens[0].q_include_tokens};
+        std::vector<std::vector<token_t>> all_queries = {field_query_tokens_non_stemmed[0].q_include_tokens};
         std::vector<std::vector<token_t>> q_pos_synonyms;
         std::vector<std::string> q_include_tokens;
         int syn_orig_num_tokens = -1;
-        for(size_t j = 0; j < field_query_tokens[0].q_include_tokens.size(); j++) {
-            q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
+        for(size_t j = 0; j < field_query_tokens_non_stemmed[0].q_include_tokens.size(); j++) {
+            q_include_tokens.push_back(field_query_tokens_non_stemmed[0].q_include_tokens[j].value);
         }
 
         if(enable_synonyms) {
@@ -3152,24 +3153,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                              synonym_prefix, synonym_num_typos);
         }
 
-        const bool& do_stemming = (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem);
-        if (do_stemming) {
-            auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
-            for(auto& q_include_token: q_include_tokens) {
-                q_include_token = stemmer->stem(q_include_token);
-                LOG(INFO) << "Stemmed token search: " << q_include_token;
-            }
-
-            for(auto& q_token: field_query_tokens[0].q_include_tokens) {
-                q_token.value = stemmer->stem(q_token.value);
-                LOG(INFO) << "Stemmed token search: " << q_token.value;
-            }
-        }
-
         if(!field_query_tokens[0].q_synonyms.empty()) {
             syn_orig_num_tokens = field_query_tokens[0].q_include_tokens.size();
         }
 
+        const bool& do_stemming = (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem);
         for(const auto& q_syn_vec: field_query_tokens[0].q_synonyms) {
             std::vector<token_t> q_pos_syn;
             for(size_t j=0; j < q_syn_vec.size(); j++) {

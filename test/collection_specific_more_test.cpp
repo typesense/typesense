@@ -2856,7 +2856,7 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     auto stem_res = coll_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
     ASSERT_TRUE(stem_res.ok());
     ASSERT_EQ(1, stem_res.get()["hits"].size());
-    ASSERT_EQ("running", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+    ASSERT_EQ("run", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
 
     auto no_stem_res = coll_no_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
     ASSERT_TRUE(no_stem_res.ok());
@@ -2977,8 +2977,10 @@ TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
             "synonyms": ["making", "foobar"]
         }
     )"_json;
+    LOG(INFO) << "Adding synonym...";
     auto synonym_op = coll_stem->add_synonym(synonym_json);
-    LOG(INFO) << synonym_op.error();
+    LOG(INFO) << "Synonym added...";
+
     ASSERT_TRUE(synonym_op.ok());
 
     ASSERT_TRUE(coll_stem->add(R"({"word": "foobar"})"_json.dump()).ok());
@@ -3100,7 +3102,7 @@ TEST_F(CollectionSpecificMoreTest, TestStemmingCyrilic) {
     nlohmann::json schema = R"({
          "name": "words",
          "fields": [
-           {"name": "word", "type": "string", "stem": true }
+           {"name": "word", "type": "string", "stem": true, "locale": "ru"}
          ]
        })"_json;
 

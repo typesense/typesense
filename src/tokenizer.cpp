@@ -30,9 +30,8 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
     cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
 
     if(stemmer) {
-        LOG(INFO) << "Stemming input: " << input;
-        LOG(INFO) << "Stemmed input: " << stemmer->stem(input);
-        init(stemmer->stem(input));
+        auto stemmed_input = stemmer->stem(input);
+        init(stemmed_input);
     } else {
         init(input);
     }
@@ -235,7 +234,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         return true;
     }
 
-    while(i < text.size()) {
+    while(i < text.length()) {
         if(is_ascii_char(text[i])) {
             size_t this_stream_mode = get_stream_mode(text[i]);
 

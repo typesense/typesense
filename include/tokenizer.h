@@ -12,7 +12,7 @@
 
 class Tokenizer {
 private:
-    std::string_view text;
+    std::string text;
     size_t i;
     const bool normalize;
     const bool no_op;
