@@ -601,6 +601,8 @@ public:
 
     Option<nlohmann::json> get(const std::string & id) const;
 
+    void remove_ref_docs(const uint32_t& count, uint32_t const* const docs, bool remove_from_store = true);
+
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 
     Option<bool> remove_if_found(uint32_t seq_id, bool remove_from_store = true);
