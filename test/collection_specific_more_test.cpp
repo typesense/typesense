@@ -3095,3 +3095,22 @@ TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
     ASSERT_EQ("(136)214", res["hits"][3]["document"]["title"].get<std::string>());
     ASSERT_EQ("13/14", res["hits"][4]["document"]["title"].get<std::string>());
 }
+
+TEST_F(CollectionSpecificMoreTest, TestStemmingCyrilic) {
+    nlohmann::json schema = R"({
+         "name": "words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true }
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенное"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенные"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("доверенное", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+}

@@ -2365,7 +2365,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set);
+                           field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer());
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -2534,7 +2534,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         std::vector<std::string> facet_query_tokens;
         Tokenizer(facet_query.query, normalise, !fq_field.is_string(), fq_field.locale,
-                  symbols_to_index, token_separators).tokenize(facet_query_tokens);
+                  symbols_to_index, token_separators, fq_field.get_stemmer()).tokenize(facet_query_tokens);
 
         facet_query_num_tokens = facet_query_tokens.size();
         facet_query_last_token = facet_query_tokens.empty() ? "" : facet_query_tokens.back();
@@ -2976,7 +2976,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
                     std::vector<std::string> fquery_tokens;
                     Tokenizer(facet_query.query, true, false, the_field.locale, symbols_to_index,
-                              token_separators).tokenize(fquery_tokens);
+                              token_separators, the_field.get_stemmer()).tokenize(fquery_tokens);
 
                     if(fquery_tokens.empty()) {
                         continue;
@@ -2998,7 +2998,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                         }
 
                         Tokenizer(facet_query.query, true, false, the_field.locale, symbols_to_index,
-                                  token_separators).tokenize(ftokens[ti]);
+                                  token_separators, the_field.get_stemmer()).tokenize(ftokens[ti]);
 
                         const std::string& resolved_token = ftokens[ti];
                         size_t root_len = (fquery_tokens.size() == ftokens.size()) ?
@@ -3011,7 +3011,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
                     std::vector<std::string> raw_fquery_tokens;
                     Tokenizer(facet_query.query, normalise, false, the_field.locale, symbols_to_index,
-                              token_separators).tokenize(raw_fquery_tokens);
+                              token_separators, the_field.get_stemmer()).tokenize(raw_fquery_tokens);
 
                     if(raw_fquery_tokens.empty()) {
                         continue;
@@ -3144,7 +3144,7 @@ void Collection::expand_search_query(const string& raw_query, size_t offset, siz
         }
 
         const auto& qleaves = search_params->searched_queries[q_index];
-        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators);
+        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators, search_field_it->get_stemmer());
         std::string raw_token;
         size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
 
@@ -3476,7 +3476,7 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
-                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set) const {
+                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
@@ -3498,7 +3498,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             custom_symbols.push_back('-');
             custom_symbols.push_back('"');
 
-            Tokenizer(query, true, false, locale, custom_symbols, token_separators).tokenize(tokens);
+            Tokenizer(query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
         }
 
         for (const auto val: stopwordStruct.stopwords) {
@@ -3545,7 +3545,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             if(already_segmented) {
                 StringUtils::split(token, sub_tokens, " ");
             } else {
-                Tokenizer(token, true, false, locale, symbols_to_index, token_separators).tokenize(sub_tokens);
+                Tokenizer(token, true, false, locale, symbols_to_index, token_separators, stemmer).tokenize(sub_tokens);
             }
 
             for(auto& sub_token: sub_tokens) {
@@ -3841,7 +3841,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
     bool normalise = !use_word_tokenizer;
 
     std::vector<std::string> raw_query_tokens;
-    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators).tokenize(raw_query_tokens);
+    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer()).tokenize(raw_query_tokens);
 
     if(raw_query_tokens.empty()) {
         return ;
@@ -4128,10 +4128,10 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
 
     const Match& match = match_index.match;
 
-    Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators);
+    Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
 
     // word tokenizer is a secondary tokenizer used for specific languages that requires transliteration
-    Tokenizer word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators);
+    Tokenizer word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
 
     if(search_field.locale == "ko") {
         text = string_utils.unicode_nfkd(text);

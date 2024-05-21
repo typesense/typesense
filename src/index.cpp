@@ -1154,11 +1154,11 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
                             const std::vector<char>& token_separators,
                             std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets) {
 
-    Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators);
+    Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, a_field.get_stemmer());
     std::string token;
     std::string last_token;
     size_t token_index = 0;
-
+    LOG(INFO) << "text: " << text;
     while(tokenizer.next(token, token_index)) {
         if(token.empty()) {
             continue;
@@ -1168,15 +1168,6 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
             token.erase(100);
         }
         
-        if(a_field.is_stem()) {
-            auto stemmer = a_field.get_stemmer();
-            if(stemmer) {
-                token = stemmer->stem(token);
-            } else {
-                LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
-            }
-        }
-
         token_to_offsets[token].push_back(token_index + 1);
         last_token = token;
     }
@@ -1197,7 +1188,7 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
         const std::string& str = strings[array_index];
         std::set<std::string> token_set;  // required to deal with repeating tokens
 
-        Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators);
+        Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, a_field.get_stemmer());
         std::string token, last_token;
         size_t token_index = 0;
 
@@ -1209,15 +1200,6 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
 
             if(token.size() > 100) {
                 token.erase(100);
-            }
-
-            if(a_field.is_stem()) {
-                auto stemmer = a_field.get_stemmer();
-                if(stemmer) {
-                    token = stemmer->stem(token);
-                } else {
-                    LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
-                }
             }
 
             token_to_offsets[token].push_back(token_index + 1);
@@ -3175,10 +3157,12 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
             auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
             for(auto& q_include_token: q_include_tokens) {
                 q_include_token = stemmer->stem(q_include_token);
+                LOG(INFO) << "Stemmed token search: " << q_include_token;
             }
 
             for(auto& q_token: field_query_tokens[0].q_include_tokens) {
                 q_token.value = stemmer->stem(q_token.value);
+                LOG(INFO) << "Stemmed token search: " << q_token.value;
             }
         }
 
