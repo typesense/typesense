@@ -102,8 +102,16 @@ Option<int> ConversationModelManager::init(Store* store) {
     int loaded_models = 0;
     for(auto& model_str : model_strs) {
         nlohmann::json model_json = nlohmann::json::parse(model_str);
+
+        // Migrate cloudflare models to new namespace convention, change namespace from `cf` to `cloudflare`
+        if(EmbedderManager::get_model_namespace(model_json["model_name"] == "cf")) {
+            model_json["model_name"] = "cloudflare/" + EmbedderManager::get_model_name_without_namespace(model_json["model_name"]);
+        }
+        
         std::string model_id = model_json["id"];
         models[model_id] = model_json;
+
+        // Migrate models that don't have a conversation collection
         if(model_json.count("conversation_collection") == 0) {
             auto delete_op = delete_model(model_id);
             if(!delete_op.ok()) {
