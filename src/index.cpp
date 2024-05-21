@@ -2196,6 +2196,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                                const std::vector<facet_index_type_t>& facet_index_types, bool enable_typos_for_numerical_tokens,
                                bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
                                bool enable_typos_for_alpha_numerical_tokens) {
+
     auto res = search(search_params->field_query_tokens,
                   search_params->field_query_tokens_non_stemmed,
                   search_params->search_fields,
