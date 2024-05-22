@@ -2340,11 +2340,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<std::string> q_tokens;  // used for auxillary highlighting
     std::vector<std::string> q_include_tokens;
+    std::vector<std::string> q_unstemmed_tokens;
 
     if(weighted_search_fields.size() == 0) {
         // has to be a wildcard query
         field_query_tokens.emplace_back(query_tokens_t{});
-        parse_search_query(query, q_include_tokens,
+        parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                            field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                            false, stopwords_set);
 
@@ -2357,15 +2358,22 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
                                                                 q_include_token.size(), 0);
         }
+
+        for(size_t i = 0; i < q_unstemmed_tokens.size(); i++) {
+            auto& q_include_token = q_unstemmed_tokens[i];
+            field_query_tokens[0].q_unstemmed_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
+                                                                q_include_token.size(), 0);
+        }
+
     } else {
         field_query_tokens.emplace_back(query_tokens_t{});
         auto most_weighted_field = search_schema.at(weighted_search_fields[0].name);
         const std::string & field_locale = most_weighted_field.locale;
 
-        parse_search_query(query, q_include_tokens,
+        parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set);
+                           field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer());
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -2378,6 +2386,12 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             auto& q_include_token = q_include_tokens[i];
             q_tokens.push_back(q_include_token);
             field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
+                                                                q_include_token.size(), 0);
+        }
+
+        for(size_t i = 0; i < q_unstemmed_tokens.size(); i++) {
+            auto& q_include_token = q_unstemmed_tokens[i];
+            field_query_tokens[0].q_unstemmed_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
                                                                 q_include_token.size(), 0);
         }
 
@@ -2534,7 +2548,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
         std::vector<std::string> facet_query_tokens;
         Tokenizer(facet_query.query, normalise, !fq_field.is_string(), fq_field.locale,
-                  symbols_to_index, token_separators).tokenize(facet_query_tokens);
+                  symbols_to_index, token_separators, fq_field.get_stemmer()).tokenize(facet_query_tokens);
 
         facet_query_num_tokens = facet_query_tokens.size();
         facet_query_last_token = facet_query_tokens.empty() ? "" : facet_query_tokens.back();
@@ -2976,7 +2990,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
                     std::vector<std::string> fquery_tokens;
                     Tokenizer(facet_query.query, true, false, the_field.locale, symbols_to_index,
-                              token_separators).tokenize(fquery_tokens);
+                              token_separators, the_field.get_stemmer()).tokenize(fquery_tokens);
 
                     if(fquery_tokens.empty()) {
                         continue;
@@ -2998,7 +3012,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                         }
 
                         Tokenizer(facet_query.query, true, false, the_field.locale, symbols_to_index,
-                                  token_separators).tokenize(ftokens[ti]);
+                                  token_separators, the_field.get_stemmer()).tokenize(ftokens[ti]);
 
                         const std::string& resolved_token = ftokens[ti];
                         size_t root_len = (fquery_tokens.size() == ftokens.size()) ?
@@ -3011,7 +3025,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
                     std::vector<std::string> raw_fquery_tokens;
                     Tokenizer(facet_query.query, normalise, false, the_field.locale, symbols_to_index,
-                              token_separators).tokenize(raw_fquery_tokens);
+                              token_separators, the_field.get_stemmer()).tokenize(raw_fquery_tokens);
 
                     if(raw_fquery_tokens.empty()) {
                         continue;
@@ -3144,7 +3158,7 @@ void Collection::expand_search_query(const string& raw_query, size_t offset, siz
         }
 
         const auto& qleaves = search_params->searched_queries[q_index];
-        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators);
+        Tokenizer tokenizer(raw_query, true, false, search_field_it->locale, symbols_to_index, token_separators, search_field_it->get_stemmer());
         std::string raw_token;
         size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
 
@@ -3473,15 +3487,112 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
     }
 }
 
-void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
+void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<std::string>& q_include_tokens,
+                                std::vector<std::vector<std::string>>& q_exclude_tokens,
+                                std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
+                                bool& phrase_search_op_prior, std::vector<std::string>& phrase, const std::string& stopwords_set,
+                                const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const{
+
+
+
+    auto symbols_to_index_has_minus =
+            std::find(symbols_to_index.begin(), symbols_to_index.end(), '-') != symbols_to_index.end();
+
+    for(auto& token: tokens) {
+        bool end_of_phrase = false;
+
+        if(token == "-" && !symbols_to_index_has_minus) {
+            continue;
+        } else if(token[0] == '-' && !symbols_to_index_has_minus) {
+            exclude_operator_prior = true;
+            token = token.substr(1);
+        }
+
+        if(token[0] == '"' && token.size() > 1) {
+            phrase_search_op_prior = true;
+            token = token.substr(1);
+        }
+
+        if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
+            if(phrase_search_op_prior) {
+                // handles single token phrase and a phrase with padded space, like: "some query "
+                end_of_phrase = true;
+                token = token.substr(0, token.size()-1);
+            } else if(token[0] == '"' && token.size() == 1) {
+                // handles front padded phrase query, e.g. " some query"
+                phrase_search_op_prior = true;
+            }
+        }
+
+        std::vector<std::string> sub_tokens;
+
+        if(already_segmented) {
+            StringUtils::split(token, sub_tokens, " ");
+        } else {
+            Tokenizer(token, true, false, locale, symbols_to_index, token_separators, stemmer).tokenize(sub_tokens);
+        }
+        
+        for(auto& sub_token: sub_tokens) {
+            if(sub_token.size() > 100) {
+                sub_token.erase(100);
+            }
+
+            if(exclude_operator_prior) {
+                if(phrase_search_op_prior) {
+                    phrase.push_back(sub_token);
+                } else {
+                    q_exclude_tokens.push_back({sub_token});
+                    exclude_operator_prior = false;
+                }
+            } else if(phrase_search_op_prior) {
+                phrase.push_back(sub_token);
+            } else {
+                q_include_tokens.push_back(sub_token);
+            }
+        }
+
+        if(end_of_phrase && phrase_search_op_prior) {
+            if(exclude_operator_prior) {
+                q_exclude_tokens.push_back(phrase);
+            } else {
+                q_phrases.push_back(phrase);
+            }
+
+            phrase_search_op_prior = false;
+            exclude_operator_prior = false;
+            phrase.clear();
+        }
+    }
+
+    if(!phrase.empty()) {
+        if(exclude_operator_prior) {
+            q_exclude_tokens.push_back(phrase);
+        } else {
+            q_include_tokens.insert(q_include_tokens.end(), phrase.begin(), phrase.end());
+        }
+    }
+
+    if(q_include_tokens.empty()) {
+        if(!stopwords_set.empty()) {
+            //this can happen when all tokens in the include are stopwords
+            q_include_tokens.emplace_back("##hrhdh##");
+        } else {
+            // this can happen if the only query token is an exclusion token
+            q_include_tokens.emplace_back("*");
+        }
+    }
+}
+
+void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens, std::vector<std::string>& q_unstemmed_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
-                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set) const {
+                                    const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
     } else {
         std::vector<std::string> tokens;
+        std::vector<std::string> tokens_non_stemmed;
         stopword_struct_t stopwordStruct;
         if(!stopwords_set.empty()) {
             const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
@@ -3498,104 +3609,32 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             custom_symbols.push_back('-');
             custom_symbols.push_back('"');
 
-            Tokenizer(query, true, false, locale, custom_symbols, token_separators).tokenize(tokens);
+            Tokenizer(query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
+            if(stemmer) {
+                Tokenizer(query, true, false, locale, custom_symbols, token_separators, nullptr).tokenize(tokens_non_stemmed);
+            }
         }
 
         for (const auto val: stopwordStruct.stopwords) {
             tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
+            tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
         }
 
         bool exclude_operator_prior = false;
         bool phrase_search_op_prior = false;
         std::vector<std::string> phrase;
 
-        auto symbols_to_index_has_minus =
-                std::find(symbols_to_index.begin(), symbols_to_index.end(), '-') != symbols_to_index.end();
+        process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set, already_segmented, locale, stemmer);
+        
+        if(stemmer) {
+            exclude_operator_prior = false;
+            phrase_search_op_prior = false;
+            phrase.clear();
+            // those are unused
+            std::vector<std::vector<std::string>> q_exclude_tokens_dummy;
+            std::vector<std::vector<std::string>> q_phrases_dummy;
 
-        for(auto& token: tokens) {
-            bool end_of_phrase = false;
-
-            if(token == "-" && !symbols_to_index_has_minus) {
-                continue;
-            } else if(token[0] == '-' && !symbols_to_index_has_minus) {
-                exclude_operator_prior = true;
-                token = token.substr(1);
-            }
-
-            if(token[0] == '"' && token.size() > 1) {
-                phrase_search_op_prior = true;
-                token = token.substr(1);
-            }
-
-            if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
-                if(phrase_search_op_prior) {
-                    // handles single token phrase and a phrase with padded space, like: "some query "
-                    end_of_phrase = true;
-                    token = token.substr(0, token.size()-1);
-                } else if(token[0] == '"' && token.size() == 1) {
-                    // handles front padded phrase query, e.g. " some query"
-                    phrase_search_op_prior = true;
-                }
-            }
-
-
-            // retokenize using collection config (handles hyphens being part of the query)
-            std::vector<std::string> sub_tokens;
-
-            if(already_segmented) {
-                StringUtils::split(token, sub_tokens, " ");
-            } else {
-                Tokenizer(token, true, false, locale, symbols_to_index, token_separators).tokenize(sub_tokens);
-            }
-
-            for(auto& sub_token: sub_tokens) {
-                if(sub_token.size() > 100) {
-                    sub_token.erase(100);
-                }
-
-                if(exclude_operator_prior) {
-                    if(phrase_search_op_prior) {
-                        phrase.push_back(sub_token);
-                    } else {
-                        q_exclude_tokens.push_back({sub_token});
-                        exclude_operator_prior = false;
-                    }
-                } else if(phrase_search_op_prior) {
-                    phrase.push_back(sub_token);
-                } else {
-                    q_include_tokens.push_back(sub_token);
-                }
-            }
-
-            if(end_of_phrase && phrase_search_op_prior) {
-                if(exclude_operator_prior) {
-                    q_exclude_tokens.push_back(phrase);
-                } else {
-                    q_phrases.push_back(phrase);
-                }
-
-                phrase_search_op_prior = false;
-                exclude_operator_prior = false;
-                phrase.clear();
-            }
-        }
-
-        if(!phrase.empty()) {
-            if(exclude_operator_prior) {
-                q_exclude_tokens.push_back(phrase);
-            } else {
-                q_include_tokens.insert(q_include_tokens.end(), phrase.begin(), phrase.end());
-            }
-        }
-
-        if(q_include_tokens.empty()) {
-            if(!stopwords_set.empty()) {
-                //this can happen when all tokens in the include are stopwords
-                q_include_tokens.emplace_back("##hrhdh##");
-            } else {
-                // this can happen if the only query token is an exclusion token
-                q_include_tokens.emplace_back("*");
-            }
+            process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set,  already_segmented, locale, nullptr);
         }
     }
 }
@@ -3841,7 +3880,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
     bool normalise = !use_word_tokenizer;
 
     std::vector<std::string> raw_query_tokens;
-    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators).tokenize(raw_query_tokens);
+    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer()).tokenize(raw_query_tokens);
 
     if(raw_query_tokens.empty()) {
         return ;
@@ -4128,10 +4167,10 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
 
     const Match& match = match_index.match;
 
-    Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators);
+    Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
 
     // word tokenizer is a secondary tokenizer used for specific languages that requires transliteration
-    Tokenizer word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators);
+    Tokenizer word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators, search_field.get_stemmer());
 
     if(search_field.locale == "ko") {
         text = string_utils.unicode_nfkd(text);
