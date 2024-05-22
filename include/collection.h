@@ -499,7 +499,7 @@ public:
     void process_tokens(std::vector<std::string>& tokens, std::vector<std::string>& q_include_tokens,
                        std::vector<std::vector<std::string>>& q_exclude_tokens,
                        std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
-                       bool& phrase_search_op_prior, std::vector<std::string>& phrase, 
+                       bool& phrase_search_op_prior, std::vector<std::string>& phrase, const std::string& stopwords_set, 
                        const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const;
 
     // PUBLIC OPERATIONS

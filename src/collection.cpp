@@ -3490,7 +3490,7 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
 void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<std::string>& q_include_tokens,
                                 std::vector<std::vector<std::string>>& q_exclude_tokens,
                                 std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
-                                bool& phrase_search_op_prior, std::vector<std::string>& phrase, 
+                                bool& phrase_search_op_prior, std::vector<std::string>& phrase, const std::string& stopwords_set,
                                 const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const{
 
 
@@ -3532,11 +3532,6 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
             Tokenizer(token, true, false, locale, symbols_to_index, token_separators, stemmer).tokenize(sub_tokens);
         }
         
-        // it is minus operator and symbols_to_index does not have minus
-        if(skip) {
-            continue;
-        }
-
         for(auto& sub_token: sub_tokens) {
             if(sub_token.size() > 100) {
                 sub_token.erase(100);
@@ -3629,7 +3624,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         bool phrase_search_op_prior = false;
         std::vector<std::string> phrase;
 
-        process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, already_segmented, locale, stemmer);
+        process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set, already_segmented, locale, stemmer);
         
         if(stemmer) {
             // those are unused
@@ -3639,7 +3634,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             std::vector<std::vector<std::string>> q_exclude_tokens_dummy;
             std::vector<std::vector<std::string>> q_phrases_dummy;
 
-            process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy, exclude_operator_prior_, phrase_search_op_prior_, phrase_, already_segmented, locale, nullptr);
+            process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy, exclude_operator_prior_, phrase_search_op_prior_, phrase_, stopwords_set,  already_segmented, locale, nullptr);
         }
     }
 }
