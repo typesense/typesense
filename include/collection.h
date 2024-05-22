@@ -500,7 +500,7 @@ public:
                        std::vector<std::vector<std::string>>& q_exclude_tokens,
                        std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
                        bool& phrase_search_op_prior, std::vector<std::string>& phrase, 
-                       const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer, const bool insert_q_phrase_and_q_exclude_tokens) const;
+                       const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const;
 
     // PUBLIC OPERATIONS
 

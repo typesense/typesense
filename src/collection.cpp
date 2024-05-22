@@ -3491,7 +3491,7 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
                                 std::vector<std::vector<std::string>>& q_exclude_tokens,
                                 std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
                                 bool& phrase_search_op_prior, std::vector<std::string>& phrase, 
-                                const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer, const bool insert_q_phrase_and_q_exclude_tokens) const{
+                                const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const{
 
 
 
@@ -3544,36 +3544,46 @@ void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<st
 
             if(exclude_operator_prior) {
                 if(phrase_search_op_prior) {
-                    if(insert_q_phrase_and_q_exclude_tokens) {
-                        phrase.push_back(sub_token);
-                    }
+                    phrase.push_back(sub_token);
                 } else {
-                    if(insert_q_phrase_and_q_exclude_tokens) {
-                        q_exclude_tokens.push_back({sub_token});
-                    }
+                    q_exclude_tokens.push_back({sub_token});
                     exclude_operator_prior = false;
                 }
             } else if(phrase_search_op_prior) {
-                if(insert_q_phrase_and_q_exclude_tokens) {
-                    phrase.push_back(sub_token);
-                }
+                phrase.push_back(sub_token);
             } else {
                 q_include_tokens.push_back(sub_token);
             }
         }
 
         if(end_of_phrase && phrase_search_op_prior) {
-            if(insert_q_phrase_and_q_exclude_tokens) {
-                if(exclude_operator_prior) {
-                    q_exclude_tokens.push_back(phrase);
-                } else {
-                    q_phrases.push_back(phrase);
-                }
+            if(exclude_operator_prior) {
+                q_exclude_tokens.push_back(phrase);
+            } else {
+                q_phrases.push_back(phrase);
             }
 
             phrase_search_op_prior = false;
             exclude_operator_prior = false;
             phrase.clear();
+        }
+    }
+
+    if(!phrase.empty()) {
+        if(exclude_operator_prior) {
+            q_exclude_tokens.push_back(phrase);
+        } else {
+            q_include_tokens.insert(q_include_tokens.end(), phrase.begin(), phrase.end());
+        }
+    }
+
+    if(q_include_tokens.empty()) {
+        if(!stopwords_set.empty()) {
+            //this can happen when all tokens in the include are stopwords
+            q_include_tokens.emplace_back("##hrhdh##");
+        } else {
+            // this can happen if the only query token is an exclusion token
+            q_include_tokens.emplace_back("*");
         }
     }
 }
@@ -3619,33 +3629,17 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         bool phrase_search_op_prior = false;
         std::vector<std::string> phrase;
 
-        process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, already_segmented, locale, stemmer, true);
+        process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, already_segmented, locale, stemmer);
         
         if(stemmer) {
             // those are unused
             bool exclude_operator_prior_ = false;
             bool phrase_search_op_prior_ = false;
             std::vector<std::string> phrase_;
+            std::vector<std::vector<std::string>> q_exclude_tokens_dummy;
+            std::vector<std::vector<std::string>> q_phrases_dummy;
 
-            process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior_, phrase_search_op_prior_, phrase_, already_segmented, locale, nullptr, false);
-        }
-
-        if(!phrase.empty()) {
-            if(exclude_operator_prior) {
-                q_exclude_tokens.push_back(phrase);
-            } else {
-                q_include_tokens.insert(q_include_tokens.end(), phrase.begin(), phrase.end());
-            }
-        }
-
-        if(q_include_tokens.empty()) {
-            if(!stopwords_set.empty()) {
-                //this can happen when all tokens in the include are stopwords
-                q_include_tokens.emplace_back("##hrhdh##");
-            } else {
-                // this can happen if the only query token is an exclusion token
-                q_include_tokens.emplace_back("*");
-            }
+            process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy, exclude_operator_prior_, phrase_search_op_prior_, phrase_, already_segmented, locale, nullptr);
         }
     }
 }
