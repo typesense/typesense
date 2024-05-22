@@ -3627,14 +3627,14 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set, already_segmented, locale, stemmer);
         
         if(stemmer) {
+            exclude_operator_prior = false;
+            phrase_search_op_prior = false;
+            phrase.clear();
             // those are unused
-            bool exclude_operator_prior_ = false;
-            bool phrase_search_op_prior_ = false;
-            std::vector<std::string> phrase_;
             std::vector<std::vector<std::string>> q_exclude_tokens_dummy;
             std::vector<std::vector<std::string>> q_phrases_dummy;
 
-            process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy, exclude_operator_prior_, phrase_search_op_prior_, phrase_, stopwords_set,  already_segmented, locale, nullptr);
+            process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens_dummy, q_phrases_dummy, exclude_operator_prior, phrase_search_op_prior, phrase, stopwords_set,  already_segmented, locale, nullptr);
         }
     }
 }
