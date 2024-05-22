@@ -4258,12 +4258,12 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
 
-    std::vector<std::string> q_include_tokens;
+    std::vector<std::string> q_include_tokens, q_unstemmed_tokens;
     std::vector<std::vector<std::string>> q_exclude_tokens;
     std::vector<std::vector<std::string>> q_phrases;
 
     std::string q = R"(the "phrase search" query)";
-    /*coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    /*coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, "en", false);
 
     ASSERT_EQ(2, q_include_tokens.size());
     ASSERT_EQ("the", q_include_tokens[0]);
@@ -4278,9 +4278,10 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     q = R"("space padded " query)";
     q_include_tokens.clear();
     q_exclude_tokens.clear();
+    q_unstemmed_tokens.clear();
     q_phrases.clear();
 
-    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, "en", false);
     ASSERT_EQ(1, q_include_tokens.size());
     ASSERT_EQ("query", q_include_tokens[0]);
     ASSERT_EQ(1, q_phrases.size());
@@ -4295,7 +4296,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     q_exclude_tokens.clear();
     q_phrases.clear();
 
-    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, "en", false);
     ASSERT_EQ(1, q_include_tokens.size());
     ASSERT_EQ("*", q_include_tokens[0]);
     ASSERT_EQ(2, q_phrases.size());
@@ -4312,7 +4313,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     q_exclude_tokens.clear();
     q_phrases.clear();
 
-    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, "en", false);
     ASSERT_EQ(1, q_include_tokens.size());
     ASSERT_EQ("*", q_include_tokens[0]);
     ASSERT_EQ(1, q_phrases.size());
@@ -4326,7 +4327,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     q_exclude_tokens.clear();
     q_phrases.clear();
 
-    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, "en", false);
     ASSERT_EQ(1, q_include_tokens.size());
     ASSERT_EQ("hello", q_include_tokens[0]);
     ASSERT_EQ(0, q_phrases.size());
@@ -4337,7 +4338,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     q_exclude_tokens.clear();
     q_phrases.clear();
 
-    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, "en", false);
     ASSERT_EQ(1, q_include_tokens.size());
     ASSERT_EQ("here", q_include_tokens[0]);
     ASSERT_EQ(1, q_phrases.size());
@@ -4350,7 +4351,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     q_include_tokens.clear();
     q_exclude_tokens.clear();
     q_phrases.clear();
-    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, "en", false);
     ASSERT_EQ(1, q_include_tokens.size());
     ASSERT_EQ("here", q_include_tokens[0]);
     ASSERT_EQ(0, q_phrases.size());
@@ -4364,7 +4365,7 @@ TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
     q_include_tokens.clear();
     q_exclude_tokens.clear();
     q_phrases.clear();
-    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    coll1->parse_search_query(q, q_include_tokens, q_unstemmed_tokens, q_exclude_tokens, q_phrases, "en", false);
     ASSERT_EQ(1, q_include_tokens.size());
     ASSERT_EQ("here", q_include_tokens[0]);
     ASSERT_EQ(0, q_phrases.size());

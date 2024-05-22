@@ -76,6 +76,7 @@ struct tok_candidates {
 
 struct query_tokens_t {
     std::vector<token_t> q_include_tokens;
+    std::vector<token_t> q_unstemmed_tokens;
     std::vector<std::vector<std::string>> q_exclude_tokens;
     std::vector<std::vector<std::string>> q_phrases;
     std::vector<std::vector<std::string>> q_synonyms;
@@ -124,7 +125,6 @@ struct drop_tokens_param_t {
 
 struct search_args {
     std::vector<query_tokens_t> field_query_tokens;
-    std::vector<query_tokens_t> field_query_tokens_non_stemmed;
     std::vector<search_field_t> search_fields;
     const text_match_type_t match_type;
     filter_node_t* filter_tree_root;
@@ -177,7 +177,7 @@ struct search_args {
 
     bool enable_lazy_filter;
 
-    search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<query_tokens_t> field_query_tokens_non_stemmed, std::vector<search_field_t> search_fields,
+    search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 const text_match_type_t match_type,
                 filter_node_t* filter_tree_root, std::vector<facet>& facets,
                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
@@ -194,7 +194,7 @@ struct search_args {
                 const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
                 size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode,
                 bool enable_lazy_filter) :
-            field_query_tokens(field_query_tokens), field_query_tokens_non_stemmed(field_query_tokens_non_stemmed),
+            field_query_tokens(field_query_tokens), 
             search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
             facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values), per_page(per_page),
@@ -670,7 +670,7 @@ public:
                             bool enable_synonyms, bool synonym_prefix, uint32_t synonym_num_typos,
                             bool enable_typos_for_alpha_numerical_tokens);
 
-    Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, std::vector<query_tokens_t>& field_query_tokens_non_stemmed, const std::vector<search_field_t>& the_fields,
+    Option<bool> search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 const text_match_type_t match_type,
                 filter_node_t*& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                 const int max_facet_values,

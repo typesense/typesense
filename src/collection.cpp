@@ -2337,15 +2337,14 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     }
 
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
-    std::vector<query_tokens_t> field_query_tokens, field_query_tokens_non_stemmed;
+    std::vector<query_tokens_t> field_query_tokens;
     std::vector<std::string> q_tokens;  // used for auxillary highlighting
-    std::vector<std::string> q_include_tokens, q_include_tokens_non_stemmed;
+    std::vector<std::string> q_include_tokens, q_unstemmed_tokens;
 
     if(weighted_search_fields.size() == 0) {
         // has to be a wildcard query
         field_query_tokens.emplace_back(query_tokens_t{});
-        field_query_tokens_non_stemmed.emplace_back(query_tokens_t{});
-        parse_search_query(query, q_include_tokens,
+        parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                            field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                            false, stopwords_set);
 
@@ -2357,24 +2356,23 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
             auto& q_include_token = q_include_tokens[i];
             field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
                                                                 q_include_token.size(), 0);
-            field_query_tokens_non_stemmed[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
+        }
+
+        for(size_t i = 0; i < q_unstemmed_tokens.size(); i++) {
+            auto& q_include_token = q_unstemmed_tokens[i];
+            field_query_tokens[0].q_unstemmed_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
                                                                 q_include_token.size(), 0);
         }
 
     } else {
         field_query_tokens.emplace_back(query_tokens_t{});
-        field_query_tokens_non_stemmed.emplace_back(query_tokens_t{});
         auto most_weighted_field = search_schema.at(weighted_search_fields[0].name);
         const std::string & field_locale = most_weighted_field.locale;
 
-        parse_search_query(query, q_include_tokens,
+        parse_search_query(query, q_include_tokens, q_unstemmed_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
                            field_locale, pre_segmented_query, stopwords_set, most_weighted_field.get_stemmer());
-        parse_search_query(query, q_include_tokens_non_stemmed,
-                           field_query_tokens_non_stemmed[0].q_exclude_tokens,
-                           field_query_tokens_non_stemmed[0].q_phrases,
-                           field_locale, pre_segmented_query, stopwords_set);
 
         // process filter overrides first, before synonyms (order is important)
 
@@ -2383,9 +2381,6 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                  included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
                                  enable_typos_for_alpha_numerical_tokens);
 
-        process_filter_overrides(filter_overrides, q_include_tokens_non_stemmed, token_order, filter_tree_root,
-                                 included_ids, excluded_ids, override_metadata, enable_typos_for_numerical_tokens,
-                                 enable_typos_for_alpha_numerical_tokens);
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
             q_tokens.push_back(q_include_token);
@@ -2393,10 +2388,9 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
                                                                 q_include_token.size(), 0);
         }
 
-        for(size_t i = 0; i < q_include_tokens_non_stemmed.size(); i++) {
-            auto& q_include_token = q_include_tokens_non_stemmed[i];
-            q_tokens.push_back(q_include_token);
-            field_query_tokens_non_stemmed[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
+        for(size_t i = 0; i < q_unstemmed_tokens.size(); i++) {
+            auto& q_include_token = q_unstemmed_tokens[i];
+            field_query_tokens[0].q_unstemmed_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size() - 1),
                                                                 q_include_token.size(), 0);
         }
 
@@ -2409,15 +2403,13 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         for(size_t i = 1; i < weighted_search_fields.size(); i++) {
             field_query_tokens.emplace_back(query_tokens_t{});
             field_query_tokens[i] = field_query_tokens[0];
-            field_query_tokens_non_stemmed.emplace_back(query_tokens_t{});
-            field_query_tokens_non_stemmed[i] = field_query_tokens_non_stemmed[0];
         }
     }
 
     // search all indices
 
     size_t index_id = 0;
-    search_args* search_params = new search_args(field_query_tokens, field_query_tokens_non_stemmed, weighted_search_fields,
+    search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
                                                  match_type,
                                                  filter_tree_root, facets, included_ids, excluded_ids,
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
@@ -3494,7 +3486,7 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
     }
 }
 
-void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
+void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens, std::vector<std::string>& q_unstemmed_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
                                     const std::string& locale, const bool already_segmented, const std::string& stopwords_set, std::shared_ptr<Stemmer> stemmer) const {
@@ -3502,7 +3494,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         q_exclude_tokens = {};
         q_include_tokens = {query};
     } else {
-        std::vector<std::string> tokens;
+        std::vector<std::string> tokens, tokens_non_stemmed;
         stopword_struct_t stopwordStruct;
         if(!stopwords_set.empty()) {
             const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
@@ -3520,10 +3512,14 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             custom_symbols.push_back('"');
 
             Tokenizer(query, true, false, locale, custom_symbols, token_separators, stemmer).tokenize(tokens);
+            if(stemmer) {
+                Tokenizer(query, true, false, locale, custom_symbols, token_separators, nullptr).tokenize(tokens_non_stemmed);
+            }
         }
 
         for (const auto val: stopwordStruct.stopwords) {
             tokens.erase(std::remove(tokens.begin(), tokens.end(), val), tokens.end());
+            tokens_non_stemmed.erase(std::remove(tokens_non_stemmed.begin(), tokens_non_stemmed.end(), val), tokens_non_stemmed.end());
         }
 
         bool exclude_operator_prior = false;
@@ -3598,6 +3594,62 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 phrase_search_op_prior = false;
                 exclude_operator_prior = false;
                 phrase.clear();
+            }
+        }
+        
+        if(!tokens_non_stemmed.empty()) {
+            exclude_operator_prior = false;
+            phrase_search_op_prior = false;
+            for(auto& token: tokens_non_stemmed) {
+                bool end_of_phrase = false;
+
+                if(token == "-" && !symbols_to_index_has_minus) {
+                    continue;
+                } else if(token[0] == '-' && !symbols_to_index_has_minus) {
+                    exclude_operator_prior = true;
+                    token = token.substr(1);
+                }
+
+                if(token[0] == '"' && token.size() > 1) {
+                    phrase_search_op_prior = true;
+                    token = token.substr(1);
+                }
+
+                if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
+                    if(phrase_search_op_prior) {
+                        // handles single token phrase and a phrase with padded space, like: "some query "
+                        end_of_phrase = true;
+                        token = token.substr(0, token.size()-1);
+                    } else if(token[0] == '"' && token.size() == 1) {
+                        // handles front padded phrase query, e.g. " some query"
+                        phrase_search_op_prior = true;
+                    }
+                }
+
+
+                // retokenize using collection config (handles hyphens being part of the query)
+                std::vector<std::string> sub_tokens;
+
+                if(already_segmented) {
+                    StringUtils::split(token, sub_tokens, " ");
+                } else {
+                    Tokenizer(token, true, false, locale, symbols_to_index, token_separators, nullptr).tokenize(sub_tokens);
+                }
+
+                for(auto& sub_token: sub_tokens) {
+                    if(sub_token.size() > 100) {
+                        sub_token.erase(100);
+                    }
+
+                    if(!exclude_operator_prior && !phrase_search_op_prior) {
+                        q_unstemmed_tokens.push_back(sub_token);
+                    }
+                }
+
+                if(end_of_phrase && phrase_search_op_prior) {
+                    phrase_search_op_prior = false;
+                    exclude_operator_prior = false;
+                }
             }
         }
 

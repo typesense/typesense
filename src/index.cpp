@@ -2198,7 +2198,6 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
                                bool enable_typos_for_alpha_numerical_tokens) {
 
     auto res = search(search_params->field_query_tokens,
-                  search_params->field_query_tokens_non_stemmed,
                   search_params->search_fields,
                   search_params->match_type,
                   search_params->filter_tree_root, search_params->facets, search_params->facet_query,
@@ -2710,7 +2709,7 @@ Option<bool> Index::search_infix(const std::string& query, const std::string& fi
     return Option<bool>(true);
 }
 
-Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, std::vector<query_tokens_t>& field_query_tokens_non_stemmed, const std::vector<search_field_t>& the_fields,
+Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                    const text_match_type_t match_type,
                    filter_node_t*& filter_tree_root, std::vector<facet>& facets, facet_query_t& facet_query,
                    const int max_facet_values,
@@ -3090,12 +3089,19 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, std:
         std::set<uint64> query_hashes;
 
         // resolve synonyms so that we can compute `syn_orig_num_tokens`
-        std::vector<std::vector<token_t>> all_queries = {field_query_tokens_non_stemmed[0].q_include_tokens};
+        std::vector<std::vector<token_t>> all_queries = {field_query_tokens[0].q_unstemmed_tokens.empty() ?
+                                                          field_query_tokens[0].q_include_tokens : field_query_tokens[0].q_unstemmed_tokens};
         std::vector<std::vector<token_t>> q_pos_synonyms;
         std::vector<std::string> q_include_tokens;
         int syn_orig_num_tokens = -1;
-        for(size_t j = 0; j < field_query_tokens_non_stemmed[0].q_include_tokens.size(); j++) {
-            q_include_tokens.push_back(field_query_tokens_non_stemmed[0].q_include_tokens[j].value);
+        if(!field_query_tokens[0].q_unstemmed_tokens.empty()) {
+            for(size_t j = 0; j < field_query_tokens[0].q_unstemmed_tokens.size(); j++) {
+                q_include_tokens.push_back(field_query_tokens[0].q_unstemmed_tokens[j].value);
+            }
+        } else {
+            for(size_t j = 0; j < field_query_tokens[0].q_include_tokens.size(); j++) {
+                q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
+            }
         }
 
         if(enable_synonyms) {
