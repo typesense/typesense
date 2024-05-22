@@ -495,6 +495,10 @@ public:
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
                             const std::string& locale, const bool already_segmented, const std::string& stopword_set="", std::shared_ptr<Stemmer> stemmer = nullptr) const;
+    
+    void process_token(std::vector<std::string>& sub_tokens, std::string& token, bool& end_of_phrase, bool& exclude_operator_prior, 
+                       bool& phrase_search_op_prior, bool& skip, const bool& symbols_to_index_has_minus, const bool& already_segmented,
+                       const std::string& locale, std::shared_ptr<Stemmer> stemmer) const;
 
     // PUBLIC OPERATIONS
 

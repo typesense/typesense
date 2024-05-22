@@ -2339,7 +2339,8 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<std::string> q_tokens;  // used for auxillary highlighting
-    std::vector<std::string> q_include_tokens, q_unstemmed_tokens;
+    std::vector<std::string> q_include_tokens;
+    std::vector<std::string> q_unstemmed_tokens;
 
     if(weighted_search_fields.size() == 0) {
         // has to be a wildcard query
@@ -3486,6 +3487,40 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
     }
 }
 
+void Collection::process_token(std::vector<std::string>& sub_tokens, std::string& token, bool& end_of_phrase, bool& exclude_operator_prior, 
+                       bool& phrase_search_op_prior, bool& skip, const bool& symbols_to_index_has_minus, const bool& already_segmented,
+                       const std::string& locale, std::shared_ptr<Stemmer> stemmer) const {
+    if(token == "-" && !symbols_to_index_has_minus) {
+        skip = true;
+        return;
+    } else if(token[0] == '-' && !symbols_to_index_has_minus) {
+        exclude_operator_prior = true;
+        token = token.substr(1);
+    }
+
+    if(token[0] == '"' && token.size() > 1) {
+        phrase_search_op_prior = true;
+        token = token.substr(1);
+    }
+
+    if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
+        if(phrase_search_op_prior) {
+            // handles single token phrase and a phrase with padded space, like: "some query "
+            end_of_phrase = true;
+            token = token.substr(0, token.size()-1);
+        } else if(token[0] == '"' && token.size() == 1) {
+            // handles front padded phrase query, e.g. " some query"
+            phrase_search_op_prior = true;
+        }
+    }
+
+    if(already_segmented) {
+        StringUtils::split(token, sub_tokens, " ");
+    } else {
+        Tokenizer(token, true, false, locale, symbols_to_index, token_separators, stemmer).tokenize(sub_tokens);
+    }
+}
+
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens, std::vector<std::string>& q_unstemmed_tokens,
                                     std::vector<std::vector<std::string>>& q_exclude_tokens,
                                     std::vector<std::vector<std::string>>& q_phrases,
@@ -3494,7 +3529,8 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         q_exclude_tokens = {};
         q_include_tokens = {query};
     } else {
-        std::vector<std::string> tokens, tokens_non_stemmed;
+        std::vector<std::string> tokens;
+        std::vector<std::string> tokens_non_stemmed;
         stopword_struct_t stopwordStruct;
         if(!stopwords_set.empty()) {
             const auto &stopword_op = StopwordsManager::get_instance().get_stopword(stopwords_set, stopwordStruct);
@@ -3531,38 +3567,16 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 
         for(auto& token: tokens) {
             bool end_of_phrase = false;
-
-            if(token == "-" && !symbols_to_index_has_minus) {
-                continue;
-            } else if(token[0] == '-' && !symbols_to_index_has_minus) {
-                exclude_operator_prior = true;
-                token = token.substr(1);
-            }
-
-            if(token[0] == '"' && token.size() > 1) {
-                phrase_search_op_prior = true;
-                token = token.substr(1);
-            }
-
-            if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
-                if(phrase_search_op_prior) {
-                    // handles single token phrase and a phrase with padded space, like: "some query "
-                    end_of_phrase = true;
-                    token = token.substr(0, token.size()-1);
-                } else if(token[0] == '"' && token.size() == 1) {
-                    // handles front padded phrase query, e.g. " some query"
-                    phrase_search_op_prior = true;
-                }
-            }
-
-
-            // retokenize using collection config (handles hyphens being part of the query)
+            bool skip = false;
             std::vector<std::string> sub_tokens;
 
-            if(already_segmented) {
-                StringUtils::split(token, sub_tokens, " ");
-            } else {
-                Tokenizer(token, true, false, locale, symbols_to_index, token_separators, stemmer).tokenize(sub_tokens);
+            process_token(sub_tokens, token, end_of_phrase, exclude_operator_prior, 
+                          phrase_search_op_prior, skip, symbols_to_index_has_minus, already_segmented,
+                          locale, stemmer);
+            
+            // it is minus operator and symbols_to_index does not have minus
+            if(skip) {
+                continue;
             }
 
             for(auto& sub_token: sub_tokens) {
@@ -3597,43 +3611,21 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             }
         }
         
-        if(!tokens_non_stemmed.empty()) {
+        if(stemmer) {
             exclude_operator_prior = false;
             phrase_search_op_prior = false;
             for(auto& token: tokens_non_stemmed) {
                 bool end_of_phrase = false;
-
-                if(token == "-" && !symbols_to_index_has_minus) {
-                    continue;
-                } else if(token[0] == '-' && !symbols_to_index_has_minus) {
-                    exclude_operator_prior = true;
-                    token = token.substr(1);
-                }
-
-                if(token[0] == '"' && token.size() > 1) {
-                    phrase_search_op_prior = true;
-                    token = token.substr(1);
-                }
-
-                if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
-                    if(phrase_search_op_prior) {
-                        // handles single token phrase and a phrase with padded space, like: "some query "
-                        end_of_phrase = true;
-                        token = token.substr(0, token.size()-1);
-                    } else if(token[0] == '"' && token.size() == 1) {
-                        // handles front padded phrase query, e.g. " some query"
-                        phrase_search_op_prior = true;
-                    }
-                }
-
-
-                // retokenize using collection config (handles hyphens being part of the query)
+                bool skip = false;
                 std::vector<std::string> sub_tokens;
 
-                if(already_segmented) {
-                    StringUtils::split(token, sub_tokens, " ");
-                } else {
-                    Tokenizer(token, true, false, locale, symbols_to_index, token_separators, nullptr).tokenize(sub_tokens);
+                process_token(sub_tokens, token, end_of_phrase, exclude_operator_prior, 
+                              phrase_search_op_prior, skip, symbols_to_index_has_minus, already_segmented,
+                              locale, nullptr);
+                
+                // it is minus operator and symbols_to_index does not have minus
+                if(skip) {
+                    continue;
                 }
 
                 for(auto& sub_token: sub_tokens) {
