@@ -3487,37 +3487,94 @@ void Collection::process_filter_overrides(std::vector<const override_t*>& filter
     }
 }
 
-void Collection::process_token(std::vector<std::string>& sub_tokens, std::string& token, bool& end_of_phrase, bool& exclude_operator_prior, 
-                       bool& phrase_search_op_prior, bool& skip, const bool& symbols_to_index_has_minus, const bool& already_segmented,
-                       const std::string& locale, std::shared_ptr<Stemmer> stemmer) const {
-    if(token == "-" && !symbols_to_index_has_minus) {
-        skip = true;
-        return;
-    } else if(token[0] == '-' && !symbols_to_index_has_minus) {
-        exclude_operator_prior = true;
-        token = token.substr(1);
-    }
+void Collection::process_tokens(std::vector<std::string>& tokens, std::vector<std::string>& q_include_tokens,
+                                std::vector<std::vector<std::string>>& q_exclude_tokens,
+                                std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
+                                bool& phrase_search_op_prior, std::vector<std::string>& phrase, 
+                                const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer, const bool insert_q_phrase_and_q_exclude_tokens) const{
 
-    if(token[0] == '"' && token.size() > 1) {
-        phrase_search_op_prior = true;
-        token = token.substr(1);
-    }
 
-    if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
-        if(phrase_search_op_prior) {
-            // handles single token phrase and a phrase with padded space, like: "some query "
-            end_of_phrase = true;
-            token = token.substr(0, token.size()-1);
-        } else if(token[0] == '"' && token.size() == 1) {
-            // handles front padded phrase query, e.g. " some query"
-            phrase_search_op_prior = true;
+
+    auto symbols_to_index_has_minus =
+            std::find(symbols_to_index.begin(), symbols_to_index.end(), '-') != symbols_to_index.end();
+
+    for(auto& token: tokens) {
+        bool end_of_phrase = false;
+
+        if(token == "-" && !symbols_to_index_has_minus) {
+            continue;
+        } else if(token[0] == '-' && !symbols_to_index_has_minus) {
+            exclude_operator_prior = true;
+            token = token.substr(1);
         }
-    }
 
-    if(already_segmented) {
-        StringUtils::split(token, sub_tokens, " ");
-    } else {
-        Tokenizer(token, true, false, locale, symbols_to_index, token_separators, stemmer).tokenize(sub_tokens);
+        if(token[0] == '"' && token.size() > 1) {
+            phrase_search_op_prior = true;
+            token = token.substr(1);
+        }
+
+        if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
+            if(phrase_search_op_prior) {
+                // handles single token phrase and a phrase with padded space, like: "some query "
+                end_of_phrase = true;
+                token = token.substr(0, token.size()-1);
+            } else if(token[0] == '"' && token.size() == 1) {
+                // handles front padded phrase query, e.g. " some query"
+                phrase_search_op_prior = true;
+            }
+        }
+
+        std::vector<std::string> sub_tokens;
+
+        if(already_segmented) {
+            StringUtils::split(token, sub_tokens, " ");
+        } else {
+            Tokenizer(token, true, false, locale, symbols_to_index, token_separators, stemmer).tokenize(sub_tokens);
+        }
+        
+        // it is minus operator and symbols_to_index does not have minus
+        if(skip) {
+            continue;
+        }
+
+        for(auto& sub_token: sub_tokens) {
+            if(sub_token.size() > 100) {
+                sub_token.erase(100);
+            }
+
+            if(exclude_operator_prior) {
+                if(phrase_search_op_prior) {
+                    if(insert_q_phrase_and_q_exclude_tokens) {
+                        phrase.push_back(sub_token);
+                    }
+                } else {
+                    if(insert_q_phrase_and_q_exclude_tokens) {
+                        q_exclude_tokens.push_back({sub_token});
+                    }
+                    exclude_operator_prior = false;
+                }
+            } else if(phrase_search_op_prior) {
+                if(insert_q_phrase_and_q_exclude_tokens) {
+                    phrase.push_back(sub_token);
+                }
+            } else {
+                q_include_tokens.push_back(sub_token);
+            }
+        }
+
+        if(end_of_phrase && phrase_search_op_prior) {
+            if(insert_q_phrase_and_q_exclude_tokens) {
+                if(exclude_operator_prior) {
+                    q_exclude_tokens.push_back(phrase);
+                } else {
+                    q_phrases.push_back(phrase);
+                }
+            }
+
+            phrase_search_op_prior = false;
+            exclude_operator_prior = false;
+            phrase.clear();
+        }
     }
 }
 
@@ -3562,87 +3619,15 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         bool phrase_search_op_prior = false;
         std::vector<std::string> phrase;
 
-        auto symbols_to_index_has_minus =
-                std::find(symbols_to_index.begin(), symbols_to_index.end(), '-') != symbols_to_index.end();
-
-        for(auto& token: tokens) {
-            bool end_of_phrase = false;
-            bool skip = false;
-            std::vector<std::string> sub_tokens;
-
-            process_token(sub_tokens, token, end_of_phrase, exclude_operator_prior, 
-                          phrase_search_op_prior, skip, symbols_to_index_has_minus, already_segmented,
-                          locale, stemmer);
-            
-            // it is minus operator and symbols_to_index does not have minus
-            if(skip) {
-                continue;
-            }
-
-            for(auto& sub_token: sub_tokens) {
-                if(sub_token.size() > 100) {
-                    sub_token.erase(100);
-                }
-
-                if(exclude_operator_prior) {
-                    if(phrase_search_op_prior) {
-                        phrase.push_back(sub_token);
-                    } else {
-                        q_exclude_tokens.push_back({sub_token});
-                        exclude_operator_prior = false;
-                    }
-                } else if(phrase_search_op_prior) {
-                    phrase.push_back(sub_token);
-                } else {
-                    q_include_tokens.push_back(sub_token);
-                }
-            }
-
-            if(end_of_phrase && phrase_search_op_prior) {
-                if(exclude_operator_prior) {
-                    q_exclude_tokens.push_back(phrase);
-                } else {
-                    q_phrases.push_back(phrase);
-                }
-
-                phrase_search_op_prior = false;
-                exclude_operator_prior = false;
-                phrase.clear();
-            }
-        }
+        process_tokens(tokens, q_include_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior, phrase_search_op_prior, phrase, already_segmented, locale, stemmer, true);
         
         if(stemmer) {
-            exclude_operator_prior = false;
-            phrase_search_op_prior = false;
-            for(auto& token: tokens_non_stemmed) {
-                bool end_of_phrase = false;
-                bool skip = false;
-                std::vector<std::string> sub_tokens;
+            // those are unused
+            bool exclude_operator_prior_ = false;
+            bool phrase_search_op_prior_ = false;
+            std::vector<std::string> phrase_;
 
-                process_token(sub_tokens, token, end_of_phrase, exclude_operator_prior, 
-                              phrase_search_op_prior, skip, symbols_to_index_has_minus, already_segmented,
-                              locale, nullptr);
-                
-                // it is minus operator and symbols_to_index does not have minus
-                if(skip) {
-                    continue;
-                }
-
-                for(auto& sub_token: sub_tokens) {
-                    if(sub_token.size() > 100) {
-                        sub_token.erase(100);
-                    }
-
-                    if(!exclude_operator_prior && !phrase_search_op_prior) {
-                        q_unstemmed_tokens.push_back(sub_token);
-                    }
-                }
-
-                if(end_of_phrase && phrase_search_op_prior) {
-                    phrase_search_op_prior = false;
-                    exclude_operator_prior = false;
-                }
-            }
+            process_tokens(tokens_non_stemmed, q_unstemmed_tokens, q_exclude_tokens, q_phrases, exclude_operator_prior_, phrase_search_op_prior_, phrase_, already_segmented, locale, nullptr, false);
         }
 
         if(!phrase.empty()) {
