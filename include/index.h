@@ -697,6 +697,11 @@ public:
                 const std::string& collection_name,
                 const drop_tokens_param_t drop_tokens_mode,
                 const std::vector<facet_index_type_t>& facet_index_types,
+                uint32_t*& all_result_ids,
+                bool& is_reverse_iterator,
+                int*& sort_order,
+                std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
+                std::vector<size_t>& geopoint_indices,
                 bool enable_typos_for_numerical_tokens = true,
                 bool enable_synonyms = true,
                 bool synonym_prefix = false,
@@ -1044,6 +1049,10 @@ public:
     void repair_hnsw_index();
 
     void aggregate_facet(const size_t group_limit, facet& this_facet, facet& acc_facet) const;
+
+    void process_groups(uint32_t* all_result_ids, search_args* search_params, bool is_reverse_it, int* sort_order,
+                        const std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3>& field_values,
+                        const std::vector<size_t>& geopoint_indices, const std::string& coll);
 };
 
 template<class T>
