@@ -6,8 +6,8 @@
 
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
                      const std::vector<char>& symbols_to_index,
-                     const std::vector<char>& separators):
-                     i(0), normalize(normalize), no_op(no_op), locale(locale) {
+                     const std::vector<char>& separators, std::shared_ptr<Stemmer> stemmer) :
+                     i(0), normalize(normalize), no_op(no_op), locale(locale), stemmer(stemmer) {
 
     for(char c: symbols_to_index) {
         index_symbols[uint8_t(c)] = 1;
@@ -29,7 +29,12 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
 
     cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
 
-    init(input);
+    if(stemmer) {
+        auto stemmed_input = stemmer->stem(input);
+        init(stemmed_input);
+    } else {
+        init(input);
+    }
 }
 
 
@@ -229,7 +234,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         return true;
     }
 
-    while(i < text.size()) {
+    while(i < text.length()) {
         if(is_ascii_char(text[i])) {
             size_t this_stream_mode = get_stream_mode(text[i]);
 

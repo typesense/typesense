@@ -2856,7 +2856,7 @@ TEST_F(CollectionSpecificMoreTest, TestStemming) {
     auto stem_res = coll_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
     ASSERT_TRUE(stem_res.ok());
     ASSERT_EQ(1, stem_res.get()["hits"].size());
-    ASSERT_EQ("running", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
+    ASSERT_EQ("run", stem_res.get()["hits"][0]["highlight"]["name"]["matched_tokens"][0].get<std::string>());
 
     auto no_stem_res = coll_no_stem->search("run", {"name"}, {}, {}, {}, {0}, 10, 1, FREQUENCY, {false}, 1);
     ASSERT_TRUE(no_stem_res.ok());
@@ -2977,8 +2977,10 @@ TEST_F(CollectionSpecificMoreTest, TestStemmingWithSynonym) {
             "synonyms": ["making", "foobar"]
         }
     )"_json;
+    LOG(INFO) << "Adding synonym...";
     auto synonym_op = coll_stem->add_synonym(synonym_json);
-    LOG(INFO) << synonym_op.error();
+    LOG(INFO) << "Synonym added...";
+
     ASSERT_TRUE(synonym_op.ok());
 
     ASSERT_TRUE(coll_stem->add(R"({"word": "foobar"})"_json.dump()).ok());
@@ -3094,4 +3096,23 @@ TEST_F(CollectionSpecificMoreTest, EnableTyposForAlphaNumericalTokens) {
     ASSERT_EQ("A-136/14", res["hits"][2]["document"]["title"].get<std::string>());
     ASSERT_EQ("(136)214", res["hits"][3]["document"]["title"].get<std::string>());
     ASSERT_EQ("13/14", res["hits"][4]["document"]["title"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, TestStemmingCyrilic) {
+    nlohmann::json schema = R"({
+         "name": "words",
+         "fields": [
+           {"name": "word", "type": "string", "stem": true, "locale": "ru"}
+         ]
+       })"_json;
+
+    auto coll_stem_res = collectionManager.create_collection(schema);
+    ASSERT_TRUE(coll_stem_res.ok());
+    auto coll_stem = coll_stem_res.get();
+
+    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенное"})"_json.dump()).ok());
+    ASSERT_TRUE(coll_stem->add(R"({"word": "доверенные"})"_json.dump()).ok());
+
+    auto res = coll_stem->search("доверенное", {"word"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
 }

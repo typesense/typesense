@@ -491,10 +491,16 @@ public:
 
     bool is_exceeding_memory_threshold() const;
 
-    void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
+    void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens, std::vector<std::string>& q_include_tokens_non_stemmed,
                             std::vector<std::vector<std::string>>& q_exclude_tokens,
                             std::vector<std::vector<std::string>>& q_phrases,
-                            const std::string& locale, const bool already_segmented, const std::string& stopword_set="") const;
+                            const std::string& locale, const bool already_segmented, const std::string& stopword_set="", std::shared_ptr<Stemmer> stemmer = nullptr) const;
+    
+    void process_tokens(std::vector<std::string>& tokens, std::vector<std::string>& q_include_tokens,
+                       std::vector<std::vector<std::string>>& q_exclude_tokens,
+                       std::vector<std::vector<std::string>>& q_phrases, bool& exclude_operator_prior, 
+                       bool& phrase_search_op_prior, std::vector<std::string>& phrase, const std::string& stopwords_set, 
+                       const bool& already_segmented, const std::string& locale, std::shared_ptr<Stemmer> stemmer) const;
 
     // PUBLIC OPERATIONS
 

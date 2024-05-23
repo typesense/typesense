@@ -76,6 +76,7 @@ struct tok_candidates {
 
 struct query_tokens_t {
     std::vector<token_t> q_include_tokens;
+    std::vector<token_t> q_unstemmed_tokens;
     std::vector<std::vector<std::string>> q_exclude_tokens;
     std::vector<std::vector<std::string>> q_phrases;
     std::vector<std::vector<std::string>> q_synonyms;
@@ -193,7 +194,7 @@ struct search_args {
                 const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query,
                 size_t facet_sample_percent, size_t facet_sample_threshold, drop_tokens_param_t drop_tokens_mode,
                 bool enable_lazy_filter) :
-            field_query_tokens(field_query_tokens),
+            field_query_tokens(field_query_tokens), 
             search_fields(search_fields), match_type(match_type), filter_tree_root(filter_tree_root), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
             facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values), per_page(per_page),

@@ -1154,11 +1154,10 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
                             const std::vector<char>& token_separators,
                             std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets) {
 
-    Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators);
+    Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, a_field.get_stemmer());
     std::string token;
     std::string last_token;
     size_t token_index = 0;
-
     while(tokenizer.next(token, token_index)) {
         if(token.empty()) {
             continue;
@@ -1166,15 +1165,6 @@ void Index::tokenize_string(const std::string& text, const field& a_field,
 
         if(token.size() > 100) {
             token.erase(100);
-        }
-        
-        if(a_field.is_stem()) {
-            auto stemmer = a_field.get_stemmer();
-            if(stemmer) {
-                token = stemmer->stem(token);
-            } else {
-                LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
-            }
         }
 
         token_to_offsets[token].push_back(token_index + 1);
@@ -1197,7 +1187,7 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
         const std::string& str = strings[array_index];
         std::set<std::string> token_set;  // required to deal with repeating tokens
 
-        Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators);
+        Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators, a_field.get_stemmer());
         std::string token, last_token;
         size_t token_index = 0;
 
@@ -1209,15 +1199,6 @@ void Index::tokenize_string_array(const std::vector<std::string>& strings,
 
             if(token.size() > 100) {
                 token.erase(100);
-            }
-
-            if(a_field.is_stem()) {
-                auto stemmer = a_field.get_stemmer();
-                if(stemmer) {
-                    token = stemmer->stem(token);
-                } else {
-                    LOG(INFO) << "Stemmer couldn't be initialized for field: " << a_field.name;
-                }
             }
 
             token_to_offsets[token].push_back(token_index + 1);
@@ -2258,6 +2239,7 @@ Option<bool> Index::run_search(search_args* search_params, const std::string& co
     std::array<spp::sparse_hash_map<uint32_t, int64_t, Hasher32>*, 3> field_values;
     std::vector<size_t> geopoint_indices;
 
+
     auto res = search(search_params->field_query_tokens,
                   search_params->search_fields,
                   search_params->match_type,
@@ -3171,12 +3153,19 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
         std::set<uint64> query_hashes;
 
         // resolve synonyms so that we can compute `syn_orig_num_tokens`
-        std::vector<std::vector<token_t>> all_queries = {field_query_tokens[0].q_include_tokens};
+        std::vector<std::vector<token_t>> all_queries = {field_query_tokens[0].q_unstemmed_tokens.empty() ?
+                                                          field_query_tokens[0].q_include_tokens : field_query_tokens[0].q_unstemmed_tokens};
         std::vector<std::vector<token_t>> q_pos_synonyms;
         std::vector<std::string> q_include_tokens;
         int syn_orig_num_tokens = -1;
-        for(size_t j = 0; j < field_query_tokens[0].q_include_tokens.size(); j++) {
-            q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
+        if(!field_query_tokens[0].q_unstemmed_tokens.empty()) {
+            for(size_t j = 0; j < field_query_tokens[0].q_unstemmed_tokens.size(); j++) {
+                q_include_tokens.push_back(field_query_tokens[0].q_unstemmed_tokens[j].value);
+            }
+        } else {
+            for(size_t j = 0; j < field_query_tokens[0].q_include_tokens.size(); j++) {
+                q_include_tokens.push_back(field_query_tokens[0].q_include_tokens[j].value);
+            }
         }
 
         if(enable_synonyms) {
@@ -3184,22 +3173,11 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
                                              synonym_prefix, synonym_num_typos);
         }
 
-        const bool& do_stemming = (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem);
-        if (do_stemming) {
-            auto stemmer = search_schema.at(the_fields[0].name).get_stemmer();
-            for(auto& q_include_token: q_include_tokens) {
-                q_include_token = stemmer->stem(q_include_token);
-            }
-
-            for(auto& q_token: field_query_tokens[0].q_include_tokens) {
-                q_token.value = stemmer->stem(q_token.value);
-            }
-        }
-
         if(!field_query_tokens[0].q_synonyms.empty()) {
             syn_orig_num_tokens = field_query_tokens[0].q_include_tokens.size();
         }
 
+        const bool& do_stemming = (search_schema.find(the_fields[0].name) != search_schema.end() && search_schema.at(the_fields[0].name).stem);
         for(const auto& q_syn_vec: field_query_tokens[0].q_synonyms) {
             std::vector<token_t> q_pos_syn;
             for(size_t j=0; j < q_syn_vec.size(); j++) {
