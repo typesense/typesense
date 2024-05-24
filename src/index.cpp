@@ -2636,7 +2636,7 @@ Option<bool> Index::search_infix(const std::string& query, const std::string& fi
 
     if(infix_maps_it == infix_index.end()) {
         return Option<bool>(400, "Could not find `" + field_name + "` in the infix index. Make sure to enable infix "
-                                                                   "search by specifying `\"infix\": true` in the schema.");
+                                                                   "search by specifying `infix: true` in the schema.");
     }
 
     auto infix_sets = infix_maps_it->second;
