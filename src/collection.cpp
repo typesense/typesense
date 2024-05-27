@@ -3835,8 +3835,8 @@ nlohmann::json Collection::get_facet_parent(const std::string& facet_field_name,
         doc = level_docs[0]; //return the top most root
 
         if(is_array) {
-            auto field = tokens[tokens.size() - 1];
-            for(auto obj : doc) {
+            const auto& field = tokens[tokens.size() - 1];
+            for(const auto& obj : doc) {
                 if(obj[field] == val) {
                     return obj;
                 }
