@@ -1363,6 +1363,31 @@ TEST_F(CollectionFacetingTest, FacetParseTest){
 
     coll1->parse_facet(facet_range, range_facets_with_sort_as_field);
     ASSERT_EQ(1, range_facets_with_sort_as_field.size());
+
+    //range facet label with special chars
+    std::vector<std::string> range_facet_special_chars{
+            "score(%0 - %19:[0, 20], %20 - %59:[20, 60], %60+:[60, ])",
+            "range($$$:[0, 20])"
+    };
+
+    std::vector<facet> facet_speical_chars;
+    for(const std::string& facet_field: range_facet_special_chars) {
+        auto res = coll1->parse_facet(facet_field, facet_speical_chars);
+
+        if(!res.error().empty()) {
+            LOG(ERROR) << res.error();
+            FAIL();
+        }
+    }
+
+    //should not allow to pass only space chars
+    facet_speical_chars.clear();
+   auto only_space_char("review( :[0, 20])");
+
+    auto res = coll1->parse_facet(only_space_char, facet_speical_chars);
+    ASSERT_FALSE(res.error().empty());
+    ASSERT_EQ(400, res.code());
+    ASSERT_EQ("Facet range value is not valid.", res.error());
 }
 
 TEST_F(CollectionFacetingTest, RangeFacetTest) {
