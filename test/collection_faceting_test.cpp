@@ -3251,3 +3251,38 @@ TEST_F(CollectionFacetingTest, RangeFacetsWithSortDisabled) {
     ASSERT_FALSE(results.ok());
     ASSERT_EQ("Range facets require sort enabled for the field.", results.error());
 }
+
+TEST_F(CollectionFacetingTest, FacetSearchIndexTypeValidation) {
+    std::vector<field> fields = {
+        field("attribute.title", field_types::STRING, true),
+        field("attribute.category", field_types::STRING, true),
+    };
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    nlohmann::json doc;
+    doc["attribute.title"] = "Foobar";
+    doc["attribute.category"] = "shoes";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("*", {},
+                                 "", {"attribute.*"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 5, "", 30, 4, "", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                                 fallback,
+                                 4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL,
+                                 "top_values");
+
+    ASSERT_TRUE(res_op.ok());
+
+    res_op = coll1->search("*", {},
+                           "", {"attribute.*"}, {}, {2}, 1, 1, FREQUENCY, {true}, 1,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 5, "", 30, 4, "", 20, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                           fallback,
+                           4, {off}, 3, 3, 2, 2, false, "", true, 0, max_score, 100, 0, 4294967295UL,
+                           "");
+
+    ASSERT_TRUE(res_op.ok());
+}

@@ -2113,7 +2113,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<std::string> facet_index_str_types;
     StringUtils::split(facet_index_type, facet_index_str_types, ",");
     if(facet_index_str_types.empty()) {
-        for(size_t i = 0; i < facet_fields.size(); i++) {
+        for(size_t i = 0; i < facets.size(); i++) {
             facet_index_types.push_back(automatic);
         }
     } else if(facet_index_str_types.size() == 1) {
@@ -2121,7 +2121,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         if(!match_op.has_value()) {
             return Option<nlohmann::json>(400, "Invalid facet index type: " + facet_index_str_types[0]);
         }
-        for(size_t i = 0; i < facet_fields.size(); i++) {
+        for(size_t i = 0; i < facets.size(); i++) {
             facet_index_types.push_back(match_op.value());
         }
     } else {
