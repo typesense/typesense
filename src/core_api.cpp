@@ -917,12 +917,12 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         StringUtils::split(req->params["exclude_fields"], exclude_fields, ",");
         bool exclude_conversation_history = std::find(exclude_fields.begin(), exclude_fields.end(), "conversation_history") != exclude_fields.end();
 
-        nlohmann::json conversation_history = nlohmann::json::array();
-        conversation_history.push_back(formatted_question_op.get());
-        conversation_history.push_back(formatted_answer_op.get());
+        nlohmann::json new_conversation_history = nlohmann::json::array();
+        new_conversation_history.push_back(formatted_question_op.get());
+        new_conversation_history.push_back(formatted_answer_op.get());
         std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
 
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(conversation_history, conversation_model["conversation_collection"], conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation_history, conversation_model["conversation_collection"], conversation_id);
         if(!add_conversation_op.ok()) {
             res->set_400(add_conversation_op.error());
             return false;
