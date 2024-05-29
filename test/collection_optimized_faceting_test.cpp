@@ -1688,11 +1688,11 @@ TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     std::string longStr = "";
-    for(auto i = 0; i < 8; ++i) {
+    for(auto i = 0; i < 20; ++i) {
         longStr+="alphabetagamma";
     }
 
-    ASSERT_TRUE(112 == longStr.size());
+    ASSERT_TRUE(280 == longStr.size());
     
     std::vector<std::string> vec;
     vec.emplace_back(longStr);
@@ -1712,8 +1712,8 @@ TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
 
     longStr = results["facet_counts"][0]["counts"][3]["value"];
 
-    //string facet length is restricted to 100
-    ASSERT_TRUE(100 == longStr.size());
+    //string facet length is restricted to 255
+    ASSERT_EQ(255, longStr.size());
 }
 
 TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParent) {

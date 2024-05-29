@@ -63,6 +63,9 @@ public:
         uint32_t count;
         uint32_t facet_id;
     };
+
+    const static size_t MAX_FACET_VAL_LEN = 255;
+
 private:
     struct facet_id_seq_ids_t {
         void* seq_ids;

@@ -746,7 +746,8 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                             fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
                             seq_id_to_fvalues[seq_id].push_back(facet_value_id);
                         } else if(afield.type == field_types::STRING_ARRAY) {
-                            const std::string& raw_val = field_values[i].get<std::string>().substr(0, 100);
+                            const std::string& raw_val =
+                                    field_values[i].get<std::string>().substr(0, facet_index_t::MAX_FACET_VAL_LEN);
                             facet_value_id_t facet_value_id(raw_val);
                             fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
                             seq_id_to_fvalues[seq_id].push_back(facet_value_id);
@@ -780,7 +781,8 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                         seq_id_to_fvalues[seq_id].push_back(facet_value_id);
                     }
                     else if(afield.type == field_types::STRING) {
-                        const std::string& raw_val = document[afield.name].get<std::string>().substr(0, 100);
+                        const std::string& raw_val =
+                                document[afield.name].get<std::string>().substr(0, facet_index_t::MAX_FACET_VAL_LEN);
                         facet_value_id_t facet_value_id(raw_val);
                         fvalue_to_seq_ids[facet_value_id].push_back(seq_id);
                         seq_id_to_fvalues[seq_id].push_back(facet_value_id);
