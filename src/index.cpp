@@ -3543,7 +3543,7 @@ Option<bool> Index::search(std::vector<query_tokens_t>& field_query_tokens, cons
 
     bool estimate_facets = (facet_sample_percent > 0 && facet_sample_percent < 100 &&
                             all_result_ids_len > facet_sample_threshold);
-    bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && no_filters_provided;
+    bool is_wildcard_no_filter_query = is_wildcard_non_phrase_query && no_filters_provided && vector_query.field_name.empty();
 
     if(!facets.empty()) {
         const size_t num_threads = std::min(concurrency, all_result_ids_len);

@@ -74,7 +74,7 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
         "name": "coll1",
         "fields": [
             {"name": "title", "type": "string"},
-            {"name": "points", "type": "int32"},
+            {"name": "points", "type": "int32", "facet": true},
             {"name": "vec", "type": "float[]", "num_dim": 4}
         ]
     })"_json;
@@ -220,6 +220,21 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
                             false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488], k: 1)").get();
 
     ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("*", {}, "", {"points"}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                            4, {off}, 32767, 32767, 2,
+                            false, true, "vec:([0.96826, 0.94, 0.39557, 0.306488], k: 1)",
+                            true, 0, max_score, 100,
+                            0, 0, "top_values").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("1", results["facet_counts"][0]["counts"][0]["value"]);
 
     // when k is not set, should use per_page
     results = coll1->search("*", {}, "", {}, {}, {0}, 2, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
