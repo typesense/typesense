@@ -2113,7 +2113,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
     std::vector<std::string> facet_index_str_types;
     StringUtils::split(facet_index_type, facet_index_str_types, ",");
     if(facet_index_str_types.empty()) {
-        for(size_t i = 0; i < facet_fields.size(); i++) {
+        for(size_t i = 0; i < facets.size(); i++) {
             facet_index_types.push_back(automatic);
         }
     } else if(facet_index_str_types.size() == 1) {
@@ -2121,7 +2121,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
         if(!match_op.has_value()) {
             return Option<nlohmann::json>(400, "Invalid facet index type: " + facet_index_str_types[0]);
         }
-        for(size_t i = 0; i < facet_fields.size(); i++) {
+        for(size_t i = 0; i < facets.size(); i++) {
             facet_index_types.push_back(match_op.value());
         }
     } else {
@@ -3053,7 +3053,7 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
                 nlohmann::json parent;
                 if(the_field.nested && should_return_parent) {
-                    parent = get_facet_parent(the_field.name, document);
+                    parent = get_facet_parent(the_field.name, document, value, the_field.is_array());
                 }
 
                 const auto& highlighted_text = highlight.snippets.empty() ? value : highlight.snippets[0];
@@ -3806,7 +3806,8 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
     return true;
 }
 
-nlohmann::json Collection::get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const {
+nlohmann::json Collection::get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document,
+                                            const std::string& val, bool is_array) const {
     std::vector<std::string> tokens;
     StringUtils::split(facet_field_name, tokens, ".");
     std::vector<nlohmann::json> level_docs;
@@ -3832,6 +3833,15 @@ nlohmann::json Collection::get_facet_parent(const std::string& facet_field_name,
 
     if(!parent_found) {
         doc = level_docs[0]; //return the top most root
+
+        if(is_array) {
+            const auto& field = tokens[tokens.size() - 1];
+            for(const auto& obj : doc) {
+                if(obj[field] == val) {
+                    return obj;
+                }
+            }
+        }
     }
     return doc;
 }
@@ -4457,7 +4467,9 @@ void Collection::remove_document(const nlohmann::json & document, const uint32_t
         std::unique_lock lock(mutex);
 
         index->remove(seq_id, document, {}, false);
-        num_documents -= 1;
+        if(num_documents != 0) {
+            num_documents -= 1;
+        }
     }
 
     if(remove_from_store) {
@@ -6252,7 +6264,7 @@ bool Collection::get_enable_nested_fields() {
 Option<bool> Collection::parse_facet(const std::string& facet_field, std::vector<facet>& facets) const {
     const std::regex base_pattern(".+\\(.*\\)");
     const std::regex range_pattern(
-            "[[0-9]*[a-z A-Z]+[0-9]*:\\[([+-]?([0-9]*[.])?[0-9]*)\\,\\s*([+-]?([0-9]*[.])?[0-9]*)\\]");
+            "[[:print:]]+:\\[([+-]?([[:digit:]]*[.])?[[:digit:]]*)\\,\\s*([+-]?([[:digit:]]*[.])?[[:digit:]]*)\\]");
     const std::string _alpha = "_alpha";
 
     if((facet_field.find(":") != std::string::npos)

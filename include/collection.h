@@ -479,7 +479,8 @@ public:
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, nlohmann::json &document,
                                std::string &value) const;
 
-    nlohmann::json get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document) const;
+    nlohmann::json get_facet_parent(const std::string& facet_field_name, const nlohmann::json& document,
+                                    const std::string& val, bool is_array) const;
 
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs, 
                     const spp::sparse_hash_map<uint64_t, uint32_t>& groups_processed, 

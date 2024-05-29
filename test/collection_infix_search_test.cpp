@@ -57,7 +57,7 @@ TEST_F(CollectionInfixSearchTest, InfixBasics) {
                                  4, {always});
     ASSERT_FALSE(response.ok());
     ASSERT_EQ("Could not find `non_infix` in the infix index."
-              " Make sure to enable infix search by specifying `\"infix\": true` in the schema.", response.error());
+              " Make sure to enable infix search by specifying `infix: true` in the schema.", response.error());
 
     auto results = coll1->search("100037",
                                  {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,

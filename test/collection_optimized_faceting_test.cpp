@@ -1061,6 +1061,31 @@ TEST_F(CollectionOptimizedFacetingTest, FacetParseTest){
 
     coll1->parse_facet(facet_range, range_facets_with_sort_as_field);
     ASSERT_EQ(1, range_facets_with_sort_as_field.size());
+
+    //range facet label with special chars
+    std::vector<std::string> range_facet_special_chars{
+            "score(%0 - %19:[0, 20], %20 - %59:[20, 60], %60+:[60, ])",
+            "range($$$:[0, 20])"
+    };
+
+    std::vector<facet> facet_speical_chars;
+    for(const std::string& facet_field: range_facet_special_chars) {
+        auto res = coll1->parse_facet(facet_field, facet_speical_chars);
+
+        if(!res.error().empty()) {
+            LOG(ERROR) << res.error();
+            FAIL();
+        }
+    }
+
+    //should not allow to pass only space chars
+    facet_speical_chars.clear();
+    auto only_space_char("range( :[0, 20])");
+
+    auto res = coll1->parse_facet(only_space_char, facet_speical_chars);
+    ASSERT_FALSE(res.error().empty());
+    ASSERT_EQ(400, res.code());
+    ASSERT_EQ("Facet range value is not valid.", res.error());
 }
 
 TEST_F(CollectionOptimizedFacetingTest, RangeFacetTest) {
@@ -1663,11 +1688,11 @@ TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     std::string longStr = "";
-    for(auto i = 0; i < 8; ++i) {
+    for(auto i = 0; i < 20; ++i) {
         longStr+="alphabetagamma";
     }
 
-    ASSERT_TRUE(112 == longStr.size());
+    ASSERT_TRUE(280 == longStr.size());
     
     std::vector<std::string> vec;
     vec.emplace_back(longStr);
@@ -1687,8 +1712,8 @@ TEST_F(CollectionOptimizedFacetingTest, StringLengthTest) {
 
     longStr = results["facet_counts"][0]["counts"][3]["value"];
 
-    //string facet length is restricted to 100
-    ASSERT_TRUE(100 == longStr.size());
+    //string facet length is restricted to 255
+    ASSERT_EQ(255, longStr.size());
 }
 
 TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParent) {
@@ -1990,6 +2015,63 @@ TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentObject) {
     ASSERT_EQ("red", results["facet_counts"][0]["counts"][0]["value"]);
     ASSERT_EQ("{\"b\":255,\"color\":\"blue\",\"g\":0,\"r\":0}", results["facet_counts"][0]["counts"][1]["parent"].dump());
     ASSERT_EQ("blue", results["facet_counts"][0]["counts"][1]["value"]);
+}
+
+TEST_F(CollectionOptimizedFacetingTest, FacetingReturnParentArrayFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "tags.id", "type": "string[]", "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    nlohmann::json doc1 = R"({
+        "tags": [
+            {
+                "id": "tag-1",
+                "name": "name for tag-1"
+            },
+            {
+                "id": "tag-2",
+                "name": "name for tag-2"
+            }
+        ]
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto search_op = coll1->search("*", {}, "", {"tags.id"},
+                                   {}, {2}, 10, 1, FREQUENCY, {true},
+                                   1, spp::sparse_hash_set<std::string>(),
+                                   spp::sparse_hash_set<std::string>(), 10, "",
+                                   30, 4, "",
+                                   Index::TYPO_TOKENS_THRESHOLD, "", "", {},
+                                   3, "<mark>", "</mark>", {},
+                                   UINT32_MAX, true, false, true,
+                                   "", false, 6000 * 1000, 4, 7,
+                                   fallback, 4, {off}, INT16_MAX, INT16_MAX,
+                                   2, 2, false, "",
+                                   true, 0, max_score, 100,
+                                   0, 0, "exhaustive", 30000,
+                                   2, "", {"tags.id"});
+
+    if(!search_op.ok()) {
+        LOG(ERROR) << search_op.error();
+        FAIL();
+    }
+    auto results = search_op.get();
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("{\"id\":\"tag-2\",\"name\":\"name for tag-2\"}", results["facet_counts"][0]["counts"][0]["parent"].dump());
+    ASSERT_EQ("tag-2", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("{\"id\":\"tag-1\",\"name\":\"name for tag-1\"}", results["facet_counts"][0]["counts"][1]["parent"].dump());
+    ASSERT_EQ("tag-1", results["facet_counts"][0]["counts"][1]["value"]);
 }
 
 TEST_F(CollectionOptimizedFacetingTest, FacetSortByAlpha) {
