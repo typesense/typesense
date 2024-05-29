@@ -4467,7 +4467,9 @@ void Collection::remove_document(const nlohmann::json & document, const uint32_t
         std::unique_lock lock(mutex);
 
         index->remove(seq_id, document, {}, false);
-        num_documents -= 1;
+        if(num_documents != 0) {
+            num_documents -= 1;
+        }
     }
 
     if(remove_from_store) {
