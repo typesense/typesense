@@ -4046,7 +4046,6 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                         continue;
                     }
 
-                    //LOG(INFO) << "Searching for field: " << the_field.name << ", found token:" << token;
                     const auto& prev_token = last_token ? token_candidates_vec.back().candidates[0] : "";
 
                     std::vector<art_leaf*> field_leaves;
@@ -4063,6 +4062,8 @@ Option<bool> Index::fuzzy_search_fields(const std::vector<search_field_t>& the_f
                     /*auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::high_resolution_clock::now() - begin).count();
                     LOG(INFO) << "Time taken for fuzzy search: " << timeMillis << "ms";*/
+
+                    //LOG(INFO) << "Searching field: " << the_field.name << ", token:" << token << ", sz: " << field_leaves.size();
 
                     if(field_leaves.empty()) {
                         // look at the next field
@@ -4484,7 +4485,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
 
             for(size_t fi = 0; fi < field_iters.size(); fi++) {
                 const posting_list_t::iterator_t& field_iter = field_iters[fi];
-                if(field_iter.id() == seq_id) {
+                if(field_iter.id() == seq_id && field_iter.get_field_id() < num_search_fields) {
                     // not all fields might contain a given token
                     field_to_tokens[field_iter.get_field_id()].push_back(field_iter.clone());
                 }
@@ -4501,7 +4502,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
                 const std::vector<posting_list_t::iterator_t>& field_iters = token_fields_iters.get_its();
                 for(size_t fi = 0; fi < field_iters.size(); fi++) {
                     const posting_list_t::iterator_t& field_iter = field_iters[fi];
-                    if(field_iter.id() == seq_id) {
+                    if(field_iter.id() == seq_id && field_iter.get_field_id() < num_search_fields) {
                         // not all fields might contain a given token
                         field_to_tokens[field_iter.get_field_id()].push_back(field_iter.clone());
                     }
