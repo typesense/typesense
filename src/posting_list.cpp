@@ -1111,6 +1111,39 @@ bool posting_list_t::contains_atleast_one(const uint32_t* target_ids, size_t tar
     return false;
 }
 
+bool posting_list_t::is_single_token_prefix_match(const posting_list_t::iterator_t& it, bool field_is_array) {
+    block_t* curr_block = it.block();
+    uint32_t curr_index = it.index();
+
+    if (curr_block == nullptr || curr_index == UINT32_MAX) {
+        return false;
+    }
+
+    uint32_t* offsets = it.offsets;
+    uint32_t start_offset = it.offset_index[curr_index];
+
+    // If the field value starts with the token, it's a match.
+    return offsets[start_offset] == 1;
+}
+
+void posting_list_t::get_prefix_matches(std::vector<iterator_t>& its, const bool field_is_array,
+                                        const uint32_t* ids, const uint32_t num_ids,
+                                        uint32_t*& prefix_ids, size_t& num_prefix_ids) {
+    size_t prefix_id_index = 0;
+
+    if (its.size() == 1) {
+        for (size_t i = 0; i < num_ids; i++) {
+            auto const& id = ids[i];
+            its[0].skip_to(id);
+            if (is_single_token_prefix_match(its[0], field_is_array)) {
+                prefix_ids[prefix_id_index++] = id;
+            }
+        }
+    }
+
+    num_prefix_ids = prefix_id_index;
+}
+
 void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool field_is_array,
                                        const uint32_t* ids, const uint32_t num_ids,
                                        uint32_t*& exact_ids, size_t& num_exact_ids) {
@@ -1290,6 +1323,15 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
     }
 
     num_exact_ids = exact_id_index;
+}
+
+bool posting_list_t::has_prefix_match(std::vector<posting_list_t::iterator_t>& posting_list_iterators,
+                                      const bool field_is_array) {
+    if (posting_list_iterators.size() == 1) {
+        return is_single_token_prefix_match(posting_list_iterators[0], field_is_array);
+    }
+
+    return false;
 }
 
 bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& posting_list_iterators,
