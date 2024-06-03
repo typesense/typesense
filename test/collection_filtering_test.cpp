@@ -139,6 +139,54 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     ASSERT_EQ("Error with filter field `tags`: Filter value cannot be empty.", res_op.error());
 
     collectionManager.drop_collection("coll_array_fields");
+
+    auto schema_json =
+            R"({
+                "name": "title",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "title": "foo bar baz"
+            })"_json,
+            R"({
+                "title": "foo bar baz"
+            })"_json,
+            R"({
+                "title": "foo bar baz"
+            })"_json,
+            R"({
+                "title": "bar foo baz"
+            })"_json,
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::map<std::string, std::string> req_params = {
+            {"collection", "title"},
+            {"q", "foo"},
+            {"query_by", "title"},
+            {"filter_by", "title:= foo bar baz"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
 }
 
 TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
