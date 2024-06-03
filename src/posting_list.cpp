@@ -1331,8 +1331,8 @@ bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& po
                     start_offset_index++;
 
                     if(offset == (i + 1)) {
-                        // we have found a matching index, no need to look further
-                        return true;
+                        // we have found a matching index, no need to look further for this token.
+                        break;
                     }
 
                     if(offset > (i + 1)) {
@@ -1429,7 +1429,7 @@ bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& po
         }
     }
 
-    return false;
+    return true;
 }
 
 bool posting_list_t::found_token_sequence(const std::vector<token_positions_t>& token_positions,
