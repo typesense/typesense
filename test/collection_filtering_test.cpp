@@ -144,22 +144,27 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
             R"({
                 "name": "title",
                 "fields": [
-                    {"name": "title", "type": "string"}
+                    {"name": "title", "type": "string"},
+                    {"name": "titles", "type": "string[]"}
                 ]
             })"_json;
 
     std::vector<nlohmann::json> documents = {
             R"({
-                "title": "foo bar baz"
+                "title": "foo bar baz",
+                "titles": []
             })"_json,
             R"({
-                "title": "foo bar baz"
+                "title": "foo bar baz",
+                "titles": ["foo bar baz"]
             })"_json,
             R"({
-                "title": "foo bar baz"
+                "title": "foo bar baz",
+                "titles": ["bar foo baz", "foo bar baz"]
             })"_json,
             R"({
-                "title": "bar foo baz"
+                "title": "bar foo baz",
+                "titles": ["bar foo baz"]
             })"_json,
     };
 
@@ -187,6 +192,24 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     auto res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(3, res_obj["found"].get<size_t>());
     ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ("1", res_obj["hits"][1]["document"].at("id"));
+    ASSERT_EQ("0", res_obj["hits"][2]["document"].at("id"));
+
+    req_params = {
+            {"collection", "title"},
+            {"q", "foo"},
+            {"query_by", "titles"},
+            {"filter_by", "titles:= foo bar baz"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("2", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ("1", res_obj["hits"][1]["document"].at("id"));
 }
 
 TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
