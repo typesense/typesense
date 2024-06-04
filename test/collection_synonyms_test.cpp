@@ -725,6 +725,33 @@ TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
     ASSERT_EQ(0, coll_mul_fields->get_synonyms().get().size());
 }
 
+TEST_F(CollectionSynonymsTest, UpsertAndSearch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+    auto coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc;
+    doc["title"] = "Rose gold rosenblade, 500 stk";
+    doc["points"] = 0;
+    coll1->add(doc.dump());
+
+    coll1->add_synonym(R"({"id":"abcde","locale":"da","root":"",
+                           "synonyms":["rosegold","rosaguld","rosa guld","rose gold","roseguld","rose guld"]})"_json);
+
+    ASSERT_EQ(1, coll1->get_synonyms().get().size());
+
+    // try to upsert synonym with same ID
+    auto upsert_op = coll1->add_synonym(R"({"id":"abcde","locale":"da","root":"",
+                           "synonyms":["rosegold","rosaguld","rosa guld","rose gold","roseguld","rose guld"]})"_json);
+    ASSERT_TRUE(upsert_op.ok());
+    ASSERT_EQ(1, coll1->get_synonyms().get().size());
+
+    // now try searching
+    auto res = coll1->search("rosa guld", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(1, res["found"].get<uint32_t>());
+}
+
 TEST_F(CollectionSynonymsTest, SynonymJsonSerialization) {
     synonym_t synonym1;
     synonym1.id = "ipod-synonyms";

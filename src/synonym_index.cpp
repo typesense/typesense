@@ -30,37 +30,55 @@ void SynonymIndex::synonym_reduction_internal(const std::vector<std::string>& to
             if(processed_tokens.count(merged_tokens_str) == 0) {
                 // tokens in this window match a synonym: reconstruct tokens and rerun synonym mapping against matches
                 for (const auto &leaf: leaves) {
-                    for (auto index = 0; index < synonym_index; ++index) {
-                        if (posting_t::contains(leaf->values, index)) {
-                            const auto &syn_def = synonym_definitions.at(index);
+                    std::vector<posting_list_t*> expanded_plists;
+                    posting_list_t::iterator_t it(nullptr, nullptr, nullptr);
 
-                            for (const auto &syn_def_tokens: syn_def.synonyms) {
-                                std::vector<std::string> new_tokens;
+                    if(IS_COMPACT_POSTING(leaf->values)) {
+                        auto compact_posting_list = COMPACT_POSTING_PTR(leaf->values);
+                        posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
+                        expanded_plists.push_back(full_posting_list);
+                        it = full_posting_list->new_iterator(nullptr, nullptr, 0);
+                    } else {
+                        posting_list_t* full_posting_list = (posting_list_t*)(leaf->values);
+                        it = full_posting_list->new_iterator(nullptr, nullptr, 0);
+                    }
 
-                                for (size_t i = 0; i < start_index; i++) {
-                                    new_tokens.push_back(tokens[i]);
-                                }
+                    while(it.valid()) {
+                        auto syn_index = it.id();
+                        const auto &syn_def = synonym_definitions.at(syn_index);
 
-                                for (size_t i = 0; i < syn_def_tokens.size(); i++) {
-                                    const auto &syn_def_token = syn_def_tokens[i];
-                                    new_tokens.push_back(syn_def_token);
-                                    processed_tokens.emplace(syn_def_token);
-                                }
+                        for (const auto &syn_def_tokens: syn_def.synonyms) {
+                            std::vector<std::string> new_tokens;
 
-                                for (size_t i = start_index + window_len; i < tokens.size(); i++) {
-                                    new_tokens.push_back(tokens[i]);
-                                }
-
-                                processed_tokens.emplace(merged_tokens_str);
-                                auto syn_def_tokens_str = StringUtils::join(syn_def_tokens, " ");
-                                processed_tokens.emplace(syn_def_tokens_str);
-
-                                recursed = true;
-                                synonym_reduction_internal(new_tokens, window_len,
-                                                           start_index, processed_tokens, results, orig_tokens,
-                                                           synonym_prefix, synonym_num_typos);
+                            for (size_t i = 0; i < start_index; i++) {
+                                new_tokens.push_back(tokens[i]);
                             }
+
+                            for (size_t i = 0; i < syn_def_tokens.size(); i++) {
+                                const auto &syn_def_token = syn_def_tokens[i];
+                                new_tokens.push_back(syn_def_token);
+                                processed_tokens.emplace(syn_def_token);
+                            }
+
+                            for (size_t i = start_index + window_len; i < tokens.size(); i++) {
+                                new_tokens.push_back(tokens[i]);
+                            }
+
+                            processed_tokens.emplace(merged_tokens_str);
+                            auto syn_def_tokens_str = StringUtils::join(syn_def_tokens, " ");
+                            processed_tokens.emplace(syn_def_tokens_str);
+
+                            recursed = true;
+                            synonym_reduction_internal(new_tokens, window_len,
+                                                       start_index, processed_tokens, results, orig_tokens,
+                                                       synonym_prefix, synonym_num_typos);
                         }
+
+                        it.next();
+                    }
+
+                    for(posting_list_t* plist: expanded_plists) {
+                        delete plist;
                     }
                 }
             }
@@ -164,16 +182,18 @@ Option<bool> SynonymIndex::remove_synonym(const std::string & collection_name, c
 
         const auto& synonym = synonym_definitions.at(syn_iter->second);
         std::vector<std::string> keys;
-        if(!synonym.root.empty()) {
-            keys.insert(keys.end(), synonym.root.begin(), synonym.root.end());
-        } else {
-            for(const auto & syn_tokens : synonym.synonyms) {
-                keys.insert(keys.end(), syn_tokens.begin(), syn_tokens.end());
-            }
-        }
+        keys.insert(keys.end(), synonym.root.begin(), synonym.root.end());
+        keys.insert(keys.end(), synonym.raw_synonyms.begin(), synonym.raw_synonyms.end());
 
         for(const auto& key : keys) {
-            art_delete(synonym_index_tree, (unsigned char*)key.c_str(), key.size() + 1);
+            art_leaf* found_leaf = (art_leaf *) art_search(synonym_index_tree, (unsigned char *) key.c_str(), key.size() + 1);
+            if(found_leaf) {
+                auto index = syn_iter->second;
+                posting_t::erase(found_leaf->values, index);
+                if(posting_t::num_ids(found_leaf->values) == 0) {
+                    art_delete(synonym_index_tree, (unsigned char*)key.c_str(), key.size() + 1);
+                }
+            }
         }
 
         auto index = synonym_ids_index_map.at(id);
