@@ -220,7 +220,7 @@ index 64f4e45..85fb039 100644
      GGML_API bool    ggml_is_numa(void); // true if init detected that system has >1 NUMA node
  
 diff --git a/whisper.cpp b/whisper.cpp
-index f6ba822..5279268 100644
+index f6ba822..485c013 100644
 --- a/whisper.cpp
 +++ b/whisper.cpp
 @@ -10,6 +10,7 @@
@@ -245,3 +245,12 @@ index f6ba822..5279268 100644
          backend_gpu = ggml_backend_cuda_init(0);
          if (!backend_gpu) {
              WHISPER_LOG_ERROR("%s: ggml_backend_cuda_init() failed\n", __func__);
+@@ -4483,7 +4488,7 @@ static const std::vector<std::string> non_speech_tokens = {
+     "\"", "#", "(", ")", "*", "+", "/", ":", ";", "<", "=", ">", "@", "[", "\\", "]", "^",
+     "_", "`", "{", "|", "}", "~", "「", "」", "『", "』", "<<", ">>", "<<<", ">>>", "--",
+     "---", "-(", "-[", "('", "(\"", "((", "))", "(((", ")))", "[[", "]]", "{{", "}}", "♪♪",
+-    "♪♪♪","♩", "♪", "♫", "♬", "♭", "♮", "♯"
++    "♪♪♪","♩", "♪", "♫", "♬", "♭", "♮", "♯", "!", ".", ",", "?", "!", "¡", "¿", "‼", "⁉",
+ };
+ 
+ // process the logits for the selected decoder

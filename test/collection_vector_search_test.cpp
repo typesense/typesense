@@ -4058,7 +4058,7 @@ TEST_F(CollectionVectorTest, TestVoiceQuery) {
     
     ASSERT_TRUE(results.ok());
     auto results_json = results.get();
-    ASSERT_EQ(" Smartphone.", results_json["request_params"]["voice_query"]["transcribed_query"].get<std::string>());
+    ASSERT_EQ("Smartphone", results_json["request_params"]["voice_query"]["transcribed_query"].get<std::string>());
     ASSERT_EQ(1, results_json["hits"].size());
     ASSERT_EQ("1", results_json["hits"][0]["document"]["id"].get<std::string>());
 }
