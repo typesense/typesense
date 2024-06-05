@@ -43,6 +43,7 @@ This is a selection of sites and apps using Typesense.
 | [OpenTacos](https://tacos.openbeta.io) | Free and open source rock climbing route wiki |
 | [Orders Made Simple](https://ordersmadesimple.com) | A Stock ordering platform helping to connect hospitality and catering venues with their suppliers |
 | [Otaku Square](https://www.otakusquare.com) | Online retailer for pop-culture (e.g. anime, games, movies) merchandise |
+| [OverSoul](https://apps.apple.com/us/app/oversoul/id6475262918) | Spatial photo converting and sharing app on Apple Vision |
 | [Plaza](https://www.useplaza.com) | Live-shopping platform |
 | [Popcorn](https://onpopcorn.com) | Zoom meets Snapchat, async video chat app |
 | [Project Seldon](https://projectseldon.org) | A free and unbiased analysis platform for understanding societies and systems of government. |
