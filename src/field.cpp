@@ -566,7 +566,11 @@ Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, cons
 
               (detected_type == field_types::FLOAT_ARRAY && the_field.type == field_types::GEOPOINT_ARRAY) ||
 
-              (detected_type == field_types::FLOAT_ARRAY && the_field.type == field_types::GEOPOINT && !has_obj_array)
+              (detected_type == field_types::FLOAT_ARRAY && the_field.type == field_types::GEOPOINT && !has_obj_array) ||
+
+              (detected_type == field_types::INT64_ARRAY && the_field.type == field_types::GEOPOINT && !has_obj_array) ||
+
+              (detected_type == field_types::INT64_ARRAY && the_field.type == field_types::GEOPOINT_ARRAY)
            );
 
         if(detected_type == the_field.type || is_numericaly_valid) {

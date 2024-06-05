@@ -2024,6 +2024,19 @@ TEST_F(CollectionNestedFieldsTest, NestedFieldWithGeopoint) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 
     // data validation
+    //with integer values
+    doc1 = R"({"address": {"geoPoint": [19, 72.88261]}})"_json;
+    add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc1 = R"({"address": {"geoPoint": [19.12, 72]}})"_json;
+    add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc1 = R"({"address": {"geoPoint": [19, 72]}})"_json;
+    add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
     auto bad_doc = R"({
         "address": {"geoPoint": [1.91, "x"]}
     })"_json;
