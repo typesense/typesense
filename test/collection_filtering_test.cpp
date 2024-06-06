@@ -2564,3 +2564,35 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
         ASSERT_EQ(id, result_id);
     }
 }
+
+TEST_F(CollectionFilteringTest, FilterOnStemmedField) {
+    nlohmann::json schema = R"({
+         "name": "companies",
+         "fields": [
+           {"name": "keywords", "type": "string[]", "facet": true, "stem": true }
+         ]
+       })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    auto coll = op.get();
+
+    nlohmann::json doc1 = {
+        {"id", "124"},
+        {"keywords", {"Restaurant"}}
+    };
+
+    nlohmann::json doc2 = {
+        {"id", "125"},
+        {"keywords", {"Baking"}}
+    };
+
+    ASSERT_TRUE(coll->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll->add(doc2.dump()).ok());
+
+    auto results = coll->search("*", {}, "keywords:=Baking", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("125", results["hits"][0]["document"]["id"].get<std::string>());
+
+}
