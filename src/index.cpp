@@ -68,7 +68,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         }
 
         if(a_field.num_dim > 0) {
-            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 1024, a_field.vec_dist, a_field.hnsw_params["M"].get<uint32_t>(), a_field.hnsw_params["ef_construction"].get<uint32_t>());
+            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 16, a_field.vec_dist, a_field.hnsw_params["M"].get<uint32_t>(), a_field.hnsw_params["ef_construction"].get<uint32_t>());
             vector_index.emplace(a_field.name, hnsw_index);
             continue;
         }
@@ -6992,7 +6992,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
         search_schema.emplace(new_field.name, new_field);
 
         if(new_field.type == field_types::FLOAT_ARRAY && new_field.num_dim > 0) {
-            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 1024, new_field.vec_dist, new_field.hnsw_params["M"].get<uint32_t>(), new_field.hnsw_params["ef_construction"].get<uint32_t>());
+            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 16, new_field.vec_dist, new_field.hnsw_params["M"].get<uint32_t>(), new_field.hnsw_params["ef_construction"].get<uint32_t>());
             vector_index.emplace(new_field.name, hnsw_index);
             continue;
         }
