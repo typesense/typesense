@@ -1503,3 +1503,266 @@ TEST_F(FilterTest, NumericFilterIterator) {
 
     delete filter_tree_root;
 }
+
+TEST_F(FilterTest, PrefixStringFilter) {
+    auto schema_json =
+            R"({
+                "name": "Names",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "name": "Steve Jobs"
+            })"_json,
+            R"({
+                "name": "Adam Stator"
+            })"_json,
+    };
+
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    Collection* coll = collection_create_op.get();
+    for (auto const &json: documents) {
+        auto add_op = coll->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    const std::string doc_id_prefix = std::to_string(coll->get_collection_id()) + "_" + Collection::DOC_ID_PREFIX + "_";
+    filter_node_t* filter_tree_root = nullptr;
+
+    search_stop_us = UINT64_MAX; // `Index::fuzzy_search_fields` checks for timeout.
+    Option<bool> filter_op = filter::parse_filter_query("name:= S*", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto computed_exact_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(computed_exact_prefix_test.init_status().ok());
+    ASSERT_TRUE(computed_exact_prefix_test._get_is_filter_result_initialized());
+
+    std::vector<int> expected = {0};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, computed_exact_prefix_test.validity);
+        ASSERT_EQ(i, computed_exact_prefix_test.seq_id);
+        computed_exact_prefix_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, computed_exact_prefix_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: S*", coll->get_schema(), store, doc_id_prefix,
+                                                        filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto computed_contains_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(computed_contains_prefix_test.init_status().ok());
+    ASSERT_TRUE(computed_contains_prefix_test._get_is_filter_result_initialized());
+
+    expected = {0, 1};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, computed_contains_prefix_test.validity);
+        ASSERT_EQ(i, computed_contains_prefix_test.seq_id);
+        computed_contains_prefix_test.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, computed_contains_prefix_test.validity);
+
+    delete filter_tree_root;
+
+    documents = {
+            R"({
+                "name": "Steve Reiley"
+            })"_json,
+            R"({
+                "name": "Storm"
+            })"_json,
+            R"({
+                "name": "Steve Rogers"
+            })"_json,
+    };
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name:= S*", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_exact_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_exact_prefix_test.init_status().ok());
+    ASSERT_FALSE(iter_exact_prefix_test._get_is_filter_result_initialized());
+
+    std::vector<uint32_t> validate_ids = {0, 1, 2, 3, 4, 5};
+    std::vector<uint32_t> seq_ids = {2, 2, 3, 4, 4, 4};
+    std::vector<uint32_t> equals_match_seq_ids = {0, 2, 2, 3, 4, 4};
+    std::vector<bool> equals_iterator_valid = {true, true, true, true, true, false};
+    expected = {1, 0, 1, 1, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_exact_prefix_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_exact_prefix_test.validity);
+        }
+        ASSERT_EQ(expected[i], iter_exact_prefix_test.is_valid(validate_ids[i]));
+        ASSERT_EQ(equals_match_seq_ids[i], iter_exact_prefix_test._get_equals_iterator_id());
+        ASSERT_EQ(equals_iterator_valid[i], iter_exact_prefix_test._get_is_equals_iterator_valid());
+
+        if (expected[i] == 1) {
+            iter_exact_prefix_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_exact_prefix_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_exact_prefix_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: S*", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_contains_prefix_test = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_contains_prefix_test.init_status().ok());
+    ASSERT_FALSE(iter_contains_prefix_test._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5};
+    seq_ids = {1, 2, 3, 4, 4, 4};
+    equals_match_seq_ids = {0, 1, 2, 3, 4, 4};
+    equals_iterator_valid = {true, true, true, true, true, false};
+    expected = {1, 1, 1, 1, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 5) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_contains_prefix_test.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_contains_prefix_test.validity);
+        }
+        ASSERT_EQ(expected[i], iter_contains_prefix_test.is_valid(validate_ids[i]));
+        ASSERT_EQ(equals_match_seq_ids[i], iter_contains_prefix_test._get_equals_iterator_id());
+        ASSERT_EQ(equals_iterator_valid[i], iter_contains_prefix_test._get_is_equals_iterator_valid());
+
+        if (expected[i] == 1) {
+            iter_contains_prefix_test.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_contains_prefix_test.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_contains_prefix_test.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name:= Steve R*", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto computed_exact_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(computed_exact_prefix_test_2.init_status().ok());
+    ASSERT_TRUE(computed_exact_prefix_test_2._get_is_filter_result_initialized());
+
+    expected = {2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, computed_exact_prefix_test_2.validity);
+        ASSERT_EQ(i, computed_exact_prefix_test_2.seq_id);
+        computed_exact_prefix_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, computed_exact_prefix_test_2.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: Steve R*", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto computed_contains_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(computed_contains_prefix_test_2.init_status().ok());
+    ASSERT_TRUE(computed_contains_prefix_test_2._get_is_filter_result_initialized());
+
+    expected = {2, 4};
+    for (auto const& i : expected) {
+        ASSERT_EQ(filter_result_iterator_t::valid, computed_contains_prefix_test_2.validity);
+        ASSERT_EQ(i, computed_contains_prefix_test_2.seq_id);
+        computed_contains_prefix_test_2.next();
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, computed_contains_prefix_test_2.validity);
+
+    delete filter_tree_root;
+
+    documents = {
+            R"({
+                "name": "Steve Runner foo"
+            })"_json,
+            R"({
+                "name": "foo Steve Runner"
+            })"_json,
+    };
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name:= Steve R*", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_exact_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_exact_prefix_test_2.init_status().ok());
+    ASSERT_FALSE(iter_exact_prefix_test_2._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5, 6, 7};
+    seq_ids = {2, 2, 4, 4, 5, 5, 5, 5};
+    equals_match_seq_ids = {2, 2, 2, 4, 4, 5, 5, 5};
+    equals_iterator_valid = {true, true, true, true, true, true, false, false};
+    expected = {0, 0, 1, 0, 1, 1, -1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 6) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_exact_prefix_test_2.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_exact_prefix_test_2.validity);
+        }
+        ASSERT_EQ(expected[i], iter_exact_prefix_test_2.is_valid(validate_ids[i]));
+        ASSERT_EQ(equals_match_seq_ids[i], iter_exact_prefix_test_2._get_equals_iterator_id());
+        ASSERT_EQ(equals_iterator_valid[i], iter_exact_prefix_test_2._get_is_equals_iterator_valid());
+
+        if (expected[i] == 1) {
+            iter_exact_prefix_test_2.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_exact_prefix_test_2.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_exact_prefix_test_2.validity);
+
+    delete filter_tree_root;
+    filter_tree_root = nullptr;
+    filter_op = filter::parse_filter_query("name: Steve R*", coll->get_schema(), store, doc_id_prefix,
+                                           filter_tree_root);
+    ASSERT_TRUE(filter_op.ok());
+
+    auto iter_contains_prefix_test_2 = filter_result_iterator_t(coll->get_name(), coll->_get_index(), filter_tree_root);
+    ASSERT_TRUE(iter_contains_prefix_test_2.init_status().ok());
+    ASSERT_FALSE(iter_contains_prefix_test_2._get_is_filter_result_initialized());
+
+    validate_ids = {0, 1, 2, 3, 4, 5, 6, 7};
+    seq_ids = {2, 2, 4, 4, 5, 6, 6, 6};
+    equals_match_seq_ids = {2, 2, 2, 4, 4, 5, 6, 6};
+    equals_iterator_valid = {true, true, true, true, true, true, true, false};
+    expected = {0, 0, 1, 0, 1, 1, 1, -1};
+    for (uint32_t i = 0; i < validate_ids.size(); i++) {
+        if (i < 7) {
+            ASSERT_EQ(filter_result_iterator_t::valid, iter_contains_prefix_test_2.validity);
+        } else {
+            ASSERT_EQ(filter_result_iterator_t::invalid, iter_contains_prefix_test_2.validity);
+        }
+        ASSERT_EQ(expected[i], iter_contains_prefix_test_2.is_valid(validate_ids[i]));
+        ASSERT_EQ(equals_match_seq_ids[i], iter_contains_prefix_test_2._get_equals_iterator_id());
+        ASSERT_EQ(equals_iterator_valid[i], iter_contains_prefix_test_2._get_is_equals_iterator_valid());
+
+        if (expected[i] == 1) {
+            iter_contains_prefix_test_2.next();
+        }
+        ASSERT_EQ(seq_ids[i], iter_contains_prefix_test_2.seq_id);
+    }
+    ASSERT_EQ(filter_result_iterator_t::invalid, iter_contains_prefix_test_2.validity);
+
+    delete filter_tree_root;
+}

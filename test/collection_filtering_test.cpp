@@ -2568,7 +2568,8 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
             R"({
                 "name": "Names",
                 "fields": [
-                    {"name": "name", "type": "string"}
+                    {"name": "name", "type": "string", "optional": true},
+                    {"name": "names", "type": "string[]", "optional": true}
                 ]
             })"_json;
     std::vector<nlohmann::json> documents = {
@@ -2622,11 +2623,22 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
     ASSERT_EQ("Adam Stator", res_obj["hits"][0]["document"].at("name"));
     ASSERT_EQ("Steve Jobs", res_obj["hits"][1]["document"].at("name"));
 
-    auto doc = R"({
+    documents = {
+            R"({
+                "name": "Steve Reiley"
+            })"_json,
+            R"({
                 "name": "Storm"
-            })"_json;
-    auto add_op = collection_create_op.get()->add(doc.dump());
-    ASSERT_TRUE(add_op.ok());
+            })"_json,
+            R"({
+                "name": "Steve Rogers"
+            })"_json,
+    };
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
 
     req_params = {
             {"collection", "Names"},
@@ -2639,10 +2651,12 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
     ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(2, res_obj["found"].get<size_t>());
-    ASSERT_EQ(2, res_obj["hits"].size());
-    ASSERT_EQ("Storm", res_obj["hits"][0]["document"].at("name"));
-    ASSERT_EQ("Steve Jobs", res_obj["hits"][1]["document"].at("name"));
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"].at("name"));
+    ASSERT_EQ("Storm", res_obj["hits"][1]["document"].at("name"));
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][2]["document"].at("name"));
+    ASSERT_EQ("Steve Jobs", res_obj["hits"][3]["document"].at("name"));
 
     req_params = {
             {"collection", "Names"},
@@ -2655,11 +2669,262 @@ TEST_F(CollectionFilteringTest, PrefixFilterOnTextFields) {
     ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["found"].get<size_t>());
+    ASSERT_EQ(5, res_obj["hits"].size());
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"].at("name"));
+    ASSERT_EQ("Storm", res_obj["hits"][1]["document"].at("name"));
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][2]["document"].at("name"));
+    ASSERT_EQ("Adam Stator", res_obj["hits"][3]["document"].at("name"));
+    ASSERT_EQ("Steve Jobs", res_obj["hits"][4]["document"].at("name"));
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "name"},
+            {"filter_by", "name:= Steve R*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"].at("name"));
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][1]["document"].at("name"));
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "name"},
+            {"filter_by", "name: Steve R*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"].at("name"));
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][1]["document"].at("name"));
+
+    documents = {
+            R"({
+                "names": []
+            })"_json,
+            R"({
+                "names": ["Steve Jobs"]
+            })"_json,
+            R"({
+                "names": ["Adam Stator"]
+            })"_json
+    };
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names:= St*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ("Steve Jobs", res_obj["hits"][0]["document"]["names"][0]);
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names: St*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("Adam Stator", res_obj["hits"][0]["document"]["names"][0]);
+    ASSERT_EQ("Steve Jobs", res_obj["hits"][1]["document"]["names"][0]);
+
+    documents = {
+            R"({
+                "names": ["Steve Reiley"]
+            })"_json,
+            R"({
+                "names": ["Storm"]
+            })"_json,
+            R"({
+                "names": ["Adam", "Steve Rogers"]
+            })"_json,
+    };
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names:= St*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"]["names"][1]);
+    ASSERT_EQ("Storm", res_obj["hits"][1]["document"]["names"][0]);
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][2]["document"]["names"][0]);
+    ASSERT_EQ("Steve Jobs", res_obj["hits"][3]["document"]["names"][0]);
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names: St*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(5, res_obj["found"].get<size_t>());
+    ASSERT_EQ(5, res_obj["hits"].size());
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"]["names"][1]);
+    ASSERT_EQ("Storm", res_obj["hits"][1]["document"]["names"][0]);
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][2]["document"]["names"][0]);
+    ASSERT_EQ("Adam Stator", res_obj["hits"][3]["document"]["names"][0]);
+    ASSERT_EQ("Steve Jobs", res_obj["hits"][4]["document"]["names"][0]);
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names:= Steve*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
     ASSERT_EQ(3, res_obj["found"].get<size_t>());
     ASSERT_EQ(3, res_obj["hits"].size());
-    ASSERT_EQ("Storm", res_obj["hits"][0]["document"].at("name"));
-    ASSERT_EQ("Adam Stator", res_obj["hits"][1]["document"].at("name"));
-    ASSERT_EQ("Steve Jobs", res_obj["hits"][2]["document"].at("name"));
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"]["names"][1]);
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][1]["document"]["names"][0]);
+    ASSERT_EQ("Steve Jobs", res_obj["hits"][2]["document"]["names"][0]);
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names: Steve*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"]["names"][1]);
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][1]["document"]["names"][0]);
+    ASSERT_EQ("Steve Jobs", res_obj["hits"][2]["document"]["names"][0]);
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names:= Steve R*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"]["names"][1]);
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][1]["document"]["names"][0]);
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names: Steve R*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][0]["document"]["names"][1]);
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][1]["document"]["names"][0]);
+
+    documents = {
+            R"({
+                "names": ["Steve Runner foo"]
+            })"_json,
+            R"({
+                "names": ["foo Steve Runner"]
+            })"_json,
+    };
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names:= Steve R*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res_obj["found"].get<size_t>());
+    ASSERT_EQ(3, res_obj["hits"].size());
+    ASSERT_EQ("Steve Runner foo", res_obj["hits"][0]["document"]["names"][0]);
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][1]["document"]["names"][1]);
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][2]["document"]["names"][0]);
+
+    req_params = {
+            {"collection", "Names"},
+            {"q", "s"},
+            {"query_by", "names"},
+            {"filter_by", "names: Steve R*"}
+    };
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ("foo Steve Runner", res_obj["hits"][0]["document"]["names"][0]);
+    ASSERT_EQ("Steve Runner foo", res_obj["hits"][1]["document"]["names"][0]);
+    ASSERT_EQ("Steve Rogers", res_obj["hits"][2]["document"]["names"][1]);
+    ASSERT_EQ("Steve Reiley", res_obj["hits"][3]["document"]["names"][0]);
 }
 
 TEST_F(CollectionFilteringTest, FilterOnStemmedField) {
