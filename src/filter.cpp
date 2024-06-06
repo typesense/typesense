@@ -639,7 +639,6 @@ Option<bool> toFilter(const std::string expression,
                 return Option<bool>(400, "Error with filter field `" + _field.name +
                                          "`: Filter value array cannot be empty.");
             }
-            auto stemmer = _field.get_stemmer();
             if(_field.stem) {
                 auto stemmer = _field.get_stemmer();
                 for (std::string& filter_value: filter_values) {
