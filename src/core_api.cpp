@@ -49,6 +49,7 @@ public:
 };
 
 void init_api(uint32_t cache_num_entries) {
+    std::unique_lock lock(mutex);
     res_cache.capacity(cache_num_entries);
 }
 
@@ -2074,6 +2075,11 @@ bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     if(!config_update_op.ok()) {
         res->set(config_update_op.code(), config_update_op.error());
     } else {
+        // for cache config, we have to resize the cache
+        if(req_json.count("cache-num-entries") != 0) {
+            std::unique_lock lock(mutex);
+            res_cache.capacity(Config::get_instance().get_cache_num_entries());
+        }
         nlohmann::json response;
         response["success"] = true;
         res->set_201(response.dump());
