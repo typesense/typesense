@@ -4748,6 +4748,11 @@ std::string Collection::get_default_sorting_field() {
     return default_sorting_field;
 }
 
+void Collection::update_metadata(const nlohmann::json& meta) {
+    std::shared_lock lock(mutex);
+    metadata = meta;
+}
+
 Option<bool> Collection::get_document_from_store(const uint32_t& seq_id,
                                                  nlohmann::json& document, bool raw_doc) const {
     return get_document_from_store(get_seq_id_key(seq_id), document, raw_doc);
@@ -5644,14 +5649,10 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         return Option<bool>(400, "Bad JSON.");
     }
 
-    if(schema_changes.size() != 1) {
-        return Option<bool>(400, "Only `fields` can be updated at the moment.");
-    }
-
     const std::string err_msg = "The `fields` value should be an array of objects containing "
                                 "the field `name` and other properties.";
 
-    if(!schema_changes.contains("fields") || !schema_changes["fields"].is_array() || schema_changes["fields"].empty()) {
+    if(!schema_changes["fields"].is_array() || schema_changes["fields"].empty()) {
         return Option<bool>(400, err_msg);
     }
 

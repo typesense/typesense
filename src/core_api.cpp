@@ -324,11 +324,25 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         return false;
     }
 
-    auto alter_op = collection->alter(req_json);
-    if(!alter_op.ok()) {
-        res->set(alter_op.code(), alter_op.error());
-        alter_in_progress = false;
-        return false;
+    if(req_json.contains("metadata")) {
+        if(!req_json["metadata"].is_object()) {
+            res->set_400("The `metadata` value should be an object.");
+            return false;
+        }
+
+        collection->update_metadata(req_json["metadata"]);
+
+        //update in db
+        collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
+    }
+
+    if(req_json.contains("fields")) {
+        auto alter_op = collection->alter(req_json);
+        if(!alter_op.ok()) {
+            res->set(alter_op.code(), alter_op.error());
+            alter_in_progress = false;
+            return false;
+        }
     }
 
     alter_in_progress = false;

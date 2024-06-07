@@ -1805,3 +1805,194 @@ TEST_F(CoreAPIUtilsTest, SynonymsPagination) {
     ASSERT_EQ(400, resp->status_code);
     ASSERT_EQ("{\"message\": \"Limit param should be unsigned integer.\"}", resp->body);
 }
+
+
+TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
+    CollectionManager & collectionManager3 = CollectionManager::get_instance();
+
+    nlohmann::json schema = R"({
+        "name": "collection_meta",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "value.color", "type": "string", "optional": false, "facet": true },
+          {"name": "value.r", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.g", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.b", "type": "int32", "optional": false, "facet": true }
+        ],
+        "metadata": {
+            "batch_job":"",
+            "indexed_from":"2023-04-20T00:00:00.000Z",
+            "total_docs": 0
+        }
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    std::string collection_meta_json;
+    nlohmann::json collection_meta;
+    std::string next_seq_id;
+    std::string next_collection_id;
+
+    store->get(Collection::get_meta_key("collection_meta"), collection_meta_json);
+
+    nlohmann::json expected_meta_json = R"(
+        {
+            "created_at":1705482381,
+            "default_sorting_field":"",
+            "enable_nested_fields":true,
+            "fallback_field_type":"",
+            "fields":[
+                {
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.color",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":false,
+                    "store":true,
+                    "type":"string"
+                },
+                {
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.r",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":true,
+                    "store":true,
+                    "type":"int32"
+                },{
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.g",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":true,
+                    "store":true,
+                    "type":"int32"
+                },{
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.b",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":true,
+                    "store":true,
+                    "type":"int32"
+                }
+            ],
+            "id":1,
+            "metadata":{
+                "batch_job":"",
+                "indexed_from":"2023-04-20T00:00:00.000Z",
+                "total_docs":0
+            },
+            "name":"collection_meta",
+            "num_memory_shards":4,
+            "symbols_to_index":[],
+            "token_separators":[]
+    })"_json;
+
+    auto actual_json = nlohmann::json::parse(collection_meta_json);
+    expected_meta_json["created_at"] = actual_json["created_at"];
+
+    ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
+
+    //try setting empty metadata
+    auto metadata = R"({
+        "metadata": {}
+    })"_json;
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "collection_meta";
+    req->body = metadata.dump();
+    patch_update_collection(req, res);
+
+    expected_meta_json = R"(
+        {
+            "created_at":1705482381,
+            "default_sorting_field":"",
+            "enable_nested_fields":true,
+            "fallback_field_type":"",
+            "fields":[
+                {
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.color",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":false,
+                    "store":true,
+                    "type":"string"
+                },
+                {
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.r",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":true,
+                    "store":true,
+                    "type":"int32"
+                },{
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.g",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":true,
+                    "store":true,
+                    "type":"int32"
+                },{
+                    "facet":true,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"value.b",
+                    "nested":true,
+                    "nested_array":2,
+                    "optional":false,
+                    "sort":true,
+                    "store":true,
+                    "type":"int32"
+                }
+            ],
+            "id":1,
+            "metadata":{
+            },
+            "name":"collection_meta",
+            "num_memory_shards":4,
+            "symbols_to_index":[],
+            "token_separators":[]
+    })"_json;
+
+    store->get(Collection::get_meta_key("collection_meta"), collection_meta_json);
+    actual_json = nlohmann::json::parse(collection_meta_json);
+    expected_meta_json["created_at"] = actual_json["created_at"];
+    ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
+}

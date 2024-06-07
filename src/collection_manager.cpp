@@ -2514,3 +2514,15 @@ bool CollectionManager::is_valid_api_key_collection(const std::vector<std::strin
     }
     return api_collections.size() > 0 ? false : true;
 }
+
+bool CollectionManager::update_collection_metadata(const std::string& collection, const nlohmann::json& metadata) {
+    std::string collection_meta_str;
+    auto collection_metakey = Collection::get_meta_key(collection);
+    store->get(collection_metakey, collection_meta_str);
+
+    auto collection_meta_json = nlohmann::json::parse(collection_meta_str);
+
+    collection_meta_json[Collection::COLLECTION_METADATA] = metadata;
+
+    return store->insert(collection_metakey, collection_meta_json.dump());
+}
