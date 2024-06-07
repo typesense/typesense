@@ -305,6 +305,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
 
 bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
+    std::set<std::string> allowed_keys = {"metadata", "fields"};
 
     try {
         req_json = nlohmann::json::parse(req->body);
@@ -315,13 +316,12 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         return false;
     }
 
-    if(req_json.size() > 2
-        || (req_json.size() == 2 && (!req_json.contains("metadata") || !req_json.contains("fields")))
-        || (req_json.size() == 1 && !(req_json.contains("metadata") || req_json.contains("fields")))) {
-
-        res->set_400("Only `fields` and `metadata` can be updated at the moment.");
-        alter_in_progress = false;
-        return false;
+    for(auto it : req_json.items()) {
+        if(allowed_keys.count(it.key()) == 0) {
+            res->set_400("Only `fields` and `metadata` can be updated at the moment.");
+            alter_in_progress = false;
+            return false;
+        }
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
