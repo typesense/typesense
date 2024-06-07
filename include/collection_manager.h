@@ -245,4 +245,6 @@ public:
     std::unordered_set<std::string> get_collection_references(const std::string& coll_name);
 
     bool is_valid_api_key_collection(const std::vector<std::string>& api_key_collections, Collection* coll) const;
+
+    bool update_collection_metadata(const std::string& collection, const nlohmann::json& metadata);
 };

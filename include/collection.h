@@ -432,6 +432,8 @@ public:
 
     std::string get_default_sorting_field();
 
+    void update_metadata(const nlohmann::json& meta);
+
     static Option<bool> add_reference_helper_fields(nlohmann::json& document, const tsl::htrie_map<char, field>& schema,
                                                     const spp::sparse_hash_map<std::string, reference_pair>& reference_fields,
                                                     tsl::htrie_set<char>& object_reference_helper_fields,

@@ -305,6 +305,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
 
 bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json req_json;
+    std::set<std::string> allowed_keys = {"metadata", "fields"};
 
     try {
         req_json = nlohmann::json::parse(req->body);
@@ -313,6 +314,14 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         res->set_400("Bad JSON.");
         alter_in_progress = false;
         return false;
+    }
+
+    for(auto it : req_json.items()) {
+        if(allowed_keys.count(it.key()) == 0) {
+            res->set_400("Only `fields` and `metadata` can be updated at the moment.");
+            alter_in_progress = false;
+            return false;
+        }
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -324,11 +333,28 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         return false;
     }
 
-    auto alter_op = collection->alter(req_json);
-    if(!alter_op.ok()) {
-        res->set(alter_op.code(), alter_op.error());
-        alter_in_progress = false;
-        return false;
+    if(req_json.contains("metadata")) {
+        if(!req_json["metadata"].is_object()) {
+            res->set_400("The `metadata` value should be an object.");
+            alter_in_progress = false;
+            return false;
+        }
+
+        collection->update_metadata(req_json["metadata"]);
+
+        //update in db
+        collectionManager.update_collection_metadata(req->params["collection"], req_json["metadata"]);
+    }
+
+    if(req_json.contains("fields")) {
+        nlohmann::json alter_payload;
+        alter_payload["fields"] = req_json["fields"];
+        auto alter_op = collection->alter(alter_payload);
+        if(!alter_op.ok()) {
+            res->set(alter_op.code(), alter_op.error());
+            alter_in_progress = false;
+            return false;
+        }
     }
 
     alter_in_progress = false;
