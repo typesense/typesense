@@ -355,7 +355,7 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
     uint32_t lowest_id = UINT32_MAX;
 
     if (filter_node->filter_exp.comparators[0] == EQUALS || filter_node->filter_exp.comparators[0] == NOT_EQUALS) {
-        bool exact_match_found = false;
+        bool match_found = false;
         switch (posting_list_iterators.size()) {
             case 1:
                 while(true) {
@@ -366,28 +366,32 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
                         break;
                     }
 
-                    if (posting_list_t::has_exact_match(posting_list_iterators[0], field_is_array)) {
-                        exact_match_found = true;
-                        break;
-                    } else {
-                        // Keep advancing token iterators till exact match is not found.
-                        for (auto& iter: posting_list_iterators[0]) {
-                            if (!iter.valid()) {
-                                break;
-                            }
+                    match_found = string_prefix_filter_index.count(0) == 0 ?
+                                    posting_list_t::has_exact_match(posting_list_iterators[0], field_is_array) :
+                                    posting_list_t::has_prefix_match(posting_list_iterators[0], field_is_array);
 
-                            iter.next();
+                    if (match_found) {
+                        break;
+                    }
+
+                    // Keep advancing token iterators till match is not found.
+                    for (auto& iter: posting_list_iterators[0]) {
+                        if (!iter.valid()) {
+                            break;
                         }
+
+                        iter.next();
                     }
                 }
 
-                if (one_is_valid && exact_match_found) {
+                if (one_is_valid && match_found) {
                     lowest_id = posting_list_iterators[0][0].id();
                 }
             break;
 
             default :
-                for (auto& filter_value_tokens : posting_list_iterators) {
+                for (uint32_t i = 0; i < posting_list_iterators.size(); i++) {
+                    auto& filter_value_tokens = posting_list_iterators[i];
                     bool tokens_iter_is_valid;
                     while(true) {
                         // Perform AND between tokens of a filter value.
@@ -397,24 +401,27 @@ void filter_result_iterator_t::get_string_filter_next_match(const bool& field_is
                             break;
                         }
 
-                        if (posting_list_t::has_exact_match(filter_value_tokens, field_is_array)) {
-                            exact_match_found = true;
-                            break;
-                        } else {
-                            // Keep advancing token iterators till exact match is not found.
-                            for (auto &iter: filter_value_tokens) {
-                                if (!iter.valid()) {
-                                    break;
-                                }
+                        match_found = string_prefix_filter_index.count(i) == 0 ?
+                                      posting_list_t::has_exact_match(filter_value_tokens, field_is_array) :
+                                      posting_list_t::has_prefix_match(filter_value_tokens, field_is_array);
 
-                                iter.next();
+                        if (match_found) {
+                            break;
+                        }
+
+                        // Keep advancing token iterators till exact match is not found.
+                        for (auto &iter: filter_value_tokens) {
+                            if (!iter.valid()) {
+                                break;
                             }
+
+                            iter.next();
                         }
                     }
 
                     one_is_valid = tokens_iter_is_valid || one_is_valid;
 
-                    if (tokens_iter_is_valid && exact_match_found && filter_value_tokens[0].id() < lowest_id) {
+                    if (tokens_iter_is_valid && match_found && filter_value_tokens[0].id() < lowest_id) {
                         lowest_id = filter_value_tokens[0].id();
                     }
                 }
@@ -1360,7 +1367,8 @@ void filter_result_iterator_t::init() {
     } else if (f.is_string()) {
         art_tree* t = index->search_index.at(a_filter.field_name);
 
-        for (std::string filter_value : a_filter.values) {
+        for (uint32_t i = 0; i < a_filter.values.size(); i++) {
+            auto filter_value = a_filter.values[i];
             auto is_prefix_match = filter_value.size() > 1 && filter_value[filter_value.size() - 1] == '*';
             if (is_prefix_match) {
                 filter_value.erase(filter_value.size() - 1);
@@ -1469,6 +1477,7 @@ void filter_result_iterator_t::init() {
                         continue;
                     }
 
+                    string_prefix_filter_index.insert(posting_lists.size());
                     posting_lists.push_back(plists);
                     posting_list_iterators.emplace_back(std::vector<posting_list_t::iterator_t>());
                     for (auto const& plist: plists) {
@@ -2485,7 +2494,33 @@ void filter_result_iterator_t::compute_iterators() {
 
         for (uint32_t i = 0; i < posting_lists.size(); i++) {
             auto& p_list = posting_lists[i];
-            if (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
+            if (string_prefix_filter_index.count(i) != 0 &&
+                    (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS)) {
+                // Exact prefix match, needs intersection + prefix matching
+                std::vector<uint32_t> result_id_vec;
+                posting_list_t::intersect(p_list, result_id_vec);
+
+                if (result_id_vec.empty()) {
+                    continue;
+                }
+
+                // need to do prefix match
+                uint32_t* prefix_str_ids = new uint32_t[result_id_vec.size()];
+                size_t prefix_str_ids_size = 0;
+                std::unique_ptr<uint32_t[]> prefix_str_ids_guard(prefix_str_ids);
+
+                posting_list_t::get_prefix_matches(posting_list_iterators[i], f.is_array(),
+                                                  result_id_vec.data(), result_id_vec.size(),
+                                                  prefix_str_ids, prefix_str_ids_size);
+
+                if (prefix_str_ids_size == 0) {
+                    continue;
+                }
+
+                for (size_t pi = 0; pi < prefix_str_ids_size; pi++) {
+                    f_id_buff.push_back(prefix_str_ids[pi]);
+                }
+            } else if (a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
                 // needs intersection + exact matching (unlike CONTAINS)
                 std::vector<uint32_t> result_id_vec;
                 posting_list_t::intersect(p_list, result_id_vec);

@@ -280,6 +280,10 @@ private:
     /// Sample filter: [>10, !15].
     std::unordered_set<uint32_t> numerical_not_iterator_index;
 
+    /// String filter can specify prefix value match.
+    /// Sample filter: [Chris P*].
+    std::unordered_set<uint32_t> string_prefix_filter_index;
+
     bool delete_filter_node = false;
 
     std::unique_ptr<filter_result_iterator_timeout_info> timeout_info;
