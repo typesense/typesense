@@ -2064,4 +2064,11 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
     req->body = alter_schema.dump();
     ASSERT_FALSE(patch_update_collection(req, res));
     ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+
+    alter_schema = R"({
+    })"_json;
+
+    req->body = alter_schema.dump();
+    ASSERT_FALSE(patch_update_collection(req, res));
+    ASSERT_EQ("{\"message\": \"Alter payload is empty.\"}", res->body);
 }
