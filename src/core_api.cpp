@@ -324,9 +324,16 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         return false;
     }
 
+    if(req_json.size() > 2 || !(req_json.contains("metadata") || req_json.contains("fields"))) {
+        res->set_400("Only `fields` and `metadata` can be updated at the moment.");
+        alter_in_progress = false;
+        return false;
+    }
+
     if(req_json.contains("metadata")) {
         if(!req_json["metadata"].is_object()) {
             res->set_400("The `metadata` value should be an object.");
+            alter_in_progress = false;
             return false;
         }
 
