@@ -344,7 +344,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     }
 
     if(req_json.contains("fields")) {
-        auto alter_op = collection->alter(req_json);
+        auto alter_op = collection->alter(req_json["fields"]);
         if(!alter_op.ok()) {
             res->set(alter_op.code(), alter_op.error());
             alter_in_progress = false;

@@ -485,7 +485,7 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
 
     alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
-    ASSERT_EQ("Only `fields` can be updated at the moment.",alter_op.error());
+    ASSERT_EQ("Only `fields` and `metadata` can be updated at the moment.",alter_op.error());
 
     // 9. bad datatype in alter
     schema_changes = R"({
