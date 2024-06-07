@@ -315,17 +315,20 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         return false;
     }
 
+    if(req_json.size() > 2
+        || (req_json.size() == 2 && (!req_json.contains("metadata") || !req_json.contains("fields")))
+        || (req_json.size() == 1 && !(req_json.contains("metadata") || req_json.contains("fields")))) {
+
+        res->set_400("Only `fields` and `metadata` can be updated at the moment.");
+        alter_in_progress = false;
+        return false;
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
         res->set_404();
-        alter_in_progress = false;
-        return false;
-    }
-
-    if(req_json.size() > 2 || !(req_json.contains("metadata") || req_json.contains("fields"))) {
-        res->set_400("Only `fields` and `metadata` can be updated at the moment.");
         alter_in_progress = false;
         return false;
     }
@@ -344,7 +347,9 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
     }
 
     if(req_json.contains("fields")) {
-        auto alter_op = collection->alter(req_json["fields"]);
+        nlohmann::json alter_payload;
+        alter_payload["fields"] = req_json["fields"];
+        auto alter_op = collection->alter(alter_payload);
         if(!alter_op.ok()) {
             res->set(alter_op.code(), alter_op.error());
             alter_in_progress = false;

@@ -1996,3 +1996,72 @@ TEST_F(CoreAPIUtilsTest, CollectionMetadataUpdate) {
     expected_meta_json["created_at"] = actual_json["created_at"];
     ASSERT_EQ(expected_meta_json.dump(), actual_json.dump());
 }
+
+TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
+    CollectionManager & collectionManager3 = CollectionManager::get_instance();
+
+    nlohmann::json schema = R"({
+        "name": "collection_meta",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "value.color", "type": "string", "optional": false, "facet": true },
+          {"name": "value.r", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.g", "type": "int32", "optional": false, "facet": true },
+          {"name": "value.b", "type": "int32", "optional": false, "facet": true }
+        ],
+        "metadata": {
+            "batch_job":"",
+            "indexed_from":"2023-04-20T00:00:00.000Z",
+            "total_docs": 0
+        }
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto alter_schema = R"({
+        "metadata": {},
+        "fields":[
+            {"name": "value.color", "drop": true },
+           {"name": "value.color", "type": "string", "facet": true }
+        ]
+    })"_json;
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "collection_meta";
+    req->body = alter_schema.dump();
+
+    ASSERT_TRUE(patch_update_collection(req, res));
+
+    alter_schema = R"({
+        "metadata": {},
+        "symbols_to_index":[]
+    })"_json;
+
+    req->body = alter_schema.dump();
+    ASSERT_FALSE(patch_update_collection(req, res));
+    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+
+    alter_schema = R"({
+        "symbols_to_index":[]
+    })"_json;
+
+    req->body = alter_schema.dump();
+    ASSERT_FALSE(patch_update_collection(req, res));
+    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+
+    alter_schema = R"({
+        "name": "collection_meta2",
+        "metadata": {},
+        "fields":[
+            {"name": "value.hue", "type": "int32", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    req->body = alter_schema.dump();
+    ASSERT_FALSE(patch_update_collection(req, res));
+    ASSERT_EQ("{\"message\": \"Only `fields` and `metadata` can be updated at the moment.\"}", res->body);
+}
