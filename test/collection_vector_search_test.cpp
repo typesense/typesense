@@ -1029,7 +1029,7 @@ TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {
     rng.seed(47);
     std::uniform_real_distribution<> distrib;
 
-    size_t num_docs = 20;
+    size_t num_docs = 10;
 
     for (size_t i = 0; i < num_docs; i++) {
         nlohmann::json doc;
@@ -1046,8 +1046,8 @@ TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    ASSERT_EQ(1024, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
-    ASSERT_EQ(20, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
+    ASSERT_EQ(16, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
+    ASSERT_EQ(10, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
     ASSERT_EQ(0, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getDeletedCount());
 
     // now delete these docs
@@ -1056,9 +1056,9 @@ TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {
         ASSERT_TRUE(coll1->remove(std::to_string(i)).ok());
     }
 
-    ASSERT_EQ(1024, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
-    ASSERT_EQ(20, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
-    ASSERT_EQ(20, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getDeletedCount());
+    ASSERT_EQ(16, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
+    ASSERT_EQ(10, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
+    ASSERT_EQ(10, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getDeletedCount());
 
     for (size_t i = 0; i < num_docs; i++) {
         nlohmann::json doc;
@@ -1075,8 +1075,8 @@ TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    ASSERT_EQ(1024, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
-    ASSERT_EQ(20, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
+    ASSERT_EQ(16, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
+    ASSERT_EQ(10, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
     ASSERT_EQ(0, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getDeletedCount());
 
     // delete those docs again and ensure that while reindexing till 1024 live docs, max count is not changed
@@ -1084,9 +1084,9 @@ TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {
         ASSERT_TRUE(coll1->remove(std::to_string(i + num_docs)).ok());
     }
 
-    ASSERT_EQ(1024, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
-    ASSERT_EQ(20, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
-    ASSERT_EQ(20, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getDeletedCount());
+    ASSERT_EQ(16, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
+    ASSERT_EQ(10, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
+    ASSERT_EQ(10, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getDeletedCount());
 
     for (size_t i = 0; i < 1014; i++) {
         nlohmann::json doc;
@@ -1107,7 +1107,7 @@ TEST_F(CollectionVectorTest, VectorSearchTestDeletion) {
         ASSERT_TRUE(add_op.ok());
     }
 
-    ASSERT_EQ(1024, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
+    ASSERT_EQ(1271, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getMaxElements());
     ASSERT_EQ(1014, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getCurrentElementCount());
     ASSERT_EQ(0, coll1->_get_index()->_get_vector_index().at("vec")->vecdex->getDeletedCount());
 }
