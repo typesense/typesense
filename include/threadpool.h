@@ -5,6 +5,7 @@
 #include <functional>
 #include <future>
 #include <queue>
+#include "logger.h"
 
 class ThreadPool {
 public:
@@ -76,6 +77,10 @@ decltype(auto) ThreadPool::enqueue(F&& f, Args&&... args)
 
         // don't allow enqueueing after stopping the pool
         if(!stop) {
+            if(tasks.size() >= workers.size()) {
+                LOG(WARNING) << "Threadpool exhaustion detected, task_queue_len: "
+                             << tasks.size() << ", thread_pool_len: " << workers.size();
+            }
             tasks.emplace(std::move(task));
         }
     }
