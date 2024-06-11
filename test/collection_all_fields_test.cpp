@@ -1562,6 +1562,42 @@ TEST_F(CollectionAllFieldsTest, FieldNameMatchingRegexpShouldNotBeIndexed) {
     ASSERT_EQ(1, results["hits"].size());
 }
 
+TEST_F(CollectionAllFieldsTest, AutoFieldValueCoercionRemoval) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+            {"name": "store", "type": "auto", "optional": true}
+        ]
+    })"_json;
+
+
+    auto coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["store"]["id"] = 123;
+
+    coll1->add(doc1.dump(), CREATE);
+
+    // string value will be coerced to integer
+    doc1["id"] = "1";
+    doc1["store"]["id"] = "124";
+    coll1->add(doc1.dump(), CREATE);
+
+    // removal should work correctly
+    coll1->remove("1");
+
+    auto results = coll1->search("*", {},
+                                 "store.id: 124", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 5, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionAllFieldsTest, FieldNameMatchingRegexpShouldNotBeIndexedInNonAutoSchema) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("name.*", field_types::STRING, true, true)};
