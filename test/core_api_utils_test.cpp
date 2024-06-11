@@ -2072,3 +2072,84 @@ TEST_F(CoreAPIUtilsTest, CollectionUpdateValidation) {
     ASSERT_FALSE(patch_update_collection(req, res));
     ASSERT_EQ("{\"message\": \"Alter payload is empty.\"}", res->body);
 }
+
+TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeFields) {
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("brand", field_types::STRING, true, true),
+            field("size", field_types::INT32, true, false),
+            field("colors", field_types::STRING_ARRAY, true, false),
+            field("rating", field_types::FLOAT, true, false)
+    };
+
+    auto coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "rating").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "1";
+    doc["title"] = "Denim jeans";
+    doc["brand"] = "Spykar";
+    doc["size"] = 40;
+    doc["colors"] = {"blue", "black", "grey"};
+    doc["rating"] = 4.5;
+    coll1->add(doc.dump());
+
+    doc["id"] = "2";
+    doc["title"] = "Denim jeans";
+    doc["brand"] = "Levis";
+    doc["size"] = 42;
+    doc["colors"] = {"blue", "black"};
+    doc["rating"] = 4.4;
+    coll1->add(doc.dump());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "coll1";
+    req->params["id"] = "1";
+
+    //normal doc fetch
+    ASSERT_TRUE(get_fetch_document(req, res));
+    auto resp = nlohmann::json::parse(res->body);
+    ASSERT_EQ(6, resp.size());
+    ASSERT_TRUE(resp.contains("brand"));
+    ASSERT_TRUE(resp.contains("size"));
+    ASSERT_TRUE(resp.contains("colors"));
+    ASSERT_TRUE(resp.contains("rating"));
+    ASSERT_TRUE(resp.contains("id"));
+    ASSERT_TRUE(resp.contains("title"));
+
+    //include fields
+    req->params["include_fields"] = "brand,size,colors";
+
+    ASSERT_TRUE(get_fetch_document(req, res));
+    resp = nlohmann::json::parse(res->body);
+    ASSERT_EQ(3, resp.size());
+    ASSERT_TRUE(resp.contains("brand"));
+    ASSERT_TRUE(resp.contains("size"));
+    ASSERT_TRUE(resp.contains("colors"));
+    ASSERT_FALSE(resp.contains("rating"));
+
+    //exclude fields
+    req->params.erase("include_fields");
+    req->params["exclude_fields"] = "brand,size,colors";
+    ASSERT_TRUE(get_fetch_document(req, res));
+    resp = nlohmann::json::parse(res->body);
+    ASSERT_EQ(3, resp.size());
+    ASSERT_TRUE(resp.contains("id"));
+    ASSERT_TRUE(resp.contains("title"));
+    ASSERT_TRUE(resp.contains("rating"));
+    ASSERT_FALSE(resp.contains("brand"));
+
+    //both include and exclude fields
+    req->params["include_fields"] = "title,rating";
+    req->params["exclude_fields"] = "brand,size,colors";
+    ASSERT_TRUE(get_fetch_document(req, res));
+    resp = nlohmann::json::parse(res->body);
+    ASSERT_EQ(2, resp.size());
+    ASSERT_TRUE(resp.contains("title"));
+    ASSERT_TRUE(resp.contains("rating"));
+    ASSERT_FALSE(resp.contains("id"));
+}
