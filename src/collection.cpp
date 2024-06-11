@@ -4460,7 +4460,7 @@ Option<nlohmann::json> Collection::get(const std::string & id) const {
     return Option<nlohmann::json>(document);
 }
 
-void Collection::remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
+void Collection::remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
     const std::string& id = document["id"];
 
     {

@@ -183,7 +183,7 @@ private:
                           bool& found_highlight,
                           bool& found_full_highlight) const;
 
-    void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
+    void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
     void process_remove_field_for_embedding_fields(const field& del_field, std::vector<field>& garbage_embed_fields);
 
