@@ -459,6 +459,10 @@ size_t facet_index_t::get_facet_indexes(const std::string& field_name,
     for(auto facet_index_map_it = facet_index_map.begin(); facet_index_map_it != facet_index_map.end(); ++facet_index_map_it) {
         //auto ids = facet_index_map_it->seq_ids;
         auto ids = facet_index_map_it->second.seq_ids;
+        if(!ids) {
+            continue;
+        }
+
         ids_t::uncompress(ids, id_list);
 
         // emplacing seq_id => next_facet_id
@@ -560,7 +564,8 @@ size_t facet_index_t::facet_val_num_ids(const string &field_name, const string &
         return 0;
     }
 
-    return ids_t::num_ids(facet_field_map_it->second.fvalue_seq_ids[fvalue].seq_ids);
+    auto seq_ids = facet_field_map_it->second.fvalue_seq_ids[fvalue].seq_ids;
+    return seq_ids ?  ids_t::num_ids(seq_ids) : 0;
 }
 
 size_t facet_index_t::facet_node_count(const string &field_name, const string &fvalue) {
@@ -604,8 +609,9 @@ void facet_index_t::check_for_high_cardinality(const string& field_name, size_t 
         auto& fvalue_seq_ids = facet_field_map_it->second.fvalue_seq_ids;
         for(auto it = fvalue_seq_ids.begin(); it != fvalue_seq_ids.end(); ++it) {
             ids_t::destroy_list(it->second.seq_ids);
+            it->second.seq_ids = nullptr;
         }
-        fvalue_seq_ids.clear();
+
         facet_field_map_it->second.counts.clear();
         facet_field_map_it->second.count_map.clear();
         facet_field_map_it->second.has_value_index = false;

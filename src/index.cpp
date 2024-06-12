@@ -555,16 +555,17 @@ void Index::validate_and_preprocess(Index *index,
 
 size_t Index::
 batch_memory_index(Index *index,
-                                 std::vector<index_record>& iter_batch,
-                                 const std::string & default_sorting_field,
-                                 const tsl::htrie_map<char, field> & actual_search_schema,
-                                 const tsl::htrie_map<char, field> & embedding_fields,
-                                 const std::string& fallback_field_type,
-                                 const std::vector<char>& token_separators,
-                                 const std::vector<char>& symbols_to_index,
-                                 const bool do_validation, const size_t remote_embedding_batch_size,
-                                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries, const bool generate_embeddings, 
-                                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields) {
+                 std::vector<index_record>& iter_batch,
+                 const std::string & default_sorting_field,
+                 const tsl::htrie_map<char, field> & actual_search_schema,
+                 const tsl::htrie_map<char, field> & embedding_fields,
+                 const std::string& fallback_field_type,
+                 const std::vector<char>& token_separators,
+                 const std::vector<char>& symbols_to_index,
+                 const bool do_validation, const size_t remote_embedding_batch_size,
+                 const size_t remote_embedding_timeout_ms, const size_t remote_embedding_num_tries,
+                 const bool generate_embeddings,
+                 const bool use_addition_fields, const tsl::htrie_map<char, field>& addition_fields) {
     const size_t concurrency = 4;
     const size_t num_threads = std::min(concurrency, iter_batch.size());
     const size_t window_size = (num_threads == 0) ? 0 :
@@ -6733,7 +6734,7 @@ void Index::remove_facet_token(const field& search_field, spp::sparse_hash_map<s
     }
 }
 
-void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name,
+void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::string& field_name,
                          const bool is_update) {
     const auto& search_field_it = search_schema.find(field_name);
     if(search_field_it == search_schema.end()) {
@@ -6747,6 +6748,13 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
     }
 
     if(search_field.optional && document[field_name].is_null()) {
+        return ;
+    }
+
+    auto coerce_op = validator_t::coerce_element(search_field, document, document[field_name],
+                                                 "", DIRTY_VALUES::COERCE_OR_REJECT);
+    if(!coerce_op.ok()) {
+        LOG(ERROR) << "Bad type for field " << field_name;
         return ;
     }
 
@@ -6892,7 +6900,7 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
     }
 }
 
-Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & document,
+Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document,
                                const std::vector<field>& del_fields, const bool is_update) {
     std::unique_lock lock(mutex);
 

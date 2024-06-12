@@ -705,6 +705,7 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
                        handler->http_server->get_thread_pool();
 
     // LOG(INFO) << "Before enqueue res: " << response
+    thread_pool->log_exhaustion();
     thread_pool->enqueue([rpath, message_dispatcher, request, response]() {
         // call the API handler
         //LOG(INFO) << "Wait for response " << response.get() << ", action: " << rpath->_get_action();
