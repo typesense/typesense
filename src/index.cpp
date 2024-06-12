@@ -7633,6 +7633,52 @@ Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collec
     return Option<uint32_t>(sort_index.at(field_name)->at(seq_id));
 }
 
+float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
+                          const S2LatLng& reference_lat_lng, const std::string& unit) const {
+    std::unique_lock lock(mutex);
+
+    int64_t distance = 0;
+    if (sort_index.count(geo_field_name) != 0) {
+        auto& geo_index = sort_index.at(geo_field_name);
+
+        auto it = geo_index->find(seq_id);
+        if (it != geo_index->end()) {
+            int64_t packed_latlng = it->second;
+            S2LatLng s2_lat_lng;
+            GeoPoint::unpack_lat_lng(packed_latlng, s2_lat_lng);
+            distance = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
+        }
+    } else {
+        // indicates geo point array
+        auto field_it = geo_array_index.at(geo_field_name);
+        auto it = field_it->find(seq_id);
+
+        if (it != field_it->end()) {
+            int64_t* latlngs = it->second;
+            for (size_t li = 0; li < latlngs[0]; li++) {
+                S2LatLng s2_lat_lng;
+                int64_t packed_latlng = latlngs[li + 1];
+                GeoPoint::unpack_lat_lng(packed_latlng, s2_lat_lng);
+                int64_t this_dist = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
+                if (this_dist < distance) {
+                    distance = this_dist;
+                }
+            }
+        }
+    }
+
+    double dist = distance;
+    if (unit == "km") {
+        dist = dist * 0.001;
+    } else if (unit == "mi") {
+        dist =  dist * 0.00062137;
+    } else {
+        return 0;
+    }
+
+    return std::round(dist * 1000.0) / 1000.0;
+}
+
 /*
 // https://stackoverflow.com/questions/924171/geo-fencing-point-inside-outside-polygon
 // NOTE: polygon and point should have been transformed with `transform_for_180th_meridian`

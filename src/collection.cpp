@@ -1510,6 +1510,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                         if(unit != "km" && unit != "mi") {
                             return Option<bool>(400, "Sort field's parameter unit must be either `km` or `mi`.");
                         }
+                        sort_field_std.unit = unit;
 
                         std::vector<std::string> dist_values;
                         StringUtils::split(param_parts[1], dist_values, unit);
@@ -2790,7 +2791,13 @@ Option<nlohmann::json> Collection::search(std::string raw_query,
 
             for(size_t sort_field_index = 0; sort_field_index < sort_fields_std.size(); sort_field_index++) {
                 const auto& sort_field = sort_fields_std[sort_field_index];
-                if(sort_field.geopoint != 0) {
+                if(sort_field.geopoint != 0 && sort_field.geo_precision != 0) {
+                    S2LatLng reference_lat_lng;
+                    GeoPoint::unpack_lat_lng(sort_field.geopoint, reference_lat_lng);
+
+                    geo_distances[sort_field.name] = index->get_distance(sort_field.name, field_order_kv->key,
+                                                                         reference_lat_lng, sort_field.unit);
+                } else if(sort_field.geopoint != 0) {
                     geo_distances[sort_field.name] = std::abs(field_order_kv->scores[sort_field_index]);
                 }
             }
