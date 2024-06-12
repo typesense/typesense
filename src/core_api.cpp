@@ -1498,6 +1498,12 @@ bool patch_update_documents(const std::shared_ptr<http_req>& req, const std::sha
 bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string doc_id = req->params["id"];
 
+    const char* INCLUDE_FIELDS = "include_fields";
+    const char* EXCLUDE_FIELDS = "exclude_fields";
+
+    spp::sparse_hash_set<std::string> exclude_fields;
+    spp::sparse_hash_set<std::string> include_fields;
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
     if(collection == nullptr) {
@@ -1512,7 +1518,34 @@ bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_
         return false;
     }
 
-    res->set_200(doc_option.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
+    if(req->params.count(INCLUDE_FIELDS) != 0) {
+        std::vector<std::string> include_fields_vec;
+        StringUtils::split(req->params[INCLUDE_FIELDS], include_fields_vec, ",");
+        include_fields = spp::sparse_hash_set<std::string>(include_fields_vec.begin(), include_fields_vec.end());
+    }
+
+    if(req->params.count(EXCLUDE_FIELDS) != 0) {
+        std::vector<std::string> exclude_fields_vec;
+        StringUtils::split(req->params[EXCLUDE_FIELDS], exclude_fields_vec, ",");
+        exclude_fields = spp::sparse_hash_set<std::string>(exclude_fields_vec.begin(), exclude_fields_vec.end());
+    }
+
+    nlohmann::json doc = doc_option.get();
+
+    for(auto it = doc.begin(); it != doc.end(); ++it) {
+        if(!include_fields.empty() && include_fields.count(it.key()) == 0) {
+            doc.erase(it.key());
+            continue;
+        }
+
+        if(!exclude_fields.empty() && exclude_fields.count(it.key()) != 0) {
+            doc.erase(it.key());
+            continue;
+        }
+    }
+
+
+    res->set_200(doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
