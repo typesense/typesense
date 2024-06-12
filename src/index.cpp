@@ -7635,6 +7635,8 @@ Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collec
 
 float Index::get_distance(const string& geo_field_name, const uint32_t& seq_id,
                           const S2LatLng& reference_lat_lng, const std::string& unit) const {
+    std::unique_lock lock(mutex);
+
     int64_t distance = 0;
     if (sort_index.count(geo_field_name) != 0) {
         auto& geo_index = sort_index.at(geo_field_name);
