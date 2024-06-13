@@ -64,11 +64,11 @@ bool get_alter_in_progress() {
 void log_running_queries() {
     std::unique_lock ifq_lock(ifq_mutex);
     if(in_flight_queries.empty()) {
-        LOG(ERROR) << "No in-flight search queries were found.";
+        LOG(INFO) << "No in-flight search queries were found.";
         return ;
     }
 
-    LOG(ERROR) << "Dump of in-flight search queries:";
+    LOG(INFO) << "Dump of in-flight search queries:";
 
     for(const auto& kv: in_flight_queries) {
         std::string query_string = "?";
@@ -80,7 +80,7 @@ void log_running_queries() {
             }
         }
 
-        LOG(ERROR) << "id=" << kv.first << ", qs=" << query_string << ", body=" << search_payload;
+        LOG(INFO) << "id=" << kv.first << ", qs=" << query_string << ", body=" << search_payload;
     }
 }
 
@@ -388,6 +388,16 @@ bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared
 }
 
 bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    bool log_inflight_queries = false;
+
+    if(req->params.count("log_inflight_queries") != 0) {
+        log_inflight_queries = (req->params["log_inflight_queries"] == "true");
+    }
+
+    if(log_inflight_queries) {
+        log_running_queries();
+    }
+
     nlohmann::json result;
     result["version"] = server->get_version();
 
