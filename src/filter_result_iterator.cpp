@@ -2365,6 +2365,11 @@ void filter_result_iterator_t::compute_iterators() {
     }
 
     if (filter_node->isOperator) {
+        if (timeout_info != nullptr) {
+            // Passing timeout_info into subtree so individual nodes can check for timeout.
+            left_it->timeout_info = std::make_unique<filter_result_iterator_timeout_info>(*timeout_info);
+            right_it->timeout_info = std::make_unique<filter_result_iterator_timeout_info>(*timeout_info);
+        }
         left_it->compute_iterators();
         right_it->compute_iterators();
 
@@ -2374,7 +2379,8 @@ void filter_result_iterator_t::compute_iterators() {
             filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
         }
 
-        if (left_it->validity == timed_out || right_it->validity == timed_out || is_timed_out(true)) {
+        if (left_it->validity == timed_out || right_it->validity == timed_out ||
+                (timeout_info != nullptr && is_timed_out(true))) {
             validity = timed_out;
         }
 
@@ -2444,7 +2450,7 @@ void filter_result_iterator_t::compute_iterators() {
                 }
             }
 
-            if (is_timed_out(true)) {
+            if (timeout_info != nullptr && is_timed_out(true)) {
                 break;
             }
         }
@@ -2475,7 +2481,9 @@ void filter_result_iterator_t::compute_iterators() {
         num_tree->search(a_filter.comparators[0], bool_int64, &filter_result.docs, result_size);
         filter_result.count = result_size;
 
-        is_timed_out(true);
+        if (timeout_info != nullptr) {
+            is_timed_out(true);
+        }
     } else if (f.is_string()) {
         // Resetting posting_list_iterators.
         for (uint32_t i = 0; i < posting_lists.size(); i++) {
@@ -2566,7 +2574,7 @@ void filter_result_iterator_t::compute_iterators() {
                 std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
             }
 
-            if (is_timed_out(true)) {
+            if (timeout_info != nullptr && is_timed_out(true)) {
                 break;
             }
         }

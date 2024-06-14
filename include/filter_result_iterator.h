@@ -227,6 +227,12 @@ struct filter_result_t {
 struct filter_result_iterator_timeout_info {
     filter_result_iterator_timeout_info(uint64_t search_begin_us, uint64_t search_stop_us);
 
+    filter_result_iterator_timeout_info(const filter_result_iterator_timeout_info& obj) {
+        function_call_counter = obj.function_call_counter;
+        search_begin_us = obj.search_begin_us;
+        search_stop_us = obj.search_stop_us;
+    }
+
     uint16_t function_call_counter = 0;
     uint64_t search_begin_us = 0;
     uint64_t search_stop_us = UINT64_MAX;
