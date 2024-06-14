@@ -5967,6 +5967,9 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     filter_result_iterator->compute_iterators();
     auto const& approx_filter_ids_length = filter_result_iterator->approx_filter_ids_length;
 
+    // Timed out during computation of filter_result_iterator. We should still process the partial ids.
+    auto timed_out_before_processing = filter_result_iterator->validity == filter_result_iterator_t::timed_out;
+
     uint32_t token_bits = 0;
     const bool check_for_circuit_break = (approx_filter_ids_length > 1000000);
 
@@ -5993,10 +5996,10 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     Option<bool>* compute_sort_score_statuses[num_threads];
 
     for(size_t thread_id = 0; thread_id < num_threads &&
-                                    filter_result_iterator->validity == filter_result_iterator_t::valid; thread_id++) {
+                                    filter_result_iterator->validity != filter_result_iterator_t::invalid; thread_id++) {
         auto batch_result = new filter_result_t();
         filter_result_iterator->get_n_ids(window_size, excluded_result_index, exclude_token_ids,
-                                          exclude_token_ids_size, batch_result);
+                                          exclude_token_ids_size, batch_result, timed_out_before_processing);
         if (batch_result->count == 0) {
             delete batch_result;
             break;
@@ -6086,7 +6089,8 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
     std::unique_lock<std::mutex> lock_process(m_process);
     cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
 
-    search_cutoff = parent_search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
+    search_cutoff = parent_search_cutoff || timed_out_before_processing ||
+                        filter_result_iterator->validity == filter_result_iterator_t::timed_out;
 
     for(size_t thread_id = 0; thread_id < num_processed; thread_id++) {
         if (compute_sort_score_statuses[thread_id] != nullptr) {
@@ -6114,8 +6118,12 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
             std::chrono::high_resolution_clock::now() - beginF).count();
     LOG(INFO) << "Time for raw scoring: " << timeMillisF;*/
 
-    filter_result_iterator->reset();
-    if (filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
+    filter_result_iterator->reset(true);
+
+    if (timed_out_before_processing || filter_result_iterator->validity == filter_result_iterator_t::valid) {
+        all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
+        search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
+    } else if (filter_result_iterator->validity == filter_result_iterator_t::timed_out) {
         auto partial_result = new filter_result_t();
         std::unique_ptr<filter_result_t> partial_result_guard(partial_result);
 
@@ -6124,9 +6132,6 @@ Option<bool> Index::search_wildcard(filter_node_t const* const& filter_tree_root
         all_result_ids_len = partial_result->count;
         all_result_ids = partial_result->docs;
         partial_result->docs = nullptr;
-    } else if (filter_result_iterator->validity == filter_result_iterator_t::valid) {
-        all_result_ids_len = filter_result_iterator->to_filter_id_array(all_result_ids);
-        search_cutoff = search_cutoff || filter_result_iterator->validity == filter_result_iterator_t::timed_out;
     }
 
     return Option<bool>(true);
