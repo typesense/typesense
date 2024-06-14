@@ -2447,13 +2447,15 @@ void filter_result_iterator_t::compute_iterators() {
                     delete[] filter_ids;
                     filter_ids = out;
                     std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
+
+                    if (timeout_info != nullptr && is_timed_out(true)) {
+                        goto compute_done;
+                    }
                 }
             }
-
-            if (timeout_info != nullptr && is_timed_out(true)) {
-                break;
-            }
         }
+
+        compute_done:
 
         if (!f_id_buff.empty()) {
             gfx::timsort(f_id_buff.begin(), f_id_buff.end());
@@ -2572,10 +2574,10 @@ void filter_result_iterator_t::compute_iterators() {
                 delete[] or_ids;
                 or_ids = out;
                 std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
-            }
 
-            if (timeout_info != nullptr && is_timed_out(true)) {
-                break;
+                if (timeout_info != nullptr && is_timed_out(true)) {
+                    break;
+                }
             }
         }
 
