@@ -2252,9 +2252,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
         result_reference = std::move(filter_result.coll_to_references[result_index]);
     }
 
-    if (!override_timeout) {
-        validity = result_index < filter_result.count ? valid : invalid;
-    }
+    validity = result_index < filter_result.count ? valid : invalid;
 }
 
 void filter_result_iterator_t::get_n_ids(const uint32_t& n,
@@ -2310,9 +2308,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         result_reference = std::move(filter_result.coll_to_references[match_index]);
     }
 
-    if (!override_timeout) {
-        validity = result_index < filter_result.count ? valid : invalid;
-    }
+    validity = result_index < filter_result.count ? valid : invalid;
 }
 
 filter_result_iterator_t::filter_result_iterator_t(uint32_t approx_filter_ids_length) :
