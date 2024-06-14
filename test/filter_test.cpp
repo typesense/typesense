@@ -714,6 +714,7 @@ TEST_F(FilterTest, FilterTreeIteratorTimeout) {
     ASSERT_EQ(0, result->count); // Shouldn't return results
     delete result;
 
+    filter_iterator->reset(true);
     result = new filter_result_t();
     filter_iterator->get_n_ids(count, excluded_result_index, nullptr, 0, result, true);
 
