@@ -2224,16 +2224,11 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n, filter_result_t*& re
         return;
     }
 
-    if (override_timeout) {
-        result_index = 0;
-    } else if (timeout_info != nullptr) {
+    if (!override_timeout && timeout_info != nullptr) {
         // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
         // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
         // function call.
-        if (n > function_call_modulo) {
-            timeout_info->function_call_counter = function_call_modulo - 1;
-        }
-        if (is_timed_out()) {
+        if (n > function_call_modulo && is_timed_out(true)) {
             return;
         }
     }
@@ -2280,10 +2275,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
         // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
         // function call.
-        if (n > function_call_modulo) {
-            timeout_info->function_call_counter = function_call_modulo - 1;
-        }
-        if (is_timed_out()) {
+        if (n > function_call_modulo && is_timed_out(true)) {
             return;
         }
     }
