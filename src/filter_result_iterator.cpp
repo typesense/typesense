@@ -986,7 +986,10 @@ void filter_result_iterator_t::init() {
                     }
                 }
 
+                id_lists.reserve(id_lists.size() + lists.size());
                 id_lists.emplace_back(std::move(lists));
+
+                id_list_iterators.reserve(id_list_iterators.size() + iters.size());
                 id_list_iterators.emplace_back(std::move(iters));
             }
 
@@ -1108,7 +1111,10 @@ void filter_result_iterator_t::init() {
                     }
                 }
 
+                id_lists.reserve(id_lists.size() + lists.size());
                 id_lists.emplace_back(std::move(lists));
+
+                id_list_iterators.reserve(id_list_iterators.size() + iters.size());
                 id_list_iterators.emplace_back(std::move(iters));
             }
 
@@ -2270,9 +2276,7 @@ void filter_result_iterator_t::get_n_ids(const uint32_t& n,
         return;
     }
 
-    if (override_timeout) {
-        result_index = 0;
-    } else if (timeout_info != nullptr) {
+    if (!override_timeout && timeout_info != nullptr) {
         // In Index::search_wildcard number of calls to get_n_ids will be min(number of threads, filter match ids).
         // Therefore, `timeout_info->function_call_counter` won't reach `function_call_modulo` if only incremented on
         // function call.
@@ -2382,18 +2386,21 @@ void filter_result_iterator_t::compute_iterators() {
             filter_result_t::or_filter_results(left_it->filter_result, right_it->filter_result, filter_result);
         }
 
-        // In a complex filter query a sub-expression might not match any document while the full expression does match
-        // at least one document. If the full expression doesn't match any document, we return early in the search.
-        if (filter_result.count == 0) {
-            validity = invalid;
-            is_filter_result_initialized = true;
-            return;
+        if (left_it->validity == timed_out || right_it->validity == timed_out || is_timed_out(true)) {
+            validity = timed_out;
         }
 
-        result_index = 0;;
-        seq_id = filter_result.docs[result_index];
+        // In a complex filter query a sub-expression might not match any document while the full expression does match
+        // at least one document. If the full expression doesn't match any document, we return early in the search.
+        if (filter_result.count == 0 && validity != timed_out) {
+            validity = invalid;
+        } else if (filter_result.count > 0) {
+            result_index = 0;
+            seq_id = filter_result.docs[result_index];
+            approx_filter_ids_length = filter_result.count;
+        }
+
         is_filter_result_initialized = true;
-        approx_filter_ids_length = filter_result.count;
 
         // Deleting subtree since we've already computed the result.
         delete left_it;
@@ -2448,6 +2455,10 @@ void filter_result_iterator_t::compute_iterators() {
                     std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
                 }
             }
+
+            if (is_timed_out(true)) {
+                break;
+            }
         }
 
         if (!f_id_buff.empty()) {
@@ -2475,6 +2486,8 @@ void filter_result_iterator_t::compute_iterators() {
         size_t result_size = 0;
         num_tree->search(a_filter.comparators[0], bool_int64, &filter_result.docs, result_size);
         filter_result.count = result_size;
+
+        is_timed_out(true);
     } else if (f.is_string()) {
         // Resetting posting_list_iterators.
         for (uint32_t i = 0; i < posting_lists.size(); i++) {
@@ -2564,6 +2577,10 @@ void filter_result_iterator_t::compute_iterators() {
                 or_ids = out;
                 std::vector<uint32_t>().swap(f_id_buff);  // clears out memory
             }
+
+            if (is_timed_out(true)) {
+                break;
+            }
         }
 
         if (!f_id_buff.empty()) {
@@ -2596,13 +2613,19 @@ void filter_result_iterator_t::compute_iterators() {
     approx_filter_ids_length = filter_result.count;
 }
 
-bool filter_result_iterator_t::is_timed_out() {
-    if (validity == timed_out ||
-        (++(timeout_info->function_call_counter) % function_call_modulo == 0 && (std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count() - timeout_info->search_begin_us) > timeout_info->search_stop_us)) {
-        validity = timed_out;
+bool filter_result_iterator_t::is_timed_out(const bool& override_function_call_counter) {
+    if (validity == timed_out) {
         return true;
     }
+
+    if (override_function_call_counter || ++(timeout_info->function_call_counter) % function_call_modulo == 0) {
+        if ((std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count() - timeout_info->search_begin_us) > timeout_info->search_stop_us) {
+            validity = timed_out;
+            return true;
+        }
+    }
+
     return false;
 }
 

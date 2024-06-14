@@ -316,7 +316,7 @@ private:
     void get_n_ids(const uint32_t& n, filter_result_t*& result, const bool& override_timeout = false);
 
     /// Updates `validity` of the iterator to `timed_out` if condition is met. Assumes `timeout_info` is not null.
-    inline bool is_timed_out();
+    inline bool is_timed_out(const bool& override_function_call_counter = false);
 
     /// Advances the iterator until the doc value reaches or just overshoots id. The iterator may become invalid during
     /// this operation.
