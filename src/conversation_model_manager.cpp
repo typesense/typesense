@@ -175,11 +175,13 @@ Option<Collection*> ConversationModelManager::get_default_conversation_collectio
             },
             {
                 "name": "role",
-                "type": "string"
+                "type": "string",
+                "index": false
             },
             {
                 "name": "message",
-                "type": "string"
+                "type": "string",
+                "index: false
             },
             {
                 "name": "timestamp",
