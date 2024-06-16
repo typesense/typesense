@@ -928,13 +928,8 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
             return false;
         }
 
-        auto get_conversation_op = ConversationManager::get_instance().get_conversation(add_conversation_op.get());
-        if(!get_conversation_op.ok()) {
-            res->set_400(get_conversation_op.error());
-            return false;
-        }
         if(!exclude_conversation_history) {
-            response["conversation"]["conversation_history"] = get_conversation_op.get();
+            response["conversation"]["conversation_history"] = new_conversation_history;
         }
         response["conversation"]["conversation_id"] = add_conversation_op.get();
 
