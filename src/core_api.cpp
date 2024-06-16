@@ -2911,7 +2911,7 @@ bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::sh
     std::string model_id = "";
     try {
         nlohmann::json parsed_json = nlohmann::json::parse(req->body);
-        if(parsed_json.count("id") != 0) {
+        if(parsed_json.count("id") != 0 && parsed_json["id"].is_string()) {
             model_id = parsed_json["id"].get<std::string>();
         }
     } catch(const std::exception& e) {
