@@ -1210,6 +1210,88 @@ TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
     doc = coll->get("4").get();
     ASSERT_EQ(1, doc.count("product_id_sequence_id"));
     ASSERT_EQ(1, doc["product_id_sequence_id"]);
+
+    schema_json =
+            R"({
+                "name": "Users",
+                "fields": [
+                    {"name": "name", "type": "string"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "user_a",
+                "name": "Joe"
+            })"_json,
+            R"({
+                "id": "user_b",
+                "name": "Dan"
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Repos",
+                "fields": [
+                    {"name": "name", "type": "string"},
+                    {"name": "stargazers", "type": "string[]", "reference": "Users.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "repo_a",
+                "name": "Typesense",
+                "stargazers": ["user_a", "user_b"]
+            })"_json,
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    req_params = {
+            {"collection", "Repos"},
+            {"q", "*"},
+            {"include_fields", "$Users(name)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(2, res_obj["hits"][0]["document"]["Users"].size());
+    ASSERT_EQ("Joe", res_obj["hits"][0]["document"]["Users"][0]["name"]);
+    ASSERT_EQ("Dan", res_obj["hits"][0]["document"]["Users"][1]["name"]);
+
+    auto json = R"({
+                    "stargazers": ["user_b"]
+                })"_json;
+
+    auto add_op = collection_create_op.get()->add(json.dump(), index_operation_t::UPDATE, "repo_a", DIRTY_VALUES::REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    req_params = {
+            {"collection", "Repos"},
+            {"q", "*"},
+            {"include_fields", "$Users(name)"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Users"].size());
+    ASSERT_EQ("Dan", res_obj["hits"][0]["document"]["Users"][0]["name"]);
 }
 
 TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
@@ -4054,7 +4136,6 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
             {"include_fields", "$Portions(*, strategy:merge)"}
     };
     search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
-    LOG(INFO) << search_op_bool.error();
     ASSERT_TRUE(search_op_bool.ok());
 
     res_obj = nlohmann::json::parse(json_res);
@@ -4081,6 +4162,55 @@ TEST_F(CollectionJoinTest, FilterByObjectReferenceField) {
     ASSERT_EQ(500 , res_obj["hits"][0]["document"]["portions"][2].at("quantity"));
     ASSERT_EQ("ml", res_obj["hits"][0]["document"]["portions"][2].at("unit"));
     ASSERT_EQ(1 , res_obj["hits"][0]["document"]["portions"][2].at("count"));
+
+
+    ASSERT_EQ("Bread", res_obj["hits"][1]["document"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("portions"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["portions"].size());
+
+    ASSERT_EQ(5, res_obj["hits"][1]["document"]["portions"][0].size());
+    ASSERT_EQ("portion_a", res_obj["hits"][1]["document"]["portions"][0].at("portion_id"));
+    ASSERT_EQ(500 , res_obj["hits"][1]["document"]["portions"][0].at("quantity"));
+    ASSERT_EQ("g", res_obj["hits"][1]["document"]["portions"][0].at("unit"));
+    ASSERT_EQ(10 , res_obj["hits"][1]["document"]["portions"][0].at("count"));
+
+    auto doc = R"({
+                    "name": "Milk",
+                    "portions": [
+                        {
+                            "portion_id": "portion_c",
+                            "count": 1
+                        }
+                    ]
+                })"_json;
+
+    auto add_op = collectionManager.get_collection_unsafe("Foods")->add(doc.dump(), index_operation_t::UPDATE, "1",
+                                                                        DIRTY_VALUES::REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    req_params = {
+            {"collection", "Foods"},
+            {"q", "*"},
+            {"include_fields", "$Portions(*, strategy:merge)"}
+    };
+    search_op_bool = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op_bool.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res_obj["found"].get<size_t>());
+    ASSERT_EQ(2, res_obj["hits"].size());
+    ASSERT_EQ(3, res_obj["hits"][0]["document"].size());
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("name"));
+
+    ASSERT_EQ("Milk", res_obj["hits"][0]["document"]["name"]);
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("portions"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["portions"].size());
+
+    ASSERT_EQ(5, res_obj["hits"][0]["document"]["portions"][0].size());
+    ASSERT_EQ("portion_c", res_obj["hits"][0]["document"]["portions"][0].at("portion_id"));
+    ASSERT_EQ(500 , res_obj["hits"][0]["document"]["portions"][0].at("quantity"));
+    ASSERT_EQ("ml", res_obj["hits"][0]["document"]["portions"][0].at("unit"));
+    ASSERT_EQ(1 , res_obj["hits"][0]["document"]["portions"][0].at("count"));
 
 
     ASSERT_EQ("Bread", res_obj["hits"][1]["document"]["name"]);
