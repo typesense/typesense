@@ -6806,9 +6806,27 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
             }
         }
     } else if(search_field.is_int64()) {
-        const std::vector<int64_t>& values = search_field.is_single_integer() ?
-                                             std::vector<int64_t>{document[field_name].get<int64_t>()} :
-                                             document[field_name].get<std::vector<int64_t>>();
+        std::vector<int64_t> values;
+        std::vector<std::pair<uint32_t, uint32_t>> object_array_reference_values;
+
+        if (search_field.is_array() && search_field.nested && search_field.is_reference_helper) {
+            for (const auto &pair: document[field_name]) {
+                if (!pair.is_array() || pair.size() != 2 || !pair[0].is_number_unsigned() ||
+                                                            !pair[1].is_number_unsigned()) {
+                    LOG(ERROR) << "`" + field_name + "` object array reference helper field has wrong value `"
+                                  + pair.dump() + "`.";
+                    continue;
+                }
+
+                object_array_reference_values.emplace_back(seq_id, pair[0]);
+                values.emplace_back(pair[1]);
+            }
+        } else {
+            values = search_field.is_single_integer() ?
+                     std::vector<int64_t>{document[field_name].get<int64_t>()} :
+                     document[field_name].get<std::vector<int64_t>>();
+        }
+
         for(int64_t value: values) {
             if (search_field.range_index) {
                 auto trie = range_index.at(field_name);
@@ -6821,6 +6839,14 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
             if(search_field.facet) {
                 remove_facet_token(search_field, search_index, std::to_string(value), seq_id);
             }
+
+            if (reference_index.count(field_name) != 0) {
+                reference_index[field_name]->remove(value, seq_id);
+            }
+        }
+
+        for (auto const& pair: object_array_reference_values) {
+            object_array_reference_index[field_name]->erase(pair);
         }
     } else if(search_field.num_dim) {
         if(!is_update) {
