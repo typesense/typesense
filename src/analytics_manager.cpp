@@ -216,6 +216,11 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             bool log_to_file = false;
             if(event.contains("log_to_file")) {
                 log_to_file = event["log_to_file"].get<bool>();
+
+                if(log_to_file && !analytics_logs.is_open()) {
+                    remove_index(suggestion_config_name);
+                    return Option<bool>(400, "Event can't be logged when analytics-dir is not defined.");
+                }
             }
             event_weight_map[event["name"]] = event["weight"];
             event_type_collection ec{event["type"], suggestion_collection, log_to_file};
@@ -379,9 +384,7 @@ void AnalyticsManager::add_suggestion(const std::string &query_collection,
 Option<bool> AnalyticsManager::add_event(const std::string& client_ip, const std::string& event_type,
                                          const std::string& event_name, const nlohmann::json& event_json) {
     std::unique_lock lock(mutex);
-    if(!analytics_logs.is_open()) {
-        return Option<bool>(true);
-    }
+
     const auto event_collection_map_it = event_collection_map.find(event_name);
     if(event_collection_map_it == event_collection_map.end()) {
         return Option<bool>(404, "No analytics rule defined for event name " + event_name);
