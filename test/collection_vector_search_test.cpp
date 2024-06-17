@@ -1228,6 +1228,50 @@ TEST_F(CollectionVectorTest, EmbeddedVectorUnchangedUpsert) {
     ASSERT_EQ(384, embedding.size());
 }
 
+TEST_F(CollectionVectorTest, EmbeddOptionalFieldNullValueUpsert) {
+    nlohmann::json schema = R"({
+                "name": "coll1",
+                "fields": [
+                    {"name": "title", "type": "string"},
+                    {"name": "desc", "type": "string", "optional": true},
+                    {"name": "tags", "type": "string[]", "optional": true},
+                    {"name": "embedding", "type":"float[]", "embed":{"from": ["title", "desc", "tags"],
+                        "model_config": {"model_name": "ts/e5-small"}}}
+                ]
+            })"_json;
+
+    EmbedderManager::set_model_dir("/tmp/typesense_test/models");
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["desc"] = nullptr;
+    doc["tags"] = {"foo", "bar"};
+
+    auto add_op = coll1->add(doc.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("title", {"embedding"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>()).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    auto embedding = results["hits"][0]["document"]["embedding"].get<std::vector<float>>();
+    ASSERT_EQ(384, embedding.size());
+
+    // upsert doc
+    add_op = coll1->add(doc.dump(), index_operation_t::UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    // try with null values in array: not allowed
+    doc["tags"] = {"bar", nullptr};
+    add_op = coll1->add(doc.dump(), index_operation_t::UPSERT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `tags` must be an array of string.", add_op.error());
+}
+
 TEST_F(CollectionVectorTest, HybridSearchWithExplicitVector) {
     nlohmann::json schema = R"({
                             "name": "objects",

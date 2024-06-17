@@ -726,6 +726,11 @@ Option<bool> validator_t::validate_embed_fields(const nlohmann::json& document,
                     continue;
                 }
             }
+
+            if(doc_field_it.value().is_null()) {
+                continue;
+            }
+
             all_optional_and_null = false;
             if((schema_field_it.value().type == field_types::STRING && !doc_field_it.value().is_string()) || 
                 (schema_field_it.value().type == field_types::STRING_ARRAY && !doc_field_it.value().is_array())) {
