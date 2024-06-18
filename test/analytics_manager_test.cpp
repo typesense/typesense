@@ -1319,4 +1319,73 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ("13", userid);
     ASSERT_EQ("21", docid);
     ASSERT_EQ("technology", q);
+
+    //counter event rule should not be allowed with logging if analytics-dir is not specified
+    analyticsManager.dispose();
+    analyticsManager.stop();
+    system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
+    analyticsManager.init(store, "");
+
+    analytics_rule = R"({
+        "name": "books_popularity3",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                 "events":  [{"type": "conversion", "weight": 5, "name": "CNV4", "log_to_file" : true} ]
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Event can't be logged when analytics-dir is not defined.", create_op.error());
+
+
+    //counter events should work without analytic-dir
+
+    analyticsManager.dispose();
+    analyticsManager.stop();
+    system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
+    analyticsManager.init(store, "");
+
+    analytics_rule = R"({
+        "name": "books_popularity3",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                 "events":  [{"type": "conversion", "weight": 5, "name": "CNV4"} ]
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity"
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_TRUE(create_op.ok());
+
+    event = R"({
+        "type": "conversion",
+        "name": "CNV4",
+        "data": {
+            "q": "shorts",
+            "doc_id": "1",
+            "user_id": "11"
+        }
+    })"_json;
+    req->body = event.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    popular_clicks = analyticsManager.get_popular_clicks();
+    ASSERT_EQ(1, popular_clicks.size());
+    ASSERT_EQ("popularity", popular_clicks["books"].counter_field);
+    ASSERT_EQ(1, popular_clicks["books"].docid_counts.size());
+    ASSERT_EQ(5, popular_clicks["books"].docid_counts["1"]);
 }
