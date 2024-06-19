@@ -111,7 +111,7 @@ private:
     BatchedIndexer* batched_indexer;
 
     Store* store;
-    Store* analytics_store;
+    StoreWithTTL* analytics_store;
 
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
@@ -153,7 +153,7 @@ public:
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer, Store* store, Store* analytics_store,
+    ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer, Store* store, StoreWithTTL* analytics_store,
                      ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
                      bool api_uses_ssl, const Config* config,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);

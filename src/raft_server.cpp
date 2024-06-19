@@ -831,7 +831,7 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
 }
 
 ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer,
-                                   Store *store, Store* analytics_store, ThreadPool* thread_pool,
+                                   Store *store, StoreWithTTL* analytics_store, ThreadPool* thread_pool,
                                    http_message_dispatcher *message_dispatcher,
                                    bool api_uses_ssl, const Config* config,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):

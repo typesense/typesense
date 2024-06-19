@@ -129,7 +129,6 @@ Option<std::string> Config::fetch_nodes_config(const std::string& path_to_nodes)
 void Config::load_config_env() {
     this->data_dir = get_env("TYPESENSE_DATA_DIR");
     this->log_dir = get_env("TYPESENSE_LOG_DIR");
-    this->analytics_dir = get_env("TYPESENSE_ANALYTICS_DIR");
     this->api_key = get_env("TYPESENSE_API_KEY");
 
     // @deprecated
@@ -261,6 +260,14 @@ void Config::load_config_env() {
     if(!get_env("TYPESENSE_MAX_PER_PAGE").empty()) {
         this->max_per_page = std::stoi(get_env("TYPESENSE_MAX_PER_PAGE"));
     }
+
+    if(!get_env("TYPESENSE_ANALYTICS_DIR").empty()) {
+        this->analytics_dir = get_env("TYPESENSE_ANALYTICS_DIR");
+    }
+
+    if(!get_env("TYPESENSE_ANALYTICS_DB_TTL").empty()) {
+        this->analytics_db_ttl = std::stoi(get_env("TYPESENSE_ANALYTICS_DB_TTL"));
+    }
 }
 
 void Config::load_config_file(cmdline::parser& options) {
@@ -293,6 +300,10 @@ void Config::load_config_file(cmdline::parser& options) {
 
     if(reader.Exists("server", "analytics-dir")) {
         this->analytics_dir = reader.Get("server", "analytics-dir", "");
+    }
+
+    if(reader.Exists("server", "analytics-db-ttl")) {
+        this->analytics_db_ttl = std::stoi(reader.Get("server", "analytics-db-ttl", "0"));
     }
 
     if(reader.Exists("server", "api-key")) {
@@ -481,6 +492,10 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("analytics-dir")) {
         this->analytics_dir = options.get<std::string>("analytics-dir");
+    }
+
+    if(options.exist("analytics-db-ttl")) {
+        this->analytics_db_ttl = options.get<uint32_t>("analytics-db-ttl");
     }
 
     if(options.exist("api-key")) {

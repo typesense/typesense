@@ -53,13 +53,14 @@ struct event_t {
         }
     }
 
-    void to_json(nlohmann::json& obj) const {
+    void to_json(nlohmann::json& obj, const std::string& coll) const {
         obj["query"] = query;
         obj["type"] = event_type;
         obj["timestamp"] = timestamp;
         obj["user_id"] = user_id;
         obj["doc_id"] = doc_id;
         obj["name"] = name;
+        obj["collection"] = coll;
 
         if(event_type == "custom") {
             for(const auto& kv : data) {
@@ -153,6 +154,7 @@ private:
     LRU::Cache<std::string, event_cache_t> events_cache;
 
     Store* store = nullptr;
+    StoreWithTTL* analytics_store = nullptr;
     std::ofstream  analytics_logs;
 
     bool isRateLimitEnabled = true;
@@ -187,7 +189,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store, const std::string& analytics_dir="");
+    void init(Store* store, StoreWithTTL* analytics_store, const std::string& analytics_dir="");
 
     void run(ReplicationState* raft_server);
 
@@ -216,7 +218,7 @@ public:
     Option<bool> add_event(const std::string& client_ip, const std::string& event_type,
                            const std::string& event_name, const nlohmann::json& event_data);
 
-    void persist_events();
+    void persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
     void persist_popular_events(ReplicationState *raft_server, uint64_t prev_persistence_s);
 
@@ -228,4 +230,12 @@ public:
     std::unordered_map<std::string, QueryAnalytics*> get_nohits_queries();
 
     void resetToggleRateLimit(bool toggle);
+
+    bool write_to_db(const nlohmann::json& payload);
+
+#ifdef TEST_BUILD
+    std::unordered_map<std::string, std::vector<event_t>> get_log_events() {
+        return query_collection_events;
+    }
+#endif
 };
