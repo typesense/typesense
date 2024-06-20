@@ -154,7 +154,7 @@ private:
     LRU::Cache<std::string, event_cache_t> events_cache;
 
     Store* store = nullptr;
-    StoreWithTTL* analytics_store = nullptr;
+    Store* analytics_store = nullptr;
     std::ofstream  analytics_logs;
 
     bool isRateLimitEnabled = true;
@@ -189,7 +189,7 @@ public:
     AnalyticsManager(AnalyticsManager const&) = delete;
     void operator=(AnalyticsManager const&) = delete;
 
-    void init(Store* store, StoreWithTTL* analytics_store, const std::string& analytics_dir="");
+    void init(Store* store, Store* analytics_store, const std::string& analytics_dir="");
 
     void run(ReplicationState* raft_server);
 

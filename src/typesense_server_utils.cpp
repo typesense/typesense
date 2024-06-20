@@ -409,7 +409,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     Store meta_store(meta_dir, 24*60*60, 1024, false);
 
     //analytics DB for storing analytics events
-    StoreWithTTL analytics_store(analytics_dir, 24*60*60, 1024, true, analytics_db_ttl);
+    Store analytics_store(analytics_dir, 24*60*60, 1024, true, analytics_db_ttl);
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();

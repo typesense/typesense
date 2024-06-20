@@ -10,7 +10,7 @@
 class CollectionManagerTest : public ::testing::Test {
 protected:
     Store *store;
-    StoreWithTTL* storeWithTTL;
+    Store* analytic_store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
     Collection *collection1;
@@ -23,12 +23,12 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        storeWithTTL = new StoreWithTTL(state_dir_path + "/analytics");
+        analytic_store = new Store(state_dir_path + "/analytics");
 
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        AnalyticsManager::get_instance().init(store, storeWithTTL);
+        AnalyticsManager::get_instance().init(store, analytic_store);
 
         schema = R"({
             "name": "collection1",
@@ -65,7 +65,7 @@ protected:
             collectionManager.drop_collection("collection1");
             collectionManager.dispose();
             delete store;
-            delete storeWithTTL;
+            delete analytic_store;
         }
     }
 };

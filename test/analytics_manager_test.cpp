@@ -9,7 +9,7 @@
 class AnalyticsManagerTest : public ::testing::Test {
 protected:
     Store *store;
-    StoreWithTTL *storeWithTTL;
+    Store *analytic_store;
     CollectionManager& collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
     std::string state_dir_path, analytics_dir_path;
@@ -31,12 +31,12 @@ protected:
 
         LOG(INFO) << "Truncating and creating: " << analytics_dir_path;
         system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
-        storeWithTTL = new StoreWithTTL(analytics_dir_path);
+        analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
 
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        analyticsManager.init(store, storeWithTTL, state_dir_path);
+        analyticsManager.init(store, analytic_store, state_dir_path);
         analyticsManager.resetToggleRateLimit(false);
     }
 
@@ -47,7 +47,7 @@ protected:
     virtual void TearDown() {
         collectionManager.dispose();
         delete store;
-        delete storeWithTTL;
+        delete analytic_store;
         analyticsManager.stop();
     }
 };
@@ -1013,7 +1013,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     analyticsManager.dispose();
     analyticsManager.stop();
     system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-    analyticsManager.init(store, storeWithTTL, "/tmp/typesense_test/analytics_manager_test");
+    analyticsManager.init(store, analytic_store, "/tmp/typesense_test/analytics_manager_test");
 
     nlohmann::json products_schema = R"({
             "name": "books",
@@ -1334,7 +1334,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     analyticsManager.dispose();
     analyticsManager.stop();
     system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-    analyticsManager.init(store, storeWithTTL, "");
+    analyticsManager.init(store, analytic_store, "");
 
     analytics_rule = R"({
         "name": "books_popularity3",
@@ -1360,7 +1360,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     analyticsManager.dispose();
     analyticsManager.stop();
     system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-    analyticsManager.init(store, storeWithTTL, "");
+    analyticsManager.init(store, analytic_store, "");
 
     analytics_rule = R"({
         "name": "books_popularity3",
@@ -1402,14 +1402,14 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     analyticsManager.dispose();
     analyticsManager.stop();
-    delete storeWithTTL;
+    delete analytic_store;
 
     //set TTL of an hour
     LOG(INFO) << "Truncating and creating: " << analytics_dir_path;
     system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
 
-    storeWithTTL = new StoreWithTTL(analytics_dir_path);
-    analyticsManager.init(store, storeWithTTL, "");
+    analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
+    analyticsManager.init(store, analytic_store, "");
 
     auto analytics_rule = R"({
         "name": "product_events2",
@@ -1462,19 +1462,19 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     const std::string prefix_end = "13`";
     std::vector<std::string> events;
 
-    storeWithTTL->scan_fill(prefix_start, prefix_end, events);
+    analytic_store->scan_fill(prefix_start, prefix_end, events);
     ASSERT_EQ(1, events.size());
     ASSERT_EQ(events[0].c_str(), event_data.dump());
 
     //now set TTL to 1s and open analytics db
     events.clear();
-    delete storeWithTTL;
+    delete analytic_store;
 
-    storeWithTTL = new StoreWithTTL(analytics_dir_path, 24*60*60, 1024, true, 1);
+    analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, 1);
 
     sleep(2);
-    storeWithTTL->compact_all();
+    analytic_store->compact_all();
 
-    storeWithTTL->scan_fill(prefix_start, prefix_end, events);
+    analytic_store->scan_fill(prefix_start, prefix_end, events);
     ASSERT_EQ(0, events.size());
 }

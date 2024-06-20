@@ -732,7 +732,7 @@ void AnalyticsManager::dispose() {
     events_cache.clear();
 }
 
-void AnalyticsManager::init(Store* store, StoreWithTTL* analytics_store, const std::string& analytics_dir) {
+void AnalyticsManager::init(Store* store, Store* analytics_store, const std::string& analytics_dir) {
     this->store = store;
     this->analytics_store = analytics_store;
 

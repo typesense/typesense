@@ -12,7 +12,7 @@ private:
     std::string data_dir;
     std::string log_dir;
     std::string analytics_dir;
-    int32_t analytics_db_ttl;
+    int32_t analytics_db_ttl = 2419200; //four weeks in secs
     std::string api_key;
 
     // @deprecated

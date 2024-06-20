@@ -655,7 +655,7 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     if(analytics_store) {
         snapshot_path.append(std::string("/") + analytics_db_snapshot_name);
-        int reload_store = analytics_store->reload(true, snapshot_path);
+        int reload_store = analytics_store->reload(true, snapshot_path, Config::get_instance().get_analytics_db_ttl());
         if (reload_store != 0) {
             LOG(ERROR) << "Failed to reload analytics db snapshot.";
             return reload_store;
@@ -831,7 +831,7 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
 }
 
 ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer,
-                                   Store *store, StoreWithTTL* analytics_store, ThreadPool* thread_pool,
+                                   Store *store, Store* analytics_store, ThreadPool* thread_pool,
                                    http_message_dispatcher *message_dispatcher,
                                    bool api_uses_ssl, const Config* config,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
