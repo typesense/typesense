@@ -601,6 +601,7 @@ struct sort_by {
     eval_t eval;
 
     std::string reference_collection_name;
+    std::vector<std::string> nested_join_collection_names;
     sort_vector_query_t vector_query;
 
     sort_by(const std::string & name, const std::string & order):
@@ -636,10 +637,15 @@ struct sort_by {
         missing_values = other.missing_values;
         eval = other.eval;
         reference_collection_name = other.reference_collection_name;
+        nested_join_collection_names = other.nested_join_collection_names;
         vector_query = other.vector_query;
     }
 
     sort_by& operator=(const sort_by& other) {
+        if (&other == this) {
+            return *this;
+        }
+
         name = other.name;
         eval_expressions = other.eval_expressions;
         order = other.order;
@@ -651,7 +657,12 @@ struct sort_by {
         missing_values = other.missing_values;
         eval = other.eval;
         reference_collection_name = other.reference_collection_name;
+        nested_join_collection_names = other.nested_join_collection_names;
         return *this;
+    }
+
+    [[nodiscard]] inline bool is_nested_join_sort_by() const {
+        return !nested_join_collection_names.empty();
     }
 };
 

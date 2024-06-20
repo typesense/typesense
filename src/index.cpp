@@ -4751,8 +4751,104 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             auto const& no_references_error_message = "No references found to sort by on `" +
                                                       ref_collection_name + "." + sort_field.name + "`.";
 
-            // Joined on ref collection
-            if (references.count(ref_collection_name) > 0) {
+            if (sort_field.is_nested_join_sort_by()) {
+                // Get the reference doc_id by following through all the nested join collections.
+                ref_seq_id = seq_id;
+                std::string prev_coll_name = collection_name;
+                for (const auto &coll_name: sort_field.nested_join_collection_names) {
+                    // Joined on ref collection
+                    if (references.count(coll_name) > 0) {
+                        auto const& count = references.at(coll_name).count;
+                        if (count == 0) {
+                            reference_found = false;
+                            break;
+                        } else if (count == 1) {
+                            ref_seq_id = references.at(coll_name).docs[0];
+                        } else {
+                            return Option<bool>(400, multiple_references_error_message);
+                        }
+                    } else {
+                        auto& cm = CollectionManager::get_instance();
+                        auto ref_collection = cm.get_collection(coll_name);
+                        if (ref_collection == nullptr) {
+                            return Option<bool>(400, "Referenced collection `" + coll_name +
+                                                     "` in `sort_by` not found.");
+                        }
+
+                        // Current collection has a reference.
+                        if (ref_collection->is_referenced_in(prev_coll_name)) {
+                            auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(prev_coll_name);
+                            if (!get_reference_field_op.ok()) {
+                                return Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
+                            }
+                            auto const& field_name = get_reference_field_op.get();
+
+                            auto prev_coll = cm.get_collection(prev_coll_name);
+                            if (prev_coll == nullptr) {
+                                return Option<bool>(400, "Referenced collection `" + prev_coll_name +
+                                                         "` in `sort_by` not found.");
+                            }
+
+                            auto sort_index_op = prev_coll->get_sort_index_value_with_lock(field_name, ref_seq_id);
+                            if (!sort_index_op.ok()) {
+                                if (sort_index_op.code() == 400) {
+                                    return Option<bool>(400, sort_index_op.error());
+                                }
+                                reference_found = false;
+                                break;
+                            } else {
+                                ref_seq_id = sort_index_op.get();
+                            }
+                        }
+                            // Joined collection has a reference
+                        else {
+                            std::string joined_coll_having_reference;
+                            for (const auto &reference: references) {
+                                if (ref_collection->is_referenced_in(reference.first)) {
+                                    joined_coll_having_reference = reference.first;
+                                    break;
+                                }
+                            }
+
+                            if (joined_coll_having_reference.empty()) {
+                                return Option<bool>(400, no_references_error_message);
+                            }
+
+                            auto joined_collection = cm.get_collection(joined_coll_having_reference);
+                            if (joined_collection == nullptr) {
+                                return Option<bool>(400, "Referenced collection `" + joined_coll_having_reference +
+                                                         "` in `sort_by` not found.");
+                            }
+
+                            auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
+                            if (!reference_field_name_op.ok()) {
+                                return Option<bool>(reference_field_name_op.code(), reference_field_name_op.error());
+                            }
+
+                            auto const& reference_field_name = reference_field_name_op.get();
+                            auto const& reference = references.at(joined_coll_having_reference);
+                            auto const& count = reference.count;
+
+                            if (count == 0) {
+                                reference_found = false;
+                                break;
+                            } else if (count == 1) {
+                                auto op = joined_collection->get_sort_index_value_with_lock(reference_field_name,
+                                                                                            reference.docs[0]);
+                                if (!op.ok()) {
+                                    return Option<bool>(op.code(), op.error());
+                                }
+
+                                ref_seq_id = op.get();
+                            } else {
+                                return Option<bool>(400, multiple_references_error_message);
+                            }
+                        }
+                    }
+
+                    prev_coll_name = coll_name;
+                }
+            } else if (references.count(ref_collection_name) > 0) { // Joined on ref collection
                 auto const& count = references.at(ref_collection_name).count;
                 if (count == 0) {
                     reference_found = false;
@@ -4939,8 +5035,104 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             auto const& no_references_error_message = "No references found to sort by on `" +
                                                       ref_collection_name + "." + sort_field.name + "`.";
 
-            // Joined on ref collection
-            if (references.count(ref_collection_name) > 0) {
+            if (sort_field.is_nested_join_sort_by()) {
+                // Get the reference doc_id by following through all the nested join collections.
+                ref_seq_id = seq_id;
+                std::string prev_coll_name = collection_name;
+                for (const auto &coll_name: sort_field.nested_join_collection_names) {
+                    // Joined on ref collection
+                    if (references.count(coll_name) > 0) {
+                        auto const& count = references.at(coll_name).count;
+                        if (count == 0) {
+                            reference_found = false;
+                            break;
+                        } else if (count == 1) {
+                            ref_seq_id = references.at(coll_name).docs[0];
+                        } else {
+                            return Option<bool>(400, multiple_references_error_message);
+                        }
+                    } else {
+                        auto& cm = CollectionManager::get_instance();
+                        auto ref_collection = cm.get_collection(coll_name);
+                        if (ref_collection == nullptr) {
+                            return Option<bool>(400, "Referenced collection `" + coll_name +
+                                                     "` in `sort_by` not found.");
+                        }
+
+                        // Current collection has a reference.
+                        if (ref_collection->is_referenced_in(prev_coll_name)) {
+                            auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(prev_coll_name);
+                            if (!get_reference_field_op.ok()) {
+                                return Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
+                            }
+                            auto const& field_name = get_reference_field_op.get();
+
+                            auto prev_coll = cm.get_collection(prev_coll_name);
+                            if (prev_coll == nullptr) {
+                                return Option<bool>(400, "Referenced collection `" + prev_coll_name +
+                                                         "` in `sort_by` not found.");
+                            }
+
+                            auto sort_index_op = prev_coll->get_sort_index_value_with_lock(field_name, ref_seq_id);
+                            if (!sort_index_op.ok()) {
+                                if (sort_index_op.code() == 400) {
+                                    return Option<bool>(400, sort_index_op.error());
+                                }
+                                reference_found = false;
+                                break;
+                            } else {
+                                ref_seq_id = sort_index_op.get();
+                            }
+                        }
+                            // Joined collection has a reference
+                        else {
+                            std::string joined_coll_having_reference;
+                            for (const auto &reference: references) {
+                                if (ref_collection->is_referenced_in(reference.first)) {
+                                    joined_coll_having_reference = reference.first;
+                                    break;
+                                }
+                            }
+
+                            if (joined_coll_having_reference.empty()) {
+                                return Option<bool>(400, no_references_error_message);
+                            }
+
+                            auto joined_collection = cm.get_collection(joined_coll_having_reference);
+                            if (joined_collection == nullptr) {
+                                return Option<bool>(400, "Referenced collection `" + joined_coll_having_reference +
+                                                         "` in `sort_by` not found.");
+                            }
+
+                            auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
+                            if (!reference_field_name_op.ok()) {
+                                return Option<bool>(reference_field_name_op.code(), reference_field_name_op.error());
+                            }
+
+                            auto const& reference_field_name = reference_field_name_op.get();
+                            auto const& reference = references.at(joined_coll_having_reference);
+                            auto const& count = reference.count;
+
+                            if (count == 0) {
+                                reference_found = false;
+                                break;
+                            } else if (count == 1) {
+                                auto op = joined_collection->get_sort_index_value_with_lock(reference_field_name,
+                                                                                            reference.docs[0]);
+                                if (!op.ok()) {
+                                    return Option<bool>(op.code(), op.error());
+                                }
+
+                                ref_seq_id = op.get();
+                            } else {
+                                return Option<bool>(400, multiple_references_error_message);
+                            }
+                        }
+                    }
+
+                    prev_coll_name = coll_name;
+                }
+            } else if (references.count(ref_collection_name) > 0) { // Joined on ref collection
                 auto const& count = references.at(ref_collection_name).count;
                 if (count == 0) {
                     reference_found = false;
@@ -5125,8 +5317,104 @@ Option<bool> Index::compute_sort_scores(const std::vector<sort_by>& sort_fields,
             auto const& no_references_error_message = "No references found to sort by on `" +
                                                       ref_collection_name + "." + sort_field.name + "`.";
 
-            // Joined on ref collection
-            if (references.count(ref_collection_name) > 0) {
+            if (sort_field.is_nested_join_sort_by()) {
+                // Get the reference doc_id by following through all the nested join collections.
+                ref_seq_id = seq_id;
+                std::string prev_coll_name = collection_name;
+                for (const auto &coll_name: sort_field.nested_join_collection_names) {
+                    // Joined on ref collection
+                    if (references.count(coll_name) > 0) {
+                        auto const& count = references.at(coll_name).count;
+                        if (count == 0) {
+                            reference_found = false;
+                            break;
+                        } else if (count == 1) {
+                            ref_seq_id = references.at(coll_name).docs[0];
+                        } else {
+                            return Option<bool>(400, multiple_references_error_message);
+                        }
+                    } else {
+                        auto& cm = CollectionManager::get_instance();
+                        auto ref_collection = cm.get_collection(coll_name);
+                        if (ref_collection == nullptr) {
+                            return Option<bool>(400, "Referenced collection `" + coll_name +
+                                                     "` in `sort_by` not found.");
+                        }
+
+                        // Current collection has a reference.
+                        if (ref_collection->is_referenced_in(prev_coll_name)) {
+                            auto get_reference_field_op = ref_collection->get_referenced_in_field_with_lock(prev_coll_name);
+                            if (!get_reference_field_op.ok()) {
+                                return Option<bool>(get_reference_field_op.code(), get_reference_field_op.error());
+                            }
+                            auto const& field_name = get_reference_field_op.get();
+
+                            auto prev_coll = cm.get_collection(prev_coll_name);
+                            if (prev_coll == nullptr) {
+                                return Option<bool>(400, "Referenced collection `" + prev_coll_name +
+                                                         "` in `sort_by` not found.");
+                            }
+
+                            auto sort_index_op = prev_coll->get_sort_index_value_with_lock(field_name, ref_seq_id);
+                            if (!sort_index_op.ok()) {
+                                if (sort_index_op.code() == 400) {
+                                    return Option<bool>(400, sort_index_op.error());
+                                }
+                                reference_found = false;
+                                break;
+                            } else {
+                                ref_seq_id = sort_index_op.get();
+                            }
+                        }
+                            // Joined collection has a reference
+                        else {
+                            std::string joined_coll_having_reference;
+                            for (const auto &reference: references) {
+                                if (ref_collection->is_referenced_in(reference.first)) {
+                                    joined_coll_having_reference = reference.first;
+                                    break;
+                                }
+                            }
+
+                            if (joined_coll_having_reference.empty()) {
+                                return Option<bool>(400, no_references_error_message);
+                            }
+
+                            auto joined_collection = cm.get_collection(joined_coll_having_reference);
+                            if (joined_collection == nullptr) {
+                                return Option<bool>(400, "Referenced collection `" + joined_coll_having_reference +
+                                                         "` in `sort_by` not found.");
+                            }
+
+                            auto reference_field_name_op = ref_collection->get_referenced_in_field_with_lock(joined_coll_having_reference);
+                            if (!reference_field_name_op.ok()) {
+                                return Option<bool>(reference_field_name_op.code(), reference_field_name_op.error());
+                            }
+
+                            auto const& reference_field_name = reference_field_name_op.get();
+                            auto const& reference = references.at(joined_coll_having_reference);
+                            auto const& count = reference.count;
+
+                            if (count == 0) {
+                                reference_found = false;
+                                break;
+                            } else if (count == 1) {
+                                auto op = joined_collection->get_sort_index_value_with_lock(reference_field_name,
+                                                                                            reference.docs[0]);
+                                if (!op.ok()) {
+                                    return Option<bool>(op.code(), op.error());
+                                }
+
+                                ref_seq_id = op.get();
+                            } else {
+                                return Option<bool>(400, multiple_references_error_message);
+                            }
+                        }
+                    }
+
+                    prev_coll_name = coll_name;
+                }
+            } else if (references.count(ref_collection_name) > 0) { // Joined on ref collection
                 auto const& count = references.at(ref_collection_name).count;
                 if (count == 0) {
                     reference_found = false;
@@ -7657,7 +7945,7 @@ Option<uint32_t> Index::get_sort_index_value_with_lock(const std::string& collec
         return Option<uint32_t>(400, "Cannot sort on `" + field_name + "` in the collection, `" + collection_name +
                                         "` is `" + search_schema.at(field_name).type + "`.");
     } else if (sort_index.count(field_name) == 0 || sort_index.at(field_name)->count(seq_id) == 0) {
-        return Option<uint32_t>(400, "Could not find `" + field_name + "` value for doc `" +
+        return Option<uint32_t>(404, "Could not find `" + field_name + "` value for doc `" +
                                      std::to_string(seq_id) + "`.");;
     }
 

@@ -1234,8 +1234,24 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                                                                      is_group_by_query,
                                                                                                      remote_embedding_timeout_ms,
                                                                                                      remote_embedding_num_tries);
+
+            std::vector<std::string> nested_join_coll_names;
+            for (auto const& coll_name: _sort_field.nested_join_collection_names) {
+                auto coll = cm.get_collection(coll_name);
+                if (coll == nullptr) {
+                    return Option<bool>(400, "Referenced collection `" + coll_name + "` in `sort_by` not found.");
+                }
+                // `CollectionManager::get_collection` accounts for collection alias being used and provides pointer to the
+                // original collection.
+                nested_join_coll_names.emplace_back(coll->name);
+            }
+
             for (auto& ref_sort_field_std: ref_sort_fields_std) {
                 ref_sort_field_std.reference_collection_name = ref_collection_name;
+                ref_sort_field_std.nested_join_collection_names.insert(ref_sort_field_std.nested_join_collection_names.begin(),
+                                                                       nested_join_coll_names.begin(),
+                                                                       nested_join_coll_names.end());
+
                 sort_fields_std.emplace_back(ref_sort_field_std);
             }
 
