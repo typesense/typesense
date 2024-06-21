@@ -12,6 +12,7 @@ struct event_type_collection {
     std::string event_type;
     std::string collection;
     bool log_to_file = false;
+    std::string analytic_rule;
 };
 
 struct event_t {

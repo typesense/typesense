@@ -64,15 +64,6 @@ Option<bool> EventManager::add_event(const nlohmann::json& event, const std::str
             }
 
             if(event_type != AnalyticsManager::CUSTOM_EVENT) {
-                //visit event might not contain query so exclude check
-                if(event_type != AnalyticsManager::VISIT_EVENT && !event_data_val.contains("q")) {
-                    return Option<bool>(500,"event json data fields should contain `q`.");
-                }
-
-                if (event_data_val.contains("q") && !event_data_val["q"].is_string()) {
-                    return Option<bool>(500, "`q` value should be string.");
-                }
-
                 if (!event_data_val.contains("doc_id") || !event_data_val.contains("user_id")) {
                     return Option<bool>(500,
                                         "event json data fields should contain `doc_id`, `user_id`.");
