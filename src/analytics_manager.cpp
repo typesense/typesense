@@ -357,11 +357,9 @@ Option<bool> AnalyticsManager::remove_index(const std::string &name) {
     suggestion_configs.erase(name);
 
     //remove corresponding events with rule
-    if(!event_collection_map.empty()) {
-        for(auto it : event_collection_map) {
-            if(it.second.analytic_rule == name) {
-                event_collection_map.erase(it.first);
-            }
+    for(auto it: event_collection_map) {
+        if(it.second.analytic_rule == name) {
+            event_collection_map.erase(it.first);
         }
     }
 
