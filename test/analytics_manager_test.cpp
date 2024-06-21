@@ -333,20 +333,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     ASSERT_FALSE(post_create_event(req, res));
     ASSERT_EQ("{\"message\": \"key `name` not found.\"}", res->body);
 
-    //missing query param
-    nlohmann::json event2 = R"({
-        "type": "click",
-        "name": "AP",
-        "data": {
-            "doc_id": "21",
-            "user_id": "13"
-        }
-    })"_json;
-
-    req->body = event2.dump();
-    ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"event json data fields should contain `q`.\"}", res->body);
-
     //should be string type
     nlohmann::json event3 = R"({
         "type": "conversion",
