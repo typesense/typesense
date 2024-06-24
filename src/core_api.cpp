@@ -2753,7 +2753,7 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
 
     auto add_event_op = EventManager::get_instance().add_event(req_json, req->client_ip);
     if(add_event_op.ok()) {
-        res->set_201(R"({"ok": true)");
+        res->set_201(R"({"ok": true})");
         return true;
     }
 
