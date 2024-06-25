@@ -779,8 +779,8 @@ void counter_event_t::serialize_as_docs(std::string &docs) {
 
 bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     if(analytics_store) {
-        for(auto event: payload) {
-            std::string key = event["user_id"].get<std::string>() + "_" + std::to_string(event["timestamp"].get<uint64_t>());
+        for(const auto& event: payload) {
+            std::string key = event["user_id"].get<std::string>() + "_" + StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
             bool inserted = analytics_store->insert(key, event.dump());
             if(!inserted) {
                 LOG(ERROR) << "Error while dumping events to analytics db.";
@@ -793,4 +793,25 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
     }
 
     return true;
+}
+
+void AnalyticsManager::get_last_N_events(const std::string& userid, uint32_t N, std::vector<std::string>& values) {
+    const std::string key = userid + "_~";
+    analytics_store->get_last_N_values(key, N, values);
+}
+
+void event_t::to_json(nlohmann::json& obj, const std::string& coll) const {
+    obj["query"] = query;
+    obj["type"] = event_type;
+    obj["timestamp"] = timestamp;
+    obj["user_id"] = user_id;
+    obj["doc_id"] = doc_id;
+    obj["name"] = name;
+    obj["collection"] = coll;
+
+    if(event_type == "custom") {
+        for(const auto& kv : data) {
+            obj[kv.first] = kv.second;
+        }
+    }
 }

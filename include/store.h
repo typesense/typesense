@@ -121,4 +121,6 @@ public:
     const rocksdb::Options &get_db_options() const;
 
     void print_memory_usage();
+
+    void get_last_N_values(const std::string& key, uint32_t N, std::vector<std::string>& values);
 };

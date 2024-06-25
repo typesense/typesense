@@ -1478,3 +1478,72 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
     analytic_store->scan_fill(prefix_start, prefix_end, events);
     ASSERT_EQ(0, events.size());
 }
+
+TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
+    analyticsManager.dispose();
+    analyticsManager.stop();
+    delete analytic_store;
+
+    //set TTL of an hour
+    LOG(INFO) << "Truncating and creating: " << analytics_dir_path;
+    system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
+
+    analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
+    analyticsManager.init(store, analytic_store, "");
+
+    auto analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "name": "product_events_logging2",
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AB"}]
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json event1;
+    event1["type"] = "click";
+    event1["name"] = "AB";
+    event1["data"]["q"] = "technology";
+    event1["data"]["user_id"] = "13";
+
+    for(auto i = 0; i < 10; i++) {
+        event1["data"]["doc_id"] = std::to_string(i);
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    //get events
+    nlohmann::json payload = nlohmann::json::array();
+    nlohmann::json event_data;
+    auto collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    std::vector<std::string> values;
+    analyticsManager.get_last_N_events("13", 5, values);
+    ASSERT_EQ(5, values.size());
+
+    nlohmann::json parsed_json;
+    uint32_t start_index = 9;
+    for(auto i = 0; i < 5; i++) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ(std::to_string(start_index - i), parsed_json["doc_id"]);
+    }
+}

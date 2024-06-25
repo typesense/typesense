@@ -332,3 +332,16 @@ void Store::print_memory_usage() {
     db->GetProperty("rocksdb.cur-size-all-mem-tables", &memtable_usage);
     LOG(INFO) << "rocksdb.cur-size-all-mem-tables: " << memtable_usage;
 }
+
+void Store::get_last_N_values(const std::string& key, uint32_t N, std::vector<std::string>& values) {
+    std::shared_lock lock(mutex);
+
+    rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
+    iter->SeekForPrev(key);
+
+    while(iter->Valid() && N) {
+        values.push_back(iter->value().ToString());
+        N--;
+        iter->Prev();
+    }
+}

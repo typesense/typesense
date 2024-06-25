@@ -53,21 +53,7 @@ struct event_t {
         }
     }
 
-    void to_json(nlohmann::json& obj, const std::string& coll) const {
-        obj["query"] = query;
-        obj["type"] = event_type;
-        obj["timestamp"] = timestamp;
-        obj["user_id"] = user_id;
-        obj["doc_id"] = doc_id;
-        obj["name"] = name;
-        obj["collection"] = coll;
-
-        if(event_type == "custom") {
-            for(const auto& kv : data) {
-                obj[kv.first] = kv.second;
-            }
-        }
-    }
+    void to_json(nlohmann::json& obj, const std::string& coll) const;
 };
 
 struct counter_event_t {
@@ -232,6 +218,8 @@ public:
     void resetToggleRateLimit(bool toggle);
 
     bool write_to_db(const nlohmann::json& payload);
+
+    void get_last_N_events(const std::string& userid, uint32_t N, std::vector<std::string>& values);
 
 #ifdef TEST_BUILD
     std::unordered_map<std::string, std::vector<event_t>> get_log_events() {
