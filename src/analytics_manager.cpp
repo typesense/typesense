@@ -796,8 +796,8 @@ bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
 }
 
 void AnalyticsManager::get_last_N_events(const std::string& userid, uint32_t N, std::vector<std::string>& values) {
-    const std::string key = userid + "_~";
-    analytics_store->get_last_N_values(key, N, values);
+    const std::string userid_prefix = userid + "_";
+    analytics_store->get_last_N_values(userid_prefix, N, values);
 }
 
 void event_t::to_json(nlohmann::json& obj, const std::string& coll) const {

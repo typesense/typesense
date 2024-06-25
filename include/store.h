@@ -122,5 +122,5 @@ public:
 
     void print_memory_usage();
 
-    void get_last_N_values(const std::string& key, uint32_t N, std::vector<std::string>& values);
+    void get_last_N_values(const std::string& userid_prefix, uint32_t N, std::vector<std::string>& values);
 };

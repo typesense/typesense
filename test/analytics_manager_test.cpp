@@ -1521,6 +1521,21 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
         ASSERT_TRUE(post_create_event(req, res));
     }
 
+    //add more user events
+    for(auto i = 0; i < 7; i++) {
+        event1["data"]["user_id"] = "14";
+        event1["data"]["doc_id"] = std::to_string(i);
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    for(auto i = 0; i < 5; i++) {
+        event1["data"]["user_id"] = "15";
+        event1["data"]["doc_id"] = std::to_string(i);
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
     //get events
     nlohmann::json payload = nlohmann::json::array();
     nlohmann::json event_data;
@@ -1536,6 +1551,7 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     //manually trigger write to db
     ASSERT_TRUE(analyticsManager.write_to_db(payload));
 
+    //basic test
     std::vector<std::string> values;
     analyticsManager.get_last_N_events("13", 5, values);
     ASSERT_EQ(5, values.size());
@@ -1546,4 +1562,32 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
         parsed_json = nlohmann::json::parse(values[i]);
         ASSERT_EQ(std::to_string(start_index - i), parsed_json["doc_id"]);
     }
+
+    //fetch events for middle user
+    values.clear();
+    analyticsManager.get_last_N_events("14", 5, values);
+    ASSERT_EQ(5, values.size());
+
+    start_index = 6;
+    for(auto i = 0; i < 5; i++) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ(std::to_string(start_index - i), parsed_json["doc_id"]);
+    }
+
+    //fetch more events than stored in db
+    values.clear();
+    analyticsManager.get_last_N_events("15", 8, values);
+    ASSERT_EQ(5, values.size());
+
+    start_index = 4;
+    for(auto i = 0; i < 5; i++) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ(std::to_string(start_index - i), parsed_json["doc_id"]);
+    }
+
+
+    //fetch events for non-existing user
+    values.clear();
+    analyticsManager.get_last_N_events("16", 8, values);
+    ASSERT_EQ(0, values.size());
 }

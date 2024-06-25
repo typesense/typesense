@@ -333,15 +333,23 @@ void Store::print_memory_usage() {
     LOG(INFO) << "rocksdb.cur-size-all-mem-tables: " << memtable_usage;
 }
 
-void Store::get_last_N_values(const std::string& key, uint32_t N, std::vector<std::string>& values) {
+void Store::get_last_N_values(const std::string& userid_prefix, uint32_t N, std::vector<std::string>& values) {
     std::shared_lock lock(mutex);
 
-    rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
-    iter->SeekForPrev(key);
+    rocksdb::Iterator* iter = db->NewIterator(rocksdb::ReadOptions());
+    auto prefix_key = userid_prefix + "~";
+    iter->SeekForPrev(prefix_key);
 
     while(iter->Valid() && N) {
+        auto key = iter->key().ToString();
+        if(!StringUtils::begins_with(key, userid_prefix)) {
+            break;
+        }
+
         values.push_back(iter->value().ToString());
         N--;
         iter->Prev();
     }
+
+    delete iter;
 }
