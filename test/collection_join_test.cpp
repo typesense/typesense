@@ -1294,6 +1294,76 @@ TEST_F(CollectionJoinTest, UpdateDocumentHavingReferenceField) {
     ASSERT_EQ("Dan", res_obj["hits"][0]["document"]["Users"][0]["name"]);
 }
 
+TEST_F(CollectionJoinTest, JoinAfterUpdateOfArrayField) {
+    auto exercise_schema =
+            R"({
+                "name": "exercises",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name":"bodyParts","reference":"bodyParts.uid","type":"string[]"},
+                    {"name":"name","type":"string"}]
+            })"_json;
+
+    auto collection_create_op = collectionManager.create_collection(exercise_schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto exercise_coll = collection_create_op.get();
+
+    auto body_parts_schema =
+            R"({
+                "name": "bodyParts",
+                "enable_nested_fields": true,
+                "fields": [
+                    {"name":"uid","type":"string"},
+                    {"name":"name","type":"string"}]
+            })"_json;
+
+    collection_create_op = collectionManager.create_collection(body_parts_schema);
+    ASSERT_TRUE(collection_create_op.ok());
+    auto part_coll = collection_create_op.get();
+
+    nlohmann::json body_part_doc;
+
+    body_part_doc["name"] = "Part 1";
+    body_part_doc["uid"] = "abcd1";
+    part_coll->add(body_part_doc.dump());
+
+    body_part_doc["name"] = "Part 2";
+    body_part_doc["uid"] = "abcd2";
+    part_coll->add(body_part_doc.dump());
+
+    body_part_doc["name"] = "Part 3";
+    body_part_doc["uid"] = "abcd3";
+    ASSERT_TRUE(part_coll->add(body_part_doc.dump()).ok());
+
+    nlohmann::json exercise_doc;
+    exercise_doc["id"] = "0";
+    exercise_doc["name"] = "Example 1";
+    exercise_doc["bodyParts"] = {"abcd1", "abcd2", "abcd3"};
+    ASSERT_TRUE(exercise_coll->add(exercise_doc.dump()).ok());
+
+    // now update document to remove an array element
+    exercise_doc["bodyParts"] = {"abcd1", "abcd3"};
+    ASSERT_TRUE(exercise_coll->add(exercise_doc.dump(), UPDATE).ok());
+
+    // search for the document
+    std::map<std::string, std::string> req_params = {
+            {"collection", "exercises"},
+            {"q", "*"},
+            {"include_fields", "$bodyParts(uid, name, strategy:nest) as parts"}
+    };
+    nlohmann::json embedded_params;
+    std::string json_res;
+    auto now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    auto res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(2, res["hits"][0]["document"]["bodyParts"].size());
+    ASSERT_EQ(2, res["hits"][0]["document"]["parts"].size());
+}
+
 TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
     auto schema_json =
             R"({
