@@ -173,6 +173,13 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
                obj.count("name") != 0 && obj["name"].is_string()) {
                 coll_name = obj["name"];
             }
+        } else if(route_found && rpath->handler == post_conversation_model) {
+            nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
+
+            if(!obj.is_discarded() && obj.is_object() &&
+               obj.count("conversation_collection") != 0 && obj["conversation_collection"].is_string()) {
+                coll_name = obj["conversation_collection"];
+            }
         }
     }
 
