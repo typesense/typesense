@@ -4,7 +4,7 @@
 #include "http_client.h"
 #include "core_api.h"
 
-Option<std::string> ConversationManager::add_conversation(const nlohmann::json& conversation, const std::string& conversation_collection, const std::string& id) {
+Option<std::string> ConversationManager::add_conversation(const nlohmann::json& conversation, const std::string& history_collection, const std::string& id) {
     std::unique_lock lock(conversations_mutex);
     if(!conversation.is_array()) {
         return Option<std::string>(400, "Conversation is not an array");
@@ -19,7 +19,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
 
     std::string conversation_id = id.empty() ? sole::uuid4().str() : id;
 
-    auto collection = CollectionManager::get_instance().get_collection(conversation_collection).get();
+    auto collection = CollectionManager::get_instance().get_collection(history_collection).get();
     if(!collection) {
         return Option<std::string>(404, "Conversation store collection not found");
     }
@@ -54,7 +54,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
         auto resp = std::make_shared<http_res>(nullptr);
 
         req->params["action"] = "emplace";
-        req->params["collection"] = conversation_collection;
+        req->params["collection"] = history_collection;
         req->body = body;
 
         auto api_res = post_import_documents(req, resp);
@@ -62,7 +62,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
             return Option<std::string>(resp->status_code, resp->body);
         }
 
-        conversation_mapper[conversation_id] = conversation_collection;
+        conversation_mapper[conversation_id] = history_collection;
         return Option<std::string>(conversation_id);
     }
 
@@ -70,7 +70,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
     std::string leader_url = raft_server->get_leader_url();
 
     if(!leader_url.empty()) {
-        std::string base_url = leader_url + "collections/" + conversation_collection;
+        std::string base_url = leader_url + "collections/" + history_collection;
         std::string res;
         std::string url = base_url + "/documents/import?action=emplace";
         std::map<std::string, std::string> res_headers;
@@ -82,7 +82,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
             LOG(ERROR) << "Status: " << status;
             return Option<std::string>(400, "Error while creating conversation");
         } else {
-            conversation_mapper[conversation_id] = conversation_collection;
+            conversation_mapper[conversation_id] = history_collection;
             return Option<std::string>(conversation_id);
         }
     } else {
@@ -92,7 +92,7 @@ Option<std::string> ConversationManager::add_conversation(const nlohmann::json& 
 
 Option<nlohmann::json> ConversationManager::get_conversation(const std::string& conversation_id) {
 
-    auto collection_op = get_conversation_collection(conversation_id);
+    auto collection_op = get_history_collection(conversation_id);
     if(!collection_op.ok()) {
         return Option<nlohmann::json>(collection_op.code(), collection_op.error());
     }
@@ -169,19 +169,19 @@ Option<nlohmann::json> ConversationManager::delete_conversation(const std::strin
         return Option<nlohmann::json>(conversation_exists.code(), conversation_exists.error());
     }
 
-    auto conversation_collection_op = get_conversation_collection(conversation_id);
-    if(!conversation_collection_op.ok()) {
-        return Option<nlohmann::json>(conversation_collection_op.code(), conversation_collection_op.error());
+    auto history_collection_op = get_history_collection(conversation_id);
+    if(!history_collection_op.ok()) {
+        return Option<nlohmann::json>(history_collection_op.code(), history_collection_op.error());
     }
 
-    auto conversation_collection = conversation_collection_op.get()->get_name();
+    auto history_collection = history_collection_op.get()->get_name();
 
     if(!raft_server) {
         auto req = std::make_shared<http_req>();
         auto resp = std::make_shared<http_res>(nullptr);
 
         req->params["filter_by"] = "conversation_id:" + conversation_id;
-        req->params["collection"] = conversation_collection;
+        req->params["collection"] = history_collection;
 
         auto api_res = del_remove_documents(req, resp);
         if(!api_res) {
@@ -200,7 +200,7 @@ Option<nlohmann::json> ConversationManager::delete_conversation(const std::strin
         return Option<nlohmann::json>(500, "Leader URL is empty");
     }
 
-    std::string base_url = leader_url + "collections/" + conversation_collection;
+    std::string base_url = leader_url + "collections/" + history_collection;
     std::string res;
     std::string url = base_url + "/documents?filter_by=conversation_id:" + conversation_id;
     std::map<std::string, std::string> res_headers;
@@ -267,7 +267,7 @@ void ConversationManager::clear_expired_conversations() {
     std::vector<sort_by> sort_by_vec = {{"timestamp", sort_field_const::desc}};
 
     for(auto& conversation_id : conversation_ids) {
-        auto collection_op = get_conversation_collection(conversation_id);
+        auto collection_op = get_history_collection(conversation_id);
         if(!collection_op.ok()) {
             LOG(ERROR) << collection_op.error();
             continue;
@@ -441,7 +441,7 @@ Option<bool> ConversationManager::validate_conversation_store_schema(Collection*
 
 
 Option<bool> ConversationManager::check_conversation_exists(const std::string& conversation_id) {
-    auto collection_op = get_conversation_collection(conversation_id);
+    auto collection_op = get_history_collection(conversation_id);
     if(!collection_op.ok()) {
         return Option<bool>(collection_op.code(), collection_op.error());
     }
@@ -472,10 +472,10 @@ Option<std::unordered_set<std::string>> ConversationManager::get_conversation_id
     return Option<std::unordered_set<std::string>>(conversation_ids);
 }
 
-Option<bool> ConversationManager::add_conversation_collection(const std::string& collection) {
+Option<bool> ConversationManager::add_history_collection(const std::string& collection) {
     std::unique_lock lock(conversations_mutex);
-    if(conversation_collection_map.count(collection) > 0) {
-        conversation_collection_map[collection]++;
+    if(history_collection_map.count(collection) > 0) {
+        history_collection_map[collection]++;
     } else {
         auto collection_ptr = CollectionManager::get_instance().get_collection(collection).get();
         if(!collection_ptr) {
@@ -487,21 +487,21 @@ Option<bool> ConversationManager::add_conversation_collection(const std::string&
             return Option<bool>(validate_op.code(), validate_op.error());
         }
 
-        conversation_collection_map[collection] = 1;
+        history_collection_map[collection] = 1;
     }
 
     return Option<bool>(true);
 }
 
-Option<bool> ConversationManager::remove_conversation_collection(const std::string& collection) {
+Option<bool> ConversationManager::remove_history_collection(const std::string& collection) {
     std::unique_lock lock(conversations_mutex);
-    if(conversation_collection_map.count(collection) == 0) {
+    if(history_collection_map.count(collection) == 0) {
         return Option<bool>(404, "Collection not found");
     }
 
-    conversation_collection_map[collection]--;
+    history_collection_map[collection]--;
 
-    if(conversation_collection_map[collection] == 0) {
+    if(history_collection_map[collection] == 0) {
         std::vector<std::string> conversations_to_delete;
         for(auto& conversation : conversation_mapper) {
             if(conversation.second == collection) {
@@ -511,13 +511,13 @@ Option<bool> ConversationManager::remove_conversation_collection(const std::stri
         for(auto conversation_id : conversations_to_delete) {
             conversation_mapper.erase(conversation_id);
         }
-        conversation_collection_map.erase(collection);
+        history_collection_map.erase(collection);
     }
 
     return Option<bool>(true);
 }
 
-Option<Collection*> ConversationManager::get_conversation_collection(const std::string& conversation_id) {
+Option<Collection*> ConversationManager::get_history_collection(const std::string& conversation_id) {
 
     if(conversation_mapper.count(conversation_id) > 0) {
         auto collection = CollectionManager::get_instance().get_collection(conversation_mapper[conversation_id]).get();
@@ -526,7 +526,7 @@ Option<Collection*> ConversationManager::get_conversation_collection(const std::
         }
     }
 
-    for(auto& collection : conversation_collection_map) {
+    for(auto& collection : history_collection_map) {
         auto collection_ptr = CollectionManager::get_instance().get_collection(collection.first).get();
         if(!collection_ptr) {
             continue;

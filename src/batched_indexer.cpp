@@ -177,8 +177,8 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
             nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
 
             if(!obj.is_discarded() && obj.is_object() &&
-               obj.count("conversation_collection") != 0 && obj["conversation_collection"].is_string()) {
-                coll_name = obj["conversation_collection"];
+               obj.count("history_collection") != 0 && obj["history_collection"].is_string()) {
+                coll_name = obj["history_collection"];
             }
         }
     }

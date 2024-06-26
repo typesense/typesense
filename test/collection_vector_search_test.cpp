@@ -3130,7 +3130,7 @@ TEST_F(CollectionVectorTest, TestQAConversation) {
     auto conversation_model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
         "max_bytes: 1000,
-        "conversation_collection": "conversation_store",
+        "history_collection": "conversation_store",
     })"_json;
 
     conversation_model_config["api_key"] = api_key;
@@ -3578,7 +3578,7 @@ TEST_F(CollectionVectorTest, InvalidMultiSearchConversation) {
     auto conversation_model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
         "max_bytes": 1000,
-        "conversation_collection": "conversation_store"
+        "history_collection": "conversation_store"
     })"_json;
 
     conversation_model_config["api_key"] = api_key;
@@ -3658,7 +3658,7 @@ TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
     auto conversation_model_config = R"({
         "model_name": "openai/gpt-3.5-turbo",
         "max_bytes": 1000,
-        "conversation_collection": "conversation_store"
+        "history_collection": "conversation_store"
     })"_json;
 
     if (std::getenv("api_key") == nullptr) {
@@ -3671,7 +3671,7 @@ TEST_F(CollectionVectorTest, TestMigratingConversationModel) {
     auto migrate_res = ConversationModelManager::migrate_model(conversation_model_config);
     ASSERT_TRUE(migrate_res.ok());
     auto migrated_model = migrate_res.get();
-    ASSERT_TRUE(migrated_model.count("conversation_collection") == 1);
+    ASSERT_TRUE(migrated_model.count("history_collection") == 1);
 
     auto collection = CollectionManager::get_instance().get_collection("conversation_store").get();
     ASSERT_TRUE(collection != nullptr);
