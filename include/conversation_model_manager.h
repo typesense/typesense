@@ -30,10 +30,10 @@ class ConversationModelManager
 
         static constexpr char* MODEL_NEXT_ID = "$CVMN";
         static constexpr char* MODEL_KEY_PREFIX = "$CVMP";
-        static inline int64_t DEFAULT_CONVERSATION_COLLECTION_SUFFIX = 0;
+        static inline int64_t DEFAULT_HISTORY_COLLECTION_SUFFIX = 0;
         static inline Store* store;
         static const std::string get_model_key(const std::string& model_id);
-        static Option<Collection*> get_default_conversation_collection();
+        static Option<Collection*> get_default_history_collection();
         static Option<nlohmann::json> delete_model_unsafe(const std::string& model_id);
         static Option<nlohmann::json> add_model_unsafe(nlohmann::json model, const std::string& model_id);
 

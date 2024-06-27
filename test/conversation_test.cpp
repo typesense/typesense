@@ -40,11 +40,11 @@ class ConversationTest : public ::testing::Test {
             })"_json;
 
             collectionManager.create_collection(schema_json);
-            ConversationManager::get_instance().add_conversation_collection("conversation_store");
+            ConversationManager::get_instance().add_history_collection("conversation_store");
         }
 
         void TearDown() override {
-            ConversationManager::get_instance().remove_conversation_collection("conversation_store");
+            ConversationManager::get_instance().remove_history_collection("conversation_store");
             collectionManager.dispose();
             delete store;
         }
@@ -239,7 +239,7 @@ TEST_F(ConversationTest, TestRemoveConversationCollection) {
     })"_json;
     LOG(INFO) << "Creating collection";
     collectionManager.create_collection(schema_json);
-    ConversationManager::get_instance().add_conversation_collection("conversation_store2");
+    ConversationManager::get_instance().add_history_collection("conversation_store2");
     LOG(INFO) << "Collection created";
     nlohmann::json conversation = nlohmann::json::array();
     nlohmann::json message = nlohmann::json::object();
@@ -257,7 +257,7 @@ TEST_F(ConversationTest, TestRemoveConversationCollection) {
     
 
     LOG(INFO) << "Removing collection";
-    auto remove_res = ConversationManager::get_instance().remove_conversation_collection("conversation_store2");
+    auto remove_res = ConversationManager::get_instance().remove_history_collection("conversation_store2");
     ASSERT_TRUE(remove_res.ok());
 
     LOG(INFO) << "Getting conversation";
@@ -267,7 +267,7 @@ TEST_F(ConversationTest, TestRemoveConversationCollection) {
     ASSERT_EQ(get_res.error(), "Conversation not found");
 
     LOG(INFO) << "Adding collection again";
-    ConversationManager::get_instance().add_conversation_collection("conversation_store2");
+    ConversationManager::get_instance().add_history_collection("conversation_store2");
 
 
     LOG(INFO) << "Adding conversation";
@@ -313,8 +313,8 @@ TEST_F(ConversationTest, TestMultipleRefConversationCollection) {
     })"_json;
 
     collectionManager.create_collection(schema_json);
-    ConversationManager::get_instance().add_conversation_collection("conversation_store2");
-    ConversationManager::get_instance().add_conversation_collection("conversation_store2");
+    ConversationManager::get_instance().add_history_collection("conversation_store2");
+    ConversationManager::get_instance().add_history_collection("conversation_store2");
 
     nlohmann::json conversation = nlohmann::json::array();
     nlohmann::json message = nlohmann::json::object();
@@ -328,7 +328,7 @@ TEST_F(ConversationTest, TestMultipleRefConversationCollection) {
     ASSERT_TRUE(get_res.ok());
     ASSERT_EQ(get_res.get()["conversation"].size(), 1);
 
-    auto remove_res = ConversationManager::get_instance().remove_conversation_collection("conversation_store2");
+    auto remove_res = ConversationManager::get_instance().remove_history_collection("conversation_store2");
     ASSERT_TRUE(remove_res.ok());
 
     get_res = ConversationManager::get_instance().get_conversation(create_res.get());
@@ -348,7 +348,7 @@ TEST_F(ConversationTest, TestInvalidConversationCollection) {
     })"_json;
 
     collectionManager.create_collection(schema_json);
-    auto res = ConversationManager::get_instance().add_conversation_collection("conversation_store2");
+    auto res = ConversationManager::get_instance().add_history_collection("conversation_store2");
     ASSERT_FALSE(res.ok());
     ASSERT_EQ(res.code(), 400);
     ASSERT_EQ(res.error(), "Schema is missing `conversation_id` field");

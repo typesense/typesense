@@ -28,11 +28,11 @@ Option<bool> ConversationModel::validate_model(const nlohmann::json& model_confi
         return Option<bool>(400, "Property `max_bytes` is not provided or not a positive integer.");
     }
 
-    if(model_config.count("conversation_collection") == 0 || !model_config["conversation_collection"].is_string()) {
-        return Option<bool>(400, "Property `conversation_collection` is not provided or not a string.");
+    if(model_config.count("history_collection") == 0 || !model_config["history_collection"].is_string()) {
+        return Option<bool>(400, "Property `history_collection` is not provided or not a string.");
     }
 
-    auto validate_converson_collection_op = ConversationManager::get_instance().validate_conversation_store_collection(model_config["conversation_collection"].get<std::string>());
+    auto validate_converson_collection_op = ConversationManager::get_instance().validate_conversation_store_collection(model_config["history_collection"].get<std::string>());
     if(!validate_converson_collection_op.ok()) {
         return Option<bool>(400, validate_converson_collection_op.error());
     }
