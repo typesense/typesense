@@ -2844,6 +2844,22 @@ bool del_analytics_rules(const std::shared_ptr<http_req>& req, const std::shared
     return true;
 }
 
+bool post_write_analytics_to_db(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    AnalyticsManager::get_instance().write_to_db(req_json);
+
+    return true;
+}
+
 bool post_proxy(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     HttpProxy& proxy = HttpProxy::get_instance();
 

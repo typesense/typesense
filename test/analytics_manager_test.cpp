@@ -9,8 +9,10 @@
 class AnalyticsManagerTest : public ::testing::Test {
 protected:
     Store *store;
+    Store *analytic_store;
     CollectionManager& collectionManager = CollectionManager::get_instance();
     std::atomic<bool> quit = false;
+    std::string state_dir_path, analytics_dir_path;
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
@@ -18,16 +20,23 @@ protected:
     AnalyticsManager& analyticsManager = AnalyticsManager::get_instance();
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/analytics_manager_test";
+        state_dir_path = "/tmp/typesense_test/analytics_manager_test";
+        analytics_dir_path = "/tmp/typesense-test/analytics";
+
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
         system("mkdir -p /tmp/typesense_test/models");
 
         store = new Store(state_dir_path);
+
+        LOG(INFO) << "Truncating and creating: " << analytics_dir_path;
+        system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
+        analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
+
         collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
-        analyticsManager.init(store, state_dir_path);
+        analyticsManager.init(store, analytic_store, state_dir_path);
         analyticsManager.resetToggleRateLimit(false);
     }
 
@@ -38,6 +47,7 @@ protected:
     virtual void TearDown() {
         collectionManager.dispose();
         delete store;
+        delete analytic_store;
         analyticsManager.stop();
     }
 };
@@ -514,7 +524,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     req->body = event.dump();
     ASSERT_TRUE(post_create_event(req, res));
 
-    analyticsManager.persist_events();
+    analyticsManager.persist_events(nullptr, 0);
 
     auto fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
 
@@ -540,7 +550,7 @@ TEST_F(AnalyticsManagerTest, EventsPersist) {
     req->body = event.dump();
     ASSERT_TRUE(post_create_event(req, res));
 
-    analyticsManager.persist_events();
+    analyticsManager.persist_events(nullptr, 0);
 
     fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
 
@@ -1007,7 +1017,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     analyticsManager.dispose();
     analyticsManager.stop();
     system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-    analyticsManager.init(store, "/tmp/typesense_test/analytics_manager_test");
+    analyticsManager.init(store, analytic_store, "/tmp/typesense_test/analytics_manager_test");
 
     nlohmann::json products_schema = R"({
             "name": "books",
@@ -1235,7 +1245,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ("Cool trousers", results["hits"][1]["document"]["title"]);
 
     //verify log file
-    analyticsManager.persist_events();
+    analyticsManager.persist_events(nullptr, 0);
 
     auto fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
 
@@ -1303,7 +1313,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ(10, popular_clicks["books"].docid_counts["1"]);
 
     //check log file
-    analyticsManager.persist_events();
+    analyticsManager.persist_events(nullptr, 0);
 
     fileOutput = Config::fetch_file_contents("/tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
 
@@ -1328,7 +1338,7 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     analyticsManager.dispose();
     analyticsManager.stop();
     system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-    analyticsManager.init(store, "");
+    analyticsManager.init(store, analytic_store, "");
 
     analytics_rule = R"({
         "name": "books_popularity3",
@@ -1351,11 +1361,10 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
 
 
     //counter events should work without analytic-dir
-
     analyticsManager.dispose();
     analyticsManager.stop();
     system("rm -rf /tmp/typesense_test/analytics_manager_test/analytics_events.tsv");
-    analyticsManager.init(store, "");
+    analyticsManager.init(store, analytic_store, "");
 
     analytics_rule = R"({
         "name": "books_popularity3",
@@ -1392,4 +1401,197 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     ASSERT_EQ("popularity", popular_clicks["books"].counter_field);
     ASSERT_EQ(1, popular_clicks["books"].docid_counts.size());
     ASSERT_EQ(5, popular_clicks["books"].docid_counts["1"]);
+}
+
+TEST_F(AnalyticsManagerTest, AnalyticsStoreTTL) {
+    analyticsManager.dispose();
+    analyticsManager.stop();
+    delete analytic_store;
+
+    //set TTL of an hour
+    LOG(INFO) << "Truncating and creating: " << analytics_dir_path;
+    system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
+
+    analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
+    analyticsManager.init(store, analytic_store, "");
+
+    auto analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "name": "product_events_logging2",
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AB"}]
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json event1 = R"({
+        "type": "click",
+        "name": "AB",
+        "data": {
+            "q": "technology",
+            "doc_id": "21",
+            "user_id": "13"
+        }
+    })"_json;
+
+    req->body = event1.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+
+    //get events
+    nlohmann::json payload = nlohmann::json::array();
+    nlohmann::json event_data;
+    auto collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+        }
+    }
+    payload.push_back(event_data);
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    //try fetching from db
+    const std::string prefix_start = "13_";
+    const std::string prefix_end = "13`";
+    std::vector<std::string> events;
+
+    analytic_store->scan_fill(prefix_start, prefix_end, events);
+    ASSERT_EQ(1, events.size());
+    ASSERT_EQ(events[0].c_str(), event_data.dump());
+
+    //now set TTL to 1s and open analytics db
+    events.clear();
+    delete analytic_store;
+
+    analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, 1);
+
+    sleep(2);
+    analytic_store->compact_all();
+
+    analytic_store->scan_fill(prefix_start, prefix_end, events);
+    ASSERT_EQ(0, events.size());
+}
+
+TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
+    analyticsManager.dispose();
+    analyticsManager.stop();
+    delete analytic_store;
+
+    //set TTL of an hour
+    LOG(INFO) << "Truncating and creating: " << analytics_dir_path;
+    system(("rm -rf "+ analytics_dir_path +" && mkdir -p "+analytics_dir_path).c_str());
+
+    analytic_store = new Store(analytics_dir_path, 24*60*60, 1024, true, FOURWEEKS_SECS);
+    analyticsManager.init(store, analytic_store, "");
+
+    auto analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "name": "product_events_logging2",
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "click", "name": "AB"}]
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json event1;
+    event1["type"] = "click";
+    event1["name"] = "AB";
+    event1["data"]["q"] = "technology";
+    event1["data"]["user_id"] = "13";
+
+    for(auto i = 0; i < 10; i++) {
+        event1["data"]["doc_id"] = std::to_string(i);
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    //add more user events
+    for(auto i = 0; i < 7; i++) {
+        event1["data"]["user_id"] = "14";
+        event1["data"]["doc_id"] = std::to_string(i);
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    for(auto i = 0; i < 5; i++) {
+        event1["data"]["user_id"] = "15";
+        event1["data"]["doc_id"] = std::to_string(i);
+        req->body = event1.dump();
+        ASSERT_TRUE(post_create_event(req, res));
+    }
+
+    //get events
+    nlohmann::json payload = nlohmann::json::array();
+    nlohmann::json event_data;
+    auto collection_events_map = analyticsManager.get_log_events();
+    for (auto &events_collection_it: collection_events_map) {
+        const auto& collection = events_collection_it.first;
+        for(const auto& event: events_collection_it.second) {
+            event.to_json(event_data, collection);
+            payload.push_back(event_data);
+        }
+    }
+
+    //manually trigger write to db
+    ASSERT_TRUE(analyticsManager.write_to_db(payload));
+
+    //basic test
+    std::vector<std::string> values;
+    analyticsManager.get_last_N_events("13", 5, values);
+    ASSERT_EQ(5, values.size());
+
+    nlohmann::json parsed_json;
+    uint32_t start_index = 9;
+    for(auto i = 0; i < 5; i++) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ(std::to_string(start_index - i), parsed_json["doc_id"]);
+    }
+
+    //fetch events for middle user
+    values.clear();
+    analyticsManager.get_last_N_events("14", 5, values);
+    ASSERT_EQ(5, values.size());
+
+    start_index = 6;
+    for(auto i = 0; i < 5; i++) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ(std::to_string(start_index - i), parsed_json["doc_id"]);
+    }
+
+    //fetch more events than stored in db
+    values.clear();
+    analyticsManager.get_last_N_events("15", 8, values);
+    ASSERT_EQ(5, values.size());
+
+    start_index = 4;
+    for(auto i = 0; i < 5; i++) {
+        parsed_json = nlohmann::json::parse(values[i]);
+        ASSERT_EQ(std::to_string(start_index - i), parsed_json["doc_id"]);
+    }
+
+
+    //fetch events for non-existing user
+    values.clear();
+    analyticsManager.get_last_N_events("16", 8, values);
+    ASSERT_EQ(0, values.size());
 }

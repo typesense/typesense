@@ -12,7 +12,7 @@ private:
     std::string data_dir;
     std::string log_dir;
     std::string analytics_dir;
-
+    int32_t analytics_db_ttl = 2419200; //four weeks in secs
     std::string api_key;
 
     // @deprecated
@@ -152,6 +152,10 @@ public:
         this->analytics_dir = analytics_dir;
     }
 
+    void set_analytics_db_ttl(int32_t analytics_db_ttl) {
+        this->analytics_db_ttl = analytics_db_ttl;
+    }
+
     void set_api_key(const std::string & api_key) {
         this->api_key = api_key;
     }
@@ -229,6 +233,10 @@ public:
 
     std::string get_analytics_dir() const {
         return this->analytics_dir;
+    }
+
+    int32_t get_analytics_db_ttl() const {
+        return this->analytics_db_ttl;
     }
 
     std::string get_api_key() const {

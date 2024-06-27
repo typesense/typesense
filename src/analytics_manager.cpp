@@ -522,7 +522,7 @@ void AnalyticsManager::run(ReplicationState* raft_server) {
         }
 
         persist_query_events(raft_server, prev_persistence_s);
-        persist_events();
+        persist_events(raft_server, prev_persistence_s);
         persist_popular_events(raft_server, prev_persistence_s);
 
         prev_persistence_s = std::chrono::duration_cast<std::chrono::seconds>(
@@ -618,25 +618,57 @@ void AnalyticsManager::persist_query_events(ReplicationState *raft_server, uint6
     }
 }
 
-void AnalyticsManager::persist_events() {
+void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t prev_persistence_s) {
     // lock is held by caller
+
+    auto send_http_response = [&](const std::string& import_payload) {
+        // send http request
+        if(raft_server == nullptr) {
+            return;
+        }
+
+        std::string leader_url = raft_server->get_leader_url();
+        if(!leader_url.empty()) {
+            const std::string& base_url = leader_url + "analytics/";
+            std::string res;
+
+            const std::string& update_url = base_url + "/write_to_db";
+            std::map<std::string, std::string> res_headers;
+            long status_code = HttpClient::post_response(update_url, import_payload,
+                                                         res, res_headers, {}, 10*1000, true);
+
+            if(status_code != 200) {
+                LOG(ERROR) << "Error while sending "<<" log events to leader. "
+                           << "Status code: " << status_code << ", response: " << res;
+            }
+        }
+    };
+
+    nlohmann::json payload = nlohmann::json::array();
     for (auto &events_collection_it: query_collection_events) {
         const auto& collection = events_collection_it.first;
         for (const auto &event: events_collection_it.second) {
             if (analytics_logs.is_open() && event.log_to_file) {
                 //store events to log file
-                analytics_logs << event.timestamp << "\t" << event.name << "\t"
+                std::stringstream ssbuf;
+                ssbuf << event.timestamp << "\t" << event.name << "\t"
                                << collection << "\t" << event.user_id << "\t" << event.doc_id << "\t"
                                << event.query << "\t";
 
                 for(const auto& kv : event.data) {
-                    analytics_logs << kv.second << "\t";
+                    ssbuf << kv.second << "\t";
                 }
 
+                analytics_logs << ssbuf.str();
                 analytics_logs << "\n";
                 analytics_logs << std::flush;
+
+                nlohmann::json event_data;
+                event.to_json(event_data, collection);
+                payload.push_back(event_data);
             }
         }
+        send_http_response(payload.dump());
         events_collection_it.second.clear();
     }
 }
@@ -707,8 +739,9 @@ void AnalyticsManager::dispose() {
     events_cache.clear();
 }
 
-void AnalyticsManager::init(Store* store, const std::string& analytics_dir) {
+void AnalyticsManager::init(Store* store, Store* analytics_store, const std::string& analytics_dir) {
     this->store = store;
+    this->analytics_store = analytics_store;
 
     if(!analytics_dir.empty()) {
         const auto analytics_log_path = analytics_dir + "/analytics_events.tsv";
@@ -748,5 +781,44 @@ void counter_event_t::serialize_as_docs(std::string &docs) {
 
     if (!docs.empty()) {
         docs.pop_back();
+    }
+}
+
+bool AnalyticsManager::write_to_db(const nlohmann::json& payload) {
+    if(analytics_store) {
+        for(const auto& event: payload) {
+            std::string key = event["user_id"].get<std::string>() + "_" + StringUtils::serialize_uint64_t(event["timestamp"].get<uint64_t>());
+            bool inserted = analytics_store->insert(key, event.dump());
+            if(!inserted) {
+                LOG(ERROR) << "Error while dumping events to analytics db.";
+                return false;
+            }
+        }
+    } else {
+        LOG(ERROR) << "Analytics DB not initialized!!";
+        return false;
+    }
+
+    return true;
+}
+
+void AnalyticsManager::get_last_N_events(const std::string& userid, uint32_t N, std::vector<std::string>& values) {
+    const std::string userid_prefix = userid + "_";
+    analytics_store->get_last_N_values(userid_prefix, N, values);
+}
+
+void event_t::to_json(nlohmann::json& obj, const std::string& coll) const {
+    obj["query"] = query;
+    obj["type"] = event_type;
+    obj["timestamp"] = timestamp;
+    obj["user_id"] = user_id;
+    obj["doc_id"] = doc_id;
+    obj["name"] = name;
+    obj["collection"] = coll;
+
+    if(event_type == "custom") {
+        for(const auto& kv : data) {
+            obj[kv.first] = kv.second;
+        }
     }
 }
