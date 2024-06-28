@@ -166,7 +166,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             return Option<bool>(400, "There's already another configuration for this destination collection.");
         }
 
-        auto coll = CollectionManager::get_instance().get_collection(suggestion_collection).get();
+        auto coll = CollectionManager::get_instance().get_collection_unsafe(suggestion_collection);
         if(coll != nullptr) {
             if(!coll->contains_field(counter_field)) {
                 return Option<bool>(404,
@@ -625,7 +625,7 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
             const std::string& base_url = leader_url + "analytics/";
             std::string res;
 
-            const std::string& update_url = base_url + "/write_to_db";
+            const std::string& update_url = base_url + "aggregate_events";
             std::map<std::string, std::string> res_headers;
             long status_code = HttpClient::post_response(update_url, import_payload,
                                                          res, res_headers, {}, 10*1000, true);
@@ -661,8 +661,10 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
                 payload.push_back(event_data);
             }
         }
-        send_http_response(payload.dump());
-        events_collection_it.second.clear();
+        if(!payload.empty()) {
+            send_http_response(payload.dump());
+            events_collection_it.second.clear();
+        }
     }
 }
 

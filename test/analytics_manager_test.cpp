@@ -1591,3 +1591,55 @@ TEST_F(AnalyticsManagerTest, AnalyticsStoreGetLastN) {
     analyticsManager.get_last_N_events("16", 8, values);
     ASSERT_EQ(0, values.size());
 }
+
+TEST_F(AnalyticsManagerTest, AnalyticsWithAliases) {
+    nlohmann::json titles_schema = R"({
+            "name": "titles",
+            "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "popularity", "type" : "int32"}
+            ]
+        })"_json;
+
+    Collection* titles_coll = collectionManager.create_collection(titles_schema).get();
+
+    //create alias
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    nlohmann::json alias_json = R"({
+        "collection_name": "titles"
+    })"_json;
+
+    req->params["alias"] = "coll1";
+    req->body = alias_json.dump();
+    ASSERT_TRUE(put_upsert_alias(req, res));
+
+    auto analytics_rule = R"({
+        "name": "popular_titles",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["coll1"],
+                "events":  [{"type": "click", "weight": 1, "name": "CLK1"}, {"type": "conversion", "weight": 5, "name": "CNV1"} ]
+            },
+            "destination": {
+                "collection": "coll1",
+                "counter_field": "popularity"
+            }
+        }
+    })"_json;
+
+    auto create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
+
+    nlohmann::json event1;
+    event1["type"] = "click";
+    event1["name"] = "CLK1";
+    event1["data"]["q"] = "technology";
+    event1["data"]["user_id"] = "13";
+    event1["data"]["doc_id"] = "1";
+
+    req->body = event1.dump();
+    ASSERT_TRUE(post_create_event(req, res));
+}
