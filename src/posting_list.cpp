@@ -1197,7 +1197,7 @@ void posting_list_t::get_prefix_matches(std::vector<iterator_t>& its, const bool
             // field is an array
 
             struct token_index_meta_t {
-                std::bitset<32> token_index;
+                std::bitset<128> token_index;
             };
 
             for (size_t i = 0; i < num_ids; i++) {
@@ -1236,7 +1236,7 @@ void posting_list_t::get_prefix_matches(std::vector<iterator_t>& its, const bool
                         if (pos == prev_pos) {  // indicates end of array index
                             size_t array_index = (size_t) offsets[start_offset_index];
 
-                            if (found_matching_index) {
+                            if (found_matching_index && j+1 < 128) {
                                 array_index_to_token_index[array_index].token_index.set(j+1);
                             }
 
@@ -1360,7 +1360,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
             // field is an array
 
             struct token_index_meta_t {
-                std::bitset<32> token_index;
+                std::bitset<128> token_index;
                 bool has_last_token;
             };
 
@@ -1411,7 +1411,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
                                 }
                             }
 
-                            if(found_matching_index) {
+                            if(found_matching_index && j+1 < 128) {
                                 array_index_to_token_index[array_index].token_index.set(j+1);
                             }
 
@@ -1508,7 +1508,7 @@ bool posting_list_t::has_prefix_match(std::vector<posting_list_t::iterator_t>& p
         // field is an array
 
         struct token_index_meta_t {
-            std::bitset<32> token_index;
+            std::bitset<128> token_index;
         };
 
         std::map<size_t, token_index_meta_t> array_index_to_token_index;
@@ -1540,7 +1540,7 @@ bool posting_list_t::has_prefix_match(std::vector<posting_list_t::iterator_t>& p
                 if (pos == prev_pos) {  // indicates end of array index
                     size_t array_index = (size_t) offsets[start_offset_index];
 
-                    if (found_matching_index) {
+                    if (found_matching_index && i+1 < 128) {
                         array_index_to_token_index[array_index].token_index.set(i + 1);
                     }
 
@@ -1630,7 +1630,7 @@ bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& po
             // field is an array
 
             struct token_index_meta_t {
-                std::bitset<32> token_index;
+                std::bitset<128> token_index;
                 bool has_last_token;
             };
 
@@ -1674,7 +1674,7 @@ bool posting_list_t::has_exact_match(std::vector<posting_list_t::iterator_t>& po
                             }
                         }
 
-                        if(found_matching_index) {
+                        if(found_matching_index && i+1 < 128) {
                             array_index_to_token_index[array_index].token_index.set(i + 1);
                         }
 

@@ -965,7 +965,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         new_conversation_history.push_back(formatted_answer_op.get());
         std::string conversation_id = conversation_history ? orig_req_params["conversation_id"] : "";
 
-        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation_history, conversation_model["conversation_collection"], conversation_id);
+        auto add_conversation_op = ConversationManager::get_instance().add_conversation(new_conversation_history, conversation_model["history_collection"], conversation_id);
         if(!add_conversation_op.ok()) {
             res->set_400(add_conversation_op.error());
             return false;
@@ -2753,7 +2753,7 @@ bool post_create_event(const std::shared_ptr<http_req>& req, const std::shared_p
 
     auto add_event_op = EventManager::get_instance().add_event(req_json, req->client_ip);
     if(add_event_op.ok()) {
-        res->set_201(R"({"ok": true)");
+        res->set_201(R"({"ok": true})");
         return true;
     }
 
@@ -3005,15 +3005,7 @@ bool post_conversation_model(const std::shared_ptr<http_req>& req, const std::sh
         return false;
     }
 
-    std::string model_id = "";
-    try {
-        nlohmann::json parsed_json = nlohmann::json::parse(req->body);
-        if(parsed_json.count("id") != 0 && parsed_json["id"].is_string()) {
-            model_id = parsed_json["id"].get<std::string>();
-        }
-    } catch(const std::exception& e) {
-
-    }
+    std::string model_id = req->metadata;
 
     auto add_model_op = ConversationModelManager::add_model(req_json, model_id);
 

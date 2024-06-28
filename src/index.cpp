@@ -6841,7 +6841,7 @@ void Index::remove_field(uint32_t seq_id, nlohmann::json& document, const std::s
             }
 
             if (reference_index.count(field_name) != 0) {
-                reference_index[field_name]->remove(value, seq_id);
+                 reference_index[field_name]->remove(seq_id, value);
             }
         }
 

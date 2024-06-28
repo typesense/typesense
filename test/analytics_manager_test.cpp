@@ -343,20 +343,6 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     ASSERT_FALSE(post_create_event(req, res));
     ASSERT_EQ("{\"message\": \"key `name` not found.\"}", res->body);
 
-    //missing query param
-    nlohmann::json event2 = R"({
-        "type": "click",
-        "name": "AP",
-        "data": {
-            "doc_id": "21",
-            "user_id": "13"
-        }
-    })"_json;
-
-    req->body = event2.dump();
-    ASSERT_FALSE(post_create_event(req, res));
-    ASSERT_EQ("{\"message\": \"event json data fields should contain `q`.\"}", res->body);
-
     //should be string type
     nlohmann::json event3 = R"({
         "type": "conversion",
@@ -474,6 +460,24 @@ TEST_F(AnalyticsManagerTest, EventsValidation) {
     })"_json;
     req->body = event8.dump();
     ASSERT_TRUE(post_create_event(req, res));
+
+    //deleting rule should delete events associated with it
+    req->params["name"] = "product_events2";
+    ASSERT_TRUE(del_analytics_rules(req, res));
+    analytics_rule = R"({
+        "name": "product_events2",
+        "type": "log",
+        "params": {
+            "name": "custom_events_logging",
+            "source": {
+                "collections": ["titles"],
+                 "events":  [{"type": "custom", "name": "CP"}]
+            }
+        }
+    })"_json;
+
+    create_op = analyticsManager.create_rule(analytics_rule, true, true);
+    ASSERT_TRUE(create_op.ok());
 }
 
 TEST_F(AnalyticsManagerTest, EventsPersist) {

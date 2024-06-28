@@ -547,7 +547,16 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     }
 
     if(rpath->action == "conversations/models:create") {
-        request->metadata = sole::uuid4().str();
+        try {
+            nlohmann::json body_json = nlohmann::json::parse(request->body);
+            if(body_json.count("id") != 0 && body_json["id"].is_string()) {
+               request->metadata = body_json["id"].get<std::string>();
+            } else {
+                request->metadata = sole::uuid4().str();
+            }
+        } catch (const nlohmann::json::parse_error& e) {
+            request->metadata = sole::uuid4().str();
+        }
     }
 
     if(req->proceed_req == nullptr) {

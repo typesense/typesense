@@ -23,7 +23,7 @@ class ConversationManager {
             static ConversationManager instance;
             return instance;
         }
-        Option<std::string> add_conversation(const nlohmann::json& conversation, const std::string& conversation_collection, const std::string& id = "");
+        Option<std::string> add_conversation(const nlohmann::json& conversation, const std::string& history_collection, const std::string& id = "");
         Option<nlohmann::json> get_conversation(const std::string& conversation_id);
         static Option<nlohmann::json> truncate_conversation(nlohmann::json conversation, size_t limit);
         Option<nlohmann::json> update_conversation(nlohmann::json conversation);
@@ -42,9 +42,9 @@ class ConversationManager {
 
         Option<bool> validate_conversation_store_schema(Collection* collection);
         Option<bool> validate_conversation_store_collection(const std::string& collection);
-        Option<bool> add_conversation_collection(const std::string& collection);
-        Option<bool> remove_conversation_collection(const std::string& collection);
-        Option<Collection*> get_conversation_collection(const std::string& conversation_id);
+        Option<bool> add_history_collection(const std::string& collection);
+        Option<bool> remove_history_collection(const std::string& collection);
+        Option<Collection*> get_history_collection(const std::string& conversation_id);
     private:
         ConversationManager() {}
         std::mutex conversations_mutex;
@@ -56,6 +56,6 @@ class ConversationManager {
 
         std::atomic<bool> quit = false;
         std::condition_variable cv;
-        std::unordered_map<std::string, uint32_t> conversation_collection_map;
+        std::unordered_map<std::string, uint32_t> history_collection_map;
         std::unordered_map<std::string, std::string> conversation_mapper;
 };

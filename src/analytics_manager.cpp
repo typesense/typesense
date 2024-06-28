@@ -223,7 +223,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
                 }
             }
             event_weight_map[event["name"]] = event["weight"];
-            event_type_collection ec{event["type"], suggestion_collection, log_to_file};
+            event_type_collection ec{event["type"], suggestion_collection, log_to_file, suggestion_config_name};
             event_collection_map.emplace(event["name"], ec);
         }
         counter_events.emplace(suggestion_collection, counter_event_t{counter_field, {}, event_weight_map});
@@ -239,7 +239,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             if(!event.contains("name") || event_collection_map.count(event["name"]) != 0) {
                 return Option<bool>(400, "Events must contain a unique name.");
             }
-            event_type_collection ec{event["type"], suggestion_collection, true};
+            event_type_collection ec{event["type"], suggestion_collection, true, suggestion_config_name};
             event_collection_map.emplace(event["name"], ec);
         }
     }
@@ -355,6 +355,13 @@ Option<bool> AnalyticsManager::remove_index(const std::string &name) {
     }
 
     suggestion_configs.erase(name);
+
+    //remove corresponding events with rule
+    for(auto it: event_collection_map) {
+        if(it.second.analytic_rule == name) {
+            event_collection_map.erase(it.first);
+        }
+    }
 
     auto suggestion_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
     bool erased = store->remove(suggestion_key);
