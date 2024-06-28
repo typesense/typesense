@@ -166,7 +166,7 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
             return Option<bool>(400, "There's already another configuration for this destination collection.");
         }
 
-        auto coll = CollectionManager::get_instance().get_collection_unsafe(suggestion_collection);
+        auto coll = CollectionManager::get_instance().get_collection(suggestion_collection).get();
         if(coll != nullptr) {
             if(!coll->contains_field(counter_field)) {
                 return Option<bool>(404,
