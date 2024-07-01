@@ -1176,6 +1176,24 @@ TEST_F(AnalyticsManagerTest, PopularityScoreValidation) {
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
     std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
+    analytics_rule = R"({
+        "name": "books_popularity",
+        "type": "counter",
+        "params": {
+            "source": {
+                "collections": ["books"],
+                 "events":  [{"type": "click", "name" : "CLK4"}, {"type": "conversion", "name": "CNV4", "log_to_file" : true} ]
+            },
+            "destination": {
+                "collection": "books",
+                "counter_field": "popularity"
+            }
+        }
+    })"_json;
+    create_op = analyticsManager.create_rule(analytics_rule, false, true);
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Counter events must contain a weight value.", create_op.error());
+
     //correct params
     analytics_rule = R"({
         "name": "books_popularity2",
