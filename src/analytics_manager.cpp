@@ -209,8 +209,14 @@ Option<bool> AnalyticsManager::create_index(nlohmann::json &payload, bool upsert
         std::map<std::string, uint16_t> event_weight_map;
         for(const auto& event: params["source"]["events"]) {
             if(!event.contains("name") || event_collection_map.count(event["name"]) != 0) {
+                remove_index(suggestion_config_name);
                 return Option<bool>(400, "Events must contain a unique name.");
             }
+            if(!event.contains("weight") || !event["weight"].is_number()) {
+                remove_index(suggestion_config_name);
+                return Option<bool>(400, "Counter events must contain a weight value.");
+            }
+
             //store event name to their weights
             //which can be used to keep counter events separate from non counter events
             bool log_to_file = false;
@@ -357,10 +363,14 @@ Option<bool> AnalyticsManager::remove_index(const std::string &name) {
     suggestion_configs.erase(name);
 
     //remove corresponding events with rule
-    for(auto it: event_collection_map) {
-        if(it.second.analytic_rule == name) {
-            event_collection_map.erase(it.first);
+    auto it = event_collection_map.begin();
+    for(it; it != event_collection_map.end(); ++it) {
+        if(it->second.analytic_rule == name) {
+            break;
         }
+    }
+    if(it != event_collection_map.end()) {
+        event_collection_map.erase(it);
     }
 
     auto suggestion_key = std::string(ANALYTICS_RULE_PREFIX) + "_" + name;
@@ -632,7 +642,7 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
             const std::string& base_url = leader_url + "analytics/";
             std::string res;
 
-            const std::string& update_url = base_url + "/write_to_db";
+            const std::string& update_url = base_url + "aggregate_events";
             std::map<std::string, std::string> res_headers;
             long status_code = HttpClient::post_response(update_url, import_payload,
                                                          res, res_headers, {}, 10*1000, true);
@@ -668,8 +678,10 @@ void AnalyticsManager::persist_events(ReplicationState *raft_server, uint64_t pr
                 payload.push_back(event_data);
             }
         }
-        send_http_response(payload.dump());
-        events_collection_it.second.clear();
+        if(!payload.empty()) {
+            send_http_response(payload.dump());
+            events_collection_it.second.clear();
+        }
     }
 }
 
