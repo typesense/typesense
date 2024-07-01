@@ -1341,10 +1341,6 @@ TEST_F(CollectionJoinTest, JoinAfterUpdateOfArrayField) {
     exercise_doc["bodyParts"] = {"abcd1", "abcd2", "abcd3"};
     ASSERT_TRUE(exercise_coll->add(exercise_doc.dump()).ok());
 
-    // now update document to remove an array element
-    exercise_doc["bodyParts"] = {"abcd1", "abcd3"};
-    ASSERT_TRUE(exercise_coll->add(exercise_doc.dump(), UPDATE).ok());
-
     // search for the document
     std::map<std::string, std::string> req_params = {
             {"collection", "exercises"},
@@ -1360,8 +1356,42 @@ TEST_F(CollectionJoinTest, JoinAfterUpdateOfArrayField) {
     ASSERT_TRUE(search_op.ok());
 
     auto res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(3, res["hits"][0]["document"]["bodyParts"].size());
+    ASSERT_EQ(3, res["hits"][0]["document"]["parts"].size());
+
+    // now update document to remove an array element
+    exercise_doc = R"({
+                        "id": "0",
+                        "bodyParts": ["abcd1", "abcd3"]
+                    })"_json;
+    ASSERT_TRUE(exercise_coll->add(exercise_doc.dump(), UPDATE).ok());
+
+    req_params = {
+            {"collection", "exercises"},
+            {"q", "*"},
+            {"include_fields", "$bodyParts(uid, name, strategy:nest) as parts"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+
+    res = nlohmann::json::parse(json_res);
     ASSERT_EQ(2, res["hits"][0]["document"]["bodyParts"].size());
     ASSERT_EQ(2, res["hits"][0]["document"]["parts"].size());
+
+    // remove both elements
+    exercise_doc["bodyParts"] = nullptr;
+    ASSERT_TRUE(exercise_coll->add(exercise_doc.dump(), UPDATE).ok());
+
+    req_params = {
+            {"collection", "exercises"},
+            {"q", "*"},
+            {"include_fields", "$bodyParts(uid, name, strategy:nest) as parts"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res["hits"][0]["document"]["bodyParts"].size());
+    ASSERT_EQ(0, res["hits"][0]["document"]["parts"].size());
 }
 
 TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
