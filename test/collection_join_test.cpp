@@ -1392,6 +1392,36 @@ TEST_F(CollectionJoinTest, JoinAfterUpdateOfArrayField) {
     res = nlohmann::json::parse(json_res);
     ASSERT_EQ(0, res["hits"][0]["document"]["bodyParts"].size());
     ASSERT_EQ(0, res["hits"][0]["document"]["parts"].size());
+
+    exercise_doc["bodyParts"] = {"abcd1"};
+    ASSERT_TRUE(exercise_coll->add(exercise_doc.dump(), UPDATE).ok());
+
+    req_params = {
+            {"collection", "exercises"},
+            {"q", "*"},
+            {"include_fields", "$bodyParts(uid, name, strategy:nest) as parts"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res["hits"][0]["document"]["bodyParts"].size());
+    ASSERT_EQ(1, res["hits"][0]["document"]["parts"].size());
+
+    exercise_doc["bodyParts"] = {};
+    ASSERT_TRUE(exercise_coll->add(exercise_doc.dump(), UPDATE).ok());
+
+    req_params = {
+            {"collection", "exercises"},
+            {"q", "*"},
+            {"include_fields", "$bodyParts(uid, name, strategy:nest) as parts"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res = nlohmann::json::parse(json_res);
+    ASSERT_EQ(0, res["hits"][0]["document"]["bodyParts"].size());
+    ASSERT_EQ(0, res["hits"][0]["document"]["parts"].size());
 }
 
 TEST_F(CollectionJoinTest, FilterByReference_SingleMatch) {
