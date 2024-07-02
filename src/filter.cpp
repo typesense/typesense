@@ -459,6 +459,10 @@ Option<bool> toFilter(const std::string expression,
         } else {
             std::vector<std::string> doc_ids;
             StringUtils::split_to_values(raw_value, doc_ids); // to handle backticks
+            if (doc_ids.empty()) {
+                return Option<bool>(400, empty_filter_err);
+            }
+
             std::string seq_id_str;
             StoreStatus seq_id_status = store->get(doc_id_prefix + doc_ids[0], seq_id_str);
             if (seq_id_status == StoreStatus::FOUND) {

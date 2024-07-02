@@ -1399,6 +1399,10 @@ TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Error with filter field `id`: Filter value cannot be empty.", res_op.error());
 
+    res_op = coll1->search("*", {}, "id: ``", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `id`: Filter value cannot be empty.", res_op.error());
+
     // when no IDs exist
     results = coll1->search("*",
                             {}, "id: [1000] && num_employees: <300",
