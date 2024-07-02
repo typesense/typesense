@@ -5546,29 +5546,6 @@ TEST_F(CollectionJoinTest, SortByReference) {
 
     schema_json =
             R"({
-                "name": "Ads",
-                "fields": [
-                    {"name": "id", "type": "string"}
-                ]
-            })"_json;
-    documents = {
-            R"({
-                "id": "ad_a"
-            })"_json
-    };
-    collection_create_op = collectionManager.create_collection(schema_json);
-    ASSERT_TRUE(collection_create_op.ok());
-
-    for (auto const &json: documents) {
-        auto add_op = collection_create_op.get()->add(json.dump());
-        if (!add_op.ok()) {
-            LOG(INFO) << add_op.error();
-        }
-        ASSERT_TRUE(add_op.ok());
-    }
-
-    schema_json =
-            R"({
                 "name": "Structures",
                 "fields": [
                     {"name": "id", "type": "string"},
@@ -5598,6 +5575,35 @@ TEST_F(CollectionJoinTest, SortByReference) {
 
     schema_json =
             R"({
+                "name": "Ads",
+                "fields": [
+                    {"name": "id", "type": "string"},
+                    {"name": "structure", "type": "string", "reference": "Structures.id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "id": "ad_a",
+                "structure": "struct_b"
+            })"_json,
+            R"({
+                "id": "ad_b",
+                "structure": "struct_a"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
                 "name": "Candidates",
                 "fields": [
                    {"name": "structure", "type": "string", "reference": "Structures.id", "optional": true},
@@ -5606,13 +5612,16 @@ TEST_F(CollectionJoinTest, SortByReference) {
             })"_json;
     documents = {
             R"({
-                "structure": "struct_a"
+                "structure": "struct_b"
             })"_json,
             R"({
                 "ad": "ad_a"
             })"_json,
             R"({
-                "structure": "struct_b"
+                "structure": "struct_a"
+            })"_json,
+            R"({
+                "ad": "ad_b"
             })"_json
     };
     collection_create_op = collectionManager.create_collection(schema_json);
@@ -5630,25 +5639,67 @@ TEST_F(CollectionJoinTest, SortByReference) {
             {"collection", "Candidates"},
             {"q", "*"},
             {"filter_by", "$Ads(id:*) || $Structures(id:*)"},
-            {"sort_by", "$Structures(name: asc)"}
+            {"sort_by", "$Structures(name: asc)"},
+            {"include_fields", "$Ads($Structures(*))"}
     };
     search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
     ASSERT_TRUE(search_op.ok());
 
     res_obj = nlohmann::json::parse(json_res);
-    ASSERT_EQ(3, res_obj["found"].get<size_t>());
-    ASSERT_EQ(3, res_obj["hits"].size());
-    ASSERT_EQ("2", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ("0", res_obj["hits"][0]["document"].at("id"));
     ASSERT_EQ("bar", res_obj["hits"][0]["document"]["Structures"].at("name"));
     ASSERT_EQ(0, res_obj["hits"][0]["document"].count("Ads"));
 
-    ASSERT_EQ("0", res_obj["hits"][1]["document"].at("id"));
+    ASSERT_EQ("2", res_obj["hits"][1]["document"].at("id"));
     ASSERT_EQ("foo", res_obj["hits"][1]["document"]["Structures"].at("name"));
     ASSERT_EQ(0, res_obj["hits"][1]["document"].count("Ads"));
 
-    ASSERT_EQ("1", res_obj["hits"][2]["document"].at("id"));
+    ASSERT_EQ("3", res_obj["hits"][2]["document"].at("id"));
     ASSERT_EQ(0, res_obj["hits"][2]["document"].count("Structures"));
     ASSERT_EQ(1, res_obj["hits"][2]["document"].count("Ads"));
+    ASSERT_EQ(1, res_obj["hits"][2]["document"]["Ads"].count("Structures"));
+    ASSERT_EQ("foo", res_obj["hits"][2]["document"]["Ads"]["Structures"]["name"]);
+
+    ASSERT_EQ("1", res_obj["hits"][3]["document"].at("id"));
+    ASSERT_EQ(0, res_obj["hits"][3]["document"].count("Structures"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"].count("Ads"));
+    ASSERT_EQ(1, res_obj["hits"][3]["document"]["Ads"].count("Structures"));
+    ASSERT_EQ("bar", res_obj["hits"][3]["document"]["Ads"]["Structures"]["name"]);
+
+    req_params = {
+            {"collection", "Candidates"},
+            {"q", "*"},
+            {"filter_by", "$Ads(id:*) || $Structures(id:*)"},
+            {"sort_by", "$Ads($Structures(name: asc))"},
+            {"include_fields", "$Ads($Structures(*))"}
+    };
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res, now_ts);
+    ASSERT_TRUE(search_op.ok());
+
+    res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(4, res_obj["found"].get<size_t>());
+    ASSERT_EQ(4, res_obj["hits"].size());
+    ASSERT_EQ("1", res_obj["hits"][0]["document"].at("id"));
+    ASSERT_EQ(0, res_obj["hits"][0]["document"].count("Structures"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"].count("Ads"));
+    ASSERT_EQ(1, res_obj["hits"][0]["document"]["Ads"].count("Structures"));
+    ASSERT_EQ("bar", res_obj["hits"][0]["document"]["Ads"]["Structures"]["name"]);
+
+    ASSERT_EQ("3", res_obj["hits"][1]["document"].at("id"));
+    ASSERT_EQ(0, res_obj["hits"][1]["document"].count("Structures"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"].count("Ads"));
+    ASSERT_EQ(1, res_obj["hits"][1]["document"]["Ads"].count("Structures"));
+    ASSERT_EQ("foo", res_obj["hits"][1]["document"]["Ads"]["Structures"]["name"]);
+
+    ASSERT_EQ("2", res_obj["hits"][2]["document"].at("id"));
+    ASSERT_EQ("foo", res_obj["hits"][2]["document"]["Structures"].at("name"));
+    ASSERT_EQ(0, res_obj["hits"][2]["document"].count("Ads"));
+
+    ASSERT_EQ("0", res_obj["hits"][3]["document"].at("id"));
+    ASSERT_EQ("bar", res_obj["hits"][3]["document"]["Structures"].at("name"));
+    ASSERT_EQ(0, res_obj["hits"][3]["document"].count("Ads"));
 }
 
 TEST_F(CollectionJoinTest, FilterByReferenceAlias) {

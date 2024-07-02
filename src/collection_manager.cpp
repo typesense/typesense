@@ -894,9 +894,82 @@ bool parse_eval(const std::string& sort_by_str, uint32_t& index, std::vector<sor
     return true;
 }
 
+bool parse_nested_join_sort_by_str(const std::string& sort_by_str, uint32_t& index, const std::string& parent_coll_name,
+                                   std::vector<sort_by>& sort_fields) {
+    if (sort_by_str[index] != '$') {
+        return false;
+    }
+
+    std::string sort_field_expr;
+    char prev_non_space_char = '`';
+
+    auto open_paren_pos = sort_by_str.find('(', index);
+    if (open_paren_pos == std::string::npos) {
+        return false;
+    }
+
+    auto const& collection_name = sort_by_str.substr(index + 1, open_paren_pos - index - 1);
+    index = open_paren_pos;
+    int paren_count = 1;
+    while (++index < sort_by_str.size() && paren_count > 0) {
+        if (sort_by_str[index] == '(') {
+            paren_count++;
+        } else if (sort_by_str[index] == ')' && --paren_count == 0) {
+            break;
+        }
+
+        if (sort_by_str[index] == '$' && (prev_non_space_char == '`' || prev_non_space_char == ',')) {
+            // Nested join sort_by
+
+            // Process the sort fields provided up until now.
+            if (!sort_field_expr.empty()) {
+                sort_fields.emplace_back("$" + collection_name + "(" + sort_field_expr + ")", "");
+                auto& collection_names = sort_fields.back().nested_join_collection_names;
+                collection_names.insert(collection_names.begin(), parent_coll_name);
+                collection_names.emplace_back(collection_name);
+
+                sort_field_expr.clear();
+            }
+
+            auto prev_size = sort_fields.size();
+            if (!parse_nested_join_sort_by_str(sort_by_str, index, collection_name, sort_fields)) {
+                return false;
+            }
+
+            for (; prev_size < sort_fields.size(); prev_size++) {
+                auto& collection_names = sort_fields[prev_size].nested_join_collection_names;
+                collection_names.insert(collection_names.begin(), parent_coll_name);
+            }
+
+            continue;
+        }
+        sort_field_expr += sort_by_str[index];
+        if (sort_by_str[index] != ' ') {
+            prev_non_space_char = sort_by_str[index];
+        }
+    }
+    if (paren_count != 0) {
+        return false;
+    }
+
+    if (!sort_field_expr.empty()) {
+        sort_fields.emplace_back("$" + collection_name + "(" + sort_field_expr + ")", "");
+        auto& collection_names = sort_fields.back().nested_join_collection_names;
+        collection_names.insert(collection_names.begin(), parent_coll_name);
+        collection_names.emplace_back(collection_name);
+    }
+
+    // Skip the space in between the sort_by expressions.
+    while (index + 1 < sort_by_str.size() && (sort_by_str[index + 1] == ' ' || sort_by_str[index + 1] == ',')) {
+        index++;
+    }
+
+    return true;
+}
+
 bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields) {
     std::string sort_field_expr;
-    char prev_non_space_char = 'a';
+    char prev_non_space_char = '`';
 
     for(uint32_t i=0; i < sort_by_str.size(); i++) {
         if (sort_field_expr.empty()) {
@@ -906,27 +979,50 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
                 if (open_paren_pos == std::string::npos) {
                     return false;
                 }
-                sort_field_expr = sort_by_str.substr(i, open_paren_pos - i + 1);
 
+                auto const& collection_name = sort_by_str.substr(i + 1, open_paren_pos - i - 1);
                 i = open_paren_pos;
                 int paren_count = 1;
                 while (++i < sort_by_str.size() && paren_count > 0) {
                     if (sort_by_str[i] == '(') {
                         paren_count++;
-                    } else if (sort_by_str[i] == ')') {
-                        paren_count--;
+                    } else if (sort_by_str[i] == ')' && --paren_count == 0) {
+                        break;
+                    }
+
+                    if (sort_by_str[i] == '$' && (prev_non_space_char == '`' || prev_non_space_char == ',')) {
+                        // Nested join sort_by
+
+                        // Process the sort fields provided up until now. Doing this step to maintain the order of sort_by
+                        // as specified. Eg, `$Customers(product_price:DESC, $foo(bar:asc))` should result into
+                        // {`$Customers(product_price:DESC)`, `$Customers($foo(bar:asc))`} and not the other way around.
+                        if (!sort_field_expr.empty()) {
+                            sort_fields.emplace_back("$" + collection_name + "(" + sort_field_expr + ")", "");
+                            sort_field_expr.clear();
+                        }
+
+                        if (!parse_nested_join_sort_by_str(sort_by_str, i, collection_name, sort_fields)) {
+                            return false;
+                        }
+
+                        continue;
                     }
                     sort_field_expr += sort_by_str[i];
+                    if (sort_by_str[i] != ' ') {
+                        prev_non_space_char = sort_by_str[i];
+                    }
                 }
                 if (paren_count != 0) {
                     return false;
                 }
 
-                sort_fields.emplace_back(sort_field_expr, "");
-                sort_field_expr = "";
+                if (!sort_field_expr.empty()) {
+                    sort_fields.emplace_back("$" + collection_name + "(" + sort_field_expr + ")", "");
+                    sort_field_expr.clear();
+                }
 
                 // Skip the space in between the sort_by expressions.
-                while (i + 1 < sort_by_str.size() && sort_by_str[i + 1] == ' ') {
+                while (i + 1 < sort_by_str.size() && (sort_by_str[i + 1] == ' ' || sort_by_str[i + 1] == ',')) {
                     i++;
                 }
                 continue;
