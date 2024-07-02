@@ -1142,7 +1142,7 @@ TEST_F(CollectionVectorTest, VectorWithNullValue) {
 
     ASSERT_TRUE(nlohmann::json::parse(json_lines[0])["success"].get<bool>());
     ASSERT_FALSE(nlohmann::json::parse(json_lines[1])["success"].get<bool>());
-    ASSERT_EQ("Field `vec` must be an array.",
+    ASSERT_EQ("Field `vec` must have 4 dimensions.",
               nlohmann::json::parse(json_lines[1])["error"].get<std::string>());
 }
 
