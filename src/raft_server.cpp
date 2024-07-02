@@ -579,7 +579,6 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
         }
 
         if(analytics_store) {
-            analytics_store->insert(BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
             rocksdb::Checkpoint* checkpoint2 = nullptr;
             status = analytics_store->create_check_point(&checkpoint2, analytics_db_snapshot_path);
             std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint2);
@@ -651,21 +650,23 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     write_caught_up = false;
 
     // Load snapshot from leader, replacing the running StateMachine
-    std::string snapshot_path = reader->get_path();
+    std::string analytics_snapshot_path = reader->get_path();
+    analytics_snapshot_path.append(std::string("/") + analytics_db_snapshot_name);
 
-    if(analytics_store) {
-        snapshot_path.append(std::string("/") + analytics_db_snapshot_name);
-        int reload_store = analytics_store->reload(true, snapshot_path, Config::get_instance().get_analytics_db_ttl());
+    if(analytics_store && directory_exists(analytics_snapshot_path)) {
+        // analytics db snapshot could be missing (older version or disabled earlier)
+        int reload_store = analytics_store->reload(true, analytics_snapshot_path,
+                                                   Config::get_instance().get_analytics_db_ttl());
         if (reload_store != 0) {
             LOG(ERROR) << "Failed to reload analytics db snapshot.";
             return reload_store;
         }
     }
 
-    snapshot_path = reader->get_path();
-    snapshot_path.append(std::string("/") + db_snapshot_name);
+    std::string db_snapshot_path = reader->get_path();
+    db_snapshot_path.append(std::string("/") + db_snapshot_name);
 
-    int reload_store = store->reload(true, snapshot_path);
+    int reload_store = store->reload(true, db_snapshot_path);
     if(reload_store != 0) {
         return reload_store;
     }
