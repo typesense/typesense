@@ -291,12 +291,18 @@ void BatchedIndexer::run() {
                             try {
                                 found_rpath->handler(orig_req, orig_res);
                             } catch(const std::exception& e) {
-                                LOG(ERROR) << "Exception while calling handler " << found_rpath->_get_action();
+                                const std::string& api_action = found_rpath->_get_action();
+                                LOG(ERROR) << "Exception while calling handler " << api_action;
                                 LOG(ERROR) << "Raw error: " << e.what();
                                 // bad request gets a response immediately
                                 orig_res->set_400("Bad request.");
                                 orig_res->final = true;
                                 async_res = false;
+
+                                // clean up state
+                                if(api_action == "collections:update") {
+                                    set_alter_in_progress(false);
+                                }
                             }
                             prev_body = orig_req->body;
                         } else {
