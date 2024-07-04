@@ -1408,7 +1408,7 @@ TEST_F(CollectionJoinTest, JoinAfterUpdateOfArrayField) {
     ASSERT_EQ(1, res["hits"][0]["document"]["bodyParts"].size());
     ASSERT_EQ(1, res["hits"][0]["document"]["parts"].size());
 
-    exercise_doc["bodyParts"] = {};
+    exercise_doc["bodyParts"] = nlohmann::json::array();
     ASSERT_TRUE(exercise_coll->add(exercise_doc.dump(), UPDATE).ok());
 
     req_params = {
