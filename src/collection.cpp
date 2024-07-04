@@ -349,6 +349,9 @@ Option<bool> Collection::add_reference_helper_fields(nlohmann::json& document, c
                 filter_query += ",";
             }
             if (!filter_values_added) {
+                document[reference_helper_field] = nlohmann::json::array();
+                document[fields::reference_helper_fields] += reference_helper_field;
+
                 continue;
             }
             filter_query[filter_query.size() - 1] = ']';
