@@ -20,8 +20,8 @@ struct deletion_state_t: public req_state_t {
 
 struct export_state_t: public req_state_t {
     Collection* collection;
-    std::vector<filter_result_t> filter_results;
-    std::vector<size_t> offsets;
+    filter_result_t filter_result;
+    size_t offset = 0;
     tsl::htrie_set<char> include_fields;
     tsl::htrie_set<char> exclude_fields;
     std::vector<ref_include_exclude_fields> ref_include_exclude_fields_vec;

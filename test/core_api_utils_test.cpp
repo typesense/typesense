@@ -895,11 +895,7 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
 
     export_state_t export_state;
     filter_result_t filter_result;
-    coll1->get_filter_ids("points:>=0", filter_result);
-    export_state.filter_results.emplace_back(filter_result);
-    for(size_t i=0; i<export_state.filter_results.size(); i++) {
-        export_state.offsets.push_back(0);
-    }
+    coll1->get_filter_ids("points:>=0", export_state.filter_result);
 
     export_state.collection = coll1;
     export_state.res_body = &res_body;
@@ -912,6 +908,125 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     stateful_export_docs(&export_state, 2, done);
     ASSERT_TRUE(done);
     ASSERT_EQ('}', export_state.res_body->back());
+}
+
+TEST_F(CoreAPIUtilsTest, ExportWithJoin) {
+    auto schema_json =
+            R"({
+                "name": "Products",
+                "fields": [
+                    {"name": "product_id", "type": "string"},
+                    {"name": "product_name", "type": "string"},
+                    {"name": "product_description", "type": "string"},
+                    {"name": "rating", "type": "int32"}
+                ]
+            })"_json;
+    std::vector<nlohmann::json> documents = {
+            R"({
+                "product_id": "product_a",
+                "product_name": "shampoo",
+                "product_description": "Our new moisturizing shampoo is perfect for those with dry or damaged hair.",
+                "rating": "2"
+            })"_json,
+            R"({
+                "product_id": "product_b",
+                "product_name": "soap",
+                "product_description": "Introducing our all-natural, organic soap bar made with essential oils and botanical ingredients.",
+                "rating": "4"
+            })"_json
+    };
+    auto collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Customers",
+                "fields": [
+                    {"name": "customer_id", "type": "string"},
+                    {"name": "customer_name", "type": "string"},
+                    {"name": "product_price", "type": "float"},
+                    {"name": "product_id", "type": "string", "reference": "Products.product_id"}
+                ]
+            })"_json;
+    documents = {
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 143,
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_a",
+                "customer_name": "Joe",
+                "product_price": 73.5,
+                "product_id": "product_b"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 75,
+                "product_id": "product_a"
+            })"_json,
+            R"({
+                "customer_id": "customer_b",
+                "customer_name": "Dan",
+                "product_price": 140,
+                "product_id": "product_b"
+            })"_json
+    };
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+    for (auto const &json: documents) {
+        auto add_op = collection_create_op.get()->add(json.dump());
+        if (!add_op.ok()) {
+            LOG(INFO) << add_op.error();
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    schema_json =
+            R"({
+                "name": "Dummy",
+                "fields": [
+                    {"name": "dummy_id", "type": "string"}
+                ]
+            })"_json;
+    collection_create_op = collectionManager.create_collection(schema_json);
+    ASSERT_TRUE(collection_create_op.ok());
+
+    bool done;
+    std::string res_body;
+
+    export_state_t export_state;
+    auto coll1 = collectionManager.get_collection_unsafe("Products");
+    coll1->get_filter_ids("$Customers(customer_id:customer_a)", export_state.filter_result);
+    export_state.collection = coll1;
+    export_state.res_body = &res_body;
+    export_state.include_fields.insert("product_name");
+    export_state.ref_include_exclude_fields_vec.emplace_back(ref_include_exclude_fields{"Customers", {"product_price"}, "",
+                                                                                        "", ref_include::nest});
+
+    stateful_export_docs(&export_state, 1, done);
+    ASSERT_FALSE(done);
+    ASSERT_EQ('\n', export_state.res_body->back());
+    auto doc = nlohmann::json::parse(export_state.res_body->c_str());
+    ASSERT_EQ("shampoo", doc["product_name"]);
+    ASSERT_EQ(143, doc["Customers"]["product_price"]);
+
+    // should not have trailing newline character for the last line
+    stateful_export_docs(&export_state, 1, done);
+    ASSERT_TRUE(done);
+    ASSERT_EQ('}', export_state.res_body->back());
+    doc = nlohmann::json::parse(export_state.res_body->c_str());
+    ASSERT_EQ("soap", doc["product_name"]);
+    ASSERT_EQ(73.5, doc["Customers"]["product_price"]);
 }
 
 TEST_F(CoreAPIUtilsTest, TestParseAPIKeyIPFromMetadata) {

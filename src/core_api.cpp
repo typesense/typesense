@@ -1107,8 +1107,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
             export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
-            filter_result_t filter_result;
-            auto filter_ids_op = collection->get_filter_ids(filter_query, filter_result);
+            auto filter_ids_op = collection->get_filter_ids(filter_query, export_state->filter_result);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -1118,11 +1117,6 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 return false;
             }
 
-            export_state->filter_results.emplace_back(filter_result);
-
-            for(size_t i=0; i<export_state->filter_results.size(); i++) {
-                export_state->offsets.push_back(0);
-            }
             export_state->res_body = &res->body;
         }
     } else {
