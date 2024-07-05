@@ -1644,6 +1644,7 @@ TEST_F(CoreAPIUtilsTest, CollectionsPagination) {
               "optional":false,
               "sort":false,
               "stem":false,
+              "store": true,
               "type":"string"
             }
           ],
@@ -2152,4 +2153,64 @@ TEST_F(CoreAPIUtilsTest, DocumentGetIncludeExcludeFields) {
     ASSERT_TRUE(resp.contains("title"));
     ASSERT_TRUE(resp.contains("rating"));
     ASSERT_FALSE(resp.contains("id"));
+}
+
+TEST_F(CoreAPIUtilsTest, CollectionSchemaResponseWithStoreValue) {
+    auto schema = R"({
+            "name": "collection3",
+            "enable_nested_fields": true,
+            "fields": [
+                {"name": "title", "type": "string", "locale": "en", "store":false},
+                {"name": "points", "type": "int32"}
+            ],
+            "default_sorting_field": "points"
+        })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
+
+    req->params["collection"] = "collection3";
+    ASSERT_TRUE(get_collection_summary(req, res));
+
+    auto res_json = nlohmann::json::parse(res->body);
+
+    auto expected_json = R"({
+        "default_sorting_field":"points",
+        "enable_nested_fields":true,
+        "fields":[
+                {
+                    "facet":false,
+                    "index":true,
+                    "infix":false,
+                    "locale":"en",
+                    "name":"title",
+                    "optional":false,
+                    "sort":false,
+                    "stem":false,
+                    "store":false,
+                    "type":"string"
+                },
+                {
+                    "facet":false,
+                    "index":true,
+                    "infix":false,
+                    "locale":"",
+                    "name":"points",
+                    "optional":false,
+                    "sort":true,
+                    "stem":false,
+                    "store":true,
+                    "type":"int32"
+                }],
+                "name":"collection3",
+                "num_documents":0,
+                "symbols_to_index":[],
+                "token_separators":[]
+    })"_json;
+
+    expected_json["created_at"] = res_json["created_at"];
+    ASSERT_EQ(expected_json, res_json);
 }
