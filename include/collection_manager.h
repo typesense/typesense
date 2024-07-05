@@ -228,10 +228,10 @@ public:
                                                 ref_include_collection_names_t*& reference_collection_names);
 
     // Separate out the reference includes and excludes into `ref_include_exclude_fields_vec`.
-    static Option<bool> _initialize_ref_include_exclude_fields_vec(const std::string& filter_query,
-                                                                   std::vector<std::string>& include_fields_vec,
-                                                                   std::vector<std::string>& exclude_fields_vec,
-                                                                   std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
+    static Option<bool> initialize_ref_include_exclude_fields_vec(const std::string& filter_query,
+                                                                  std::vector<std::string>& include_fields_vec,
+                                                                  std::vector<std::string>& exclude_fields_vec,
+                                                                  std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
 
     void add_referenced_in_backlog(const std::string& collection_name, reference_pair&& pair);
 

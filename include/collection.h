@@ -469,6 +469,12 @@ public:
                                            const std::map<std::string, reference_filter_result_t>& reference_filter_results,
                                            const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec);
 
+    Option<bool> prune_doc_with_lock(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
+                                     const tsl::htrie_set<char>& exclude_names,
+                                     const std::map<std::string, reference_filter_result_t>& reference_filter_results = {},
+                                     const uint32_t& seq_id = 0,
+                                     const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
+
     static Option<bool> prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
                                   const tsl::htrie_set<char>& exclude_names, const std::string& parent_name = "",
                                   size_t depth = 0,

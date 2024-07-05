@@ -896,9 +896,8 @@ TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
     export_state_t export_state;
     filter_result_t filter_result;
     coll1->get_filter_ids("points:>=0", filter_result);
-    export_state.index_ids.emplace_back(filter_result.count, filter_result.docs);
-    filter_result.docs = nullptr;
-    for(size_t i=0; i<export_state.index_ids.size(); i++) {
+    export_state.filter_results.emplace_back(filter_result);
+    for(size_t i=0; i<export_state.filter_results.size(); i++) {
         export_state.offsets.push_back(0);
     }
 

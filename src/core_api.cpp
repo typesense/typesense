@@ -1039,29 +1039,61 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
 
     if(req->data == nullptr) {
         export_state = new export_state_t();
+        export_state->collection = collection.get();
 
         // destruction of data is managed by req destructor
         req->data = export_state;
 
-        std::string simple_filter_query;
+        std::string filter_query;
+        std::vector<std::string> include_fields_vec;
+        std::vector<std::string> exclude_fields_vec;
         spp::sparse_hash_set<std::string> exclude_fields;
         spp::sparse_hash_set<std::string> include_fields;
 
         if(req->params.count(FILTER_BY) != 0) {
-            simple_filter_query = req->params[FILTER_BY];
+            filter_query = req->params[FILTER_BY];
         }
 
         if(req->params.count(INCLUDE_FIELDS) != 0) {
-            std::vector<std::string> include_fields_vec;
-            StringUtils::split(req->params[INCLUDE_FIELDS], include_fields_vec, ",");
-            include_fields = spp::sparse_hash_set<std::string>(include_fields_vec.begin(), include_fields_vec.end());
+            auto op = StringUtils::split_include_exclude_fields(req->params[INCLUDE_FIELDS], include_fields_vec);
+            if (!op.ok()) {
+                res->set(op.code(), op.error());
+                req->last_chunk_aggregate = true;
+                res->final = true;
+                stream_response(req, res);
+                return false;
+            }
         }
 
         if(req->params.count(EXCLUDE_FIELDS) != 0) {
-            std::vector<std::string> exclude_fields_vec;
-            StringUtils::split(req->params[EXCLUDE_FIELDS], exclude_fields_vec, ",");
-            exclude_fields = spp::sparse_hash_set<std::string>(exclude_fields_vec.begin(), exclude_fields_vec.end());
+            auto op = StringUtils::split_include_exclude_fields(req->params[EXCLUDE_FIELDS], exclude_fields_vec);
+            if (!op.ok()) {
+                res->set(op.code(), op.error());
+                req->last_chunk_aggregate = true;
+                res->final = true;
+                stream_response(req, res);
+                return false;
+            }
         }
+
+        auto initialize_op = CollectionManager::initialize_ref_include_exclude_fields_vec(filter_query,
+                                                                                          include_fields_vec,
+                                                                                          exclude_fields_vec,
+                                                                                          export_state->ref_include_exclude_fields_vec);
+        if (!initialize_op.ok()) {
+            res->set(initialize_op.code(), initialize_op.error());
+            req->last_chunk_aggregate = true;
+            res->final = true;
+            stream_response(req, res);
+            return false;
+        }
+
+        if (include_fields_vec.empty()) {
+            include_fields_vec.emplace_back("*");
+        }
+
+        include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
+        exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
 
         collection->populate_include_exclude_fields_lk(include_fields, exclude_fields,
                                                       export_state->include_fields, export_state->exclude_fields);
@@ -1070,13 +1102,13 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->export_batch_size = std::stoul(req->params[BATCH_SIZE]);
         }
 
-        if(simple_filter_query.empty()) {
+        if(filter_query.empty()) {
             export_state->iter_upper_bound_key = collection->get_seq_id_collection_prefix() + "`";  // cannot inline this
             export_state->iter_upper_bound = new rocksdb::Slice(export_state->iter_upper_bound_key);
             export_state->it = collectionManager.get_store()->scan(seq_id_prefix, export_state->iter_upper_bound);
         } else {
             filter_result_t filter_result;
-            auto filter_ids_op = collection->get_filter_ids(simple_filter_query, filter_result);
+            auto filter_ids_op = collection->get_filter_ids(filter_query, filter_result);
 
             if(!filter_ids_op.ok()) {
                 res->set(filter_ids_op.code(), filter_ids_op.error());
@@ -1086,14 +1118,12 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 return false;
             }
 
-            export_state->index_ids.emplace_back(filter_result.count, filter_result.docs);
-            filter_result.docs = nullptr;
+            export_state->filter_results.emplace_back(filter_result);
 
-            for(size_t i=0; i<export_state->index_ids.size(); i++) {
+            for(size_t i=0; i<export_state->filter_results.size(); i++) {
                 export_state->offsets.push_back(0);
             }
             export_state->res_body = &res->body;
-            export_state->collection = collection.get();
         }
     } else {
         export_state = dynamic_cast<export_state_t*>(req->data);
@@ -1105,11 +1135,34 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         std::string().swap(res->body);
 
         while(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
+            nlohmann::json doc = nlohmann::json::parse(it->value().ToString());
+            Collection::remove_flat_fields(doc);
+            Collection::remove_reference_helper_fields(doc);
+
             if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
-                res->body += it->value().ToString();
+                res->body += doc.dump();
             } else {
-                nlohmann::json doc = nlohmann::json::parse(it->value().ToString());
-                Collection::prune_doc(doc, export_state->include_fields, export_state->exclude_fields);
+                if (doc.count("id") == 0 || !doc.at("id").is_string()) {
+                    res->set(500, "Could not find `id` field in the document: " + doc.dump());
+                    req->last_chunk_aggregate = true;
+                    res->final = true;
+                    stream_response(req, res);
+                    return false;
+                }
+
+                auto const& coll = export_state->collection;
+                auto const seq_id_op = coll->doc_id_to_seq_id_with_lock(doc.at("id"));
+                if (!seq_id_op.ok()) {
+                    res->set(seq_id_op.code(), seq_id_op.error());
+                    req->last_chunk_aggregate = true;
+                    res->final = true;
+                    stream_response(req, res);
+                    return false;
+                }
+
+                std::map<std::string, reference_filter_result_t> references = {};
+                coll->prune_doc_with_lock(doc, export_state->include_fields, export_state->exclude_fields,
+                                          references, seq_id_op.get(), export_state->ref_include_exclude_fields_vec);
                 res->body += doc.dump();
             }
 
