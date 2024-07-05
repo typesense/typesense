@@ -519,6 +519,7 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::infix] = coll_field.infix;
         field_json[fields::locale] = coll_field.locale;
         field_json[fields::stem] = coll_field.stem;
+        field_json[fields::store] = coll_field.store;
 
         if(coll_field.range_index) {
             field_json[fields::range_index] = coll_field.range_index;
