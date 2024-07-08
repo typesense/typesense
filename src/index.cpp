@@ -7620,19 +7620,6 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                 }
             }
         }
-
-        // for(size_t i = 0; i < embeddings.size(); i++) {
-        //     auto& embedding_res = embeddings[i];
-        //     if(!embedding_res.success) {
-        //         values_to_embed[i].first->embedding_res = embedding_res.error;
-        //         values_to_embed[i].first->index_failure(embedding_res.status_code, "");
-        //         continue;
-        //     }
-        //     if(values_to_embed[i].first->is_update) {
-        //         values_to_embed[i].first->new_doc[field.name] = embedding_res.embedding;
-        //     } 
-        //     values_to_embed[i].first->doc[field.name] = embedding_res.embedding;
-        // }
     }
 }
 
