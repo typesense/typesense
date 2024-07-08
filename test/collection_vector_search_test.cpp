@@ -3434,7 +3434,7 @@ TEST_F(CollectionVectorTest, TestMultipleFieldsForImageEmbedding) {
     add_op = coll->add(doc_json.dump());
 
 
-    auto results = coll->search("sports", {"embedding"},
+    auto results = coll->search("istanbul", {"embedding"},
                                        "", {}, {}, {2}, 10,
                                        1, FREQUENCY, {true},
                                        0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10).get();
