@@ -7470,8 +7470,6 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
         // get vector of values
         std::vector<std::string> values_text, values_image;
 
-        LOG(INFO) << "Batch embedding " << values_to_embed_text.size() << " text values and " << values_to_embed_image.size() << " image values for field " << field.name;
-
         std::unordered_set<index_record*> records_to_index;
         for(const auto& value_to_embed : values_to_embed_text) {
             values_text.push_back(value_to_embed.second);
@@ -7603,8 +7601,6 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                     }
                 }
             }
-
-            LOG(INFO) << "Embedded " << count << " values for field " << field.name;
 
             if(count > 1) {
                 if(record->is_update) {
