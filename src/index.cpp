@@ -7515,7 +7515,7 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                         if(!value_to_embed.first->embedding_res.empty()) {
                             continue;
                         }
-                        
+
                         if(!embeddings_text[i].success) {
                             value_to_embed.first->embedding_res = embeddings_text[i].error;
                             value_to_embed.first->index_failure(embeddings_text[i].status_code, "");
@@ -7575,21 +7575,13 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
             }
 
             if(count > 1) {
-                if(record->is_update) {
-                    std::vector<float> existing_embedding = record->new_doc[field.name].get<std::vector<float>>();
-                    // average embeddings
-                    for(size_t i = 0; i < existing_embedding.size(); i++) {
-                        existing_embedding[i] /= count;
-                    }
-                    record->new_doc[field.name] = existing_embedding;
-                } else {
-                    std::vector<float> existing_embedding = record->doc[field.name].get<std::vector<float>>();
-                    // average embeddings
-                    for(size_t i = 0; i < existing_embedding.size(); i++) {
-                        existing_embedding[i] /= count;
-                    }
-                    record->doc[field.name] = existing_embedding;
+                auto& doc = record->is_update ? record->new_doc : record->doc;
+                std::vector<float> existing_embedding = doc[field.name].get<std::vector<float>>();
+                // average embeddings
+                for(size_t i = 0; i < existing_embedding.size(); i++) {
+                    existing_embedding[i] /= count;
                 }
+                doc[field.name] = existing_embedding;
             }
         }
     }
