@@ -7515,42 +7515,28 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                         if(!value_to_embed.first->embedding_res.empty()) {
                             continue;
                         }
+                        
                         if(!embeddings_text[i].success) {
                             value_to_embed.first->embedding_res = embeddings_text[i].error;
                             value_to_embed.first->index_failure(embeddings_text[i].status_code, "");
-                        } else {
-                            std::vector<float> embedding_vals;
-                            if(value_to_embed.first->is_update) {
-                                if(value_to_embed.first->new_doc.count(field.name) == 0) {
-                                    embedding_vals = embeddings_text[i].embedding;
-                                } else {
-                                    std::vector<float> existing_embedding = value_to_embed.first->new_doc[field.name].get<std::vector<float>>();
-                                    // accumulate embeddings
-                                    for(size_t j = 0; j < existing_embedding.size(); j++) {
-                                        existing_embedding[j] += embeddings_text[i].embedding[j];
-                                    }
-                                    embedding_vals = existing_embedding;
-                                }
-                            } else {
-                                if(value_to_embed.first->doc.count(field.name) == 0) {
-                                    embedding_vals = embeddings_text[i].embedding;
-                                } else {
-                                    std::vector<float> existing_embedding = value_to_embed.first->doc[field.name].get<std::vector<float>>();
-                                    // accumulate embeddings
-                                    for(size_t j = 0; j < existing_embedding.size(); j++) {
-                                        existing_embedding[j] += embeddings_text[i].embedding[j];
-                                    }
-                                    embedding_vals = existing_embedding;
-                                }
-                            }
-
-                            if(value_to_embed.first->is_update) {
-                                value_to_embed.first->new_doc[field.name] = embedding_vals;
-                            } else {
-                                value_to_embed.first->doc[field.name] = embedding_vals;
-                            }
-                            count++;
+                            continue;
                         }
+
+                        std::vector<float> embedding_vals;
+                        auto& doc = value_to_embed.first->is_update ? value_to_embed.first->new_doc : value_to_embed.first->doc;
+                        if(doc.count(field.name) == 0) {
+                            embedding_vals = embeddings_text[i].embedding;
+                        } else {
+                            std::vector<float> existing_embedding = doc[field.name].get<std::vector<float>>();
+                            // accumulate embeddings
+                            for(size_t j = 0; j < existing_embedding.size(); j++) {
+                                existing_embedding[j] += embeddings_text[i].embedding[j];
+                            }
+                            embedding_vals = existing_embedding;
+                        }
+
+                        doc[field.name] = embedding_vals;
+                        count++;
                     }
                 }
             }
@@ -7562,42 +7548,28 @@ void Index::batch_embed_fields(std::vector<index_record*>& records,
                         if(!value_to_embed.first->embedding_res.empty()) {
                             continue;
                         }
+
                         if(!embeddings_image[i].success) {
                             value_to_embed.first->embedding_res = embeddings_image[i].error;
                             value_to_embed.first->index_failure(embeddings_image[i].status_code, "");
-                        } else {
-                            std::vector<float> embedding_vals;
-                            if(value_to_embed.first->is_update) {
-                                if(value_to_embed.first->new_doc.count(field.name) == 0) {
-                                    embedding_vals = embeddings_image[i].embedding;
-                                } else {
-                                    std::vector<float> existing_embedding = value_to_embed.first->new_doc[field.name].get<std::vector<float>>();
-                                    // accumulate embeddings
-                                    for(size_t j = 0; j < existing_embedding.size(); j++) {
-                                        existing_embedding[j] += embeddings_image[i].embedding[j];
-                                    }
-                                    embedding_vals = existing_embedding;
-                                }
-                            } else {
-                                if(value_to_embed.first->doc.count(field.name) == 0) {
-                                    embedding_vals = embeddings_image[i].embedding;
-                                } else {
-                                    std::vector<float> existing_embedding = value_to_embed.first->doc[field.name].get<std::vector<float>>();
-                                    // accumulate embeddings
-                                    for(size_t j = 0; j < existing_embedding.size(); j++) {
-                                        existing_embedding[j] += embeddings_image[i].embedding[j];
-                                    }
-                                    embedding_vals = existing_embedding;
-                                }
-                            }
-
-                            if(value_to_embed.first->is_update) {
-                                value_to_embed.first->new_doc[field.name] = embedding_vals;
-                            } else {
-                                value_to_embed.first->doc[field.name] = embedding_vals;
-                            }
-                            count++;
+                            continue;
                         }
+
+                        std::vector<float> embedding_vals;
+                        auto& doc = value_to_embed.first->is_update ? value_to_embed.first->new_doc : value_to_embed.first->doc;
+                        if(doc.count(field.name) == 0) {
+                            embedding_vals = embeddings_image[i].embedding;
+                        } else {
+                            std::vector<float> existing_embedding = doc[field.name].get<std::vector<float>>();
+                            // accumulate embeddings
+                            for(size_t j = 0; j < existing_embedding.size(); j++) {
+                                existing_embedding[j] += embeddings_image[i].embedding[j];
+                            }
+                            embedding_vals = existing_embedding;
+                        }
+
+                        doc[field.name] = embedding_vals;
+                        count++;
                     }
                 }
             }
