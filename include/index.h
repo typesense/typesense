@@ -103,6 +103,7 @@ struct search_field_t {
 
 enum text_match_type_t {
     max_score,
+    sum_score,
     max_weight
 };
 

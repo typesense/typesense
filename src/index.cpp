@@ -4516,6 +4516,7 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
         }
 
         int64_t best_field_match_score = 0, best_field_weight = 0;
+        int64_t sum_field_weighted_score = 0;
         uint32_t num_matching_fields = 0;
 
         for(size_t fi = 0; fi < field_to_tokens.size(); fi++) {
@@ -4549,6 +4550,10 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
             if(match_type == max_weight && field_weight > best_field_weight) {
                 best_field_weight = field_weight;
                 best_field_match_score = field_match_score;
+            }
+
+            if(match_type == sum_score) {
+                sum_field_weighted_score += (field_weight * field_match_score);
             }
 
             num_matching_fields++;
@@ -4590,6 +4595,10 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
         // [ sign | tokens_matched | max_field_weight | max_field_score  | num_matching_fields ]
         // [   1  |        4       |        8         |      48          |         3           ]  (64 bits)
 
+         // SUM_SCORE
+         // [ sign | tokens_matched | sum_field_score  | num_matching_fields ]
+         // [   1  |        4       |       56         |         3           ]  (64 bits)
+
         auto max_field_weight = std::min<size_t>(FIELD_MAX_WEIGHT, best_field_weight);
         num_matching_fields = std::min<size_t>(7, num_matching_fields);
 
@@ -4597,26 +4606,31 @@ Option<bool> Index::search_across_fields(const std::vector<token_t>& query_token
             num_matching_fields = 0;
         }
 
-        uint64_t aggregated_score = match_type == max_score ?
-                                    ((int64_t(query_len) << 59) |
-                                    (int64_t(best_field_match_score) << 11) |
-                                    (int64_t(max_field_weight) << 3) |
-                                    (int64_t(num_matching_fields) << 0))
+        uint64_t aggregated_score = 0;
 
-                                    :
+         if (match_type == max_score) {
+             aggregated_score = ((int64_t(query_len) << 59) |
+                                 (int64_t(best_field_match_score) << 11) |
+                                 (int64_t(max_field_weight) << 3) |
+                                 (int64_t(num_matching_fields) << 0));
+         } else if (match_type == max_weight) {
+             aggregated_score = ((int64_t(query_len) << 59) |
+                                 (int64_t(max_field_weight) << 51) |
+                                 (int64_t(best_field_match_score) << 3) |
+                                 (int64_t(num_matching_fields) << 0));
+         } else {
+             // sum_score
+             aggregated_score = ((int64_t(query_len) << 59) |
+                                 (int64_t(sum_field_weighted_score) << 3) |
+                                 (int64_t(num_matching_fields) << 0));
+         }
 
-                                    ((int64_t(query_len) << 59) |
-                                     (int64_t(max_field_weight) << 51) |
-                                     (int64_t(best_field_match_score) << 3) |
-                                     (int64_t(num_matching_fields) << 0))
-                                    ;
-
-        /*LOG(INFO) << "seq_id: " << seq_id << ", query_len: " << query_len
-                  << ", syn_orig_num_tokens: " << syn_orig_num_tokens
-                  << ", best_field_match_score: " << best_field_match_score
-                  << ", max_field_weight: " << max_field_weight
-                  << ", num_matching_fields: " << num_matching_fields
-                  << ", aggregated_score: " << aggregated_score;*/
+         /*LOG(INFO) << "seq_id: " << seq_id << ", query_len: " << query_len
+                   << ", syn_orig_num_tokens: " << syn_orig_num_tokens
+                   << ", best_field_match_score: " << best_field_match_score
+                   << ", max_field_weight: " << max_field_weight
+                   << ", num_matching_fields: " << num_matching_fields
+                   << ", aggregated_score: " << aggregated_score;*/
 
         KV kv(searched_queries.size(), seq_id, distinct_id, match_score_index, scores, std::move(references));
 
